@@ -5,6 +5,10 @@ spring:
   profiles:
     default: local
 
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+
 management:
   endpoints:
     web:
