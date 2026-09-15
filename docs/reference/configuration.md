@@ -61,11 +61,11 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 
 ## 자동 테스트 구성
 
-- 이미지: `pgvector/pgvector:0.8.6-pg18-trixie` (PostgreSQL 18 + pgvector 0.8.6).
+- 이미지: `infra/postgres/Dockerfile`로 PostgreSQL 18 + pgvector 0.8.6 + PostGIS 3.6.4 환경을 빌드합니다. Compose와 Testcontainers가 같은 Dockerfile을 사용합니다.
 - 테스트 DB: `ubot_test`. 호스트 포트는 Testcontainers가 할당하고 `@ServiceConnection`으로 Spring에 연결합니다.
-- `infra/postgres`를 테스트 리소스 디렉터리로 등록하고 공통 `init.sql`로 `vector` extension을 준비합니다. Eclipse 등 IDE에서는 Gradle 프로젝트를 동기화한 뒤 JUnit 테스트를 실행하세요.
+- `infra/postgres`를 테스트 리소스 디렉터리로 등록해 동일한 Dockerfile을 사용합니다. DB별 extension 생성은 초기화 스크립트가 아니라 Flyway V1·V2가 담당합니다. Eclipse 등 IDE에서는 Gradle 프로젝트를 동기화한 뒤 JUnit 테스트를 실행하세요.
 - 개발 DB와 볼륨을 공유하지 않으며 컨테이너 재사용을 하지 않습니다. 테스트 클래스가 끝나면 Spring 컨텍스트와 전용 컨테이너를 정리합니다.
-- Ollama chat/embedding 자동 구성을 끄고 테스트 전용 1024차원 임베딩 구현을 사용합니다. 실제 DB·pgvector 저장/검색은 검증하지만 BGE-M3 모델 품질이나 Ollama 연결은 검증하지 않습니다.
+- Ollama chat/embedding 자동 구성을 끄고 테스트 전용 1024차원 임베딩 구현을 사용합니다. Flyway V1·V2, extension 버전, PostGIS 공간 함수와 실제 pgvector 저장·검색을 검증하지만 BGE-M3 모델 품질이나 Ollama 연결은 검증하지 않습니다.
 - 사전 요구사항은 JDK 17 이상과 실행 중인 Docker입니다. Java 21 toolchain은 없으면 Gradle이 자동으로 내려받습니다. 첫 실행에는 Gradle 의존성과 이미지 다운로드를 위한 네트워크가 필요할 수 있습니다. `.env`, 개발 Compose, Ollama 모델은 필요하지 않습니다.
 
 ## 고정 설정값
@@ -76,6 +76,7 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 | pgvector 인덱스 | `HNSW` | `application-local.yml`, `application-test.yml` |
 | 거리 함수 | `COSINE_DISTANCE` | `application-local.yml`, `application-test.yml` |
 | pgvector 스키마 초기화 | `true` | `application-local.yml`, `application-test.yml` |
+| PostGIS extension | `3.6.4` | `infra/postgres/Dockerfile`, `V2__enable_postgis_extension.sql` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
 | Actuator 노출 endpoint | `health`만 | `application.yml` |
 | Health 상세 표시 | `always` | `application-local.yml` |

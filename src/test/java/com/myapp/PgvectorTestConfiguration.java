@@ -12,20 +12,29 @@ import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @TestConfiguration(proxyBeanMethods = false)
 class PgvectorTestConfiguration {
 
+    // Same Dockerfile as Compose, so migrations run against the same extensions (pgvector + PostGIS).
+    private static final ImageFromDockerfile TEST_DATABASE_IMAGE = new ImageFromDockerfile(
+            "ubot-postgres:18-pgvector0.8.6-postgis3.6.4", false)
+            .withFileFromClasspath("Dockerfile", "Dockerfile");
+
     @Bean
     @ServiceConnection
     PostgreSQLContainer postgresContainer() {
+        var imageName = DockerImageName.parse(TEST_DATABASE_IMAGE.get())
+                .asCompatibleSubstituteFor("postgres");
+
         // No fixed host port, existing container, bind mount, or reusable data volume.
-        return new PostgreSQLContainer("pgvector/pgvector:0.8.6-pg18-trixie")
+        return new PostgreSQLContainer(imageName)
                 .withDatabaseName("ubot_test")
                 .withUsername("ubot_test")
                 .withPassword(UUID.randomUUID().toString())
-                .withInitScript("init.sql")
                 .withLabel("com.myapp.ubot.test-db", "true")
                 .withReuse(false);
     }

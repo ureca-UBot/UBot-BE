@@ -1,6 +1,6 @@
 # DB 직접 조회하기
 
-로컬 PostgreSQL에 접속해 데이터나 pgvector 상태를 확인하는 방법입니다.
+로컬 PostgreSQL에 접속해 데이터나 pgvector·PostGIS 상태를 확인하는 방법입니다.
 애플리케이션 실행에는 필요하지 않은 선택 단계입니다.
 
 전제: [quickstart](../quickstart.md)의 3단계까지 완료되어 Compose의 `postgres` 서비스가 실행 중이어야 합니다. 아래 명령은 프로젝트 루트에서 실행합니다. 테스트용 Testcontainers DB와는 별개입니다.
@@ -31,17 +31,18 @@ docker compose exec postgres psql -U ubot -d ubot
 
 `Test Connection`이 성공하면 완료입니다.
 
-## pgvector 활성화 확인
+## pgvector와 PostGIS 활성화 확인
 
 psql 또는 DBeaver에서 실행합니다.
 
 ```sql
 SELECT extname, extversion
 FROM pg_extension
-WHERE extname = 'vector';
+WHERE extname IN ('vector', 'postgis')
+ORDER BY extname;
 ```
 
-`vector` 행이 한 줄 조회되면 정상입니다. 조회되지 않으면 [troubleshooting](../troubleshooting.md#vector-extension이-없음)을 참고하세요.
+`postgis` 3.6.4와 `vector` 0.8.6 두 행이 조회되면 정상입니다. 조회되지 않으면 [troubleshooting](../troubleshooting.md#vector-또는-postgis-extension이-없음)을 참고하세요.
 
 ## 주의사항
 

@@ -94,26 +94,29 @@ docker compose logs --tail=100 postgres ollama
 - `Cannot connect to the Docker daemon` → Docker Desktop이 실행 중인지 확인
 - `.env` 관련 경고(`variable is not set`) → 프로젝트 루트에 `.env`가 있는지 확인
 
-## vector extension이 없음
+## vector 또는 postgis extension이 없음
 
 **원인**
 
-`infra/postgres/init.sql`은 볼륨이 **처음 생성될 때만** 실행됩니다. 이미 만들어진 볼륨에는 다시 실행되지 않습니다. 컨테이너가 healthy인 것만으로 extension 준비가 확인되지는 않으니 먼저 조회하세요.
+DB 이미지에는 extension 실행 파일만 설치됩니다. DB별 `vector`와 `postgis` 생성은 애플리케이션 시작 시 Flyway V1·V2가 담당합니다. PostgreSQL 컨테이너의 `healthy`는 서버 접속 가능 상태만 의미하므로, 애플리케이션을 아직 실행하지 않았거나 Flyway가 실패했다면 extension이 없을 수 있습니다.
 
 **해결 (데이터 유지)**
 
 기본 사용자·DB 이름 기준입니다. `.env`에서 바꿨다면 명령도 맞춥니다.
 
 ```powershell
-docker compose exec postgres psql -U ubot -d ubot -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
+docker compose exec postgres psql -U ubot -d ubot -c "SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector', 'postgis') ORDER BY extname;"
+docker compose exec postgres psql -U ubot -d ubot -c "SELECT installed_rank, version, description, success FROM flyway_schema_history ORDER BY installed_rank;"
 ```
 
-결과가 없다면 extension만 생성하고 다시 확인합니다. DB나 볼륨을 삭제할 필요가 없습니다.
+`flyway_schema_history`가 없거나 V1·V2가 보이지 않으면 DB 이미지를 갱신하고 애플리케이션을 다시 실행해 Flyway 로그를 확인합니다. DB나 볼륨을 삭제할 필요가 없습니다.
 
 ```powershell
-docker compose exec postgres psql -U ubot -d ubot -c "CREATE EXTENSION IF NOT EXISTS vector;"
-docker compose exec postgres psql -U ubot -d ubot -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
+docker compose up -d --build postgres
+.\gradlew.bat bootRun
 ```
+
+마이그레이션이 실패하면 로그의 첫 SQL 오류를 해결한 뒤 애플리케이션을 다시 시작합니다. 적용된 마이그레이션 파일을 수정하거나 psql에서 extension을 임의로 생성·삭제하지 않습니다. 변경이 필요하면 [Flyway 규칙](../CONTRIBUTING.md#db-마이그레이션-flyway)에 따라 새 마이그레이션을 추가합니다.
 
 ## Ollama 모델이 준비되지 않음
 
@@ -136,7 +139,7 @@ Spring의 `OLLAMA_BASE_URL`이 `OLLAMA_PORT`와 맞는지도 확인하세요. �
 
 ## 테스트에서 Docker를 찾지 못함
 
-자동 테스트는 Testcontainers가 전용 PostgreSQL + pgvector를 생성하므로 Docker 엔진에 접근할 수 있어야 합니다.
+자동 테스트는 Testcontainers가 전용 PostgreSQL + pgvector + PostGIS 환경을 빌드하고 컨테이너를 생성하므로 Docker 엔진에 접근할 수 있어야 합니다.
 
 ```powershell
 docker info
