@@ -52,11 +52,34 @@ class UbotBeApplicationTests {
             assertThat(connection.getMetaData().getURL()).isEqualTo(postgresContainer.getJdbcUrl());
             assertThat(connection.getCatalog()).isEqualTo("ubot_test");
         }
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT extversion FROM pg_extension WHERE extname = 'vector'", String.class))
-                .isEqualTo("0.8.6");
         assertThat(context.getBeansOfType(OllamaChatModel.class)).isEmpty();
         assertThat(context.getBeansOfType(OllamaEmbeddingModel.class)).isEmpty();
+    }
+
+    @Test
+    void flywayEnablesRequiredDatabaseExtensions() {
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT version
+                FROM flyway_schema_history
+                WHERE success = true
+                  AND version IN ('1', '2')
+                  AND type = 'SQL'
+                ORDER BY installed_rank
+                """, String.class)).containsExactly("1", "2");
+
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT extname || ':' || extversion
+                FROM pg_extension
+                WHERE extname IN ('vector', 'postgis')
+                ORDER BY extname
+                """, String.class)).containsExactly("postgis:3.6.4", "vector:0.8.6");
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT ST_SRID(ST_SetSRID(ST_MakePoint(
+                    127.0::double precision,
+                    37.5::double precision
+                ), 4326))
+                """, Integer.class)).isEqualTo(4326);
     }
 
     @Test

@@ -53,16 +53,16 @@ POSTGRES_PASSWORD=ReplaceWithYourOwnLongRandomASCIIValue
 
 `.env`는 Git에 올라가지 않습니다(`.gitignore` 등록됨). 비밀번호는 이 파일에만 적습니다.
 
-## 3. PostgreSQL + pgvector와 Ollama 실행
+## 3. PostgreSQL + pgvector + PostGIS와 Ollama 실행
 
 ```powershell
-docker compose up -d
+docker compose up -d --build
 docker compose ps -a
 ```
 
 `postgres`와 `ollama` 서비스의 STATUS가 `(healthy)`가 될 때까지 기다립니다. 실제 컨테이너 이름은 Compose 프로젝트명에 따라 달라집니다.
 
-새 PostgreSQL 데이터 디렉터리의 첫 초기화 시 `infra/postgres/init.sql`이 `vector` extension을 생성합니다. 기존 볼륨에는 초기화 SQL이 재실행되지 않습니다. 초기화 이력이 의심되면 [데이터를 지우지 않는 확인·복구 절차](troubleshooting.md#vector-extension이-없음)를 따르세요.
+DB 이미지에는 pgvector와 PostGIS 실행 파일이 설치되어 있습니다. DB별 extension 활성화는 5단계에서 애플리케이션을 시작할 때 Flyway V1·V2가 담당하며, 신규 DB와 기존 볼륨에 같은 순서로 적용됩니다. 문제가 생기면 [Flyway 확인 절차](troubleshooting.md#vector-또는-postgis-extension이-없음)를 따르세요.
 
 ## 4. Embedding 모델 준비 확인
 
@@ -121,7 +121,7 @@ JDK 17 이상과 실행 중인 Docker만 준비한 뒤 실행합니다.
 .\gradlew.bat test
 ```
 
-Testcontainers가 테스트 전용 PostgreSQL + pgvector를 생성하고 종료 시 정리합니다. 위의 `.env` 작성·Compose 기동·Ollama 모델 다운로드 단계는 테스트에 필요하지 않습니다. 개발 DB의 볼륨을 공유하지 않습니다.
+Testcontainers가 테스트 전용 PostgreSQL + pgvector + PostGIS 컨테이너를 생성하고 Flyway V1·V2 및 두 extension을 검증한 뒤 종료 시 정리합니다. 위의 `.env` 작성·Compose 기동·Ollama 모델 다운로드 단계는 테스트에 필요하지 않습니다. 개발 DB의 볼륨을 공유하지 않습니다.
 
 ## 실패했다면
 

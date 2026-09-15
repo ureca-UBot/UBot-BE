@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: pgvector/pgvector:0.8.6-pg18-trixie
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+    image: ubot-postgres:18-pgvector0.8.6-postgis3.6.4
     restart: unless-stopped
 
     environment:
@@ -13,7 +16,6 @@ services:
 
     volumes:
       - postgres-data:/var/lib/postgresql
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
     healthcheck:
       test:

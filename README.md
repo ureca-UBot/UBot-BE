@@ -2,7 +2,7 @@
 
 통신사 고객 상담용 RAG 챗봇 UBot의 백엔드 서버입니다.
 
-- 스택: Spring Boot 4.1.1 · Java 21 · PostgreSQL 18 + pgvector 0.8.6 · Ollama(BGE-M3)
+- 스택: Spring Boot 4.1.1 · Java 21 · PostgreSQL 18 + pgvector 0.8.6 + PostGIS 3.6.4 · Ollama(BGE-M3)
 - 대상: 이 저장소를 개발하는 팀원
 
 ## Quick start
@@ -13,7 +13,7 @@
 
 ```powershell
 Copy-Item .env.example .env     # POSTGRES_PASSWORD를 긴 임의의 영문·숫자 값으로 수정
-docker compose up -d
+docker compose up -d --build
 docker compose ps -a
 docker compose logs --tail=30 ollama-init
 docker compose exec ollama ollama list
@@ -41,7 +41,7 @@ JDK 17 이상과 실행 중인 Docker가 있으면 아래 명령만 실행하면
 .\gradlew.bat test
 ```
 
-Testcontainers가 테스트 전용 PostgreSQL + pgvector 컨테이너를 만들고 종료 시 정리합니다. 개발 DB의 데이터나 Compose 볼륨은 사용하지 않습니다. 첫 실행에는 컨테이너 이미지 다운로드가 필요할 수 있습니다.
+Testcontainers가 테스트 전용 PostgreSQL + pgvector + PostGIS 컨테이너를 만들고, Flyway V1·V2를 실행한 뒤 종료 시 정리합니다. 개발 DB의 데이터나 Compose 볼륨은 사용하지 않습니다. 첫 실행에는 DB 이미지 빌드와 패키지 다운로드가 필요할 수 있습니다.
 
 ## 문서 지도
 
@@ -60,6 +60,6 @@ Testcontainers가 테스트 전용 PostgreSQL + pgvector 컨테이너를 만들�
 | Java | 21 |
 | Spring Boot | 4.1.1 |
 | Spring AI | 2.0.1 |
-| PostgreSQL + pgvector | 18 + 0.8.6 (`pgvector/pgvector:0.8.6-pg18-trixie`) |
+| PostgreSQL + pgvector + PostGIS | 18 + 0.8.6 + 3.6.4 (`infra/postgres/Dockerfile`) |
 | Ollama | `ollama/ollama:0.34.0` |
 | Embedding 모델 | `bge-m3:567m` (1024차원) |
