@@ -45,6 +45,6 @@ WHERE extname = 'vector';
 
 ## 주의사항
 
-- 테이블 구조를 DBeaver나 psql로 직접 변경하지 않습니다. 스키마 변경은 추후 migration 도구로 관리할 예정입니다.
+- 테이블 구조를 DBeaver나 psql로 직접 변경하지 않습니다. 스키마 변경은 Flyway 마이그레이션으로 관리합니다. 규칙은 [CONTRIBUTING.md](../../CONTRIBUTING.md#db-마이그레이션-flyway)를 참고하세요.
 - JPA는 `ddl-auto: none`이지만 개발 프로필의 Spring AI pgvector는 `initialize-schema: true`로 벡터 테이블·인덱스 초기화를 수행합니다. 두 설정은 별개입니다.
 - Testcontainers는 별도 컨테이너·DB·임의 호스트 포트를 사용합니다. 위의 개발 DB 접속 정보로 테스트 DB를 조회하거나 정리하지 않습니다.

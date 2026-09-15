@@ -176,6 +176,23 @@ password: ${POSTGRES_PASSWORD}
 - **IDE 설정 파일:** `.idea/`, `.vscode/`, `.classpath`, `.project`, `.settings/` 등은 커밋하지 않습니다. 이미 `.gitignore`에 등록되어 있습니다. 팀에서 공유하기로 정한 설정은 예외입니다.
 - **개인 PC 전용 설정:** `username: root`, `password: 1234` 같은 값을 application 설정에 넣어 push하지 않습니다.
 
+## DB 마이그레이션 (Flyway)
+
+테이블 생성·변경은 Flyway 마이그레이션 파일로만 관리합니다. DBeaver나 psql로 스키마를 직접 바꾸지 않습니다.
+
+| 항목 | 규칙 |
+|---|---|
+| 위치 | `src/main/resources/db/migration/` |
+| 파일명 | `V{순번}__{설명}.sql` (예: `V2__create_faq_tables.sql`) |
+| 순번 | `develop`에 있는 마지막 번호 + 1 |
+| 구분자 | `V{순번}`과 설명 사이는 밑줄 **두 개** (`__`). 하나면 Flyway가 파일을 인식하지 않습니다 |
+
+- 이미 `develop`에 들어간 마이그레이션 파일은 **수정하지 않습니다.** 변경이 필요하면 새 번호의 파일을 추가합니다.
+- PR을 올리기 전 `develop`을 반영했을 때 같은 번호가 이미 있으면, 내 파일의 번호를 다음 번호로 바꿉니다.
+- 앱을 실행하면 마이그레이션이 자동으로 적용됩니다. 적용 이력은 `flyway_schema_history` 테이블에서 확인할 수 있습니다.
+
+기존 로컬 DB에 테이블이 이미 있어도 동작하도록 `application.yml`에 `baseline-on-migrate: true`, `baseline-version: 0`이 설정되어 있습니다.
+
 ## CI
 
 `develop`, `main` 대상 push와 PR에서 `Backend CI`가 실행됩니다.
