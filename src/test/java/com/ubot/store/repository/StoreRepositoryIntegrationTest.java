@@ -12,10 +12,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
 import com.ubot.PgvectorTestConfiguration;
-import com.ubot.store.dto.MapStoreResponse;
-import com.ubot.store.dto.NearbyStoreResponse;
-import com.ubot.store.dto.StoreDetailResponse;
-import com.ubot.store.dto.StoreListResponse;
+import com.ubot.store.dto.MapStoreResponseDto;
+import com.ubot.store.dto.NearbyStoreResponseDto;
+import com.ubot.store.dto.StoreDetailResponseDto;
+import com.ubot.store.dto.StoreListResponseDto;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -28,36 +28,36 @@ class StoreRepositoryIntegrationTest {
 
     @Test
     void findsStoresByRegionAndServiceType() {
-        List<StoreListResponse> activeStores = storeRepository.findStores(null, null, null);
+        List<StoreListResponseDto> activeStores = storeRepository.findStores(null, null, null);
 
         assertThat(activeStores)
-                .extracting(StoreListResponse::storeId)
+                .extracting(StoreListResponseDto::storeId)
                 .containsExactly(1L, 2L, 3L);
 
-        List<StoreListResponse> gangnamStores = storeRepository.findStores(
+        List<StoreListResponseDto> gangnamStores = storeRepository.findStores(
                 "서울특별시",
                 "강남구",
                 null
         );
 
         assertThat(gangnamStores)
-                .extracting(StoreListResponse::storeId)
+                .extracting(StoreListResponseDto::storeId)
                 .containsExactly(1L, 2L);
 
-        List<StoreListResponse> appleStores = storeRepository.findStores(
+        List<StoreListResponseDto> appleStores = storeRepository.findStores(
                 "서울특별시",
                 "강남구",
                 "APPLE_AS"
         );
 
         assertThat(appleStores)
-                .extracting(StoreListResponse::storeId)
+                .extracting(StoreListResponseDto::storeId)
                 .containsExactly(1L);
     }
 
     @Test
     void findsNearbyStoresInDistanceOrderAndFiltersByType() {
-        List<NearbyStoreResponse> nearby = storeRepository.findNearby(
+        List<NearbyStoreResponseDto> nearby = storeRepository.findNearby(
                 37.4987,
                 127.0286,
                 1_000,
@@ -66,13 +66,13 @@ class StoreRepositoryIntegrationTest {
         );
 
         assertThat(nearby)
-                .extracting(NearbyStoreResponse::storeId)
+                .extracting(NearbyStoreResponseDto::storeId)
                 .containsExactly(1L, 2L);
         assertThat(nearby)
-                .extracting(NearbyStoreResponse::distanceKm)
+                .extracting(NearbyStoreResponseDto::distanceKm)
                 .isSorted();
 
-        List<NearbyStoreResponse> appleStores = storeRepository.findNearby(
+        List<NearbyStoreResponseDto> appleStores = storeRepository.findNearby(
                 37.4987,
                 127.0286,
                 1_000,
@@ -81,13 +81,13 @@ class StoreRepositoryIntegrationTest {
         );
 
         assertThat(appleStores)
-                .extracting(NearbyStoreResponse::storeId)
+                .extracting(NearbyStoreResponseDto::storeId)
                 .containsExactly(1L);
     }
 
     @Test
     void findsOnlyStoresInsideMapBounds() {
-        List<MapStoreResponse> stores = storeRepository.findInMap(
+        List<MapStoreResponseDto> stores = storeRepository.findInMap(
                 37.49,
                 127.02,
                 37.51,
@@ -96,17 +96,17 @@ class StoreRepositoryIntegrationTest {
         );
 
         assertThat(stores)
-                .extracting(MapStoreResponse::storeId)
+                .extracting(MapStoreResponseDto::storeId)
                 .containsExactly(1L, 2L);
     }
 
     @Test
     void findsStoreDetailWithSupportedServices() {
-        StoreDetailResponse detail = storeRepository.findById(1L).orElseThrow();
+        StoreDetailResponseDto detail = storeRepository.findById(1L).orElseThrow();
 
         assertThat(detail.storeName()).isEqualTo("강남역점");
         assertThat(detail.services())
-                .extracting(StoreDetailResponse.ServiceResponse::code)
+                .extracting(StoreDetailResponseDto.ServiceResponseDto::code)
                 .containsExactly("APPLE_AS");
         assertThat(storeRepository.findById(999L)).isEmpty();
     }

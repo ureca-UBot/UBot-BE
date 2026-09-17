@@ -1,6 +1,8 @@
 package com.ubot.store.dto;
 
-public record NearbyStoreResponse(
+import java.util.List;
+
+public record StoreDetailResponseDto(
         long storeId,
         String storeName,
         String sido,
@@ -10,5 +12,10 @@ public record NearbyStoreResponse(
         String businessHours,
         double latitude,
         double longitude,
-        double distanceKm
-) {}
+        List<ServiceResponseDto> services
+) {
+    public record ServiceResponseDto(
+            String code,
+            String name
+    ) {}
+}

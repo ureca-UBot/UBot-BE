@@ -1,6 +1,6 @@
 package com.ubot.store.dto;
 
-public record MapStoreResponse(
+public record StoreListResponseDto(
         long storeId,
         String storeName,
         String sido,

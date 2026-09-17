@@ -10,10 +10,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ubot.common.ApiResponse;
-import com.ubot.store.dto.MapStoreResponse;
-import com.ubot.store.dto.NearbyStoreResponse;
-import com.ubot.store.dto.StoreDetailResponse;
-import com.ubot.store.dto.StoreListResponse;
+import com.ubot.store.dto.MapStoreResponseDto;
+import com.ubot.store.dto.NearbyStoreResponseDto;
+import com.ubot.store.dto.StoreDetailResponseDto;
+import com.ubot.store.dto.StoreListResponseDto;
 import com.ubot.store.service.StoreService;
 
 import jakarta.validation.constraints.DecimalMax;
@@ -39,24 +39,24 @@ public class StoreController {
     private final StoreService storeService;
 
     @GetMapping
-    public ApiResponse<List<StoreListResponse>> getStores(
+    public ApiResponse<List<StoreListResponseDto>> getStores(
             @RequestParam(required = false) String sido,
             @RequestParam(required = false) String sigungu,
             @RequestParam(required = false)
             @Pattern(regexp = SERVICE_TYPE_PATTERN) String type
     ) {
-        return ApiResponse.success(storeService.findStores(sido, sigungu, type));
+        return ApiResponse.success(storeService.getStoreList(sido, sigungu, type));
     }
 
     @GetMapping("/{storeId}")
-    public ApiResponse<StoreDetailResponse> getStore(
+    public ApiResponse<StoreDetailResponseDto> getStore(
             @PathVariable @Positive long storeId
     ) {
-        return ApiResponse.success(storeService.findById(storeId));
+        return ApiResponse.success(storeService.getStore(storeId));
     }
 
     @GetMapping("/nearby")
-    public ApiResponse<List<NearbyStoreResponse>> getNearbyStores(
+    public ApiResponse<List<NearbyStoreResponseDto>> getNearbyStores(
             @RequestParam
             @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double latitude,
             @RequestParam
@@ -68,12 +68,12 @@ public class StoreController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit
     ) {
         return ApiResponse.success(
-                storeService.findNearby(latitude, longitude, radiusKm, type, limit)
+                storeService.getNearbyStoreList(latitude, longitude, radiusKm, type, limit)
         );
     }
 
     @GetMapping("/map")
-    public ApiResponse<List<MapStoreResponse>> getStoresInMap(
+    public ApiResponse<List<MapStoreResponseDto>> getStoresInMap(
             @RequestParam
             @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double swLat,
             @RequestParam
@@ -85,6 +85,6 @@ public class StoreController {
             @RequestParam(required = false)
             @Pattern(regexp = SERVICE_TYPE_PATTERN) String type
     ) {
-        return ApiResponse.success(storeService.findInMap(swLat, swLng, neLat, neLng, type));
+        return ApiResponse.success(storeService.getMapStoreList(swLat, swLng, neLat, neLng, type));
     }
 }

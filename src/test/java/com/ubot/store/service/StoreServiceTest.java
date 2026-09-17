@@ -13,10 +13,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import com.ubot.common.ErrorCode;
-import com.ubot.common.GlobalException;
-import com.ubot.store.dto.NearbyStoreResponse;
-import com.ubot.store.dto.StoreDetailResponse;
-import com.ubot.store.dto.StoreListResponse;
+import com.ubot.store.dto.NearbyStoreResponseDto;
+import com.ubot.store.dto.StoreDetailResponseDto;
+import com.ubot.store.dto.StoreListResponseDto;
+import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
 class StoreServiceTest {
@@ -29,7 +30,7 @@ class StoreServiceTest {
         when(storeRepository.findStores("서울특별시", "강남구", "APPLE_AS"))
                 .thenReturn(List.of());
 
-        List<StoreListResponse> result = storeService.findStores(
+        List<StoreListResponseDto> result = storeService.getStoreList(
                 " 서울특별시 ",
                 " 강남구 ",
                 " APPLE_AS "
@@ -44,7 +45,7 @@ class StoreServiceTest {
         when(storeRepository.findNearby(37.5, 127.0, 10_000.0, "APPLE_AS", 5))
                 .thenReturn(List.of());
 
-        List<NearbyStoreResponse> result = storeService.findNearby(
+        List<NearbyStoreResponseDto> result = storeService.getNearbyStoreList(
                 37.5,
                 127.0,
                 10.0,
@@ -58,16 +59,16 @@ class StoreServiceTest {
 
     @Test
     void rejectsInvalidMapBounds() {
-        assertThatThrownBy(() -> storeService.findInMap(
+        assertThatThrownBy(() -> storeService.getMapStoreList(
                 37.52,
                 127.00,
                 37.48,
                 127.05,
                 null
         ))
-                .isInstanceOf(GlobalException.class)
-                .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.INVALID_PARAMETER);
+                .isInstanceOf(InvalidMapBoundsException.class)
+                .extracting(exception -> ((InvalidMapBoundsException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_MAP_BOUNDS);
 
         verifyNoInteractions(storeRepository);
     }
@@ -76,15 +77,15 @@ class StoreServiceTest {
     void throwsNotFoundWhenStoreDoesNotExist() {
         when(storeRepository.findById(999L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> storeService.findById(999L))
-                .isInstanceOf(GlobalException.class)
-                .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
+        assertThatThrownBy(() -> storeService.getStore(999L))
+                .isInstanceOf(StoreNotFoundException.class)
+                .extracting(exception -> ((StoreNotFoundException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.STORE_NOT_FOUND);
     }
 
     @Test
     void returnsStoreDetailWhenStoreExists() {
-        StoreDetailResponse detail = new StoreDetailResponse(
+        StoreDetailResponseDto detail = new StoreDetailResponseDto(
                 1L,
                 "강남역점",
                 "서울특별시",
@@ -98,6 +99,6 @@ class StoreServiceTest {
         );
         when(storeRepository.findById(1L)).thenReturn(Optional.of(detail));
 
-        assertThat(storeService.findById(1L)).isSameAs(detail);
+        assertThat(storeService.getStore(1L)).isSameAs(detail);
     }
 }

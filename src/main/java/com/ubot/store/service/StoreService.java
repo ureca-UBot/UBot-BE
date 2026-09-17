@@ -4,12 +4,12 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.GlobalException;
-import com.ubot.store.dto.MapStoreResponse;
-import com.ubot.store.dto.NearbyStoreResponse;
-import com.ubot.store.dto.StoreDetailResponse;
-import com.ubot.store.dto.StoreListResponse;
+import com.ubot.store.dto.MapStoreResponseDto;
+import com.ubot.store.dto.NearbyStoreResponseDto;
+import com.ubot.store.dto.StoreDetailResponseDto;
+import com.ubot.store.dto.StoreListResponseDto;
+import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
 
-    public List<StoreListResponse> findStores(String sido, String sigungu, String type) {
+    public List<StoreListResponseDto> getStoreList(String sido, String sigungu, String type) {
         return storeRepository.findStores(
                 normalizeCondition(sido),
                 normalizeCondition(sigungu),
@@ -28,15 +28,12 @@ public class StoreService {
         );
     }
 
-    public StoreDetailResponse findById(long storeId) {
+    public StoreDetailResponseDto getStore(long storeId) {
         return storeRepository.findById(storeId)
-                .orElseThrow(() -> new GlobalException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        "매장을 찾을 수 없습니다."
-                ));
+                .orElseThrow(StoreNotFoundException::new);
     }
 
-    public List<NearbyStoreResponse> findNearby(
+    public List<NearbyStoreResponseDto> getNearbyStoreList(
             double latitude,
             double longitude,
             double radiusKm,
@@ -52,18 +49,15 @@ public class StoreService {
         );
     }
 
-    public List<MapStoreResponse> findInMap(
+    public List<MapStoreResponseDto> getMapStoreList(
             double swLat,
             double swLng,
             double neLat,
             double neLng,
-            String type
+        String type
     ) {
         if (swLat >= neLat || swLng >= neLng) {
-            throw new GlobalException(
-                    ErrorCode.INVALID_PARAMETER,
-                    "남서쪽 좌표는 북동쪽 좌표보다 작아야 합니다."
-            );
+            throw new InvalidMapBoundsException();
         }
 
         return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizeCondition(type));

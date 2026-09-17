@@ -1,6 +1,6 @@
 package com.ubot.store.dto;
 
-public record StoreListResponse(
+public record NearbyStoreResponseDto(
         long storeId,
         String storeName,
         String sido,
@@ -9,5 +9,6 @@ public record StoreListResponse(
         String phoneNumber,
         String businessHours,
         double latitude,
-        double longitude
+        double longitude,
+        double distanceKm
 ) {}
