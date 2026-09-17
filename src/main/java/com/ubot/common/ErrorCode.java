@@ -25,7 +25,8 @@ public enum ErrorCode {
     FAQ_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-001", "해당 FAQ ID를 가진 FAQ가 존재하지 않습니다."),
     FAQ_VECTOR_CREATE_FAILURE(HttpStatus.BAD_REQUEST, "FAQ-002", "FAQ VECTOR 생성에 실패했습니다."),
     FAQ_CATEGORY_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-003", "FAQ Category가 존재하지 않습니다."),
-    FAQ_CATEGORY_EXIST(HttpStatus.CONFLICT, "FAQ-004", "이미 존재하는 카테고리 명입니다.");
+    FAQ_CATEGORY_EXIST(HttpStatus.CONFLICT, "FAQ-004", "이미 존재하는 카테고리 명입니다."),
+    FAQ_CATEGORY_SAME_NAME(HttpStatus.BAD_REQUEST, "FAQ-005", "이전 카테고리명과 후 카테고리명이 같습니다.");
 
     private final HttpStatus status;
     private final String code;

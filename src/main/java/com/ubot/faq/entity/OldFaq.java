@@ -24,7 +24,7 @@ public class OldFaq {
 	private Integer version;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "faq_category_id")
+	@JoinColumn(name = "category_id")
 	private  FaqCategory faqCategory;
 
 	@Column(name = "question")

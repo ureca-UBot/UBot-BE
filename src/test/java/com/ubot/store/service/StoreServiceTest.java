@@ -13,7 +13,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import com.ubot.common.ErrorCode;
-import com.ubot.common.GlobalException;
+import com.ubot.common.exception.GlobalException;
 import com.ubot.store.dto.NearbyStoreResponse;
 import com.ubot.store.dto.StoreDetailResponse;
 import com.ubot.store.repository.StoreRepository;

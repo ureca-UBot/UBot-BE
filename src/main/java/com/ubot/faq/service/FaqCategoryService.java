@@ -44,9 +44,20 @@ public class FaqCategoryService {
 
 	@Transactional
 	public FaqCategory updateFaqCategory(FaqCategoryUpdateRequestDto requestDto) {
-		FaqCategory faqCategory = faqCategoryRepository.findByName(requestDto.beforeName()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		String beforeCategoryName = requestDto.beforeName();
+		String afterCategoryName = requestDto.afterName();
 
-		faqCategory.update(requestDto.afterName());
+		if(beforeCategoryName.equals(afterCategoryName)) {
+			throw new FaqException(ErrorCode.FAQ_CATEGORY_SAME_NAME);
+		}
+
+		FaqCategory faqCategory = faqCategoryRepository.findByName(beforeCategoryName).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+
+		if(faqCategoryRepository.findByName(afterCategoryName).isPresent()) {
+			throw new FaqException(ErrorCode.FAQ_CATEGORY_EXIST, afterCategoryName + "는 이미 존재하는 카테고리명입니다.");
+		}
+
+		faqCategory.update(afterCategoryName);
 
 		return faqCategoryRepository.save(faqCategory);
 	}
