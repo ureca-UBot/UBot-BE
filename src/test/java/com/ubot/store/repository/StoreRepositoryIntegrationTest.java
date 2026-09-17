@@ -27,6 +27,12 @@ class StoreRepositoryIntegrationTest {
     private StoreRepository storeRepository;
 
     @Test
+    void checksActiveServiceTypeExistence() {
+        assertThat(storeRepository.existsActiveServiceType("APPLE_AS")).isTrue();
+        assertThat(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).isFalse();
+    }
+
+    @Test
     void findsStoresByRegionAndServiceType() {
         List<StoreListResponseDto> activeStores = storeRepository.findStores(null, null, null);
 

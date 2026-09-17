@@ -27,11 +27,21 @@ public class StoreRepository {
     private static final String FIND_NEARBY_SQL = loadSql("sql/store/find-nearby.sql");
     private static final String FIND_IN_MAP_SQL = loadSql("sql/store/find-in-map.sql");
     private static final String FIND_DETAIL_SQL = loadSql("sql/store/find-detail.sql");
+    private static final String EXISTS_SERVICE_TYPE_SQL = loadSql("sql/store/exists-service-type.sql");
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
     public StoreRepository(NamedParameterJdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public boolean existsActiveServiceType(String type) {
+        Boolean exists = jdbcTemplate.queryForObject(
+                EXISTS_SERVICE_TYPE_SQL,
+                Map.of("type", type),
+                Boolean.class
+        );
+        return Boolean.TRUE.equals(exists);
     }
 
     public List<StoreListResponseDto> findStores(String sido, String sigungu, String type) {

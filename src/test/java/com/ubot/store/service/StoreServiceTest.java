@@ -3,6 +3,7 @@ package com.ubot.store.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -17,6 +18,7 @@ import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
 import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
@@ -27,6 +29,7 @@ class StoreServiceTest {
 
     @Test
     void normalizesStoreSearchConditions() {
+        when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
         when(storeRepository.findStores("서울특별시", "강남구", "APPLE_AS"))
                 .thenReturn(List.of());
 
@@ -37,11 +40,25 @@ class StoreServiceTest {
         );
 
         assertThat(result).isEmpty();
+        verify(storeRepository).existsActiveServiceType("APPLE_AS");
         verify(storeRepository).findStores("서울특별시", "강남구", "APPLE_AS");
     }
 
     @Test
+    void rejectsUnknownServiceType() {
+        when(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).thenReturn(false);
+
+        assertThatThrownBy(() -> storeService.getStoreList(null, null, "UNKNOWN_SERVICE"))
+                .isInstanceOf(ServiceTypeNotFoundException.class)
+                .extracting(exception -> ((ServiceTypeNotFoundException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.SERVICE_TYPE_NOT_FOUND);
+
+        verify(storeRepository, never()).findStores(null, null, "UNKNOWN_SERVICE");
+    }
+
+    @Test
     void convertsRadiusToMetersAndNormalizesType() {
+        when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
         when(storeRepository.findNearby(37.5, 127.0, 10_000.0, "APPLE_AS", 5))
                 .thenReturn(List.of());
 

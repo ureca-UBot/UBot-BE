@@ -9,6 +9,7 @@ import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
 import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
@@ -21,10 +22,13 @@ public class StoreService {
     private final StoreRepository storeRepository;
 
     public List<StoreListResponseDto> getStoreList(String sido, String sigungu, String type) {
+        String normalizedType = normalizeCondition(type);
+        validateServiceType(normalizedType);
+
         return storeRepository.findStores(
                 normalizeCondition(sido),
                 normalizeCondition(sigungu),
-                normalizeCondition(type)
+                normalizedType
         );
     }
 
@@ -40,11 +44,14 @@ public class StoreService {
             String type,
             int limit
     ) {
+        String normalizedType = normalizeCondition(type);
+        validateServiceType(normalizedType);
+
         return storeRepository.findNearby(
                 latitude,
                 longitude,
                 radiusKm * 1_000,
-                normalizeCondition(type),
+                normalizedType,
                 limit
         );
     }
@@ -60,7 +67,16 @@ public class StoreService {
             throw new InvalidMapBoundsException();
         }
 
-        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizeCondition(type));
+        String normalizedType = normalizeCondition(type);
+        validateServiceType(normalizedType);
+
+        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizedType);
+    }
+
+    private void validateServiceType(String type) {
+        if (type != null && !storeRepository.existsActiveServiceType(type)) {
+            throw new ServiceTypeNotFoundException();
+        }
     }
 
     private String normalizeCondition(String condition) {
