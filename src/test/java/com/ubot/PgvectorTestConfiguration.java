@@ -17,7 +17,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @TestConfiguration(proxyBeanMethods = false)
-class PgvectorTestConfiguration {
+public class PgvectorTestConfiguration {
 
     // Same Dockerfile as Compose, so migrations run against the same extensions (pgvector + PostGIS).
     private static final ImageFromDockerfile TEST_DATABASE_IMAGE = new ImageFromDockerfile(
