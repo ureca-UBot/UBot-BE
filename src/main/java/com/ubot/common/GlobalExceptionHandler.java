@@ -1,5 +1,8 @@
 package com.ubot.common;
 
+import com.ubot.common.exception.FaqException;
+import com.ubot.common.exception.GlobalException;
+import com.ubot.common.exception.UserException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -57,5 +60,21 @@ public class GlobalExceptionHandler {
         log.error("처리되지 않은 예외가 발생했습니다.", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error(ErrorCode.INTERNAL_SERVER_ERROR));
+    }
+
+    @ExceptionHandler(UserException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUserException(UserException exception) {
+        ErrorCode errorCode = exception.getErrorCode();
+        log.error("User 도메인 예외 발생. errorCode = {}", errorCode, exception);
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ApiResponse.error(errorCode.getCode(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(FaqException.class)
+    public ResponseEntity<ApiResponse<Void>> handleFaqException(FaqException exception) {
+        ErrorCode errorCode = exception.getErrorCode();
+        log.error("Faq 도메인 예외 발생. errorCode = {}", errorCode, exception);
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ApiResponse.error(errorCode.getCode(), exception.getMessage()));
     }
 }
