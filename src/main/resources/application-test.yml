@@ -16,3 +16,7 @@ spring:
         index-type: HNSW
         distance-type: COSINE_DISTANCE
         initialize-schema: true
+
+kakao:
+  local:
+    api-key: test-key

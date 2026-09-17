@@ -29,3 +29,7 @@ management:
   endpoint:
     health:
       show-details: always
+
+kakao:
+  local:
+    api-key: ${KAKAO_REST_API_KEY}
