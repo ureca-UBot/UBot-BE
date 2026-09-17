@@ -23,7 +23,7 @@ public class LocationController {
     private final LocationService locationService;
 
     @GetMapping("/search")
-    public ApiResponse<List<LocationSearchResponse>> search(@RequestParam @NotBlank String query) {
+    public ApiResponse<List<LocationSearchResponse>> searchLocations(@RequestParam @NotBlank String query) {
         return ApiResponse.success(locationService.search(query));
     }
 }

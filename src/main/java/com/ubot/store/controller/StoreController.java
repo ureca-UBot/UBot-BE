@@ -34,14 +34,14 @@ public class StoreController {
     private final StoreService storeService;
 
     @GetMapping("/{storeId}")
-    public ApiResponse<StoreDetailResponse> findById(
+    public ApiResponse<StoreDetailResponse> getStore(
             @PathVariable @Positive long storeId
     ) {
         return ApiResponse.success(storeService.findById(storeId));
     }
 
     @GetMapping("/nearby")
-    public ApiResponse<List<NearbyStoreResponse>> findNearby(
+    public ApiResponse<List<NearbyStoreResponse>> getNearbyStores(
             @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") double latitude,
             @RequestParam @DecimalMin("-180.0") @DecimalMax("180.0") double longitude,
             @RequestParam(defaultValue = "10")
@@ -56,7 +56,7 @@ public class StoreController {
     }
 
     @GetMapping("/map")
-    public ApiResponse<List<MapStoreResponse>> findInMap(
+    public ApiResponse<List<MapStoreResponse>> getStoresInMap(
             @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") double swLat,
             @RequestParam @DecimalMin("-180.0") @DecimalMax("180.0") double swLng,
             @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") double neLat,
