@@ -1,7 +1,5 @@
-package com.ubot.common.exception;
+package com.ubot.common;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.GlobalExceptionHandler;
 import lombok.Getter;
 
 /**

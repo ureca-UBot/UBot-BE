@@ -1,7 +1,6 @@
 package com.ubot.common;
 
 import com.ubot.common.exception.FaqException;
-import com.ubot.common.exception.GlobalException;
 import com.ubot.common.exception.UserException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
