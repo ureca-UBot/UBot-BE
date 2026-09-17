@@ -13,6 +13,7 @@ import com.ubot.common.ApiResponse;
 import com.ubot.store.dto.MapStoreResponse;
 import com.ubot.store.dto.NearbyStoreResponse;
 import com.ubot.store.dto.StoreDetailResponse;
+import com.ubot.store.dto.StoreListResponse;
 import com.ubot.store.service.StoreService;
 
 import jakarta.validation.constraints.DecimalMax;
@@ -30,8 +31,22 @@ import lombok.RequiredArgsConstructor;
 public class StoreController {
 
     private static final String SERVICE_TYPE_PATTERN = "[A-Z][A-Z0-9_]*";
+    private static final String MIN_KOREA_LATITUDE = "33.0";
+    private static final String MAX_KOREA_LATITUDE = "39.0";
+    private static final String MIN_KOREA_LONGITUDE = "124.0";
+    private static final String MAX_KOREA_LONGITUDE = "132.0";
 
     private final StoreService storeService;
+
+    @GetMapping
+    public ApiResponse<List<StoreListResponse>> getStores(
+            @RequestParam(required = false) String sido,
+            @RequestParam(required = false) String sigungu,
+            @RequestParam(required = false)
+            @Pattern(regexp = SERVICE_TYPE_PATTERN) String type
+    ) {
+        return ApiResponse.success(storeService.findStores(sido, sigungu, type));
+    }
 
     @GetMapping("/{storeId}")
     public ApiResponse<StoreDetailResponse> getStore(
@@ -42,8 +57,10 @@ public class StoreController {
 
     @GetMapping("/nearby")
     public ApiResponse<List<NearbyStoreResponse>> getNearbyStores(
-            @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") double latitude,
-            @RequestParam @DecimalMin("-180.0") @DecimalMax("180.0") double longitude,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double latitude,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double longitude,
             @RequestParam(defaultValue = "10")
             @DecimalMin("0.1") @DecimalMax("100.0") double radiusKm,
             @RequestParam(required = false)
@@ -57,10 +74,14 @@ public class StoreController {
 
     @GetMapping("/map")
     public ApiResponse<List<MapStoreResponse>> getStoresInMap(
-            @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") double swLat,
-            @RequestParam @DecimalMin("-180.0") @DecimalMax("180.0") double swLng,
-            @RequestParam @DecimalMin("-90.0") @DecimalMax("90.0") double neLat,
-            @RequestParam @DecimalMin("-180.0") @DecimalMax("180.0") double neLng,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double swLat,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double swLng,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double neLat,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
             @RequestParam(required = false)
             @Pattern(regexp = SERVICE_TYPE_PATTERN) String type
     ) {

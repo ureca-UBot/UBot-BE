@@ -16,12 +16,28 @@ import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 import com.ubot.store.dto.NearbyStoreResponse;
 import com.ubot.store.dto.StoreDetailResponse;
+import com.ubot.store.dto.StoreListResponse;
 import com.ubot.store.repository.StoreRepository;
 
 class StoreServiceTest {
 
     private final StoreRepository storeRepository = mock(StoreRepository.class);
     private final StoreService storeService = new StoreService(storeRepository);
+
+    @Test
+    void normalizesStoreSearchConditions() {
+        when(storeRepository.findStores("서울특별시", "강남구", "APPLE_AS"))
+                .thenReturn(List.of());
+
+        List<StoreListResponse> result = storeService.findStores(
+                " 서울특별시 ",
+                " 강남구 ",
+                " APPLE_AS "
+        );
+
+        assertThat(result).isEmpty();
+        verify(storeRepository).findStores("서울특별시", "강남구", "APPLE_AS");
+    }
 
     @Test
     void convertsRadiusToMetersAndNormalizesType() {

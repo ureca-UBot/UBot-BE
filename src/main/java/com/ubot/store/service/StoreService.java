@@ -9,6 +9,7 @@ import com.ubot.common.GlobalException;
 import com.ubot.store.dto.MapStoreResponse;
 import com.ubot.store.dto.NearbyStoreResponse;
 import com.ubot.store.dto.StoreDetailResponse;
+import com.ubot.store.dto.StoreListResponse;
 import com.ubot.store.repository.StoreRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,14 @@ import lombok.RequiredArgsConstructor;
 public class StoreService {
 
     private final StoreRepository storeRepository;
+
+    public List<StoreListResponse> findStores(String sido, String sigungu, String type) {
+        return storeRepository.findStores(
+                normalizeCondition(sido),
+                normalizeCondition(sigungu),
+                normalizeCondition(type)
+        );
+    }
 
     public StoreDetailResponse findById(long storeId) {
         return storeRepository.findById(storeId)
@@ -38,7 +47,7 @@ public class StoreService {
                 latitude,
                 longitude,
                 radiusKm * 1_000,
-                normalizeType(type),
+                normalizeCondition(type),
                 limit
         );
     }
@@ -57,10 +66,10 @@ public class StoreService {
             );
         }
 
-        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizeType(type));
+        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizeCondition(type));
     }
 
-    private String normalizeType(String type) {
-        return type == null || type.isBlank() ? null : type.trim();
+    private String normalizeCondition(String condition) {
+        return condition == null || condition.isBlank() ? null : condition.trim();
     }
 }

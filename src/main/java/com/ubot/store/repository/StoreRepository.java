@@ -18,10 +18,12 @@ import com.ubot.store.dto.MapStoreResponse;
 import com.ubot.store.dto.NearbyStoreResponse;
 import com.ubot.store.dto.StoreDetailResponse;
 import com.ubot.store.dto.StoreDetailResponse.ServiceResponse;
+import com.ubot.store.dto.StoreListResponse;
 
 @Repository
 public class StoreRepository {
 
+    private static final String FIND_STORES_SQL = loadSql("sql/store/find-stores.sql");
     private static final String FIND_NEARBY_SQL = loadSql("sql/store/find-nearby.sql");
     private static final String FIND_IN_MAP_SQL = loadSql("sql/store/find-in-map.sql");
     private static final String FIND_DETAIL_SQL = loadSql("sql/store/find-detail.sql");
@@ -30,6 +32,16 @@ public class StoreRepository {
 
     public StoreRepository(NamedParameterJdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public List<StoreListResponse> findStores(String sido, String sigungu, String type) {
+        Map<String, Object> parameters = Map.of(
+                "sido", sido == null ? "" : sido,
+                "sigungu", sigungu == null ? "" : sigungu,
+                "type", type == null ? "" : type
+        );
+
+        return jdbcTemplate.query(FIND_STORES_SQL, parameters, this::mapStoreList);
     }
 
     public Optional<StoreDetailResponse> findById(long storeId) {
@@ -107,6 +119,20 @@ public class StoreRepository {
                 resultSet.getDouble("latitude"),
                 resultSet.getDouble("longitude"),
                 resultSet.getDouble("distance_km")
+        );
+    }
+
+    private StoreListResponse mapStoreList(ResultSet resultSet, int rowNumber) throws SQLException {
+        return new StoreListResponse(
+                resultSet.getLong("store_id"),
+                resultSet.getString("store_name"),
+                resultSet.getString("sido"),
+                resultSet.getString("sigungu"),
+                resultSet.getString("address"),
+                resultSet.getString("phone_number"),
+                resultSet.getString("business_hours"),
+                resultSet.getDouble("latitude"),
+                resultSet.getDouble("longitude")
         );
     }
 

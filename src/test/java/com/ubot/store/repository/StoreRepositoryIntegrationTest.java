@@ -15,6 +15,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.store.dto.MapStoreResponse;
 import com.ubot.store.dto.NearbyStoreResponse;
 import com.ubot.store.dto.StoreDetailResponse;
+import com.ubot.store.dto.StoreListResponse;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -24,6 +25,35 @@ class StoreRepositoryIntegrationTest {
 
     @Autowired
     private StoreRepository storeRepository;
+
+    @Test
+    void findsStoresByRegionAndServiceType() {
+        List<StoreListResponse> activeStores = storeRepository.findStores(null, null, null);
+
+        assertThat(activeStores)
+                .extracting(StoreListResponse::storeId)
+                .containsExactly(1L, 2L, 3L);
+
+        List<StoreListResponse> gangnamStores = storeRepository.findStores(
+                "서울특별시",
+                "강남구",
+                null
+        );
+
+        assertThat(gangnamStores)
+                .extracting(StoreListResponse::storeId)
+                .containsExactly(1L, 2L);
+
+        List<StoreListResponse> appleStores = storeRepository.findStores(
+                "서울특별시",
+                "강남구",
+                "APPLE_AS"
+        );
+
+        assertThat(appleStores)
+                .extracting(StoreListResponse::storeId)
+                .containsExactly(1L);
+    }
 
     @Test
     void findsNearbyStoresInDistanceOrderAndFiltersByType() {

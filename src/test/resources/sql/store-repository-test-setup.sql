@@ -57,6 +57,20 @@ INSERT INTO stores (
     (2, '역삼역점', '서울특별시', '강남구', '서울특별시 강남구 테헤란로 156', '02-0000-0002', 127.0300, 37.5000),
     (3, '부산역점', '부산광역시', '동구', '부산광역시 동구 중앙대로 206', '051-0000-0003', 129.0403, 35.1151);
 
+INSERT INTO stores (
+    store_id,
+    store_name,
+    sido,
+    sigungu,
+    address,
+    longitude,
+    latitude,
+    is_active,
+    deleted_at
+) VALUES
+    (4, '비활성매장', '서울특별시', '강남구', '서울특별시 강남구 비활성로 1', 127.0290, 37.4990, FALSE, NULL),
+    (5, '삭제매장', '서울특별시', '강남구', '서울특별시 강남구 삭제로 1', 127.0291, 37.4991, TRUE, CURRENT_TIMESTAMP);
+
 INSERT INTO service_types (
     service_type_id,
     service_code,
