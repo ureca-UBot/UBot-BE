@@ -1,4 +1,4 @@
-package com.myapp.common;
+package com.ubot.common;
 
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;

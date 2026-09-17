@@ -1,4 +1,4 @@
-package com.myapp;
+package com.ubot;
 
 import java.util.Objects;
 import java.util.UUID;

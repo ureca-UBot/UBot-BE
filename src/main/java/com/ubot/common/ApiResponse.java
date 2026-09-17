@@ -1,4 +1,4 @@
-package com.myapp.common;
+package com.ubot.common;
 
 /**
  * API의 성공·실패 응답 형식을 통일하기 위한 공통 응답 DTO입니다.
