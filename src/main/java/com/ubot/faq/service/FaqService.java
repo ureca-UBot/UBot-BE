@@ -22,7 +22,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-public class FaqCRUDService {
+public class FaqService {
 
 	private final FaqRepository faqRepository;
 	private final FaqCategoryRepository faqCategoryRepository;
@@ -55,20 +55,24 @@ public class FaqCRUDService {
 		return faqRepository.save(faq);
 	}
 
-	public Faq getFaq(Long faqId){
+	public Faq getActiveFaq(Long faqId){
 		return faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND));
 	}
 
-	public List<Faq> getFaqList(){
+	public List<Faq> getActiveFaqList(){
 		return faqRepository.findAllActives();
 	}
 
-	public List<Faq> searchFaq(String keyword){
+	public List<Faq> getDeletedFaqList(){
+		return faqRepository.findAllDeletedFaq();
+	}
+
+	public List<Faq> searchActiveFaq(String keyword){
 		return faqRepository.findActivesByKeyword(keyword);
 	}
 
 	@Transactional
-	public Faq updateFaq(FaqUpdateRequestDto requestDto, Long adminId){
+	public Faq updateActiveFaq(FaqUpdateRequestDto requestDto, Long adminId){
 
 		Faq faq = faqRepository.findActiveById(requestDto.id()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND));
 		User updatedBy = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
@@ -94,7 +98,7 @@ public class FaqCRUDService {
 				null //Todo: vector가 들어가야 함
 		);
 
-		return faq;
+		return faqRepository.save(faq);
 	}
 
 	@Transactional

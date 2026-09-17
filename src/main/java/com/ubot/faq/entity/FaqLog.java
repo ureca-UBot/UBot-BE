@@ -18,10 +18,18 @@ public class FaqLog {
 
 	//Todo: question_log Entity 만들어지면 객체 연결로 변경
 	@Column(name = "question_log_id")
-	private Integer questionLogId;
+	private Long questionLogId;
 
-	@Column(name = "faq_id")
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "faq_id")
 	private Faq faq;
 
-	private LocalDateTime created_at;
+	@Column(name = "rank")
+	private Integer rank;
+
+	@Column(name = "similarity")
+	private Double similarity;
+
+	@Column(name = "created_at")
+	private LocalDateTime createdAt;
 }

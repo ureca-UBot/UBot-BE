@@ -15,29 +15,37 @@ import java.time.LocalDateTime;
 public class Faq {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	@Column(name = "id")
 	private Long id;
 
 	@ManyToOne(fetch = FetchType.LAZY)
-	@JoinColumn(name = "faq_category_id")
-	private  FaqCategory faqCategory;
+	@JoinColumn(name = "category_id")
+	private FaqCategory faqCategory;
 
+	@Column(name = "question")
 	private String question;
 
+	@Column(name = "answer")
 	private String answer;
 
+	@Column(name = "vector")
 	private PGvector vector;
 
 	@Builder.Default
+	@Column(name = "version")
 	private Integer version = 1;
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "admin_id")
 	private User admin;
 
+	@Column(name = "created_at")
 	private LocalDateTime createdAt;
 
+	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
 
+	@Column(name = "deleted_at")
 	private LocalDateTime deletedAt;
 
 	public void update(

@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 @Builder
 public class OldFaq {
 	@Id
-	@Column(name = "faq_id", nullable = false, length = 255)
+	@Column(name = "faq_id")
 	private Long faqId;
 
 	@Id
@@ -27,10 +27,13 @@ public class OldFaq {
 	@JoinColumn(name = "faq_category_id")
 	private  FaqCategory faqCategory;
 
+	@Column(name = "question")
 	private String question;
 
+	@Column(name = "answer")
 	private String answer;
 
+	@Column(name = "vector")
 	private PGvector vector;
 
 	@ManyToOne(fetch = FetchType.LAZY)
@@ -41,6 +44,7 @@ public class OldFaq {
 	@JoinColumn(name = "updated_by")
 	private User updatedBy;
 
+	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
 
 

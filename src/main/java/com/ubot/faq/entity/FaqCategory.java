@@ -1,10 +1,9 @@
 package com.ubot.faq.entity;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.*;
+
+import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -16,5 +15,13 @@ public class FaqCategory {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+	@Column(name = "name")
 	private String name;
+
+	@Column(name = "created_at")
+	private LocalDateTime createdAt;
+
+	public void update(String afterName){
+		this.name = afterName;
+	}
 }

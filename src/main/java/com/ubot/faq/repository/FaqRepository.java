@@ -33,4 +33,11 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 		where f.deletedAt is null
 """)
 	List<Faq> findAllActives();
+
+	@Query("""
+		select f
+		from Faq f
+		where f.deletedAt is not null
+""")
+	List<Faq> findAllDeletedFaq();
 }
