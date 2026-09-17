@@ -57,6 +57,7 @@ tasks.named('test') {
 	useJUnitPlatform()
 	// Tests must never fall back to the local profile and its development database.
 	systemProperty 'spring.profiles.active', 'test'
+	systemProperty 'user.timezone', 'Asia/Seoul'
 }
 
 sourceSets {
