@@ -1,11 +1,6 @@
 name: Backend CI
 
 on:
-  pull_request:
-    branches:
-      - develop
-      - main
-
   push:
     branches:
       - develop
@@ -13,6 +8,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  TZ: Asia/Seoul
+  JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Seoul
 
 jobs:
   test-and-build:
@@ -32,8 +31,5 @@ jobs:
       - name: Grant execute permission for Gradle
         run: chmod +x gradlew
 
-      - name: Run tests with a disposable pgvector and PostGIS database
-        run: ./gradlew test --no-daemon
-
-      - name: Build
-        run: ./gradlew build -x test --no-daemon
+      - name: Build and test
+        run: ./gradlew build --no-daemon

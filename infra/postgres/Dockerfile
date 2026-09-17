@@ -2,12 +2,17 @@ FROM pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd38
 
 ARG POSTGIS_VERSION=3.6.4+dfsg-2.pgdg13+1
 
+ENV TZ=Asia/Seoul
+
 LABEL org.opencontainers.image.title="UBot PostgreSQL" \
       org.opencontainers.image.description="PostgreSQL 18 with pgvector 0.8.6 and PostGIS 3.6.4"
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
+        tzdata \
         "postgresql-${PG_MAJOR}-postgis-3=${POSTGIS_VERSION}" \
         "postgresql-${PG_MAJOR}-postgis-3-scripts=${POSTGIS_VERSION}" \
+    && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo "${TZ}" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*

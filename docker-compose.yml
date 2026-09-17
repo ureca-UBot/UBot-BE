@@ -7,9 +7,17 @@ services:
     restart: unless-stopped
 
     environment:
+      TZ: Asia/Seoul
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    command:
+      - postgres
+      - -c
+      - timezone=Asia/Seoul
+      - -c
+      - log_timezone=Asia/Seoul
 
     ports:
       - "127.0.0.1:${POSTGRES_PORT}:5432"
@@ -31,6 +39,9 @@ services:
   ollama:
     image: ollama/ollama:0.34.0
     restart: unless-stopped
+
+    environment:
+      TZ: Asia/Seoul
 
     ports:
       - "127.0.0.1:${OLLAMA_PORT}:11434"
@@ -54,6 +65,7 @@ services:
         condition: service_healthy
 
     environment:
+      TZ: Asia/Seoul
       OLLAMA_HOST: http://ollama:11434
 
     command:
