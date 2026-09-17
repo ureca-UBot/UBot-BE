@@ -1,4 +1,4 @@
-package com.myapp;
+package com.ubot;
 
 import java.sql.SQLException;
 import java.util.List;
