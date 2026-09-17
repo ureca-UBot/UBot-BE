@@ -1,4 +1,4 @@
-package com.myapp.location.dto;
+package com.ubot.location.dto;
 
 public record LocationSearchResponse(
         String name,

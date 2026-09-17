@@ -1,8 +1,8 @@
-package com.myapp.location.client;
+package com.ubot.location.client;
 
 import java.util.List;
 
-import com.myapp.location.dto.LocationSearchResponse;
+import com.ubot.location.dto.LocationSearchResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;

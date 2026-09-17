@@ -1,7 +1,7 @@
-package com.myapp.location.service;
+package com.ubot.location.service;
 
-import com.myapp.location.client.KakaoLocalClient;
-import com.myapp.location.dto.LocationSearchResponse;
+import com.ubot.location.client.KakaoLocalClient;
+import com.ubot.location.dto.LocationSearchResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

@@ -1,4 +1,4 @@
-package com.myapp.location.controller;
+package com.ubot.location.controller;
 
 import java.util.List;
 
@@ -8,9 +8,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.myapp.common.ApiResponse;
-import com.myapp.location.dto.LocationSearchResponse;
-import com.myapp.location.service.LocationService;
+import com.ubot.common.ApiResponse;
+import com.ubot.location.dto.LocationSearchResponse;
+import com.ubot.location.service.LocationService;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;

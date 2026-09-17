@@ -35,7 +35,7 @@ class PgvectorTestConfiguration {
                 .withDatabaseName("ubot_test")
                 .withUsername("ubot_test")
                 .withPassword(UUID.randomUUID().toString())
-                .withLabel("com.myapp.ubot.test-db", "true")
+                .withLabel("com.ubot.test-db", "true")
                 .withReuse(false);
     }
 
