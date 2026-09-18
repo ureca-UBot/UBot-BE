@@ -38,3 +38,14 @@ management:
   endpoint:
     health:
       show-details: always
+
+# spring.ai.ollama와는 별개의 독립적인 설정.
+# EmbeddingService(RestClient 직접 구현)가 참조하는 값으로,
+# Spring AI의 OllamaEmbeddingModel을 쓰지 않기로 한 결정(embedding: none)에 따라
+# 같은 환경변수(OLLAMA_BASE_URL, OLLAMA_EMBEDDING_MODEL)를 우리 쪽에서 독립적으로 다시 읽음.
+ollama:
+  base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
+  embedding:
+    model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
+  connect-timeout: 3s
+  read-timeout: 10s
