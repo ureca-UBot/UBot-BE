@@ -98,8 +98,8 @@ class AdminStoreServiceIntegrationTest {
 
         AdminStoreCreateRequestDto request = new AdminStoreCreateRequestDto(
                 "강남역점",
-                "경기도",
-                "성남시",
+                "서울특별시",
+                "강남구",
                 "서울특별시 강남구 강남대로 396",
                 new BigDecimal("37.4000000"),
                 new BigDecimal("127.1000000"),
@@ -114,8 +114,8 @@ class AdminStoreServiceIntegrationTest {
         assertThat(response.storeId()).isEqualTo(1L);
         assertThat(response.active()).isTrue();
         assertThat(response.storeName()).isEqualTo("강남역점");
-        assertThat(response.sido()).isEqualTo("경기도");
-        assertThat(response.sigungu()).isEqualTo("성남시");
+        assertThat(response.sido()).isEqualTo("서울특별시");
+        assertThat(response.sigungu()).isEqualTo("강남구");
         assertThat(response.address()).isEqualTo("서울특별시 강남구 강남대로 396");
         assertThat(response.latitude()).isEqualByComparingTo("37.4000000");
         assertThat(response.longitude()).isEqualByComparingTo("127.1000000");
@@ -136,6 +136,10 @@ class AdminStoreServiceIntegrationTest {
                 "SELECT updated_at FROM stores WHERE store_id = 1",
                 LocalDateTime.class
         )).isAfter(updatedAtBeforeDelete);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT ST_AsText(location::geometry) FROM stores WHERE store_id = 1",
+                String.class
+        )).isEqualTo("POINT(127.1 37.4)");
         assertThat(countStoreServices(1L)).isEqualTo(1);
         assertThat(countStores()).isEqualTo(storeCountBeforeRestore);
     }
