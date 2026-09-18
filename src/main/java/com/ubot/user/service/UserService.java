@@ -13,7 +13,7 @@ import java.util.Optional;
 public class UserService {
 	private final UserRepository userRepository;
 
-	public Optional<User> findActiveUserByEmail(String email) {
+	public Optional<User> getActiveUserByEmail(String email) {
 		return userRepository.findByEmailAndDeletedAtIsNull(email);
 	}
 

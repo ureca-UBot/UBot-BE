@@ -3,8 +3,10 @@ package com.ubot.auth.config;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.exception.MyJwtException;
+import com.ubot.common.exception.UserException;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,15 +41,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			return;
 		}
 
-		if (!jwtUtil.validateToken(token)) {
-			resolveMyJwtException(request, response);
+		Long userId;
+
+		try {
+			userId = jwtUtil.getUserId(token);
+		} catch (JwtException | IllegalArgumentException e){
+			resolveException(request, response, new MyJwtException(ErrorCode.INVALID_ACCESS_TOKEN));
 			return;
 		}
-		Long userId = jwtUtil.getUserId(token);
+
 		User user = userRepository.findByIdAndDeletedAtIsNull(userId).orElse(null);
 
 		if(user == null) {
-			resolveMyJwtException(request, response);
+			resolveException(request, response, new UserException(ErrorCode.USER_NOT_FOUND));
 			return;
 		}
 
@@ -75,9 +81,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		return authorization.substring("Bearer ".length());
 	}
 
-	private void resolveMyJwtException(
+	private void resolveException(
 			HttpServletRequest request,
-			HttpServletResponse response
+			HttpServletResponse response,
+			Exception exception
 	) {
 		SecurityContextHolder.clearContext();
 
@@ -85,7 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 				request,
 				response,
 				null,
-				new MyJwtException(ErrorCode.INVALID_ACCESS_TOKEN)
+				exception
 		);
 	}
 }

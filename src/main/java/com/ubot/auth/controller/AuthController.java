@@ -24,21 +24,21 @@ public class AuthController {
 	@PostMapping("/login")
 	public ApiResponse<LoginResponseDto> login(
 			@RequestBody LoginRequestDto requestDto){
-		return ApiResponse.success(authService.login(requestDto));
+		return ApiResponse.success(authService.loginUser(requestDto));
 	}
 
 	@PostMapping("/refresh")
 	public ApiResponse<LoginResponseDto> refresh(
 			@RequestBody RefreshTokenRequestDto requestDto
 	){
-		return ApiResponse.success(authService.refresh(requestDto));
+		return ApiResponse.success(authService.refreshAccessToken(requestDto));
 	}
 
 	@PostMapping("/logout")
 	public ApiResponse<Void> logout(
 			@AuthenticationPrincipal CustomUserDetails userDetails
 	){
-		authService.logout(userDetails.getUserId());
+		authService.logoutUser(userDetails.getUserId());
 		return ApiResponse.success("로그아웃이 정상적으로 처리됐습니다.", null);
 	}
 
@@ -46,7 +46,7 @@ public class AuthController {
 	public ApiResponse<Void> signup(
 			@RequestBody SignupRequestDto requestDto
 	){
-		authService.signup(requestDto);
+		authService.signupUser(requestDto);
 		return ApiResponse.success("회원가입이 성공했습니다.", null);
 	}
 }

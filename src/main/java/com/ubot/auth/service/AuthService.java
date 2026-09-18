@@ -38,7 +38,7 @@ public class AuthService {
 			Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
 	@Transactional
-	public LoginResponseDto login(LoginRequestDto requestDto){
+	public LoginResponseDto loginUser(LoginRequestDto requestDto){
 		if (requestDto == null
 				|| !StringUtils.hasText(requestDto.email())
 				|| !StringUtils.hasText(requestDto.password())) {
@@ -46,7 +46,7 @@ public class AuthService {
 		}
 
 		String email = requestDto.email().trim().toLowerCase(Locale.ROOT);
-		User user = userService.findActiveUserByEmail(email).orElse(null);
+		User user = userService.getActiveUserByEmail(email).orElse(null);
 
 		if(user == null
 				|| !passwordEncoder.matches(requestDto.password(), user.getHashedPassword())
@@ -61,7 +61,7 @@ public class AuthService {
 	}
 
 	@Transactional
-	public LoginResponseDto refresh(RefreshTokenRequestDto requestDto){
+	public LoginResponseDto refreshAccessToken(RefreshTokenRequestDto requestDto){
 		if(requestDto == null
 				|| !StringUtils.hasText(requestDto.refreshToken())
 		){
@@ -85,11 +85,11 @@ public class AuthService {
 	}
 
 	@Transactional
-	public void logout(Long userId){
+	public void logoutUser(Long userId){
 		refreshTokenService.deleteByUserId(userId);
 	}
 
-	public void signup(SignupRequestDto requestDto) {
+	public void signupUser(SignupRequestDto requestDto) {
 		if(requestDto == null) {
 			throw new UserException(ErrorCode.INVALID_SIGNUP_REQUEST);
 		}

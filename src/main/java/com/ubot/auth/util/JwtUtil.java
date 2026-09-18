@@ -37,19 +37,6 @@ public class JwtUtil {
 				.compact();
 	}
 
-	public boolean validateToken(String token){
-		try{
-			Jwts.parser()
-					.verifyWith(secretKey)
-					.build()
-					.parseSignedClaims(token);
-
-			return true;
-		} catch(Exception e){
-			return false;
-		}
-	}
-
 	public Long getUserId(String token){
 		String subject = Jwts.parser()
 				.verifyWith(secretKey)
