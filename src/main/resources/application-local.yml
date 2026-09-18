@@ -45,7 +45,7 @@ management:
 # 같은 환경변수(OLLAMA_BASE_URL, OLLAMA_EMBEDDING_MODEL)를 우리 쪽에서 독립적으로 다시 읽음.
 ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
+  connect-timeout: ${OLLAMA_CONNECT_TIMEOUT:3s}
+  read-timeout: ${OLLAMA_READ_TIMEOUT:10s}
   embedding:
     model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
-  connect-timeout: 3s
-  read-timeout: 10s
