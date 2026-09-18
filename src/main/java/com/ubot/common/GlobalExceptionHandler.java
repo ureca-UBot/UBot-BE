@@ -1,5 +1,8 @@
 package com.ubot.common;
 
+import com.ubot.common.exception.AuthException;
+import com.ubot.common.exception.MyJwtException;
+import com.ubot.common.exception.UserException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
 import java.util.Map;
