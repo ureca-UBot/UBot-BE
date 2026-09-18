@@ -16,15 +16,16 @@ WHERE s.is_active = TRUE
       ST_MakeEnvelope(:swLng, :swLat, :neLng, :neLat, 4326)::geography
   )
   AND (
-      CAST(:type AS VARCHAR) = ''
-      OR EXISTS (
-          SELECT 1
+      :typeCount = 0
+      OR s.store_id IN (
+          SELECT ss.store_id
           FROM store_services ss
           JOIN service_types st
             ON st.service_type_id = ss.service_type_id
-          WHERE ss.store_id = s.store_id
-            AND st.service_code = CAST(:type AS VARCHAR)
+          WHERE st.service_code IN (:types)
             AND st.is_active = TRUE
+          GROUP BY ss.store_id
+          HAVING COUNT(DISTINCT st.service_code) = :typeCount
       )
   )
 ORDER BY s.store_id;

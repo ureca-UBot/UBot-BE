@@ -15,6 +15,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.ubot.common.ErrorCode;
+import com.ubot.common.PageResponseDto;
+import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
@@ -33,18 +35,28 @@ class StoreServiceTest {
     @DisplayName("매장 조회 조건의 앞뒤 공백을 제거한다")
     void normalizesStoreSearchConditions() {
         when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
-        when(storeRepository.findStores("서울특별시", "강남구", "APPLE_AS"))
+        when(storeRepository.findStores("서울특별시", "강남구", List.of("APPLE_AS"), 0, 20))
                 .thenReturn(List.of());
+        when(storeRepository.countStores("서울특별시", "강남구", List.of("APPLE_AS")))
+                .thenReturn(0L);
 
-        List<StoreListResponseDto> result = storeService.getStoreList(
+        PageResponseDto<StoreListResponseDto> result = storeService.getStoreList(
                 " 서울특별시 ",
                 " 강남구 ",
-                " APPLE_AS "
+                List.of(" APPLE_AS "),
+                0,
+                20
         );
 
-        assertThat(result).isEmpty();
+        assertThat(result.content()).isEmpty();
+        assertThat(result.page()).isZero();
+        assertThat(result.size()).isEqualTo(20);
+        assertThat(result.totalElements()).isZero();
+        assertThat(result.totalPages()).isZero();
+        assertThat(result.first()).isTrue();
+        assertThat(result.last()).isTrue();
         verify(storeRepository).existsActiveServiceType("APPLE_AS");
-        verify(storeRepository).findStores("서울특별시", "강남구", "APPLE_AS");
+        verify(storeRepository).findStores("서울특별시", "강남구", List.of("APPLE_AS"), 0, 20);
     }
 
     @Test
@@ -52,31 +64,35 @@ class StoreServiceTest {
     void rejectsUnknownServiceType() {
         when(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).thenReturn(false);
 
-        assertThatThrownBy(() -> storeService.getStoreList(null, null, "UNKNOWN_SERVICE"))
+        assertThatThrownBy(() -> storeService.getStoreList(
+                null, null, List.of("UNKNOWN_SERVICE"), 0, 20
+        ))
                 .isInstanceOf(ServiceTypeNotFoundException.class)
                 .extracting(exception -> ((ServiceTypeNotFoundException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.SERVICE_TYPE_NOT_FOUND);
 
-        verify(storeRepository, never()).findStores(null, null, "UNKNOWN_SERVICE");
+        verify(storeRepository, never()).findStores(
+                null, null, List.of("UNKNOWN_SERVICE"), 0, 20
+        );
     }
 
     @Test
     @DisplayName("반경을 미터로 변환하고 서비스 유형의 앞뒤 공백을 제거한다")
     void convertsRadiusToMetersAndNormalizesType() {
         when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
-        when(storeRepository.findNearby(37.5, 127.0, 10_000.0, "APPLE_AS", 5))
+        when(storeRepository.findNearby(37.5, 127.0, 10_000.0, List.of("APPLE_AS"), 5))
                 .thenReturn(List.of());
 
         List<NearbyStoreResponseDto> result = storeService.getNearbyStoreList(
                 37.5,
                 127.0,
                 10.0,
-                " APPLE_AS ",
+                List.of(" APPLE_AS "),
                 5
         );
 
         assertThat(result).isEmpty();
-        verify(storeRepository).findNearby(37.5, 127.0, 10_000.0, "APPLE_AS", 5);
+        verify(storeRepository).findNearby(37.5, 127.0, 10_000.0, List.of("APPLE_AS"), 5);
     }
 
     @Test
@@ -87,13 +103,31 @@ class StoreServiceTest {
                 127.00,
                 37.48,
                 127.05,
-                null
+                List.of()
         ))
                 .isInstanceOf(InvalidMapBoundsException.class)
                 .extracting(exception -> ((InvalidMapBoundsException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_MAP_BOUNDS);
 
         verifyNoInteractions(storeRepository);
+    }
+
+    @Test
+    @DisplayName("지도 레벨에 맞는 격자 크기로 클러스터를 조회한다")
+    void getsMapClustersWithGridSizeForLevel() {
+        List<MapClusterResponseDto> clusters = List.of(
+                new MapClusterResponseDto(37.5, 127.0, 12)
+        );
+        when(storeRepository.findClusters(
+                37.0, 126.0, 38.0, 128.0, 25_000, List.of()
+        )).thenReturn(clusters);
+
+        assertThat(storeService.getMapClusterList(
+                37.0, 126.0, 38.0, 128.0, 11, List.of()
+        )).isSameAs(clusters);
+        verify(storeRepository).findClusters(
+                37.0, 126.0, 38.0, 128.0, 25_000, List.of()
+        );
     }
 
     @Test
@@ -125,5 +159,25 @@ class StoreServiceTest {
         when(storeRepository.findById(1L)).thenReturn(Optional.of(detail));
 
         assertThat(storeService.getStore(1L)).isSameAs(detail);
+    }
+
+    @Test
+    @DisplayName("시도 목록을 조회한다")
+    void getsSidoList() {
+        List<String> sidos = List.of("부산광역시", "서울특별시");
+        when(storeRepository.findSidos()).thenReturn(sidos);
+
+        assertThat(storeService.getSidoList()).isSameAs(sidos);
+        verify(storeRepository).findSidos();
+    }
+
+    @Test
+    @DisplayName("시도의 앞뒤 공백을 제거하고 시군구 목록을 조회한다")
+    void getsSigunguList() {
+        List<String> sigungus = List.of("강남구", "서초구");
+        when(storeRepository.findSigungus("서울특별시")).thenReturn(sigungus);
+
+        assertThat(storeService.getSigunguList(" 서울특별시 ")).isSameAs(sigungus);
+        verify(storeRepository).findSigungus("서울특별시");
     }
 }

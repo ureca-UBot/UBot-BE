@@ -13,6 +13,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
@@ -38,7 +39,9 @@ class StoreRepositoryIntegrationTest {
     @Test
     @DisplayName("지역과 서비스 유형으로 매장을 조회한다")
     void findsStoresByRegionAndServiceType() {
-        List<StoreListResponseDto> activeStores = storeRepository.findStores(null, null, null);
+        List<StoreListResponseDto> activeStores = storeRepository.findStores(
+                null, null, List.of(), 0, 10
+        );
 
         assertThat(activeStores)
                 .extracting(StoreListResponseDto::storeId)
@@ -47,7 +50,9 @@ class StoreRepositoryIntegrationTest {
         List<StoreListResponseDto> gangnamStores = storeRepository.findStores(
                 "서울특별시",
                 "강남구",
-                null
+                List.of(),
+                0,
+                10
         );
 
         assertThat(gangnamStores)
@@ -57,12 +62,39 @@ class StoreRepositoryIntegrationTest {
         List<StoreListResponseDto> appleStores = storeRepository.findStores(
                 "서울특별시",
                 "강남구",
-                "APPLE_AS"
+                List.of("APPLE_AS"),
+                0,
+                10
         );
 
         assertThat(appleStores)
                 .extracting(StoreListResponseDto::storeId)
                 .containsExactly(1L);
+
+        List<StoreListResponseDto> multiServiceStores = storeRepository.findStores(
+                "서울특별시",
+                "강남구",
+                List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT"),
+                0,
+                10
+        );
+
+        assertThat(multiServiceStores)
+                .extracting(StoreListResponseDto::storeId)
+                .containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("매장 목록을 페이지 단위로 조회하고 전체 개수를 반환한다")
+    void findsStoresWithPagination() {
+        assertThat(storeRepository.findStores(null, null, List.of(), 0, 2))
+                .extracting(StoreListResponseDto::storeId)
+                .containsExactly(1L, 2L);
+        assertThat(storeRepository.findStores(null, null, List.of(), 1, 2))
+                .extracting(StoreListResponseDto::storeId)
+                .containsExactly(3L);
+        assertThat(storeRepository.countStores(null, null, List.of()))
+                .isEqualTo(3L);
     }
 
     @Test
@@ -72,7 +104,7 @@ class StoreRepositoryIntegrationTest {
                 37.4987,
                 127.0286,
                 1_000,
-                null,
+                List.of(),
                 10
         );
 
@@ -87,7 +119,7 @@ class StoreRepositoryIntegrationTest {
                 37.4987,
                 127.0286,
                 1_000,
-                "APPLE_AS",
+                List.of("APPLE_AS"),
                 10
         );
 
@@ -104,12 +136,30 @@ class StoreRepositoryIntegrationTest {
                 127.02,
                 37.51,
                 127.04,
-                null
+                List.of()
         );
 
         assertThat(stores)
                 .extracting(MapStoreResponseDto::storeId)
                 .containsExactly(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("지도 영역의 매장을 공간 격자로 묶어 조회한다")
+    void findsStoreClustersInsideMapBounds() {
+        List<MapClusterResponseDto> clusters = storeRepository.findClusters(
+                37.49,
+                127.02,
+                37.51,
+                127.04,
+                5_000,
+                List.of()
+        );
+
+        assertThat(clusters)
+                .extracting(MapClusterResponseDto::count)
+                .satisfies(counts -> assertThat(counts.stream().mapToLong(Long::longValue).sum())
+                        .isEqualTo(2L));
     }
 
     @Test
@@ -120,7 +170,23 @@ class StoreRepositoryIntegrationTest {
         assertThat(detail.storeName()).isEqualTo("강남역점");
         assertThat(detail.services())
                 .extracting(StoreDetailResponseDto.ServiceResponseDto::code)
-                .containsExactly("APPLE_AS");
+                .containsExactly("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT");
         assertThat(storeRepository.findById(999L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("활성 매장의 시도 목록을 중복 없이 조회한다")
+    void findsDistinctSidos() {
+        assertThat(storeRepository.findSidos())
+                .containsExactly("서울특별시", "부산광역시");
+    }
+
+    @Test
+    @DisplayName("선택한 시도의 시군구 목록을 중복 없이 조회한다")
+    void findsDistinctSigungusBySido() {
+        assertThat(storeRepository.findSigungus("서울특별시"))
+                .containsExactly("강남구");
+        assertThat(storeRepository.findSigungus("존재하지 않는 시도"))
+                .isEmpty();
     }
 }

@@ -81,4 +81,6 @@ INSERT INTO service_types (
     (3, 'FOREIGN_LANGUAGE_SUPPORT', '외국어 지원');
 
 INSERT INTO store_services (store_id, service_type_id)
-VALUES (1, 2);
+VALUES
+    (1, 2),
+    (1, 3);

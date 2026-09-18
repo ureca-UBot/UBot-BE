@@ -1,13 +1,4 @@
-SELECT
-    s.store_id,
-    s.store_name,
-    s.sido,
-    s.sigungu,
-    s.address,
-    s.phone_number,
-    s.business_hours,
-    s.latitude,
-    s.longitude
+SELECT COUNT(*)
 FROM stores s
 WHERE s.is_active = TRUE
   AND s.deleted_at IS NULL
@@ -31,6 +22,4 @@ WHERE s.is_active = TRUE
           GROUP BY ss.store_id
           HAVING COUNT(DISTINCT st.service_code) = :typeCount
       )
-  )
-ORDER BY s.store_id
-LIMIT :limit OFFSET :offset;
+  );

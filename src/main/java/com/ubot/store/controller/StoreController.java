@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ubot.common.ApiResponse;
+import com.ubot.common.PageResponseDto;
+import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
@@ -20,6 +22,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -39,13 +42,27 @@ public class StoreController {
     private final StoreService storeService;
 
     @GetMapping
-    public ApiResponse<List<StoreListResponseDto>> getStores(
+    public ApiResponse<PageResponseDto<StoreListResponseDto>> getStores(
             @RequestParam(required = false) String sido,
             @RequestParam(required = false) String sigungu,
-            @RequestParam(required = false)
-            @Pattern(regexp = SERVICE_TYPE_PATTERN) String type
+            @RequestParam(required = false, name = "type")
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return ApiResponse.success(storeService.getStoreList(sido, sigungu, type));
+        return ApiResponse.success(storeService.getStoreList(sido, sigungu, types, page, size));
+    }
+
+    @GetMapping("/regions/sidos")
+    public ApiResponse<List<String>> getSidoList() {
+        return ApiResponse.success(storeService.getSidoList());
+    }
+
+    @GetMapping("/regions/sigungus")
+    public ApiResponse<List<String>> getSigunguList(
+            @RequestParam @NotBlank String sido
+    ) {
+        return ApiResponse.success(storeService.getSigunguList(sido));
     }
 
     @GetMapping("/{storeId}")
@@ -63,12 +80,12 @@ public class StoreController {
             @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double longitude,
             @RequestParam(defaultValue = "10")
             @DecimalMin("0.1") @DecimalMax("100.0") double radiusKm,
-            @RequestParam(required = false)
-            @Pattern(regexp = SERVICE_TYPE_PATTERN) String type,
+            @RequestParam(required = false, name = "type")
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit
     ) {
         return ApiResponse.success(
-                storeService.getNearbyStoreList(latitude, longitude, radiusKm, type, limit)
+                storeService.getNearbyStoreList(latitude, longitude, radiusKm, types, limit)
         );
     }
 
@@ -82,9 +99,28 @@ public class StoreController {
             @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double neLat,
             @RequestParam
             @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
-            @RequestParam(required = false)
-            @Pattern(regexp = SERVICE_TYPE_PATTERN) String type
+            @RequestParam(required = false, name = "type")
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types
     ) {
-        return ApiResponse.success(storeService.getMapStoreList(swLat, swLng, neLat, neLng, type));
+        return ApiResponse.success(storeService.getMapStoreList(swLat, swLng, neLat, neLng, types));
+    }
+
+    @GetMapping("/map/clusters")
+    public ApiResponse<List<MapClusterResponseDto>> getStoreClusters(
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double swLat,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double swLng,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double neLat,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
+            @RequestParam @Min(9) @Max(13) int level,
+            @RequestParam(required = false, name = "type")
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types
+    ) {
+        return ApiResponse.success(
+                storeService.getMapClusterList(swLat, swLng, neLat, neLng, level, types)
+        );
     }
 }

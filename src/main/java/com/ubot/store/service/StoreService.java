@@ -4,6 +4,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.ubot.common.PageResponseDto;
+import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
@@ -21,15 +23,32 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
 
-    public List<StoreListResponseDto> getStoreList(String sido, String sigungu, String type) {
-        String normalizedType = normalizeCondition(type);
-        validateServiceType(normalizedType);
+    public PageResponseDto<StoreListResponseDto> getStoreList(
+            String sido,
+            String sigungu,
+            List<String> types,
+            int page,
+            int size
+    ) {
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
 
-        return storeRepository.findStores(
-                normalizeCondition(sido),
-                normalizeCondition(sigungu),
-                normalizedType
+        String normalizedSido = normalizeCondition(sido);
+        String normalizedSigungu = normalizeCondition(sigungu);
+        List<StoreListResponseDto> content = storeRepository.findStores(
+                normalizedSido,
+                normalizedSigungu,
+                normalizedTypes,
+                page,
+                size
         );
+        long totalElements = storeRepository.countStores(
+                normalizedSido,
+                normalizedSigungu,
+                normalizedTypes
+        );
+
+        return PageResponseDto.of(content, page, size, totalElements);
     }
 
     public StoreDetailResponseDto getStore(long storeId) {
@@ -37,21 +56,29 @@ public class StoreService {
                 .orElseThrow(StoreNotFoundException::new);
     }
 
+    public List<String> getSidoList() {
+        return storeRepository.findSidos();
+    }
+
+    public List<String> getSigunguList(String sido) {
+        return storeRepository.findSigungus(normalizeCondition(sido));
+    }
+
     public List<NearbyStoreResponseDto> getNearbyStoreList(
             double latitude,
             double longitude,
             double radiusKm,
-            String type,
+            List<String> types,
             int limit
     ) {
-        String normalizedType = normalizeCondition(type);
-        validateServiceType(normalizedType);
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
 
         return storeRepository.findNearby(
                 latitude,
                 longitude,
                 radiusKm * 1_000,
-                normalizedType,
+                normalizedTypes,
                 limit
         );
     }
@@ -61,22 +88,72 @@ public class StoreService {
             double swLng,
             double neLat,
             double neLng,
-        String type
+            List<String> types
     ) {
+        validateMapBounds(swLat, swLng, neLat, neLng);
+
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
+
+        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizedTypes);
+    }
+
+    public List<MapClusterResponseDto> getMapClusterList(
+            double swLat,
+            double swLng,
+            double neLat,
+            double neLng,
+            int level,
+            List<String> types
+    ) {
+        validateMapBounds(swLat, swLng, neLat, neLng);
+
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
+
+        return storeRepository.findClusters(
+                swLat,
+                swLng,
+                neLat,
+                neLng,
+                clusterGridMeters(level),
+                normalizedTypes
+        );
+    }
+
+    private double clusterGridMeters(int level) {
+        return switch (level) {
+            case 9 -> 5_000;
+            case 10 -> 10_000;
+            case 11 -> 25_000;
+            case 12 -> 50_000;
+            default -> 100_000;
+        };
+    }
+
+    private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
         if (swLat >= neLat || swLng >= neLng) {
             throw new InvalidMapBoundsException();
         }
-
-        String normalizedType = normalizeCondition(type);
-        validateServiceType(normalizedType);
-
-        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizedType);
     }
 
-    private void validateServiceType(String type) {
-        if (type != null && !storeRepository.existsActiveServiceType(type)) {
-            throw new ServiceTypeNotFoundException();
+    private void validateServiceTypes(List<String> types) {
+        for (String type : types) {
+            if (!storeRepository.existsActiveServiceType(type)) {
+                throw new ServiceTypeNotFoundException();
+            }
         }
+    }
+
+    private List<String> normalizeTypes(List<String> types) {
+        if (types == null) {
+            return List.of();
+        }
+        return types.stream()
+                .map(this::normalizeCondition)
+                .filter(type -> type != null)
+                .distinct()
+                .toList();
     }
 
     private String normalizeCondition(String condition) {
