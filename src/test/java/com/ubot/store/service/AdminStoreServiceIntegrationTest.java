@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +21,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
+import com.ubot.store.exception.DuplicateStoreException;
 import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
@@ -61,6 +63,81 @@ class AdminStoreServiceIntegrationTest {
                 String.class,
                 response.storeId()
         )).isEqualTo("POINT(127 37.5)");
+    }
+
+    @Test
+    @DisplayName("활성 상태인 동일 매장은 다시 등록할 수 없다")
+    void rejectsDuplicateActiveStore() {
+        AdminStoreCreateRequestDto request = new AdminStoreCreateRequestDto(
+                "강남역점",
+                "서울특별시",
+                "강남구",
+                "서울특별시 강남구 강남대로 396",
+                new BigDecimal("37.4987000"),
+                new BigDecimal("127.0286000"),
+                "02-1111-1111",
+                "10:00-19:00",
+                List.of("APPLE_AS")
+        );
+
+        assertThatThrownBy(() -> adminStoreService.createStore(request))
+                .isInstanceOf(DuplicateStoreException.class);
+    }
+
+    @Test
+    @DisplayName("소프트 삭제된 동일 매장은 기존 ID로 복구하고 요청 정보로 갱신한다")
+    void restoresSoftDeletedStore() {
+        int storeCountBeforeRestore = countStores();
+        LocalDateTime updatedAtBeforeDelete = jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM stores WHERE store_id = 1",
+                LocalDateTime.class
+        );
+        adminStoreService.deleteStore(1L);
+        entityManager.flush();
+        entityManager.clear();
+
+        AdminStoreCreateRequestDto request = new AdminStoreCreateRequestDto(
+                "강남역점",
+                "경기도",
+                "성남시",
+                "서울특별시 강남구 강남대로 396",
+                new BigDecimal("37.4000000"),
+                new BigDecimal("127.1000000"),
+                "031-1234-5678",
+                "10:00-20:00",
+                List.of("IDENTITY_THEFT_REPORT")
+        );
+
+        AdminStoreResponseDto response = adminStoreService.createStore(request);
+        entityManager.flush();
+
+        assertThat(response.storeId()).isEqualTo(1L);
+        assertThat(response.active()).isTrue();
+        assertThat(response.storeName()).isEqualTo("강남역점");
+        assertThat(response.sido()).isEqualTo("경기도");
+        assertThat(response.sigungu()).isEqualTo("성남시");
+        assertThat(response.address()).isEqualTo("서울특별시 강남구 강남대로 396");
+        assertThat(response.latitude()).isEqualByComparingTo("37.4000000");
+        assertThat(response.longitude()).isEqualByComparingTo("127.1000000");
+        assertThat(response.phoneNumber()).isEqualTo("031-1234-5678");
+        assertThat(response.businessHours()).isEqualTo("10:00-20:00");
+        assertThat(response.services())
+                .extracting(AdminStoreResponseDto.ServiceResponse::code)
+                .containsExactly("IDENTITY_THEFT_REPORT");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT is_active FROM stores WHERE store_id = 1",
+                Boolean.class
+        )).isTrue();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT deleted_at IS NULL FROM stores WHERE store_id = 1",
+                Boolean.class
+        )).isTrue();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM stores WHERE store_id = 1",
+                LocalDateTime.class
+        )).isAfter(updatedAtBeforeDelete);
+        assertThat(countStoreServices(1L)).isEqualTo(1);
+        assertThat(countStores()).isEqualTo(storeCountBeforeRestore);
     }
 
     @Test
@@ -231,5 +308,9 @@ class AdminStoreServiceIntegrationTest {
                 Integer.class,
                 storeId
         );
+    }
+
+    private int countStores() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores", Integer.class);
     }
 }

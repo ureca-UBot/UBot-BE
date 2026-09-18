@@ -13,6 +13,7 @@ import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
 import com.ubot.store.entity.ServiceType;
 import com.ubot.store.entity.Store;
+import com.ubot.store.exception.DuplicateStoreException;
 import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
@@ -30,12 +31,36 @@ public class AdminStoreService {
     private final ServiceTypeJpaRepository serviceTypeJpaRepository;
 
     public AdminStoreResponseDto createStore(AdminStoreCreateRequestDto request) {
+        String storeName = normalize(request.storeName());
+        String address = normalize(request.address());
+        Store existingStore = storeJpaRepository.findByStoreNameAndAddress(storeName, address)
+                .orElse(null);
+
+        if (existingStore != null && existingStore.isActive() && existingStore.getDeletedAt() == null) {
+            throw new DuplicateStoreException();
+        }
+
         Set<ServiceType> serviceTypes = resolveServiceTypes(request.serviceCodes());
+        if (existingStore != null) {
+            existingStore.restore(
+                    storeName,
+                    normalize(request.sido()),
+                    normalize(request.sigungu()),
+                    address,
+                    request.latitude(),
+                    request.longitude(),
+                    normalize(request.phoneNumber()),
+                    normalize(request.businessHours())
+            );
+            existingStore.replaceServiceTypes(serviceTypes);
+            return AdminStoreResponseDto.from(existingStore);
+        }
+
         Store store = Store.create(
-                normalize(request.storeName()),
+                storeName,
                 normalize(request.sido()),
                 normalize(request.sigungu()),
-                normalize(request.address()),
+                address,
                 request.latitude(),
                 request.longitude(),
                 normalize(request.phoneNumber()),
