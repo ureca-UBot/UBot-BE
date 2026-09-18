@@ -6,6 +6,7 @@ import com.ubot.common.exception.MyJwtException;
 import com.ubot.common.exception.UserException;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -45,6 +46,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 		try {
 			userId = jwtUtil.getUserId(token);
+		}catch( ExpiredJwtException e ) {
+			resolveException(request, response, new MyJwtException(ErrorCode.EXPIRED_ACCESS_TOKEN));
+			return;
 		} catch (JwtException | IllegalArgumentException e){
 			resolveException(request, response, new MyJwtException(ErrorCode.INVALID_ACCESS_TOKEN));
 			return;

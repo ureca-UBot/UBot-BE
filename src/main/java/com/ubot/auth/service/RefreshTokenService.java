@@ -8,6 +8,7 @@ import com.ubot.common.exception.MyJwtException;
 import com.ubot.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,13 +38,17 @@ public class RefreshTokenService {
 			refreshToken.update(token, expiredAt);
 		}
 		else {
-			refreshTokenRepository.save(
-					RefreshToken.builder()
-							.user(user)
-							.token(token)
-							.expiredAt(expiredAt)
-							.build()
-			);
+			try {
+				refreshTokenRepository.save(
+						RefreshToken.builder()
+								.user(user)
+								.token(token)
+								.expiredAt(expiredAt)
+								.build()
+				);
+			} catch(DataIntegrityViolationException e){
+				throw new MyJwtException(ErrorCode.DUPLICATED_CREATE_REFRESH_TOKEN);
+			}
 		}
 
 		return token;

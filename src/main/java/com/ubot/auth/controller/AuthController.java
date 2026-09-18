@@ -22,20 +22,20 @@ public class AuthController {
 	private final AuthService authService;
 
 	@PostMapping("/login")
-	public ApiResponse<LoginResponseDto> login(
+	public ApiResponse<LoginResponseDto> loginUser(
 			@RequestBody LoginRequestDto requestDto){
 		return ApiResponse.success(authService.loginUser(requestDto));
 	}
 
 	@PostMapping("/refresh")
-	public ApiResponse<LoginResponseDto> refresh(
+	public ApiResponse<LoginResponseDto> refreshAccessToken(
 			@RequestBody RefreshTokenRequestDto requestDto
 	){
 		return ApiResponse.success(authService.refreshAccessToken(requestDto));
 	}
 
 	@PostMapping("/logout")
-	public ApiResponse<Void> logout(
+	public ApiResponse<Void> logoutUser(
 			@AuthenticationPrincipal CustomUserDetails userDetails
 	){
 		authService.logoutUser(userDetails.getUserId());
@@ -43,7 +43,7 @@ public class AuthController {
 	}
 
 	@PostMapping("/signup")
-	public ApiResponse<Void> signup(
+	public ApiResponse<Void> signupUser(
 			@RequestBody SignupRequestDto requestDto
 	){
 		authService.signupUser(requestDto);
