@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import com.ubot.location.client.KakaoLocalClient;
 import com.ubot.location.dto.LocationSearchResponse;
 
-@DisplayName("위치 검색 서비스 테스트")
+@DisplayName("위치 검색 Service 테스트")
 class LocationServiceTest {
 
     private final KakaoLocalClient kakaoLocalClient = mock(KakaoLocalClient.class);

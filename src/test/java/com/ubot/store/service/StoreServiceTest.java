@@ -27,7 +27,7 @@ import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
-@DisplayName("매장 서비스 테스트")
+@DisplayName("매장 Service 테스트")
 class StoreServiceTest {
 
     private final StoreRepository storeRepository = mock(StoreRepository.class);

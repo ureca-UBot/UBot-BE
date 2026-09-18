@@ -17,6 +17,10 @@ spring:
         distance-type: COSINE_DISTANCE
         initialize-schema: true
 
+ollama:
+  base-url: http://localhost:11434
+  embedding:
+    model: bge-m3:567m
 kakao:
   local:
     api-key: test-key

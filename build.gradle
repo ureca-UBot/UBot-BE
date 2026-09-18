@@ -30,6 +30,7 @@ dependencies {
 	implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
 	implementation 'org.springframework.ai:spring-ai-starter-vector-store-pgvector'
 	implementation 'org.springframework.ai:spring-ai-vector-store-advisor'
+	implementation 'com.pgvector:pgvector:0.1.6' // EmbeddingService가 직접 사용 (전이 의존성에 기대지 않기 위해 명시)
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
