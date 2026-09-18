@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,18 +22,21 @@ import com.ubot.store.dto.StoreListResponseDto;
 @ActiveProfiles("test")
 @Import(PgvectorTestConfiguration.class)
 @Sql("/sql/store-repository-test-setup.sql")
+@DisplayName("매장 Repository 통합 테스트")
 class StoreRepositoryIntegrationTest {
 
     @Autowired
     private StoreRepository storeRepository;
 
     @Test
+    @DisplayName("활성 서비스 유형의 존재 여부를 조회한다")
     void checksActiveServiceTypeExistence() {
         assertThat(storeRepository.existsActiveServiceType("APPLE_AS")).isTrue();
         assertThat(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).isFalse();
     }
 
     @Test
+    @DisplayName("지역과 서비스 유형으로 매장을 조회한다")
     void findsStoresByRegionAndServiceType() {
         List<StoreListResponseDto> activeStores = storeRepository.findStores(null, null, null);
 
@@ -62,6 +66,7 @@ class StoreRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("주변 매장을 거리순으로 조회하고 서비스 유형으로 필터링한다")
     void findsNearbyStoresInDistanceOrderAndFiltersByType() {
         List<NearbyStoreResponseDto> nearby = storeRepository.findNearby(
                 37.4987,
@@ -92,6 +97,7 @@ class StoreRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("지도 영역 안의 매장만 조회한다")
     void findsOnlyStoresInsideMapBounds() {
         List<MapStoreResponseDto> stores = storeRepository.findInMap(
                 37.49,
@@ -107,6 +113,7 @@ class StoreRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("지원 서비스를 포함한 매장 상세 정보를 조회한다")
     void findsStoreDetailWithSupportedServices() {
         StoreDetailResponseDto detail = storeRepository.findById(1L).orElseThrow();
 

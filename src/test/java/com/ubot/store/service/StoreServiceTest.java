@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.Optional;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.ubot.common.ErrorCode;
@@ -22,12 +23,14 @@ import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
+@DisplayName("매장 서비스 테스트")
 class StoreServiceTest {
 
     private final StoreRepository storeRepository = mock(StoreRepository.class);
     private final StoreService storeService = new StoreService(storeRepository);
 
     @Test
+    @DisplayName("매장 조회 조건의 앞뒤 공백을 제거한다")
     void normalizesStoreSearchConditions() {
         when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
         when(storeRepository.findStores("서울특별시", "강남구", "APPLE_AS"))
@@ -45,6 +48,7 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 서비스 유형이면 예외가 발생한다")
     void rejectsUnknownServiceType() {
         when(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).thenReturn(false);
 
@@ -57,6 +61,7 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("반경을 미터로 변환하고 서비스 유형의 앞뒤 공백을 제거한다")
     void convertsRadiusToMetersAndNormalizesType() {
         when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
         when(storeRepository.findNearby(37.5, 127.0, 10_000.0, "APPLE_AS", 5))
@@ -75,6 +80,7 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("지도 영역 좌표가 올바르지 않으면 예외가 발생한다")
     void rejectsInvalidMapBounds() {
         assertThatThrownBy(() -> storeService.getMapStoreList(
                 37.52,
@@ -91,6 +97,7 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("매장이 존재하지 않으면 예외가 발생한다")
     void throwsNotFoundWhenStoreDoesNotExist() {
         when(storeRepository.findById(999L)).thenReturn(Optional.empty());
 
@@ -101,6 +108,7 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("매장이 존재하면 상세 정보를 반환한다")
     void returnsStoreDetailWhenStoreExists() {
         StoreDetailResponseDto detail = new StoreDetailResponseDto(
                 1L,
