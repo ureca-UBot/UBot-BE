@@ -44,7 +44,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			return;
 		}
 		Long userId = jwtUtil.getUserId(token);
-		User user = userRepository.findById(userId).orElse(null);
+		User user = userRepository.findByIdAndDeletedAtIsNull(userId).orElse(null);
 
 		if(user == null) {
 			resolveMyJwtException(request, response);

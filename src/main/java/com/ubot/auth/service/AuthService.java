@@ -34,6 +34,8 @@ public class AuthService {
 	private final JwtUtil jwtUtil;
 	private final RefreshTokenService refreshTokenService;
 	private final UserService userService;
+	private final Pattern EMAIL_PATTERN =
+			Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
 	@Transactional
 	public LoginResponseDto login(LoginRequestDto requestDto){
@@ -73,6 +75,9 @@ public class AuthService {
 		}
 
 		User user = storedRefreshToken.getUser();
+		if(user.getDeletedAt() != null){
+			throw new MyJwtException(ErrorCode.DELETED_USER_TOKEN);
+		}
 		String accessToken = jwtUtil.createAccessToken(user);
 		String refreshToken = refreshTokenService.createOrUpdate(user);
 
@@ -84,7 +89,6 @@ public class AuthService {
 		refreshTokenService.deleteByUserId(userId);
 	}
 
-	@Transactional
 	public void signup(SignupRequestDto requestDto) {
 		if(requestDto == null) {
 			throw new UserException(ErrorCode.INVALID_SIGNUP_REQUEST);
@@ -123,9 +127,6 @@ public class AuthService {
 	}
 
 	private void validateEmail(String email) {
-		final Pattern EMAIL_PATTERN =
-				Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
-
 		if (!EMAIL_PATTERN.matcher(email).matches()) {
 			throw new UserException(ErrorCode.INVALID_EMAIL_FORMAT, "이메일 형식을 맞춰서 입력해주세요. ex) user@naver.com");
 		}
@@ -160,8 +161,8 @@ public class AuthService {
 		if(!StringUtils.hasText(name)){
 			throw new UserException(ErrorCode.INVALID_NAME_FORMAT, "이름을 입력해주세요.");
 		}
-		if(name.length() < 5) {
-			throw new UserException(ErrorCode.INVALID_NAME_FORMAT, "이름은 4글자 이하로만 입력이 가능합니다.");
+		if(name.length() < 20) {
+			throw new UserException(ErrorCode.INVALID_NAME_FORMAT, "이름은 20글자 이하로만 입력이 가능합니다.");
 		}
 	}
 	private void validateBirthDate(LocalDate birthDate) {

@@ -28,6 +28,7 @@ public enum ErrorCode {
     REFRESH_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "JWT-002", "해당 RefreshToken은 만료된 토큰입니다."),
     INVALID_REFRESH_TOKEN_REQUEST(HttpStatus.BAD_REQUEST, "JWT-003", "Request의 RefreshToken이 올바르지 않습니다."),
     INVALID_ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "JWT-004", "유효하지 않은 Access Token입니다."),
+    DELETED_USER_TOKEN(HttpStatus.UNAUTHORIZED, "JWT-005", "삭제된 유저의 토큰입니다."),
 
     // AuthException
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "AUTH-001", "토큰이 없습니다. 인증되지 않은 사용자입니다."),

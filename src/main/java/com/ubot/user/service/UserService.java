@@ -14,7 +14,7 @@ public class UserService {
 	private final UserRepository userRepository;
 
 	public Optional<User> findActiveUserByEmail(String email) {
-		return userRepository.findByEmailAndDeletedAtISNull(email);
+		return userRepository.findByEmailAndDeletedAtIsNull(email);
 	}
 
 	public boolean existsActiveUserByEmail(String email) {
