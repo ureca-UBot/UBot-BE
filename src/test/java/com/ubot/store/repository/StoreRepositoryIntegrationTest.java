@@ -69,7 +69,7 @@ class StoreRepositoryIntegrationTest {
 
         assertThat(appleStores)
                 .extracting(StoreListResponseDto::storeId)
-                .containsExactly(1L);
+                .containsExactly(1L, 2L);
 
         List<StoreListResponseDto> multiServiceStores = storeRepository.findStores(
                 "서울특별시",
@@ -125,6 +125,18 @@ class StoreRepositoryIntegrationTest {
 
         assertThat(appleStores)
                 .extracting(NearbyStoreResponseDto::storeId)
+                .containsExactly(1L, 2L);
+
+        List<NearbyStoreResponseDto> multiServiceStores = storeRepository.findNearby(
+                37.4987,
+                127.0286,
+                1_000,
+                List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT"),
+                10
+        );
+
+        assertThat(multiServiceStores)
+                .extracting(NearbyStoreResponseDto::storeId)
                 .containsExactly(1L);
     }
 
@@ -142,6 +154,18 @@ class StoreRepositoryIntegrationTest {
         assertThat(stores)
                 .extracting(MapStoreResponseDto::storeId)
                 .containsExactly(1L, 2L);
+
+        List<MapStoreResponseDto> multiServiceStores = storeRepository.findInMap(
+                37.49,
+                127.02,
+                37.51,
+                127.04,
+                List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT")
+        );
+
+        assertThat(multiServiceStores)
+                .extracting(MapStoreResponseDto::storeId)
+                .containsExactly(1L);
     }
 
     @Test
@@ -156,10 +180,33 @@ class StoreRepositoryIntegrationTest {
                 List.of()
         );
 
-        assertThat(clusters)
+        assertThat(clusters).hasSize(1);
+        MapClusterResponseDto cluster = clusters.getFirst();
+        assertThat(cluster.count()).isEqualTo(2L);
+        assertThat(cluster.latitude()).isBetween(37.4987, 37.5000);
+        assertThat(cluster.longitude()).isBetween(127.0286, 127.0300);
+
+        List<MapClusterResponseDto> fineGridClusters = storeRepository.findClusters(
+                37.49,
+                127.02,
+                37.51,
+                127.04,
+                50,
+                List.of()
+        );
+        assertThat(fineGridClusters).hasSize(2);
+
+        List<MapClusterResponseDto> multiServiceClusters = storeRepository.findClusters(
+                37.49,
+                127.02,
+                37.51,
+                127.04,
+                5_000,
+                List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT")
+        );
+        assertThat(multiServiceClusters).singleElement()
                 .extracting(MapClusterResponseDto::count)
-                .satisfies(counts -> assertThat(counts.stream().mapToLong(Long::longValue).sum())
-                        .isEqualTo(2L));
+                .isEqualTo(1L);
     }
 
     @Test
@@ -179,6 +226,8 @@ class StoreRepositoryIntegrationTest {
     void findsDistinctSidos() {
         assertThat(storeRepository.findSidos())
                 .containsExactly("서울특별시", "부산광역시");
+        assertThat(storeRepository.findSidos())
+                .doesNotContain("제주특별자치도", "대전광역시");
     }
 
     @Test
@@ -187,6 +236,10 @@ class StoreRepositoryIntegrationTest {
         assertThat(storeRepository.findSigungus("서울특별시"))
                 .containsExactly("강남구");
         assertThat(storeRepository.findSigungus("존재하지 않는 시도"))
+                .isEmpty();
+        assertThat(storeRepository.findSigungus("제주특별자치도"))
+                .isEmpty();
+        assertThat(storeRepository.findSigungus("대전광역시"))
                 .isEmpty();
     }
 }

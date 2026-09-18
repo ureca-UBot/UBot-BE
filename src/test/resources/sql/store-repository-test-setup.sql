@@ -68,8 +68,8 @@ INSERT INTO stores (
     is_active,
     deleted_at
 ) VALUES
-    (4, '비활성매장', '서울특별시', '강남구', '서울특별시 강남구 비활성로 1', 127.0290, 37.4990, FALSE, NULL),
-    (5, '삭제매장', '서울특별시', '강남구', '서울특별시 강남구 삭제로 1', 127.0291, 37.4991, TRUE, CURRENT_TIMESTAMP);
+    (4, '비활성매장', '제주특별자치도', '제주시', '제주특별자치도 제주시 비활성로 1', 126.5312, 33.4996, FALSE, NULL),
+    (5, '삭제매장', '대전광역시', '서구', '대전광역시 서구 삭제로 1', 127.3845, 36.3504, TRUE, CURRENT_TIMESTAMP);
 
 INSERT INTO service_types (
     service_type_id,
@@ -83,4 +83,5 @@ INSERT INTO service_types (
 INSERT INTO store_services (store_id, service_type_id)
 VALUES
     (1, 2),
-    (1, 3);
+    (1, 3),
+    (2, 2);

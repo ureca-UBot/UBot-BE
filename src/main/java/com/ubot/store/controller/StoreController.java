@@ -33,7 +33,7 @@ import lombok.RequiredArgsConstructor;
 @Validated
 public class StoreController {
 
-    private static final String SERVICE_TYPE_PATTERN = "[A-Z][A-Z0-9_]*";
+    private static final String SERVICE_TYPE_PATTERN = "\\s*[A-Z][A-Z0-9_]*\\s*";
     private static final String MIN_KOREA_LATITUDE = "33.0";
     private static final String MAX_KOREA_LATITUDE = "39.0";
     private static final String MIN_KOREA_LONGITUDE = "124.0";

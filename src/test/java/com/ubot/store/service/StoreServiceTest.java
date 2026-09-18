@@ -13,6 +13,8 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
@@ -112,21 +114,28 @@ class StoreServiceTest {
         verifyNoInteractions(storeRepository);
     }
 
-    @Test
+    @ParameterizedTest(name = "지도 레벨 {0}은 {1}m 격자를 사용한다")
+    @CsvSource({
+            "9, 5000",
+            "10, 10000",
+            "11, 25000",
+            "12, 50000",
+            "13, 100000"
+    })
     @DisplayName("지도 레벨에 맞는 격자 크기로 클러스터를 조회한다")
-    void getsMapClustersWithGridSizeForLevel() {
+    void getsMapClustersWithGridSizeForLevel(int level, double gridMeters) {
         List<MapClusterResponseDto> clusters = List.of(
                 new MapClusterResponseDto(37.5, 127.0, 12)
         );
         when(storeRepository.findClusters(
-                37.0, 126.0, 38.0, 128.0, 25_000, List.of()
+                37.0, 126.0, 38.0, 128.0, gridMeters, List.of()
         )).thenReturn(clusters);
 
         assertThat(storeService.getMapClusterList(
-                37.0, 126.0, 38.0, 128.0, 11, List.of()
+                37.0, 126.0, 38.0, 128.0, level, List.of()
         )).isSameAs(clusters);
         verify(storeRepository).findClusters(
-                37.0, 126.0, 38.0, 128.0, 25_000, List.of()
+                37.0, 126.0, 38.0, 128.0, gridMeters, List.of()
         );
     }
 
