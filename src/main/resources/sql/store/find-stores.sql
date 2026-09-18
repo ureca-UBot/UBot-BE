@@ -11,9 +11,13 @@ SELECT
 FROM stores s
 WHERE s.is_active = TRUE
   AND s.deleted_at IS NULL
-  AND ST_Intersects(
-      s.location,
-      ST_MakeEnvelope(:swLng, :swLat, :neLng, :neLat, 4326)::geography
+  AND (
+      CAST(:sido AS VARCHAR) = ''
+      OR s.sido = CAST(:sido AS VARCHAR)
+  )
+  AND (
+      CAST(:sigungu AS VARCHAR) = ''
+      OR s.sigungu = CAST(:sigungu AS VARCHAR)
   )
   AND (
       :typeCount = 0
@@ -28,4 +32,5 @@ WHERE s.is_active = TRUE
           HAVING COUNT(DISTINCT st.service_code) = :typeCount
       )
   )
-ORDER BY s.store_id;
+ORDER BY s.store_id
+LIMIT :limit OFFSET :offset;
