@@ -32,7 +32,9 @@ public class StoreRepository {
     private static final String FIND_DETAIL_SQL = loadSql("sql/store/find-detail.sql");
     private static final String FIND_SIDOS_SQL = loadSql("sql/store/find-sidos.sql");
     private static final String FIND_SIGUNGUS_SQL = loadSql("sql/store/find-sigungus.sql");
-    private static final String EXISTS_SERVICE_TYPE_SQL = loadSql("sql/store/exists-service-type.sql");
+    private static final String COUNT_ACTIVE_SERVICE_TYPES_SQL = loadSql(
+            "sql/store/count-active-service-types.sql"
+    );
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -40,13 +42,13 @@ public class StoreRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public boolean existsActiveServiceType(String type) {
-        Boolean exists = jdbcTemplate.queryForObject(
-                EXISTS_SERVICE_TYPE_SQL,
-                Map.of("type", type),
-                Boolean.class
+    public long countActiveServiceTypes(List<String> types) {
+        Long count = jdbcTemplate.queryForObject(
+                COUNT_ACTIVE_SERVICE_TYPES_SQL,
+                Map.of("types", sqlTypes(types)),
+                Long.class
         );
-        return Boolean.TRUE.equals(exists);
+        return count == null ? 0 : count;
     }
 
     public List<StoreListResponseDto> findStores(

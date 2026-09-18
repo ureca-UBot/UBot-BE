@@ -138,10 +138,13 @@ public class StoreService {
     }
 
     private void validateServiceTypes(List<String> types) {
-        for (String type : types) {
-            if (!storeRepository.existsActiveServiceType(type)) {
-                throw new ServiceTypeNotFoundException();
-            }
+        if (types.isEmpty()) {
+            return;
+        }
+
+        long validTypeCount = storeRepository.countActiveServiceTypes(types);
+        if (validTypeCount != types.size()) {
+            throw new ServiceTypeNotFoundException();
         }
     }
 

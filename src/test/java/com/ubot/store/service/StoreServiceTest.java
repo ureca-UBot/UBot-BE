@@ -36,7 +36,7 @@ class StoreServiceTest {
     @Test
     @DisplayName("매장 조회 조건의 앞뒤 공백을 제거한다")
     void normalizesStoreSearchConditions() {
-        when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
+        when(storeRepository.countActiveServiceTypes(List.of("APPLE_AS"))).thenReturn(1L);
         when(storeRepository.findStores("서울특별시", "강남구", List.of("APPLE_AS"), 0, 20))
                 .thenReturn(List.of());
         when(storeRepository.countStores("서울특별시", "강남구", List.of("APPLE_AS")))
@@ -45,7 +45,7 @@ class StoreServiceTest {
         PageResponseDto<StoreListResponseDto> result = storeService.getStoreList(
                 " 서울특별시 ",
                 " 강남구 ",
-                List.of(" APPLE_AS "),
+                List.of(" APPLE_AS ", "APPLE_AS"),
                 0,
                 20
         );
@@ -57,14 +57,14 @@ class StoreServiceTest {
         assertThat(result.totalPages()).isZero();
         assertThat(result.first()).isTrue();
         assertThat(result.last()).isTrue();
-        verify(storeRepository).existsActiveServiceType("APPLE_AS");
+        verify(storeRepository).countActiveServiceTypes(List.of("APPLE_AS"));
         verify(storeRepository).findStores("서울특별시", "강남구", List.of("APPLE_AS"), 0, 20);
     }
 
     @Test
     @DisplayName("존재하지 않는 서비스 유형이면 예외가 발생한다")
     void rejectsUnknownServiceType() {
-        when(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).thenReturn(false);
+        when(storeRepository.countActiveServiceTypes(List.of("UNKNOWN_SERVICE"))).thenReturn(0L);
 
         assertThatThrownBy(() -> storeService.getStoreList(
                 null, null, List.of("UNKNOWN_SERVICE"), 0, 20
@@ -81,7 +81,7 @@ class StoreServiceTest {
     @Test
     @DisplayName("반경을 미터로 변환하고 서비스 유형의 앞뒤 공백을 제거한다")
     void convertsRadiusToMetersAndNormalizesType() {
-        when(storeRepository.existsActiveServiceType("APPLE_AS")).thenReturn(true);
+        when(storeRepository.countActiveServiceTypes(List.of("APPLE_AS"))).thenReturn(1L);
         when(storeRepository.findNearby(37.5, 127.0, 10_000.0, List.of("APPLE_AS"), 5))
                 .thenReturn(List.of());
 

@@ -25,6 +25,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -38,6 +39,7 @@ public class StoreController {
     private static final String MAX_KOREA_LATITUDE = "39.0";
     private static final String MIN_KOREA_LONGITUDE = "124.0";
     private static final String MAX_KOREA_LONGITUDE = "132.0";
+    private static final int MAX_SERVICE_TYPE_COUNT = 10;
 
     private final StoreService storeService;
 
@@ -46,6 +48,7 @@ public class StoreController {
             @RequestParam(required = false) String sido,
             @RequestParam(required = false) String sigungu,
             @RequestParam(required = false, name = "type")
+            @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
@@ -81,6 +84,7 @@ public class StoreController {
             @RequestParam(defaultValue = "10")
             @DecimalMin("0.1") @DecimalMax("100.0") double radiusKm,
             @RequestParam(required = false, name = "type")
+            @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit
     ) {
@@ -100,6 +104,7 @@ public class StoreController {
             @RequestParam
             @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
             @RequestParam(required = false, name = "type")
+            @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types
     ) {
         return ApiResponse.success(storeService.getMapStoreList(swLat, swLng, neLat, neLng, types));
@@ -117,6 +122,7 @@ public class StoreController {
             @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
             @RequestParam @Min(9) @Max(13) int level,
             @RequestParam(required = false, name = "type")
+            @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types
     ) {
         return ApiResponse.success(

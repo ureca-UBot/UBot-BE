@@ -74,11 +74,13 @@ INSERT INTO stores (
 INSERT INTO service_types (
     service_type_id,
     service_code,
-    service_name
+    service_name,
+    is_active
 ) VALUES
-    (1, 'IDENTITY_THEFT_REPORT', '명의도용 접수'),
-    (2, 'APPLE_AS', '애플 A/S'),
-    (3, 'FOREIGN_LANGUAGE_SUPPORT', '외국어 지원');
+    (1, 'IDENTITY_THEFT_REPORT', '명의도용 접수', TRUE),
+    (2, 'APPLE_AS', '애플 A/S', TRUE),
+    (3, 'FOREIGN_LANGUAGE_SUPPORT', '외국어 지원', TRUE),
+    (4, 'INACTIVE_SERVICE', '비활성 서비스', FALSE);
 
 INSERT INTO store_services (store_id, service_type_id)
 VALUES

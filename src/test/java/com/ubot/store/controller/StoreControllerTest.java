@@ -64,6 +64,19 @@ class StoreControllerTest {
     }
 
     @Test
+    @DisplayName("서비스 유형이 10개를 초과하면 400 응답을 반환한다")
+    void rejectsTooManyServiceTypes() throws Exception {
+        mockMvc.perform(get("/stores").param("type",
+                        "TYPE_01", "TYPE_02", "TYPE_03", "TYPE_04", "TYPE_05", "TYPE_06",
+                        "TYPE_07", "TYPE_08", "TYPE_09", "TYPE_10", "TYPE_11"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+
+        verifyNoInteractions(storeService);
+    }
+
+    @Test
     @DisplayName("서비스 유형의 앞뒤 공백은 Service에서 정규화할 수 있도록 허용한다")
     void acceptsWhitespaceAroundServiceType() throws Exception {
         when(storeService.getStoreList(null, null, List.of("APPLE_AS"), 0, 20))

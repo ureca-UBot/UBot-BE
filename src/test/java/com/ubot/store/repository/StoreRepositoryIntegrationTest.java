@@ -30,10 +30,17 @@ class StoreRepositoryIntegrationTest {
     private StoreRepository storeRepository;
 
     @Test
-    @DisplayName("활성 서비스 유형의 존재 여부를 조회한다")
-    void checksActiveServiceTypeExistence() {
-        assertThat(storeRepository.existsActiveServiceType("APPLE_AS")).isTrue();
-        assertThat(storeRepository.existsActiveServiceType("UNKNOWN_SERVICE")).isFalse();
+    @DisplayName("요청한 서비스 유형 중 활성 상태인 유형의 개수를 조회한다")
+    void countsActiveServiceTypes() {
+        assertThat(storeRepository.countActiveServiceTypes(
+                List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT")
+        )).isEqualTo(2L);
+        assertThat(storeRepository.countActiveServiceTypes(
+                List.of("APPLE_AS", "UNKNOWN_SERVICE")
+        )).isEqualTo(1L);
+        assertThat(storeRepository.countActiveServiceTypes(
+                List.of("APPLE_AS", "INACTIVE_SERVICE")
+        )).isEqualTo(1L);
     }
 
     @Test
