@@ -49,3 +49,7 @@ ollama:
     model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
   connect-timeout: 3s
   read-timeout: 10s
+  
+kakao:
+  local:
+    api-key: ${KAKAO_REST_API_KEY}
