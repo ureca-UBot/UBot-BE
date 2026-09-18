@@ -40,6 +40,13 @@ public enum ErrorCode {
     PASSWORD_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "USER-004", "비밀번호 및 재확인이 일치하지 않습니다."),
     INVALID_SIGNUP_REQUEST(HttpStatus.BAD_REQUEST,"USER-005", "SignupRequestDto가 올바르지 않습니다."),
     INVALID_LOGIN_REQUEST(HttpStatus.BAD_REQUEST, "USER-006", "LoginRequestDto가 올바르지 않습니다."),
+    INVALID_EMAIL_FORMAT(HttpStatus.BAD_REQUEST, "USER-007", "이메일 양식이 올바르지 않습니다."),
+    INVALID_PASSWORD_FORMAT(HttpStatus.BAD_REQUEST, "USER-008", "비밀번호 양식이 올바르지 않습니다."),
+    INVALID_BIRTHDATE_FORMAT(HttpStatus.BAD_REQUEST, "USER-009", "생일 입력이 올바르지 않습니다."),
+    INVALID_NAME_FORMAT(HttpStatus.BAD_REQUEST, "USER-010", "이름 입력이 올바르지 않습니다."),
+    INVALID_GENDER_FORMAT(HttpStatus.BAD_REQUEST, "USER-011", "성별 입력이 올바르지 않습니다."),
+    INVALID_RESIDENCE_FORMAT(HttpStatus.BAD_REQUEST, "USER-012", "사는 지역 입력이 올바르지 않습니다."),
+
 
     // ── 매장 도메인 ──
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."),
