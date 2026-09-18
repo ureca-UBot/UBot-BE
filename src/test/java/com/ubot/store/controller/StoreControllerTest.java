@@ -12,15 +12,18 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.common.PageResponseDto;
 import com.ubot.store.exception.InvalidMapBoundsException;
 import com.ubot.store.service.StoreService;
 
 @WebMvcTest(StoreController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @DisplayName("매장 Controller 테스트")
 class StoreControllerTest {
 
@@ -29,6 +32,9 @@ class StoreControllerTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @MockitoBean
+    private JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Test
     @DisplayName("페이지 번호가 음수이면 400 응답을 반환한다")

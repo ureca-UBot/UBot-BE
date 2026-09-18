@@ -34,7 +34,7 @@ public class AuthService {
 	private final JwtUtil jwtUtil;
 	private final RefreshTokenService refreshTokenService;
 	private final UserService userService;
-	private final Pattern EMAIL_PATTERN =
+	private static final Pattern EMAIL_PATTERN =
 			Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
 	@Transactional
@@ -127,16 +127,16 @@ public class AuthService {
 	}
 
 	private void validateEmail(String email) {
-		if (!EMAIL_PATTERN.matcher(email).matches()) {
-			throw new UserException(ErrorCode.INVALID_EMAIL_FORMAT, "이메일 형식을 맞춰서 입력해주세요. ex) user@naver.com");
-		}
-
 		if(!StringUtils.hasText(email)) {
 			throw new UserException(ErrorCode.INVALID_EMAIL_FORMAT, "이메일 칸이 비었습니다. 입력해주세요.");
 		}
 
 		if(email.length() > 100){
 			throw new UserException(ErrorCode.INVALID_EMAIL_FORMAT, "이메일은 최대 100자까지 입력이 가능합니다.");
+		}
+
+		if (!EMAIL_PATTERN.matcher(email).matches()) {
+			throw new UserException(ErrorCode.INVALID_EMAIL_FORMAT, "이메일 형식을 맞춰서 입력해주세요. ex) user@naver.com");
 		}
 	}
 
@@ -161,7 +161,7 @@ public class AuthService {
 		if(!StringUtils.hasText(name)){
 			throw new UserException(ErrorCode.INVALID_NAME_FORMAT, "이름을 입력해주세요.");
 		}
-		if(name.length() < 20) {
+		if(name.length() > 20) {
 			throw new UserException(ErrorCode.INVALID_NAME_FORMAT, "이름은 20글자 이하로만 입력이 가능합니다.");
 		}
 	}
