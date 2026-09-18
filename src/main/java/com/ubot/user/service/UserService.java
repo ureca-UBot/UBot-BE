@@ -22,7 +22,7 @@ public class UserService {
 	}
 
 	@Transactional
-	public void save(User user) {
+	public void saveUser(User user) {
 		userRepository.saveAndFlush(user);
 	}
 }

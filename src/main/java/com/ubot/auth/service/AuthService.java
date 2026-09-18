@@ -120,7 +120,7 @@ public class AuthService {
 				.build();
 
 		try {
-			userService.save(user);
+			userService.saveUser(user);
 		} catch(DataIntegrityViolationException e) {
 			throw new UserException(ErrorCode.EMAIL_ALREADY_EXISTS);
 		}
