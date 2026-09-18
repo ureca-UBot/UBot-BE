@@ -66,7 +66,7 @@ public class EmbeddingService {
         }
 
         @SuppressWarnings("unchecked") // 형 변환 경고 무시. 위에서 List 타입인지 이미 확인했으므로 안전한 형변환
-        List<List<Double>> vectors = (List<List<Double>>) embeddingsRaw;
+        List<List<Double>> vectors = (List<List<Double>>) embeddingsRaw; // 응답 벡터는 2차원 리스트
         return vectors.stream().map(this::toPGvector).toList();
     }
 
