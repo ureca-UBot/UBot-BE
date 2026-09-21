@@ -25,6 +25,8 @@ spring:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
       chat:
         model: ${OLLAMA_CHAT_MODEL}
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
     vectorstore:
       type: none
         #pgvector:
