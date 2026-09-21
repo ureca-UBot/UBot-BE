@@ -210,6 +210,66 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("다른 활성 매장과 동일한 매장명과 주소로 수정할 수 없다")
+    void rejectsDuplicateStoreOnUpdate() {
+        AdminStoreCreateRequestDto createRequest = new AdminStoreCreateRequestDto(
+                "중복 테스트 매장",
+                "서울특별시",
+                "강남구",
+                "서울특별시 강남구 중복로 1",
+                new BigDecimal("37.5000000"),
+                new BigDecimal("127.0000000"),
+                "02-1234-5678",
+                "09:00-18:00",
+                List.of("APPLE_AS")
+        );
+
+        AdminStoreResponseDto createdStore = adminStoreService.createStore(createRequest);
+
+        entityManager.flush();
+
+        assertThatThrownBy(() -> adminStoreService.updateStore(
+                1L,
+                updateRequest(
+                        createdStore.storeName(),
+                        createdStore.address(),
+                        null,
+                        null,
+                        null
+                )
+        )).isInstanceOf(DuplicateStoreException.class);
+    }
+
+    @Test
+    @DisplayName("자기 자신의 매장명과 주소로 수정하는 것은 중복으로 판단하지 않는다")
+    void allowsSameStoreNameAndAddressOnUpdate() {
+        String storeName = jdbcTemplate.queryForObject(
+                "SELECT store_name FROM stores WHERE store_id = 1",
+                String.class
+        );
+
+        String address = jdbcTemplate.queryForObject(
+                "SELECT address FROM stores WHERE store_id = 1",
+                String.class
+        );
+
+        AdminStoreResponseDto response = adminStoreService.updateStore(
+                1L,
+                updateRequest(
+                        storeName,
+                        address,
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        assertThat(response.storeId()).isEqualTo(1L);
+        assertThat(response.storeName()).isEqualTo(storeName);
+        assertThat(response.address()).isEqualTo(address);
+    }
+
+    @Test
     @DisplayName("존재하지 않는 매장은 수정하거나 삭제할 수 없다")
     void rejectsMissingStore() {
         assertThatThrownBy(() -> adminStoreService.updateStore(

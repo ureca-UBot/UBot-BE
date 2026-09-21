@@ -62,6 +62,24 @@ public class AdminStoreService {
         validateCoordinatePair(request);
         Store store = getActiveStore(storeId);
 
+
+        String newStoreName = request.storeName() != null
+                ? normalize(request.storeName())
+                : store.getStoreName();
+
+        String newAddress = request.address() != null
+                ? normalize(request.address())
+                : store.getAddress();
+
+        if (storeJpaRepository.existsByStoreNameAndAddressAndStoreIdNotAndIsActiveTrueAndDeletedAtIsNull(
+                newStoreName,
+                newAddress,
+                storeId
+        )) {
+            throw new DuplicateStoreException();
+        }
+
+
         if (request.storeName() != null) {
             store.updateStoreName(normalize(request.storeName()));
         }
