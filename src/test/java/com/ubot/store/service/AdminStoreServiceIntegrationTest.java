@@ -327,6 +327,36 @@ class AdminStoreServiceIntegrationTest {
         )).isInstanceOf(InvalidStoreCoordinatesException.class);
     }
 
+
+    @Test
+    @DisplayName("지원 서비스만 수정해도 updatedAt이 갱신된다")
+    void updatesUpdatedAtWhenOnlyServicesChange() {
+        jdbcTemplate.update(
+                "UPDATE stores SET updated_at = ? WHERE store_id = ?",
+                LocalDateTime.of(2025, 1, 1, 0, 0),
+                1L
+        );
+
+        LocalDateTime before = jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM stores WHERE store_id = 1",
+                LocalDateTime.class
+        );
+
+        adminStoreService.updateStore(
+                1L,
+                updateRequest(null, null, null, null, List.of("IDENTITY_THEFT_REPORT"))
+        );
+
+        entityManager.flush();
+
+        LocalDateTime after = jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM stores WHERE store_id = 1",
+                LocalDateTime.class
+        );
+
+        assertThat(after).isAfter(before);
+    }
+
     private AdminStoreCreateRequestDto createRequest(List<String> serviceCodes) {
         return new AdminStoreCreateRequestDto(
                 "신규 매장",

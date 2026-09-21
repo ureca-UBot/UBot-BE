@@ -79,32 +79,43 @@ public class AdminStoreService {
             throw new DuplicateStoreException();
         }
 
+        boolean updated = false;
+
         if (request.storeName() != null) {
             store.updateStoreName(newStoreName);
+            updated = true;
         }
         if (request.address() != null) {
             store.updateAddress(newAddress);
+            updated = true;
         }
         if (request.sido() != null) {
             store.updateSido(normalize(request.sido()));
+            updated = true;
         }
         if (request.sigungu() != null) {
             store.updateSigungu(normalize(request.sigungu()));
-        }
-        if (request.address() != null) {
-            store.updateAddress(normalize(request.address()));
+            updated = true;
         }
         if (request.latitude() != null) {
             store.updateCoordinates(request.latitude(), request.longitude());
+            updated = true;
         }
         if (request.phoneNumber() != null) {
             store.updatePhoneNumber(normalize(request.phoneNumber()));
+            updated = true;
         }
         if (request.businessHours() != null) {
             store.updateBusinessHours(normalize(request.businessHours()));
+            updated = true;
         }
         if (request.serviceCodes() != null) {
             store.replaceServiceTypes(resolveServiceTypes(request.serviceCodes()));
+            updated = true;
+        }
+
+        if (updated) {
+            store.markUpdated();
         }
 
         return AdminStoreResponseDto.from(store);

@@ -103,44 +103,36 @@ public class Store {
 
     public void updateStoreName(String storeName) {
         this.storeName = storeName;
-        touch();
     }
 
     public void updateSido(String sido) {
         this.sido = sido;
-        touch();
     }
 
     public void updateSigungu(String sigungu) {
         this.sigungu = sigungu;
-        touch();
     }
 
     public void updateAddress(String address) {
         this.address = address;
-        touch();
     }
 
     public void updateCoordinates(BigDecimal latitude, BigDecimal longitude) {
         this.latitude = latitude;
         this.longitude = longitude;
-        touch();
     }
 
     public void updatePhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
-        touch();
     }
 
     public void updateBusinessHours(String businessHours) {
         this.businessHours = businessHours;
-        touch();
     }
 
     public void replaceServiceTypes(Collection<ServiceType> serviceTypes) {
         this.serviceTypes.clear();
         this.serviceTypes.addAll(serviceTypes);
-        touch();
     }
 
     public void deactivate() {
@@ -150,7 +142,7 @@ public class Store {
         this.updatedAt = now;
     }
 
-    private void touch() {
+    public void markUpdated() {
         this.updatedAt = LocalDateTime.now();
     }
 }
