@@ -17,6 +17,17 @@ spring:
         distance-type: COSINE_DISTANCE
         initialize-schema: true
 
+ollama:
+  base-url: http://localhost:11434
+  embedding:
+    model: bge-m3:567m
 kakao:
   local:
     api-key: test-key
+
+app:
+  jwt:
+    # Base64 encoded 32-byte key used only by the disposable test profile.
+    secret: MDEyMzQ1Njc4OUFCQ0RFRjAxMjM0NTY3ODlBQkNERUY=
+    access-token-expiration-millis: 600000
+    refresh-token-expiration-days: 14
