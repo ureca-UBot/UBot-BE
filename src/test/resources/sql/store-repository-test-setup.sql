@@ -1,47 +1,6 @@
-DROP TABLE IF EXISTS store_services;
-DROP TABLE IF EXISTS service_types;
-DROP TABLE IF EXISTS stores;
-
-CREATE TABLE stores (
-    store_id BIGINT PRIMARY KEY,
-    store_name VARCHAR(150) NOT NULL,
-    sido VARCHAR(50),
-    sigungu VARCHAR(50),
-    address VARCHAR(500) NOT NULL,
-    latitude DECIMAL(10, 7) NOT NULL,
-    longitude DECIMAL(10, 7) NOT NULL,
-    location geography(Point, 4326)
-        GENERATED ALWAYS AS (
-            ST_SetSRID(
-                ST_MakePoint(
-                    longitude::double precision,
-                    latitude::double precision
-                ),
-                4326
-            )::geography
-        ) STORED,
-    phone_number VARCHAR(30),
-    business_hours TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP
-);
-
-CREATE INDEX idx_stores_location ON stores USING GIST (location);
-
-CREATE TABLE service_types (
-    service_type_id BIGINT PRIMARY KEY,
-    service_code VARCHAR(50) NOT NULL UNIQUE,
-    service_name VARCHAR(100) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
-);
-
-CREATE TABLE store_services (
-    store_id BIGINT NOT NULL REFERENCES stores (store_id),
-    service_type_id BIGINT NOT NULL REFERENCES service_types (service_type_id),
-    PRIMARY KEY (store_id, service_type_id)
-);
+DELETE FROM store_services;
+DELETE FROM stores;
+DELETE FROM service_types;
 
 INSERT INTO stores (
     store_id,
