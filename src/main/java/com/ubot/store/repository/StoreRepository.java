@@ -5,12 +5,14 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -51,21 +53,23 @@ public class StoreRepository {
         return count == null ? 0 : count;
     }
 
+    /** 현재 위치({@code originLatitude}, {@code originLongitude})가 있으면 매장별 직선거리를 함께 조회합니다. */
     public List<StoreListResponseDto> findStores(
             String sido,
             String sigungu,
             List<String> types,
+            Double originLatitude,
+            Double originLongitude,
             int page,
             int size
     ) {
-        Map<String, Object> parameters = Map.of(
-                "sido", sido == null ? "" : sido,
-                "sigungu", sigungu == null ? "" : sigungu,
-                "types", sqlTypes(types),
-                "typeCount", types.size(),
-                "limit", size,
-                "offset", (long) page * size
-        );
+        MapSqlParameterSource parameters = originParameters(originLatitude, originLongitude)
+                .addValue("sido", sido == null ? "" : sido)
+                .addValue("sigungu", sigungu == null ? "" : sigungu)
+                .addValue("types", sqlTypes(types))
+                .addValue("typeCount", types.size())
+                .addValue("limit", size)
+                .addValue("offset", (long) page * size);
 
         return jdbcTemplate.query(FIND_STORES_SQL, parameters, this::mapStoreList);
     }
@@ -82,7 +86,19 @@ public class StoreRepository {
     }
 
     public Optional<StoreDetailResponseDto> findById(long storeId) {
-        return jdbcTemplate.query(FIND_DETAIL_SQL, Map.of("storeId", storeId), resultSet -> {
+        return findById(storeId, null, null);
+    }
+
+    /** 현재 위치({@code originLatitude}, {@code originLongitude})가 있으면 매장까지의 직선거리를 함께 조회합니다. */
+    public Optional<StoreDetailResponseDto> findById(
+            long storeId,
+            Double originLatitude,
+            Double originLongitude
+    ) {
+        MapSqlParameterSource parameters = originParameters(originLatitude, originLongitude)
+                .addValue("storeId", storeId);
+
+        return jdbcTemplate.query(FIND_DETAIL_SQL, parameters, resultSet -> {
             if (!resultSet.next()) {
                 return Optional.empty();
             }
@@ -103,6 +119,7 @@ public class StoreRepository {
                     resultSet.getString("business_hours"),
                     resultSet.getDouble("latitude"),
                     resultSet.getDouble("longitude"),
+                    resultSet.getObject("distance_km", Double.class),
                     services
             ));
         });
@@ -214,7 +231,8 @@ public class StoreRepository {
                 resultSet.getString("phone_number"),
                 resultSet.getString("business_hours"),
                 resultSet.getDouble("latitude"),
-                resultSet.getDouble("longitude")
+                resultSet.getDouble("longitude"),
+                resultSet.getObject("distance_km", Double.class)
         );
     }
 
@@ -230,6 +248,14 @@ public class StoreRepository {
                 resultSet.getDouble("latitude"),
                 resultSet.getDouble("longitude")
         );
+    }
+
+    /** 현재 위치가 없으면 hasOrigin을 false로 두고 좌표는 타입이 있는 NULL로 전달합니다. */
+    private MapSqlParameterSource originParameters(Double originLatitude, Double originLongitude) {
+        return new MapSqlParameterSource()
+                .addValue("hasOrigin", originLatitude != null && originLongitude != null)
+                .addValue("originLatitude", originLatitude, Types.DOUBLE)
+                .addValue("originLongitude", originLongitude, Types.DOUBLE);
     }
 
     private List<String> sqlTypes(List<String> types) {

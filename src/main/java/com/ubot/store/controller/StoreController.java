@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
+import com.ubot.direction.dto.DirectionsMode;
+import com.ubot.direction.dto.DirectionsResponseDto;
+import com.ubot.direction.service.DirectionsService;
 import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
@@ -42,7 +45,9 @@ public class StoreController {
     private static final int MAX_SERVICE_TYPE_COUNT = 10;
 
     private final StoreService storeService;
+    private final DirectionsService directionsService;
 
+    /** 현재 위치(latitude, longitude)를 함께 주면 각 매장의 distanceKm에 직선거리를 채웁니다. */
     @GetMapping
     public ApiResponse<PageResponseDto<StoreListResponseDto>> getStores(
             @RequestParam(required = false) String sido,
@@ -50,10 +55,16 @@ public class StoreController {
             @RequestParam(required = false, name = "type")
             @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types,
+            @RequestParam(required = false)
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) Double latitude,
+            @RequestParam(required = false)
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) Double longitude,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return ApiResponse.success(storeService.getStoreList(sido, sigungu, types, page, size));
+        return ApiResponse.success(
+                storeService.getStoreList(sido, sigungu, types, latitude, longitude, page, size)
+        );
     }
 
     @GetMapping("/regions/sidos")
@@ -68,11 +79,30 @@ public class StoreController {
         return ApiResponse.success(storeService.getSigunguList(sido));
     }
 
+    /** 현재 위치(latitude, longitude)를 함께 주면 응답의 distanceKm에 직선거리를 채웁니다. */
     @GetMapping("/{storeId}")
     public ApiResponse<StoreDetailResponseDto> getStore(
-            @PathVariable @Positive long storeId
+            @PathVariable @Positive long storeId,
+            @RequestParam(required = false)
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) Double latitude,
+            @RequestParam(required = false)
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) Double longitude
     ) {
-        return ApiResponse.success(storeService.getStore(storeId));
+        return ApiResponse.success(storeService.getStore(storeId, latitude, longitude));
+    }
+
+    @GetMapping("/{storeId}/directions")
+    public ApiResponse<DirectionsResponseDto> getDirections(
+            @PathVariable @Positive long storeId,
+            @RequestParam DirectionsMode mode,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double latitude,
+            @RequestParam
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double longitude
+    ) {
+        return ApiResponse.success(
+                directionsService.getStoreDirections(storeId, mode, latitude, longitude)
+        );
     }
 
     @GetMapping("/nearby")

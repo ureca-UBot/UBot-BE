@@ -11,6 +11,7 @@ import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
 import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.InvalidOriginException;
 import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
@@ -23,13 +24,21 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
 
+    /**
+     * 매장 목록을 조회합니다. 현재 위치({@code latitude}, {@code longitude})를 함께 주면 각 매장의 직선거리를 채웁니다.
+     * 두 값은 함께 전달하거나 함께 생략해야 합니다.
+     */
     public PageResponseDto<StoreListResponseDto> getStoreList(
             String sido,
             String sigungu,
             List<String> types,
+            Double latitude,
+            Double longitude,
             int page,
             int size
     ) {
+        validateOrigin(latitude, longitude);
+
         List<String> normalizedTypes = normalizeTypes(types);
         validateServiceTypes(normalizedTypes);
 
@@ -39,6 +48,8 @@ public class StoreService {
                 normalizedSido,
                 normalizedSigungu,
                 normalizedTypes,
+                latitude,
+                longitude,
                 page,
                 size
         );
@@ -52,9 +63,20 @@ public class StoreService {
     }
 
     public StoreDetailResponseDto getStore(long storeId) {
-        return storeRepository.findById(storeId)
+        return getStore(storeId, null, null);
+    }
+
+    /**
+     * 매장 상세를 조회합니다. 현재 위치({@code latitude}, {@code longitude})를 함께 주면 직선거리를 채웁니다.
+     * 두 값은 함께 전달하거나 함께 생략해야 합니다.
+     */
+    public StoreDetailResponseDto getStore(long storeId, Double latitude, Double longitude) {
+        validateOrigin(latitude, longitude);
+
+        return storeRepository.findById(storeId, latitude, longitude)
                 .orElseThrow(StoreNotFoundException::new);
     }
+
 
     public List<String> getSidoList() {
         return storeRepository.findSidos();
@@ -129,6 +151,12 @@ public class StoreService {
             case 12 -> 50_000;
             default -> 100_000;
         };
+    }
+
+    private void validateOrigin(Double latitude, Double longitude) {
+        if ((latitude == null) != (longitude == null)) {
+            throw new InvalidOriginException();
+        }
     }
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {

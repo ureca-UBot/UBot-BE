@@ -47,17 +47,22 @@ class StoreRepositoryIntegrationTest {
     @DisplayName("지역과 서비스 유형으로 매장을 조회한다")
     void findsStoresByRegionAndServiceType() {
         List<StoreListResponseDto> activeStores = storeRepository.findStores(
-                null, null, List.of(), 0, 10
+                null, null, List.of(), null, null, 0, 10
         );
 
         assertThat(activeStores)
                 .extracting(StoreListResponseDto::storeId)
                 .containsExactly(1L, 2L, 3L);
+        assertThat(activeStores)
+                .extracting(StoreListResponseDto::distanceKm)
+                .containsOnlyNulls();
 
         List<StoreListResponseDto> gangnamStores = storeRepository.findStores(
                 "서울특별시",
                 "강남구",
                 List.of(),
+                null,
+                null,
                 0,
                 10
         );
@@ -70,6 +75,8 @@ class StoreRepositoryIntegrationTest {
                 "서울특별시",
                 "강남구",
                 List.of("APPLE_AS"),
+                null,
+                null,
                 0,
                 10
         );
@@ -82,6 +89,8 @@ class StoreRepositoryIntegrationTest {
                 "서울특별시",
                 "강남구",
                 List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT"),
+                null,
+                null,
                 0,
                 10
         );
@@ -92,12 +101,28 @@ class StoreRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("현재 위치를 전달하면 매장 목록에 매장별 직선거리를 km로 채우고 순서는 유지한다")
+    void findsStoresWithDistanceFromOrigin() {
+        // 역삼역점(37.5000, 127.0300) 위치에서 조회
+        List<StoreListResponseDto> stores = storeRepository.findStores(
+                null, null, List.of(), 37.5, 127.03, 0, 10
+        );
+
+        assertThat(stores)
+                .extracting(StoreListResponseDto::storeId)
+                .containsExactly(1L, 2L, 3L);
+        assertThat(stores.get(0).distanceKm()).isBetween(0.15, 0.25);   // 강남역점
+        assertThat(stores.get(1).distanceKm()).isZero();                // 역삼역점
+        assertThat(stores.get(2).distanceKm()).isBetween(300.0, 350.0); // 부산역점
+    }
+
+    @Test
     @DisplayName("매장 목록을 페이지 단위로 조회하고 전체 개수를 반환한다")
     void findsStoresWithPagination() {
-        assertThat(storeRepository.findStores(null, null, List.of(), 0, 2))
+        assertThat(storeRepository.findStores(null, null, List.of(), null, null, 0, 2))
                 .extracting(StoreListResponseDto::storeId)
                 .containsExactly(1L, 2L);
-        assertThat(storeRepository.findStores(null, null, List.of(), 1, 2))
+        assertThat(storeRepository.findStores(null, null, List.of(), null, null, 1, 2))
                 .extracting(StoreListResponseDto::storeId)
                 .containsExactly(3L);
         assertThat(storeRepository.countStores(null, null, List.of()))
@@ -226,6 +251,18 @@ class StoreRepositoryIntegrationTest {
                 .extracting(StoreDetailResponseDto.ServiceResponseDto::code)
                 .containsExactly("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT");
         assertThat(storeRepository.findById(999L)).isEmpty();
+        assertThat(detail.distanceKm()).isNull();
+    }
+
+    @Test
+    @DisplayName("현재 위치를 전달하면 매장 상세에 직선거리를 km로 채운다")
+    void findsStoreDetailWithDistanceFromOrigin() {
+        StoreDetailResponseDto atStore = storeRepository.findById(1L, 37.4987, 127.0286).orElseThrow();
+        assertThat(atStore.distanceKm()).isZero();
+
+        // 역삼역점(37.5000, 127.0300)에서 강남역점까지 약 0.19km
+        StoreDetailResponseDto fromYeoksam = storeRepository.findById(1L, 37.5000, 127.0300).orElseThrow();
+        assertThat(fromYeoksam.distanceKm()).isBetween(0.15, 0.25);
     }
 
     @Test

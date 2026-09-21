@@ -8,6 +8,14 @@ SELECT
     s.business_hours,
     s.latitude,
     s.longitude,
+    CASE
+        WHEN :hasOrigin THEN ROUND((
+            ST_Distance(
+                s.location,
+                ST_SetSRID(ST_MakePoint(:originLongitude, :originLatitude), 4326)::geography
+            ) / 1000.0
+        )::numeric, 3)::double precision
+    END AS distance_km,
     COALESCE(
         ARRAY_AGG(st.service_code ORDER BY st.service_code)
             FILTER (WHERE st.service_type_id IS NOT NULL AND st.is_active = TRUE),

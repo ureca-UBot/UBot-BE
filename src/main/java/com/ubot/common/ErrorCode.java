@@ -54,7 +54,14 @@ public enum ErrorCode {
     // ── 매장 도메인 ──
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."),
     SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "SERVICE_TYPE_NOT_FOUND", "서비스 유형을 찾을 수 없습니다."),
-    INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "INVALID_MAP_BOUNDS", "지도 영역 좌표가 올바르지 않습니다.");
+    INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "INVALID_MAP_BOUNDS", "지도 영역 좌표가 올바르지 않습니다."),
+    INVALID_ORIGIN(HttpStatus.BAD_REQUEST, "INVALID_ORIGIN", "현재 위치는 latitude와 longitude를 함께 전달해야 합니다."),
+
+    // ── 길찾기 도메인 ──
+    DIRECTIONS_ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "DIRECTIONS_ROUTE_NOT_FOUND", "경로를 찾을 수 없습니다."),
+    DIRECTIONS_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "DIRECTIONS_SERVICE_UNAVAILABLE",
+                    "길찾기 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요."),
+    DIRECTIONS_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "DIRECTIONS_TIMEOUT", "길찾기 서비스 응답이 지연되고 있습니다.");
 
     private final HttpStatus status;
     private final String code;
