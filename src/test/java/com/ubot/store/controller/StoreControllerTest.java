@@ -137,6 +137,6 @@ class StoreControllerTest {
                         .param("neLng", "128.0"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_MAP_BOUNDS"));
+                .andExpect(jsonPath("$.code").value("STORE-006"));
     }
 }

@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
+import com.ubot.store.exception.DeletedStoreAlreadyExistsException;
 import com.ubot.store.exception.DuplicateStoreException;
 import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.service.AdminStoreService;
@@ -87,7 +88,7 @@ class AdminStoreControllerTest {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("DUPLICATE_STORE"))
+                .andExpect(jsonPath("$.code").value("STORE-002"))
                 .andExpect(jsonPath("$.message").value("이미 등록된 매장입니다."));
     }
 
@@ -159,7 +160,7 @@ class AdminStoreControllerTest {
                                 {"latitude": 37.5}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_STORE_COORDINATES"));
+                .andExpect(jsonPath("$.code").value("STORE-005"));
     }
 
     @Test
@@ -192,6 +193,29 @@ class AdminStoreControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.storeId").value(1))
                 .andExpect(jsonPath("$.data.active").value(true));
+    }
+
+    @Test
+    @DisplayName("삭제된 동일 매장이 존재하면 409 응답을 반환한다")
+    void rejectsDeletedDuplicateStore() throws Exception {
+        when(adminStoreService.createStore(any(AdminStoreCreateRequestDto.class)))
+                .thenThrow(new DeletedStoreAlreadyExistsException());
+
+        mockMvc.perform(post("/admin/stores")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "storeName": "강남역점",
+                                  "address": "서울특별시 강남구 강남대로 396",
+                                  "latitude": 37.4987000,
+                                  "longitude": 127.0286000
+                                }
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("STORE-003"))
+                .andExpect(jsonPath("$.message")
+                        .value("삭제된 동일 매장이 존재합니다. 기존 매장을 복구해주세요."));
     }
 
     private AdminStoreResponseDto response() {

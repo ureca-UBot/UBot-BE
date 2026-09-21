@@ -245,7 +245,7 @@ class AdminStoreServiceIntegrationTest {
                 () -> adminStoreService.activateStore(999L)
         ).isInstanceOf(StoreNotFoundException.class);
     }
-
+    
     @Test
     @DisplayName("다른 활성 매장과 동일한 매장명과 주소로 수정할 수 없다")
     void rejectsDuplicateStoreOnUpdate() {
