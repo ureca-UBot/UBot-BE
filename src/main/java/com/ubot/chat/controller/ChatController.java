@@ -19,7 +19,7 @@ public class ChatController {
 
     private final ChatService chatService;
 
-    @PostMapping("/questions")
+    @PostMapping("/questions") // 아직 유저 인증 및 세션 고려하지 않음
     public ApiResponse<ChatResponseDto> createChat(@RequestBody ChatRequestDto request) {
         ChatResponseDto response = chatService.createChat(request.question());
         return ApiResponse.success(response);

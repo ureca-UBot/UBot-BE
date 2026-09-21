@@ -24,19 +24,25 @@ public class ChatService {
         // TOP-K 검색 수행
         List<FakeFaqSearchResponseDto> results = faqVectorService.getSimilarList(question, TOP_K);
 
+        // 예외 방지
         if (results.isEmpty()) {
             return ChatResponseDto.createFailureAnswer();
         }
 
-        /* 각 검색 결과마다 faq_log에 저장하는 로직 추가 */
-
         // 가장 유사한 질문 응답
         FakeFaqSearchResponseDto bestResponse = results.get(0);
 
-        if (bestResponse.similarityScore() < CONFIDENCE_THRESHOLD) { // 가장 유사한 응답의 유사도가 임계값보다 작으면
+        if (bestResponse.similarityScore() < CONFIDENCE_THRESHOLD) { // 가장 유사한 응답의 유사도가 임계값보다 작은 경우
+
             /* 이 질문을 클러스터링 용도로 따로 저장해두는 로직 추가 */
+
             return ChatResponseDto.createFailureAnswer();
         } else {
+
+            /* question_log에 사용자 질문 저장하는 로직 추가 */
+
+            /* 각 검색 결과마다 faq_log에 저장하는 로직 추가 */
+
             return ChatResponseDto.createSuccessAnswer(bestResponse.answer());
         }
     }
