@@ -7,10 +7,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.pgvector.PGvector;
 import com.ubot.common.ErrorCode;
+import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.FaqException;
-import com.ubot.faq.dto.reqeust.FaqCreateRequestDto;
-import com.ubot.faq.dto.reqeust.FaqUpdateRequestDto;
+import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.faq.dto.request.FaqCreateRequestDto;
+import com.ubot.faq.dto.request.FaqUpdateRequestDto;
+import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.entity.OldFaq;
@@ -25,6 +29,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 class FaqServiceTest {
 
@@ -32,109 +40,219 @@ class FaqServiceTest {
     private final FaqCategoryRepository faqCategoryRepository = mock(FaqCategoryRepository.class);
     private final OldFaqRepository oldFaqRepository = mock(OldFaqRepository.class);
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final EmbeddingService embeddingService = mock(EmbeddingService.class);
     private final FaqService faqService = new FaqService(
-            faqRepository, faqCategoryRepository, oldFaqRepository, userRepository
+            faqRepository, faqCategoryRepository, oldFaqRepository, userRepository, embeddingService
     );
 
     @Test
-    @DisplayName("관리자와 카테고리를 지정해 FAQ를 생성한다")
-    void createsFaqWithAdminCategoryAndTimestamps() {
+    @DisplayName("관리자와 카테고리를 지정해 FAQ를 생성하면 응답 DTO를 반환한다")
+    void createFaq_returnsResponseDto() {
+        // given
         User admin = User.builder().id(10L).build();
-        FaqCategory category = FaqCategory.builder().id(20L).name("account").build();
+        FaqCategory category = category(20L, "account");
+        FaqCreateRequestDto request = new FaqCreateRequestDto("account", "question", "answer");
+        PGvector vector = vector(1.0f);
         when(userRepository.findById(10L)).thenReturn(Optional.of(admin));
-        when(faqCategoryRepository.findByName("account")).thenReturn(Optional.of(category));
+        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("account")).thenReturn(Optional.of(category));
+        when(embeddingService.embedText("question")).thenReturn(vector);
         when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Faq result = faqService.createFaq(new FaqCreateRequestDto("account", "question", "answer"), 10L);
+        // when
+        FaqResponseDto result = faqService.createFaq(request, 10L);
 
-        assertThat(result.getAdmin()).isSameAs(admin);
-        assertThat(result.getFaqCategory()).isSameAs(category);
-        assertThat(result.getQuestion()).isEqualTo("question");
-        assertThat(result.getAnswer()).isEqualTo("answer");
-        assertThat(result.getCreatedAt()).isNotNull();
-        assertThat(result.getUpdatedAt()).isNotNull();
-        verify(faqRepository).save(result);
+        // then
+        assertThat(result.categoryId()).isEqualTo(20L);
+        assertThat(result.question()).isEqualTo("question");
+        assertThat(result.answer()).isEqualTo("answer");
+        assertThat(result.adminId()).isEqualTo(10L);
+        verify(embeddingService).embedText("question");
+        verify(faqRepository).save(any(Faq.class));
     }
 
     @Test
     @DisplayName("존재하지 않는 카테고리로 FAQ를 생성하면 예외가 발생한다")
-    void rejectsCreationWhenCategoryDoesNotExist() {
+    void createFaq_throwsWhenCategoryDoesNotExist() {
+        // given
+        FaqCreateRequestDto request = new FaqCreateRequestDto("missing", "question", "answer");
         when(userRepository.findById(10L)).thenReturn(Optional.of(User.builder().id(10L).build()));
-        when(faqCategoryRepository.findByName("missing")).thenReturn(Optional.empty());
+        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("missing")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> faqService.createFaq(
-                new FaqCreateRequestDto("missing", "question", "answer"), 10L
-        ))
-                .isInstanceOf(FaqException.class)
+        // when
+        var throwable = assertThatThrownBy(() -> faqService.createFaq(request, 10L));
+
+        // then
+        throwable.isInstanceOf(FaqException.class)
                 .extracting(exception -> ((FaqException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.FAQ_CATEGORY_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("FAQ를 수정하면 기존 내용이 이력으로 저장되고 버전이 증가한다")
-    void updatesFaqAndStoresThePreviousVersion() {
-        User creator = User.builder().id(1L).build();
-        User editor = User.builder().id(2L).build();
-        FaqCategory oldCategory = FaqCategory.builder().id(10L).name("old").build();
-        FaqCategory newCategory = FaqCategory.builder().id(11L).name("new").build();
-        Faq faq = Faq.builder()
-                .id(100L)
-                .admin(creator)
-                .faqCategory(oldCategory)
-                .question("old question")
-                .answer("old answer")
-                .version(3)
-                .createdAt(LocalDateTime.now().minusDays(1))
-                .updatedAt(LocalDateTime.now().minusDays(1))
-                .build();
-        when(faqRepository.findActiveById(100L)).thenReturn(Optional.of(faq));
-        when(userRepository.findById(2L)).thenReturn(Optional.of(editor));
-        when(faqCategoryRepository.findByName("new")).thenReturn(Optional.of(newCategory));
-        when(faqRepository.save(faq)).thenReturn(faq);
+    @DisplayName("임베딩 생성에 실패하면 FAQ를 저장하지 않고 예외가 발생한다")
+    void createFaq_throwsWhenEmbeddingIsNull() {
+        // given
+        FaqCreateRequestDto request = new FaqCreateRequestDto("account", "question", "answer");
+        when(userRepository.findById(10L)).thenReturn(Optional.of(User.builder().id(10L).build()));
+        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("account"))
+                .thenReturn(Optional.of(category(20L, "account")));
+        when(embeddingService.embedText("question")).thenReturn(null);
 
-        Faq result = faqService.updateActiveFaq(
-                new FaqUpdateRequestDto(100L, "new", "new question", "new answer"), 2L
-        );
+        // when
+        var throwable = assertThatThrownBy(() -> faqService.createFaq(request, 10L));
 
-        ArgumentCaptor<OldFaq> historyCaptor = ArgumentCaptor.forClass(OldFaq.class);
-        verify(oldFaqRepository).save(historyCaptor.capture());
-        OldFaq history = historyCaptor.getValue();
-        assertThat(history.getFaqId()).isEqualTo(100L);
-        assertThat(history.getVersion()).isEqualTo(3);
-        assertThat(history.getFaqCategory()).isSameAs(oldCategory);
-        assertThat(history.getQuestion()).isEqualTo("old question");
-        assertThat(history.getUpdatedBy()).isSameAs(editor);
-        assertThat(result.getVersion()).isEqualTo(4);
-        assertThat(result.getFaqCategory()).isSameAs(newCategory);
-        assertThat(result.getQuestion()).isEqualTo("new question");
-        assertThat(result.getAnswer()).isEqualTo("new answer");
-        assertThat(result.getUpdatedAt()).isAfter(faq.getCreatedAt());
+        // then
+        throwable.isInstanceOf(FaqException.class)
+                .extracting(exception -> ((FaqException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.FAQ_VECTOR_CREATE_FAILURE);
     }
 
     @Test
-    @DisplayName("활성 FAQ를 소프트 삭제한다")
-    void softDeletesOnlyAnActiveFaq() {
+    @DisplayName("FAQ를 수정하면 이전 버전을 이력으로 저장하고 새 임베딩을 반영한다")
+    void updateActiveFaq_savesHistoryAndReturnsResponseDto() {
+        // given
+        User creator = User.builder().id(1L).build();
+        User editor = User.builder().id(2L).build();
+        FaqCategory oldCategory = category(10L, "old");
+        FaqCategory newCategory = category(11L, "new");
+        LocalDateTime createdAt = LocalDateTime.now().minusDays(1);
+        Faq faq = Faq.builder()
+                .id(100L).admin(creator).faqCategory(oldCategory)
+                .question("old question").answer("old answer").version(3)
+                .createdAt(createdAt).updatedAt(createdAt).vector(vector(0.0f))
+                .build();
+        PGvector newVector = vector(1.0f);
+        FaqUpdateRequestDto request = new FaqUpdateRequestDto(100L, "new", "new question", "new answer");
+        when(faqRepository.findActiveById(100L)).thenReturn(Optional.of(faq));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(editor));
+        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("new")).thenReturn(Optional.of(newCategory));
+        when(embeddingService.embedText("new question")).thenReturn(newVector);
+        when(faqRepository.save(faq)).thenReturn(faq);
+
+        // when
+        FaqResponseDto result = faqService.updateActiveFaq(request, 2L);
+
+        // then
+        ArgumentCaptor<OldFaq> historyCaptor = ArgumentCaptor.forClass(OldFaq.class);
+        verify(oldFaqRepository).save(historyCaptor.capture());
+        assertThat(historyCaptor.getValue().getQuestion()).isEqualTo("old question");
+        assertThat(historyCaptor.getValue().getUpdatedBy()).isSameAs(editor);
+        assertThat(faq.getVector()).isSameAs(newVector);
+        assertThat(result.version()).isEqualTo(4);
+        assertThat(result.categoryId()).isEqualTo(11L);
+    }
+
+    @Test
+    @DisplayName("활성 FAQ를 삭제하면 삭제 시각을 기록한다")
+    void deleteFaq_marksActiveFaqAsDeleted() {
+        // given
         Faq faq = Faq.builder().id(100L).build();
         when(faqRepository.findActiveById(100L)).thenReturn(Optional.of(faq));
 
+        // when
         faqService.deleteFaq(100L);
 
+        // then
         assertThat(faq.getDeletedAt()).isNotNull();
     }
 
     @Test
-    @DisplayName("활성 FAQ, 삭제 FAQ, 키워드 검색 FAQ를 조회한다")
-    void retrievesActiveDeletedAndKeywordMatchedFaqs() {
-        Faq active = Faq.builder().id(1L).build();
-        Faq deleted = Faq.builder().id(2L).deletedAt(LocalDateTime.now()).build();
-        when(faqRepository.findActiveById(1L)).thenReturn(Optional.of(active));
-        when(faqRepository.findAllActives()).thenReturn(List.of(active));
-        when(faqRepository.findAllDeletedFaq()).thenReturn(List.of(deleted));
-        when(faqRepository.findActivesByKeyword("keyword")).thenReturn(List.of(active));
+    @DisplayName("활성 FAQ 목록을 생성일과 ID 내림차순으로 조회한다")
+    void getActiveFaqList_returnsPageResponseDto() {
+        // given
+        int page = 0;
+        int size = 10;
+        Faq active = faq(1L, "active question", null);
+        PageRequest pageable = faqPageRequest(page, size, "createdAt");
+        Page<Faq> faqPage = new PageImpl<>(List.of(active), pageable, 1);
+        when(faqRepository.findAllActives(pageable)).thenReturn(faqPage);
 
-        assertThat(faqService.getActiveFaq(1L)).isSameAs(active);
-        assertThat(faqService.getActiveFaqList()).containsExactly(active);
-        assertThat(faqService.getDeletedFaqList()).containsExactly(deleted);
-        assertThat(faqService.searchActiveFaq("keyword")).containsExactly(active);
+        // when
+        PageResponseDto<FaqResponseDto> result = faqService.getActiveFaqList(page, size);
+
+        // then
+        assertPageResponse(result, page, size, FaqResponseDto.from(active));
+    }
+
+    @Test
+    @DisplayName("삭제 FAQ 목록을 삭제일과 ID 내림차순으로 조회한다")
+    void getDeletedFaqList_returnsPageResponseDto() {
+        // given
+        int page = 0;
+        int size = 10;
+        Faq deleted = faq(2L, "deleted question", LocalDateTime.now());
+        PageRequest pageable = faqPageRequest(page, size, "deletedAt");
+        Page<Faq> faqPage = new PageImpl<>(List.of(deleted), pageable, 1);
+        when(faqRepository.findAllDeletedFaq(pageable)).thenReturn(faqPage);
+
+        // when
+        PageResponseDto<FaqResponseDto> result = faqService.getDeletedFaqList(page, size);
+
+        // then
+        assertPageResponse(result, page, size, FaqResponseDto.from(deleted));
+    }
+
+    @Test
+    @DisplayName("카테고리별 FAQ 조회는 삭제 FAQ를 포함한다")
+    void getFaqListByFaqCategoryId_includesDeletedFaqs() {
+        // given
+        int page = 0;
+        int size = 10;
+        Long categoryId = 20L;
+        Faq deleted = faq(2L, "deleted question", LocalDateTime.now());
+        PageRequest pageable = faqPageRequest(page, size, "createdAt");
+        Page<Faq> faqPage = new PageImpl<>(List.of(deleted), pageable, 1);
+        when(faqRepository.findAllByFaqCategoryId(categoryId, pageable)).thenReturn(faqPage);
+
+        // when
+        PageResponseDto<FaqResponseDto> result = faqService.getFaqListByFaqCategoryId(page, size, categoryId);
+
+        // then
+        assertPageResponse(result, page, size, FaqResponseDto.from(deleted));
+        verify(faqRepository).findAllByFaqCategoryId(categoryId, pageable);
+    }
+
+    private PageRequest faqPageRequest(int page, int size, String primaryProperty) {
+        return PageRequest.of(page, size, Sort.by(
+                Sort.Order.desc(primaryProperty),
+                Sort.Order.desc("id")
+        ));
+    }
+
+    private Faq faq(Long id, String question, LocalDateTime deletedAt) {
+        LocalDateTime now = LocalDateTime.now();
+        return Faq.builder()
+                .id(id)
+                .admin(User.builder().id(10L).build())
+                .faqCategory(category(20L, "account"))
+                .question(question)
+                .answer("answer")
+                .version(1)
+                .createdAt(now)
+                .updatedAt(now)
+                .deletedAt(deletedAt)
+                .build();
+    }
+
+    private FaqCategory category(Long id, String name) {
+        return FaqCategory.builder().id(id).name(name).build();
+    }
+
+    private PGvector vector(float value) {
+        return new PGvector(new float[]{value});
+    }
+
+    private void assertPageResponse(
+            PageResponseDto<FaqResponseDto> result,
+            int page,
+            int size,
+            FaqResponseDto expectedContent
+    ) {
+        assertThat(result.content()).containsExactly(expectedContent);
+        assertThat(result.page()).isEqualTo(page);
+        assertThat(result.size()).isEqualTo(size);
+        assertThat(result.totalElements()).isEqualTo(1);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.first()).isTrue();
+        assertThat(result.last()).isTrue();
     }
 }

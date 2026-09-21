@@ -21,7 +21,18 @@ public class FaqCategory {
 	@Column(name = "created_at")
 	private LocalDateTime createdAt;
 
+	@Column(name = "updated_at")
+	private LocalDateTime updatedAt;
+
+	@Column(name = "deleted_at")
+	private LocalDateTime deletedAt;
+
 	public void update(String afterName){
 		this.name = afterName;
+		this.updatedAt = LocalDateTime.now();
+	}
+
+	public void delete(){
+		this.deletedAt = LocalDateTime.now();
 	}
 }

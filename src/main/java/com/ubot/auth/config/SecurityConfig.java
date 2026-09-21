@@ -42,6 +42,9 @@ public class SecurityConfig {
 								"/auth/signup",
 								"/auth/refresh"
 						).permitAll()
+						.requestMatchers(
+								"/admin/**"
+						).hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.addFilterBefore(

@@ -47,8 +47,6 @@ public class OldFaq {
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
 
-
-
 	public static OldFaq from(Faq faq, User updateAdmin){
 		return OldFaq.builder()
 				.faqId(faq.getId())

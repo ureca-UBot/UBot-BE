@@ -1,11 +1,12 @@
 package com.ubot.faq.repository;
 
 import com.ubot.faq.entity.Faq;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -18,7 +19,7 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 		or	lower(f.answer) like lower(concat('%', :keyword, '%'))
 		)
 """)
-	List<Faq> findActivesByKeyword(String keyword);
+	Page<Faq> findActivesByKeyword(String keyword, Pageable pageable);
 
 	@Query("""
 		select f
@@ -32,12 +33,18 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 		from Faq f
 		where f.deletedAt is null
 """)
-	List<Faq> findAllActives();
+	Page<Faq> findAllActives(Pageable pageable);
 
 	@Query("""
 		select f
 		from Faq f
 		where f.deletedAt is not null
 """)
-	List<Faq> findAllDeletedFaq();
+	Page<Faq> findAllDeletedFaq(Pageable pageable);
+
+	//삭제된 FAQ도 포함해서, 삭제된 FAQ를 복구했을때 Category가 없는 경우를 방지
+	Page<Faq> findAllByFaqCategoryId(Long faqCategoryId, Pageable pageable);
+
+	//삭제된 FAQ도 포함해서, 삭제된 FAQ를 복구했을때 Category가 없는 경우를 방지
+	boolean existsAllByFaqCategoryId(Long faqCategoryId);
 }

@@ -1,28 +1,33 @@
 package com.ubot.faq.service;
 
 import com.ubot.common.ErrorCode;
+import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.FaqException;
-import com.ubot.faq.dto.reqeust.FaqCategoryCreateRequestDto;
-import com.ubot.faq.dto.reqeust.FaqCategoryUpdateRequestDto;
-import com.ubot.faq.dto.reqeust.FaqCreateRequestDto;
+import com.ubot.faq.dto.request.FaqCategoryCreateRequestDto;
+import com.ubot.faq.dto.request.FaqCategoryUpdateRequestDto;
+import com.ubot.faq.dto.response.FaqCategoryResponseDto;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.repository.FaqCategoryRepository;
+import com.ubot.faq.repository.FaqRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class FaqCategoryService {
 	private final FaqCategoryRepository faqCategoryRepository;
+	private final FaqRepository faqRepository;
 
 	@Transactional
-	public FaqCategory createFaqCategory(FaqCategoryCreateRequestDto requestDto) {
+	public FaqCategoryResponseDto createFaqCategory(FaqCategoryCreateRequestDto requestDto) {
 		String categoryName = requestDto.name();
-		if(faqCategoryRepository.findByName(categoryName).isPresent()) {
+		if(faqCategoryRepository.findByNameAndDeletedAtIsNull(categoryName).isPresent()) {
 			throw new FaqException(ErrorCode.FAQ_CATEGORY_EXIST, categoryName + "는 이미 존재하는 카테고리명입니다.");
 		}
 
@@ -31,39 +36,64 @@ public class FaqCategoryService {
 				.createdAt(LocalDateTime.now())
 				.build();
 
-		return faqCategoryRepository.save(faqCategory);
+		return FaqCategoryResponseDto.from(faqCategoryRepository.save(faqCategory));
 	}
 
-	public List<FaqCategory> getFaqCategories() {
-		return faqCategoryRepository.findAll();
+	public FaqCategoryResponseDto getFaqCategory(Long faqCategoryId) {
+		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		return  FaqCategoryResponseDto.from(faqCategory);
 	}
 
-	public List<FaqCategory> searchFaqCategories(String keyword){
-		return faqCategoryRepository.findByKeyword(keyword);
+	public PageResponseDto<FaqCategoryResponseDto> getFaqCategories(int page, int size) {
+		Page<FaqCategoryResponseDto> faqCategoryPage = faqCategoryRepository
+				.findByDeletedAtIsNull(PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("createdAt"),
+						Sort.Order.desc("id")
+				)))
+				.map(FaqCategoryResponseDto::from);
+
+		return PageResponseDto.from(faqCategoryPage);
+	}
+
+	public PageResponseDto<FaqCategoryResponseDto> searchFaqCategories(int page, int size, String keyword){
+		Page<FaqCategoryResponseDto> faqCategoryPage = faqCategoryRepository
+				.findByKeywordAndDeletedAtIsNull(keyword, PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("createdAt"),
+						Sort.Order.desc("id")
+				)))
+				.map(FaqCategoryResponseDto::from);
+
+		return PageResponseDto.from(faqCategoryPage);
 	}
 
 	@Transactional
-	public FaqCategory updateFaqCategory(FaqCategoryUpdateRequestDto requestDto) {
-		String beforeCategoryName = requestDto.beforeName();
+	public FaqCategoryResponseDto updateFaqCategory(Long faqCategoryId, FaqCategoryUpdateRequestDto requestDto) {
+		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		String beforeCategoryName = faqCategory.getName();
 		String afterCategoryName = requestDto.afterName();
 
 		if(beforeCategoryName.equals(afterCategoryName)) {
 			throw new FaqException(ErrorCode.FAQ_CATEGORY_SAME_NAME);
 		}
 
-		FaqCategory faqCategory = faqCategoryRepository.findByName(beforeCategoryName).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
-
-		if(faqCategoryRepository.findByName(afterCategoryName).isPresent()) {
+		if(faqCategoryRepository.findByNameAndDeletedAtIsNull(afterCategoryName).isPresent()) {
 			throw new FaqException(ErrorCode.FAQ_CATEGORY_EXIST, afterCategoryName + "는 이미 존재하는 카테고리명입니다.");
 		}
 
 		faqCategory.update(afterCategoryName);
 
-		return faqCategoryRepository.save(faqCategory);
+		return FaqCategoryResponseDto.from(faqCategoryRepository.save(faqCategory));
 	}
 
 	@Transactional
 	public void deleteFaqCategory(Long faqCategoryId) {
-		faqCategoryRepository.deleteById(faqCategoryId);
+		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() ->
+				new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+
+		if(faqRepository.existsAllByFaqCategoryId(faqCategoryId)){
+			throw new FaqException(ErrorCode.FAQ_CATEGORY_IN_USE);
+		}
+
+		faqCategory.delete();
 	}
 }

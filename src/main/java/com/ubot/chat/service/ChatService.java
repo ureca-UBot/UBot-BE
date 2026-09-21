@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.exception.ChatException;
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 
 import org.springframework.util.StringUtils;

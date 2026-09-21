@@ -1,11 +1,15 @@
 package com.ubot.faq.service;
 
 
+import com.pgvector.PGvector;
 import com.ubot.common.ErrorCode;
+import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.FaqException;
 import com.ubot.common.exception.UserException;
-import com.ubot.faq.dto.reqeust.FaqCreateRequestDto;
-import com.ubot.faq.dto.reqeust.FaqUpdateRequestDto;
+import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.faq.dto.request.FaqCreateRequestDto;
+import com.ubot.faq.dto.request.FaqUpdateRequestDto;
+import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.entity.OldFaq;
@@ -15,11 +19,13 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -29,20 +35,19 @@ public class FaqService {
 	private final FaqCategoryRepository faqCategoryRepository;
 	private final OldFaqRepository oldFaqRepository;
 	private final UserRepository userRepository;
-//	private final EmbeddingService embeddingService;
+	private final EmbeddingService embeddingService;
 
 
 //	Todo: 중복되는 FAQ가 존재하는지를 확인하는 내용이 필요해보이는데, 어떻게 할지는 미정
 	@Transactional
-	public Faq createFaq(FaqCreateRequestDto requestDto, Long adminId){
+	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
 
 		User admin = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
-		FaqCategory category = faqCategoryRepository.findByName(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory category = faqCategoryRepository.findByNameAndDeletedAtIsNull(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
-//		Todo: 해당 FAQ의 question을 Embedding화하여 저장
-//		PGVector vector = embeddingService.embedText(faq.getQuestion());
-//		if(vector == null)
-//			throw new FaqException(ErrorCode.FAQ_VECTOR_CREATE_FAILURE);
+		PGvector vector = embeddingService.embedText(requestDto.question());
+		if(vector == null)
+			throw new FaqException(ErrorCode.FAQ_VECTOR_CREATE_FAILURE);
 
 
 		Faq faq = Faq.builder()
@@ -52,30 +57,63 @@ public class FaqService {
 				.answer(requestDto.answer())
 				.createdAt(LocalDateTime.now())
 				.updatedAt(LocalDateTime.now())
-//				.vector(vector)
+				.vector(vector)
 				.build();
 
-		return faqRepository.save(faq);
+		return FaqResponseDto.from(faqRepository.save(faq));
 	}
 
-	public Faq getActiveFaq(Long faqId){
-		return faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND));
+	public FaqResponseDto getActiveFaq(Long faqId){
+		return FaqResponseDto.from(faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND)));
 	}
 
-	public List<Faq> getActiveFaqList(){
-		return faqRepository.findAllActives();
+	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size){
+		Page<FaqResponseDto> faqPage = faqRepository.
+				findAllActives(PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("createdAt"),
+						Sort.Order.desc("id")
+				)))
+				.map(FaqResponseDto::from);
+
+
+		return PageResponseDto.from(faqPage);
 	}
 
-	public List<Faq> getDeletedFaqList(){
-		return faqRepository.findAllDeletedFaq();
+	public PageResponseDto<FaqResponseDto> getDeletedFaqList(int page, int size){
+		Page<FaqResponseDto> faqPage = faqRepository.
+				findAllDeletedFaq(PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("deletedAt"),
+						Sort.Order.desc("id")
+				)))
+				.map(FaqResponseDto::from);
+
+		return PageResponseDto.from(faqPage);
 	}
 
-	public List<Faq> searchActiveFaq(String keyword){
-		return faqRepository.findActivesByKeyword(keyword);
+	public PageResponseDto<FaqResponseDto> searchActiveFaq(int page, int size, String keyword){
+		Page<FaqResponseDto> faqPage = faqRepository.
+				findActivesByKeyword(keyword, PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("createdAt"),
+						Sort.Order.desc("id")
+				)))
+				.map(FaqResponseDto::from);
+
+		return PageResponseDto.from(faqPage);
+	}
+
+	public PageResponseDto<FaqResponseDto> getFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
+		Page<FaqResponseDto> faqPage = faqRepository.
+				findAllByFaqCategoryId(faqCategoryId, PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("createdAt"),
+						Sort.Order.desc("id")
+				)))
+				.map(FaqResponseDto::from);
+
+		return PageResponseDto.from(faqPage);
 	}
 
 	@Transactional
-	public Faq updateActiveFaq(FaqUpdateRequestDto requestDto, Long adminId){
+	public FaqResponseDto updateActiveFaq(FaqUpdateRequestDto requestDto, Long adminId){
 
 		Faq faq = faqRepository.findActiveById(requestDto.id()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND));
 		User updatedBy = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
@@ -83,25 +121,24 @@ public class FaqService {
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
 		oldFaqRepository.save(oldFaq);
 
-		FaqCategory category = faqCategoryRepository.findByName(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory category = faqCategoryRepository.findByNameAndDeletedAtIsNull(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
-//		Todo: vector 로직 들어오면 이거 추가
-//		PGvector vector = embeddingService.embedText(requestDto.question());
-//
-//		if (vector == null) {
-//			throw new FaqException(
-//					ErrorCode.FAQ_VECTOR_CREATE_FAILURE
-//			);
-//		}
+		PGvector vector = embeddingService.embedText(requestDto.question());
+
+		if (vector == null) {
+			throw new FaqException(
+					ErrorCode.FAQ_VECTOR_CREATE_FAILURE
+			);
+		}
 
 		faq.update(
 				category,
 				requestDto.question(),
 				requestDto.answer(),
-				null //Todo: vector가 들어가야 함
+				vector
 		);
 
-		return faqRepository.save(faq);
+		return FaqResponseDto.from(faqRepository.save(faq));
 	}
 
 	@Transactional

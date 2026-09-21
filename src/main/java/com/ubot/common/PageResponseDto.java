@@ -1,5 +1,7 @@
 package com.ubot.common;
 
+import org.springframework.data.domain.Page;
+
 import java.util.List;
 
 public record PageResponseDto<T>(
@@ -27,6 +29,18 @@ public record PageResponseDto<T>(
                 totalPages,
                 page == 0,
                 page + 1 >= totalPages
+        );
+    }
+
+    public static <T> PageResponseDto<T> from(Page<T> page) {
+        return new PageResponseDto<>(
+                page.getContent(),
+                page.getNumber(),
+                page.getSize(),
+                page.getTotalElements(),
+                page.getTotalPages(),
+                page.isFirst(),
+                page.isLast()
         );
     }
 }
