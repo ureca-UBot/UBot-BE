@@ -3,14 +3,12 @@ package com.ubot.chat.controller;
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.service.ChatService;
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.ChatException;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ChatController.class)
+@Import(com.ubot.common.GlobalExceptionHandler.class)
 @AutoConfigureMockMvc(addFilters = false)
 @DisplayName("Chat Controller 테스트")
 class ChatControllerTest {
@@ -40,7 +39,7 @@ class ChatControllerTest {
                 when(chatService.createChat(anyString()))
                                 .thenReturn(ChatResponseDto.createSuccessAnswer("매장에서 가능합니다"));
 
-                mockMvc.perform(post("/chat/questions") // ← 경로 수정
+                mockMvc.perform(post("/chat/questions")
                                 .contentType("application/json")
                                 .content("""
                                                 {"question": "유심 재발급 어떻게 해요"}
@@ -52,25 +51,27 @@ class ChatControllerTest {
         }
 
         @Test
-        @DisplayName("검색 결과가 없으면 success:false 응답을 받는다")
-        void returnsFailureWhenNoConfidentResult() throws Exception {
+        @DisplayName("검색 결과가 없으면 사유와 함께 success:false 응답을 받는다")
+        void returnsFailureWithReason() throws Exception {
                 when(chatService.createChat(anyString()))
-                                .thenReturn(ChatResponseDto.createFailureAnswer());
+                                .thenReturn(ChatResponseDto.createFailureAnswer("검색 결과가 없습니다."));
 
-                mockMvc.perform(post("/chat/questions") // ← 경로 수정
+                mockMvc.perform(post("/chat/questions")
                                 .contentType("application/json")
                                 .content("""
                                                 {"question": "전혀 관계없는 질문"}
                                                 """))
                                 .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.data.success").value(false));
+                                .andExpect(jsonPath("$.data.success").value(false))
+                                .andExpect(jsonPath("$.data.answer").value("검색 결과가 없습니다."));
         }
 
         @Test
         @DisplayName("Service에서 예외가 나면 GlobalExceptionHandler가 400으로 변환한다")
         void rejectsBlankQuestion() throws Exception {
                 when(chatService.createChat(anyString()))
-                                .thenThrow(new ChatException(ErrorCode.CHAT_QUESTION_REQUIRED));
+                                .thenThrow(new com.ubot.common.exception.ChatException(
+                                                com.ubot.common.ErrorCode.INVALID_CHAT_REQUEST));
 
                 mockMvc.perform(post("/chat/questions")
                                 .contentType("application/json")
