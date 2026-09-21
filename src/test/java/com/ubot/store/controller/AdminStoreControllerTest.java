@@ -17,11 +17,13 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
 import com.ubot.store.exception.DuplicateStoreException;
@@ -29,6 +31,7 @@ import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.service.AdminStoreService;
 
 @WebMvcTest(AdminStoreController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @DisplayName("관리자 매장 Controller 테스트")
 class AdminStoreControllerTest {
 
@@ -37,6 +40,9 @@ class AdminStoreControllerTest {
 
     @MockitoBean
     private AdminStoreService adminStoreService;
+
+    @MockitoBean
+    private JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Test
     @DisplayName("매장을 등록하면 201 응답과 생성된 자원 위치를 반환한다")
