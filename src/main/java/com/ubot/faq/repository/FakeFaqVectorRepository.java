@@ -21,7 +21,7 @@ public class FakeFaqVectorRepository {
 
         public List<FakeFaqSearchResponseDto> getSimilarList(PGvector queryEmbedding, int topK) {
                 String sql = """
-                                SELECT id, question, answer, vector <=> ? AS distance
+                                SELECT id, question, answer, 1 - (vector <=> ?) AS similarity_score
                                 FROM faq
                                 WHERE deleted_at IS NULL
                                 ORDER BY vector <=> ?
@@ -33,7 +33,7 @@ public class FakeFaqVectorRepository {
                                                 rs.getLong("id"),
                                                 rs.getString("question"),
                                                 rs.getString("answer"),
-                                                rs.getDouble("distance")),
+                                                rs.getDouble("similarity_score")),
                                 queryEmbedding, queryEmbedding, topK);
         }
 }
