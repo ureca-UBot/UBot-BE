@@ -14,6 +14,7 @@ spring:
 
   ai:
     model:
+      chat: ollama
       # OllamaEmbeddingModel 자동구성을 비활성화.
       # 이 빈이 없으면 PgVectorStore(EmbeddingModel 필수 의존)도 생성되지 않아
       # initialize-schema로 인한 vector_store 테이블 자동 생성을 막을 수 있음.
@@ -26,6 +27,7 @@ spring:
         model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
 
     vectorstore:
+      type: none
       pgvector:
         # embedding: none으로 인해 현재 비활성 상태 (PgVectorStore 빈이 안 만들어짐).
         # PgVectorStore 채택 여부가 확정되면 이 설정이 그대로 살아날 예정.
