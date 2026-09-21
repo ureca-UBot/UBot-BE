@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ChatService {
 
-    private static final int TOP_K = 5; // TODO: threshold 테스트 결과로 교체
+    private static final int TOP_K = 3; // TODO: threshold 테스트 결과로 교체
     private static final double CONFIDENCE_THRESHOLD = 0.75; // TODO: 위와 동일
 
     private final FakeFaqVectorService faqVectorService;
