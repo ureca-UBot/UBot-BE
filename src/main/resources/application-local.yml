@@ -27,6 +27,7 @@ spring:
         model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
 
     vectorstore:
+      type: none
       pgvector:
         # embedding: none으로 인해 현재 비활성 상태 (PgVectorStore 빈이 안 만들어짐).
         # PgVectorStore 채택 여부가 확정되면 이 설정이 그대로 살아날 예정.
