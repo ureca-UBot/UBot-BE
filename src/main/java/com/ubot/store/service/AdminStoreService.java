@@ -33,28 +33,15 @@ public class AdminStoreService {
     public AdminStoreResponseDto createStore(AdminStoreCreateRequestDto request) {
         String storeName = normalize(request.storeName());
         String address = normalize(request.address());
-        Store existingStore = storeJpaRepository.findByStoreNameAndAddress(storeName, address)
-                .orElse(null);
 
-        if (existingStore != null && existingStore.isActive() && existingStore.getDeletedAt() == null) {
+        if (storeJpaRepository.existsByStoreNameAndAddressAndIsActiveTrueAndDeletedAtIsNull(
+                storeName,
+                address
+        )) {
             throw new DuplicateStoreException();
         }
 
         Set<ServiceType> serviceTypes = resolveServiceTypes(request.serviceCodes());
-        if (existingStore != null) {
-            existingStore.restore(
-                    storeName,
-                    normalize(request.sido()),
-                    normalize(request.sigungu()),
-                    address,
-                    request.latitude(),
-                    request.longitude(),
-                    normalize(request.phoneNumber()),
-                    normalize(request.businessHours())
-            );
-            existingStore.replaceServiceTypes(serviceTypes);
-            return AdminStoreResponseDto.from(existingStore);
-        }
 
         Store store = Store.create(
                 storeName,

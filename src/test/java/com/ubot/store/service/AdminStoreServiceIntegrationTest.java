@@ -85,63 +85,58 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("소프트 삭제된 동일 매장은 기존 ID로 복구하고 요청 정보로 갱신한다")
-    void restoresSoftDeletedStore() {
-        int storeCountBeforeRestore = countStores();
-        LocalDateTime updatedAtBeforeDelete = jdbcTemplate.queryForObject(
-                "SELECT updated_at FROM stores WHERE store_id = 1",
-                LocalDateTime.class
-        );
-        adminStoreService.deleteStore(1L);
+    @DisplayName("소프트 삭제된 동일 매장은 복구하지 않고 새 매장으로 등록한다")
+    void createsNewStoreWhenSameStoreWasSoftDeleted() {
+
+        long deletedStoreId = 1L;
+
+        adminStoreService.deleteStore(deletedStoreId);
         entityManager.flush();
         entityManager.clear();
 
-        AdminStoreCreateRequestDto request = new AdminStoreCreateRequestDto(
-                "강남역점",
-                "서울특별시",
-                "강남구",
-                "서울특별시 강남구 강남대로 396",
-                new BigDecimal("37.4000000"),
-                new BigDecimal("127.1000000"),
-                "031-1234-5678",
-                "10:00-20:00",
-                List.of("IDENTITY_THEFT_REPORT")
-        );
+        int storeCountBeforeCreate = countStores();
+
+        AdminStoreCreateRequestDto request =
+                new AdminStoreCreateRequestDto(
+                        "강남역점",
+                        "서울특별시",
+                        "강남구",
+                        "서울특별시 강남구 강남대로 396",
+                        new BigDecimal("37.4000000"),
+                        new BigDecimal("127.1000000"),
+                        "031-1234-5678",
+                        "10:00-20:00",
+                        List.of("IDENTITY_THEFT_REPORT")
+                );
+
 
         AdminStoreResponseDto response = adminStoreService.createStore(request);
-        entityManager.flush();
 
-        assertThat(response.storeId()).isEqualTo(1L);
+        entityManager.flush();
+        entityManager.clear();
+
+
+        assertThat(response.storeId()).isNotEqualTo(deletedStoreId);
+
         assertThat(response.active()).isTrue();
-        assertThat(response.storeName()).isEqualTo("강남역점");
-        assertThat(response.sido()).isEqualTo("서울특별시");
-        assertThat(response.sigungu()).isEqualTo("강남구");
-        assertThat(response.address()).isEqualTo("서울특별시 강남구 강남대로 396");
-        assertThat(response.latitude()).isEqualByComparingTo("37.4000000");
-        assertThat(response.longitude()).isEqualByComparingTo("127.1000000");
-        assertThat(response.phoneNumber()).isEqualTo("031-1234-5678");
-        assertThat(response.businessHours()).isEqualTo("10:00-20:00");
-        assertThat(response.services())
-                .extracting(AdminStoreResponseDto.ServiceResponse::code)
-                .containsExactly("IDENTITY_THEFT_REPORT");
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT is_active FROM stores WHERE store_id = 1",
-                Boolean.class
-        )).isTrue();
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT deleted_at IS NULL FROM stores WHERE store_id = 1",
-                Boolean.class
-        )).isTrue();
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT updated_at FROM stores WHERE store_id = 1",
-                LocalDateTime.class
-        )).isAfter(updatedAtBeforeDelete);
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT ST_AsText(location::geometry) FROM stores WHERE store_id = 1",
-                String.class
-        )).isEqualTo("POINT(127.1 37.4)");
-        assertThat(countStoreServices(1L)).isEqualTo(1);
-        assertThat(countStores()).isEqualTo(storeCountBeforeRestore);
+
+        assertThat(countStores()).isEqualTo(storeCountBeforeCreate + 1);
+
+        Boolean oldStoreActive = jdbcTemplate.queryForObject(
+                "SELECT is_active FROM stores WHERE store_id = ?",
+                Boolean.class,
+                deletedStoreId
+        );
+
+        assertThat(oldStoreActive).isFalse();
+
+        LocalDateTime oldStoreDeletedAt = jdbcTemplate.queryForObject(
+                "SELECT deleted_at FROM stores WHERE store_id = ?",
+                LocalDateTime.class,
+                deletedStoreId
+        );
+
+        assertThat(oldStoreDeletedAt).isNotNull();
     }
 
     @Test

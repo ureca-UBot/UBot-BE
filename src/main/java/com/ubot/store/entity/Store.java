@@ -150,29 +150,6 @@ public class Store {
         this.updatedAt = now;
     }
 
-    public void restore(
-            String storeName,
-            String sido,
-            String sigungu,
-            String address,
-            BigDecimal latitude,
-            BigDecimal longitude,
-            String phoneNumber,
-            String businessHours
-    ) {
-        this.storeName = storeName;
-        this.sido = sido;
-        this.sigungu = sigungu;
-        this.address = address;
-        this.latitude = latitude;
-        this.longitude = longitude;
-        this.phoneNumber = phoneNumber;
-        this.businessHours = businessHours;
-        this.isActive = true;
-        this.deletedAt = null;
-        touch();
-    }
-
     private void touch() {
         this.updatedAt = LocalDateTime.now();
     }
