@@ -239,13 +239,29 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("활성 상태인 매장은 복구할 수 없다")
+    void rejectsActiveStoreOnActivate() {
+        assertThatThrownBy(
+                () -> adminStoreService.activateStore(1L)
+        ).isInstanceOf(StoreNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("삭제 이력이 없는 비활성 매장은 복구할 수 없다")
+    void rejectsInactiveStoreOnActivate() {
+        assertThatThrownBy(
+                () -> adminStoreService.activateStore(4L)
+        ).isInstanceOf(StoreNotFoundException.class);
+    }
+
+    @Test
     @DisplayName("존재하지 않는 매장은 복구할 수 없다")
     void rejectsMissingStoreOnActivate() {
         assertThatThrownBy(
                 () -> adminStoreService.activateStore(999L)
         ).isInstanceOf(StoreNotFoundException.class);
     }
-    
+
     @Test
     @DisplayName("다른 활성 매장과 동일한 매장명과 주소로 수정할 수 없다")
     void rejectsDuplicateStoreOnUpdate() {
