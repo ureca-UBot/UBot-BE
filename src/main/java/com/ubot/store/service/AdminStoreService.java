@@ -79,9 +79,11 @@ public class AdminStoreService {
             throw new DuplicateStoreException();
         }
 
-
         if (request.storeName() != null) {
-            store.updateStoreName(normalize(request.storeName()));
+            store.updateStoreName(newStoreName);
+        }
+        if (request.address() != null) {
+            store.updateAddress(newAddress);
         }
         if (request.sido() != null) {
             store.updateSido(normalize(request.sido()));

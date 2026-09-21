@@ -21,15 +21,15 @@ public class ServiceType {
     @Column(name = "service_type_id")
     private Long serviceTypeId;
 
-    @Column(name = "service_code", nullable = false, unique = true, length = 50)
+    @Column(name = "service_code")
     private String serviceCode;
 
-    @Column(name = "service_name", nullable = false, length = 100)
+    @Column(name = "service_name")
     private String serviceName;
 
     @Column(name = "description")
     private String description;
 
-    @Column(name = "is_active", nullable = false)
+    @Column(name = "is_active")
     private boolean isActive;
 }

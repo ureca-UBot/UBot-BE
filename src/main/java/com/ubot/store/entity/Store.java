@@ -31,37 +31,37 @@ public class Store {
     @Column(name = "store_id")
     private Long storeId;
 
-    @Column(name = "store_name", nullable = false, length = 150)
+    @Column(name = "store_name")
     private String storeName;
 
-    @Column(name = "sido", length = 50)
+    @Column(name = "sido")
     private String sido;
 
-    @Column(name = "sigungu", length = 50)
+    @Column(name = "sigungu")
     private String sigungu;
 
-    @Column(name = "address", nullable = false, length = 500)
+    @Column(name = "address")
     private String address;
 
-    @Column(name = "latitude", nullable = false, precision = 10, scale = 7)
+    @Column(name = "latitude")
     private BigDecimal latitude;
 
-    @Column(name = "longitude", nullable = false, precision = 10, scale = 7)
+    @Column(name = "longitude")
     private BigDecimal longitude;
 
-    @Column(name = "phone_number", length = 30)
+    @Column(name = "phone_number")
     private String phoneNumber;
 
     @Column(name = "business_hours")
     private String businessHours;
 
-    @Column(name = "is_active", nullable = false)
+    @Column(name = "is_active")
     private boolean isActive;
 
-    @Column(name = "created_at", nullable = false)
+    @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
     @Column(name = "deleted_at")
