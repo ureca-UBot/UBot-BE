@@ -5,9 +5,12 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.common.ErrorCode;
+import com.ubot.common.exception.ChatException;
 import com.ubot.faq.dto.FakeFaqSearchResponseDto;
 import com.ubot.faq.service.FakeFaqVectorService;
 
+import org.springframework.util.StringUtils;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -20,6 +23,10 @@ public class ChatService {
     private final FakeFaqVectorService faqVectorService;
 
     public ChatResponseDto createChat(String question) {
+
+        if (!StringUtils.hasText(question)) {
+            throw new ChatException(ErrorCode.CHAT_QUESTION_REQUIRED);
+        }
 
         // TOP-K 검색 수행
         List<FakeFaqSearchResponseDto> results = faqVectorService.getSimilarList(question, TOP_K);
@@ -39,10 +46,13 @@ public class ChatService {
             return ChatResponseDto.createFailureAnswer();
         } else {
 
+            /* LLM 로직 추가 */
+
             /* question_log에 사용자 질문 저장하는 로직 추가 */
 
             /* 각 검색 결과마다 faq_log에 저장하는 로직 추가 */
 
+            // faq 답변을 반환하는 임시 코드
             return ChatResponseDto.createSuccessAnswer(bestResponse.answer());
         }
     }

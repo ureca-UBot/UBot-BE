@@ -18,9 +18,9 @@ public enum ErrorCode {
 
     // ── 임베딩 도메인 ──
     EMBEDDING_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "EM-001",
-                    "임베딩 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."),
+            "임베딩 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."),
     EMBEDDING_RESPONSE_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "EM-002",
-                    "임베딩 서버 응답 형식이 올바르지 않습니다."),
+            "임베딩 서버 응답 형식이 올바르지 않습니다."),
     EMBEDDING_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "EM-003", "임베딩 서버 응답이 지연되고 있습니다."),
 
     // MyJwtException
@@ -41,7 +41,7 @@ public enum ErrorCode {
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "USER-002", "이메일 혹은 비밀번호가 일치하지 않습니다."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "USER-003", "이메일이 이미 존재합니다."),
     PASSWORD_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "USER-004", "비밀번호 및 재확인이 일치하지 않습니다."),
-    INVALID_SIGNUP_REQUEST(HttpStatus.BAD_REQUEST,"USER-005", "SignupRequestDto가 올바르지 않습니다."),
+    INVALID_SIGNUP_REQUEST(HttpStatus.BAD_REQUEST, "USER-005", "SignupRequestDto가 올바르지 않습니다."),
     INVALID_LOGIN_REQUEST(HttpStatus.BAD_REQUEST, "USER-006", "LoginRequestDto가 올바르지 않습니다."),
     INVALID_EMAIL_FORMAT(HttpStatus.BAD_REQUEST, "USER-007", "이메일 양식이 올바르지 않습니다."),
     INVALID_PASSWORD_FORMAT(HttpStatus.BAD_REQUEST, "USER-008", "비밀번호 양식이 올바르지 않습니다."),
@@ -50,11 +50,13 @@ public enum ErrorCode {
     INVALID_GENDER_FORMAT(HttpStatus.BAD_REQUEST, "USER-011", "성별 입력이 올바르지 않습니다."),
     INVALID_RESIDENCE_FORMAT(HttpStatus.BAD_REQUEST, "USER-012", "사는 지역 입력이 올바르지 않습니다."),
 
-
     // ── 매장 도메인 ──
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."),
     SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "SERVICE_TYPE_NOT_FOUND", "서비스 유형을 찾을 수 없습니다."),
-    INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "INVALID_MAP_BOUNDS", "지도 영역 좌표가 올바르지 않습니다.");
+    INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "INVALID_MAP_BOUNDS", "지도 영역 좌표가 올바르지 않습니다."),
+
+    // ChatException
+    CHAT_QUESTION_REQUIRED(HttpStatus.BAD_REQUEST, "CHAT_QUESTION_REQUIRED", "질문 내용을 입력해주세요.");
 
     private final HttpStatus status;
     private final String code;
