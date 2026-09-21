@@ -44,6 +44,7 @@ public class SecurityConfig {
 								"/auth/refresh",
 								"/stores/**"
 						).permitAll()
+						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.addFilterBefore(
