@@ -6,8 +6,7 @@ public record ChatResponseDto(String answer, boolean success) {
         return new ChatResponseDto(answer, true);
     }
 
-    public static ChatResponseDto createFailureAnswer() {
-        return new ChatResponseDto("답변 실패", false);
+    public static ChatResponseDto createFailureAnswer(String reason) {
+        return new ChatResponseDto(reason, false); // 실패 이유 작성
     }
-
 }

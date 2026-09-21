@@ -25,7 +25,7 @@ public class ChatService {
     public ChatResponseDto createChat(String question) {
 
         if (!StringUtils.hasText(question)) {
-            throw new ChatException(ErrorCode.CHAT_QUESTION_REQUIRED);
+            throw new ChatException(ErrorCode.INVALID_CHAT_REQUEST);
         }
 
         // TOP-K 검색 수행
@@ -33,7 +33,7 @@ public class ChatService {
 
         // 예외 방지
         if (results.isEmpty()) {
-            return ChatResponseDto.createFailureAnswer();
+            return ChatResponseDto.createFailureAnswer("검색 결과가 없습니다.");
         }
 
         // 가장 유사한 질문 응답
@@ -43,7 +43,7 @@ public class ChatService {
 
             /* 이 질문을 클러스터링 용도로 따로 저장해두는 로직 추가 */
 
-            return ChatResponseDto.createFailureAnswer();
+            return ChatResponseDto.createFailureAnswer("정확한 답변을 찾지 못했습니다.");
         } else {
 
             /* LLM 로직 추가 */
