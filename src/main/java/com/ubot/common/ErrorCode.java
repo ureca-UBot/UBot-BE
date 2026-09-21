@@ -18,9 +18,9 @@ public enum ErrorCode {
 
     // ── 임베딩 도메인 ──
     EMBEDDING_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "EM-001",
-                    "임베딩 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."),
+            "임베딩 서버 응답이 없습니다. 잠시 후 다시 시도해주세요."),
     EMBEDDING_RESPONSE_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "EM-002",
-                    "임베딩 서버 응답 형식이 올바르지 않습니다."),
+            "임베딩 서버 응답 형식이 올바르지 않습니다."),
     EMBEDDING_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "EM-003", "임베딩 서버 응답이 지연되고 있습니다."),
 
     // MyJwtException
@@ -41,7 +41,7 @@ public enum ErrorCode {
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "USER-002", "이메일 혹은 비밀번호가 일치하지 않습니다."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "USER-003", "이메일이 이미 존재합니다."),
     PASSWORD_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "USER-004", "비밀번호 및 재확인이 일치하지 않습니다."),
-    INVALID_SIGNUP_REQUEST(HttpStatus.BAD_REQUEST,"USER-005", "SignupRequestDto가 올바르지 않습니다."),
+    INVALID_SIGNUP_REQUEST(HttpStatus.BAD_REQUEST, "USER-005", "SignupRequestDto가 올바르지 않습니다."),
     INVALID_LOGIN_REQUEST(HttpStatus.BAD_REQUEST, "USER-006", "LoginRequestDto가 올바르지 않습니다."),
     INVALID_EMAIL_FORMAT(HttpStatus.BAD_REQUEST, "USER-007", "이메일 양식이 올바르지 않습니다."),
     INVALID_PASSWORD_FORMAT(HttpStatus.BAD_REQUEST, "USER-008", "비밀번호 양식이 올바르지 않습니다."),
@@ -50,15 +50,18 @@ public enum ErrorCode {
     INVALID_GENDER_FORMAT(HttpStatus.BAD_REQUEST, "USER-011", "성별 입력이 올바르지 않습니다."),
     INVALID_RESIDENCE_FORMAT(HttpStatus.BAD_REQUEST, "USER-012", "사는 지역 입력이 올바르지 않습니다."),
 
-
     // ── 매장 도메인 ──
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE-001", "매장을 찾을 수 없습니다."),
     DUPLICATE_STORE(HttpStatus.CONFLICT, "STORE-002", "이미 등록된 매장입니다."),
     DELETED_STORE_ALREADY_EXISTS(HttpStatus.CONFLICT, "STORE-003", "삭제된 동일 매장이 존재합니다. 기존 매장을 복구해주세요."),
     SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE-004", "서비스 유형을 찾을 수 없습니다."),
     INVALID_STORE_COORDINATES(HttpStatus.BAD_REQUEST, "STORE-005", "위도와 경도는 함께 입력해야 합니다."),
-    INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "STORE-006", "지도 영역 좌표가 올바르지 않습니다.");
+    INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "STORE-006", "지도 영역 좌표가 올바르지 않습니다."),
 
+
+    // ChatException
+    // CHAT_QUESTION_REQUIRED → INVALID_CHAT_REQUEST로 이름 변경
+    INVALID_CHAT_REQUEST(HttpStatus.BAD_REQUEST, "CHAT-001", "요청 값이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String code;
