@@ -1,6 +1,6 @@
 package com.ubot.faq.repository;
 
-import com.ubot.faq.dto.FakeFaqSearchResponseDto;
+import com.ubot.faq.dto.FaqSearchResponseDto;
 import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,10 +18,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 @Import(PgvectorTestConfiguration.class)
 @ActiveProfiles("test")
-class FakeFaqVectorRepositoryTest {
+class FaqVectorRepositoryTest {
 
     @Autowired
-    private FakeFaqVectorRepository faqVectorRepository;
+    private FaqVectorRepository faqVectorRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -61,7 +61,7 @@ class FakeFaqVectorRepositoryTest {
     void 저장된_벡터와_가까운_순서로_검색한다() {
         PGvector queryVector = vectorOf(0);
 
-        List<FakeFaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, 10);
+        List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, 10);
 
         assertThat(results).hasSizeGreaterThanOrEqualTo(2);
         assertThat(results.get(0).question()).isEqualTo("유심 재발급 방법");
@@ -71,7 +71,7 @@ class FakeFaqVectorRepositoryTest {
     void 삭제된_FAQ는_검색_결과에서_제외된다() {
         PGvector queryVector = vectorOf(0);
 
-        List<FakeFaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, 10);
+        List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, 10);
 
         assertThat(results).noneMatch(r -> r.question().equals("삭제된 FAQ"));
     }
@@ -80,7 +80,7 @@ class FakeFaqVectorRepositoryTest {
     void topK만큼만_결과를_반환한다() {
         PGvector queryVector = vectorOf(0);
 
-        List<FakeFaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, 1);
+        List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, 1);
 
         assertThat(results).hasSize(1);
     }
@@ -91,7 +91,7 @@ class FakeFaqVectorRepositoryTest {
 
         faqVectorRepository.saveEmbedding(1L, newVector);
 
-        List<FakeFaqSearchResponseDto> results = faqVectorRepository.getSimilarList(newVector, 10);
+        List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(newVector, 10);
         assertThat(results.get(0).question()).isEqualTo("유심 재발급 방법");
     }
 }

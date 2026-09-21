@@ -2,8 +2,8 @@ package com.ubot.chat.service;
 
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.common.exception.ChatException;
-import com.ubot.faq.dto.FakeFaqSearchResponseDto;
-import com.ubot.faq.service.FakeFaqVectorService;
+import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.service.FaqVectorService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 class ChatServiceTest {
 
         @Mock
-        private FakeFaqVectorService faqVectorService;
+        private FaqVectorService faqVectorService;
 
         @InjectMocks
         private ChatService chatService;
@@ -54,7 +54,7 @@ class ChatServiceTest {
         void 유사도가_threshold보다_작으면_사유와_함께_실패_응답을_반환한다() {
                 when(faqVectorService.getSimilarList(anyString(), anyInt()))
                                 .thenReturn(List.of(
-                                                new FakeFaqSearchResponseDto(1L, "질문", "답변", 0.12)));
+                                                new FaqSearchResponseDto(1L, "질문", "답변", 0.12)));
 
                 ChatResponseDto response = chatService.createChat("아무 질문");
 
@@ -66,7 +66,7 @@ class ChatServiceTest {
         void 유사도가_threshold_이상이면_성공_응답과_답변을_반환한다() {
                 when(faqVectorService.getSimilarList(anyString(), anyInt()))
                                 .thenReturn(List.of(
-                                                new FakeFaqSearchResponseDto(1L, "유심 재발급", "매장에서 가능합니다", 0.9)));
+                                                new FaqSearchResponseDto(1L, "유심 재발급", "매장에서 가능합니다", 0.9)));
 
                 ChatResponseDto response = chatService.createChat("유심 재발급 어떻게 해요");
 
@@ -78,8 +78,8 @@ class ChatServiceTest {
         void 여러_결과_중_유사도가_가장_높은_1등만_사용한다() {
                 when(faqVectorService.getSimilarList(anyString(), anyInt()))
                                 .thenReturn(List.of(
-                                                new FakeFaqSearchResponseDto(1L, "1등 질문", "1등 답변", 0.90),
-                                                new FakeFaqSearchResponseDto(2L, "2등 질문", "2등 답변", 0.80)));
+                                                new FaqSearchResponseDto(1L, "1등 질문", "1등 답변", 0.90),
+                                                new FaqSearchResponseDto(2L, "2등 질문", "2등 답변", 0.80)));
 
                 ChatResponseDto response = chatService.createChat("질문");
 

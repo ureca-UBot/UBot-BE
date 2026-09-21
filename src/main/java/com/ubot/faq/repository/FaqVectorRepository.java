@@ -1,6 +1,6 @@
 package com.ubot.faq.repository;
 
-import com.ubot.faq.dto.FakeFaqSearchResponseDto;
+import com.ubot.faq.dto.FaqSearchResponseDto;
 
 import lombok.RequiredArgsConstructor;
 
@@ -12,14 +12,14 @@ import java.util.List;
 
 @Repository
 @RequiredArgsConstructor
-public class FakeFaqVectorRepository {
+public class FaqVectorRepository {
         private final JdbcTemplate jdbcTemplate;
 
         public void saveEmbedding(Long faqId, PGvector embedding) {
                 jdbcTemplate.update("UPDATE faq SET vector = ? WHERE id = ?", embedding, faqId);
         }
 
-        public List<FakeFaqSearchResponseDto> getSimilarList(PGvector queryEmbedding, int topK) {
+        public List<FaqSearchResponseDto> getSimilarList(PGvector queryEmbedding, int topK) {
                 String sql = """
                                 SELECT id, question, answer, 1 - (vector <=> ?) AS similarity_score
                                 FROM faq
@@ -29,7 +29,7 @@ public class FakeFaqVectorRepository {
                                 """;
 
                 return jdbcTemplate.query(sql,
-                                (rs, rowNum) -> new FakeFaqSearchResponseDto(
+                                (rs, rowNum) -> new FaqSearchResponseDto(
                                                 rs.getLong("id"),
                                                 rs.getString("question"),
                                                 rs.getString("answer"),

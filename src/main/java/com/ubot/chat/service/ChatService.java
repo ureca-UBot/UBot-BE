@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.exception.ChatException;
-import com.ubot.faq.dto.FakeFaqSearchResponseDto;
-import com.ubot.faq.service.FakeFaqVectorService;
+import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.service.FaqVectorService;
 
 import org.springframework.util.StringUtils;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ public class ChatService {
     private static final int TOP_K = 3; // TODO: threshold 테스트 결과로 교체
     private static final double CONFIDENCE_THRESHOLD = 0.75; // TODO: 위와 동일
 
-    private final FakeFaqVectorService faqVectorService;
+    private final FaqVectorService faqVectorService;
 
     public ChatResponseDto createChat(String question) {
 
@@ -29,7 +29,7 @@ public class ChatService {
         }
 
         // TOP-K 검색 수행
-        List<FakeFaqSearchResponseDto> results = faqVectorService.getSimilarList(question, TOP_K);
+        List<FaqSearchResponseDto> results = faqVectorService.getSimilarList(question, TOP_K);
 
         // 예외 방지
         if (results.isEmpty()) {
@@ -37,7 +37,7 @@ public class ChatService {
         }
 
         // 가장 유사한 질문 응답
-        FakeFaqSearchResponseDto bestResponse = results.get(0);
+        FaqSearchResponseDto bestResponse = results.get(0);
 
         if (bestResponse.similarityScore() < CONFIDENCE_THRESHOLD) { // 가장 유사한 응답의 유사도가 임계값보다 작은 경우
 

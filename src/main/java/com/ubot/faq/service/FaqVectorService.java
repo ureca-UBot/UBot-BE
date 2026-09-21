@@ -6,18 +6,18 @@ import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingService;
-import com.ubot.faq.dto.FakeFaqSearchResponseDto;
-import com.ubot.faq.repository.FakeFaqVectorRepository;
+import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
-public class FakeFaqVectorService {
+public class FaqVectorService {
     private final EmbeddingService embeddingService;
-    private final FakeFaqVectorRepository faqVectorRepository;
+    private final FaqVectorRepository faqVectorRepository;
 
-    public List<FakeFaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
+    public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
         PGvector queryVector = embeddingService.embedText(userQuestion);
         return faqVectorRepository.getSimilarList(queryVector, topK);
     }
