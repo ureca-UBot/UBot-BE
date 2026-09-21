@@ -23,18 +23,20 @@ spring:
       embedding: none
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
+      chat:
+        model: ${OLLAMA_CHAT_MODEL}
       embedding:
         model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
-
     vectorstore:
       type: none
-      pgvector:
+        #pgvector:
         # embedding: none으로 인해 현재 비활성 상태 (PgVectorStore 빈이 안 만들어짐).
         # PgVectorStore 채택 여부가 확정되면 이 설정이 그대로 살아날 예정.
-        dimensions: 1024
-        index-type: HNSW
-        distance-type: COSINE_DISTANCE
-        initialize-schema: true
+        #dimensions: 1024
+        #index-type: HNSW
+        #distance-type: COSINE_DISTANCE
+        #initialize-schema: true 
+        #추후 spring ai 사용시 설정 
 
 management:
   endpoint:
