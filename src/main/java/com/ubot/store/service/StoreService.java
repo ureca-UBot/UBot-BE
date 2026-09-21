@@ -4,11 +4,15 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.GlobalException;
-import com.ubot.store.dto.MapStoreResponse;
-import com.ubot.store.dto.NearbyStoreResponse;
-import com.ubot.store.dto.StoreDetailResponse;
+import com.ubot.common.PageResponseDto;
+import com.ubot.store.dto.MapClusterResponseDto;
+import com.ubot.store.dto.MapStoreResponseDto;
+import com.ubot.store.dto.NearbyStoreResponseDto;
+import com.ubot.store.dto.StoreDetailResponseDto;
+import com.ubot.store.dto.StoreListResponseDto;
+import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.ServiceTypeNotFoundException;
+import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -19,48 +23,143 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
 
-    public StoreDetailResponse findById(long storeId) {
-        return storeRepository.findById(storeId)
-                .orElseThrow(() -> new GlobalException(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        "매장을 찾을 수 없습니다."
-                ));
+    public PageResponseDto<StoreListResponseDto> getStoreList(
+            String sido,
+            String sigungu,
+            List<String> types,
+            int page,
+            int size
+    ) {
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
+
+        String normalizedSido = normalizeCondition(sido);
+        String normalizedSigungu = normalizeCondition(sigungu);
+        List<StoreListResponseDto> content = storeRepository.findStores(
+                normalizedSido,
+                normalizedSigungu,
+                normalizedTypes,
+                page,
+                size
+        );
+        long totalElements = storeRepository.countStores(
+                normalizedSido,
+                normalizedSigungu,
+                normalizedTypes
+        );
+
+        return PageResponseDto.of(content, page, size, totalElements);
     }
 
-    public List<NearbyStoreResponse> findNearby(
+    public StoreDetailResponseDto getStore(long storeId) {
+        return storeRepository.findById(storeId)
+                .orElseThrow(StoreNotFoundException::new);
+    }
+
+    public List<String> getSidoList() {
+        return storeRepository.findSidos();
+    }
+
+    public List<String> getSigunguList(String sido) {
+        return storeRepository.findSigungus(normalizeCondition(sido));
+    }
+
+    public List<NearbyStoreResponseDto> getNearbyStoreList(
             double latitude,
             double longitude,
             double radiusKm,
-            String type,
+            List<String> types,
             int limit
     ) {
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
+
         return storeRepository.findNearby(
                 latitude,
                 longitude,
                 radiusKm * 1_000,
-                normalizeType(type),
+                normalizedTypes,
                 limit
         );
     }
 
-    public List<MapStoreResponse> findInMap(
+    public List<MapStoreResponseDto> getMapStoreList(
             double swLat,
             double swLng,
             double neLat,
             double neLng,
-            String type
+            List<String> types
     ) {
-        if (swLat >= neLat || swLng >= neLng) {
-            throw new GlobalException(
-                    ErrorCode.INVALID_PARAMETER,
-                    "남서쪽 좌표는 북동쪽 좌표보다 작아야 합니다."
-            );
-        }
+        validateMapBounds(swLat, swLng, neLat, neLng);
 
-        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizeType(type));
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
+
+        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizedTypes);
     }
 
-    private String normalizeType(String type) {
-        return type == null || type.isBlank() ? null : type.trim();
+    public List<MapClusterResponseDto> getMapClusterList(
+            double swLat,
+            double swLng,
+            double neLat,
+            double neLng,
+            int level,
+            List<String> types
+    ) {
+        validateMapBounds(swLat, swLng, neLat, neLng);
+
+        List<String> normalizedTypes = normalizeTypes(types);
+        validateServiceTypes(normalizedTypes);
+
+        return storeRepository.findClusters(
+                swLat,
+                swLng,
+                neLat,
+                neLng,
+                clusterGridMeters(level),
+                normalizedTypes
+        );
+    }
+
+    private double clusterGridMeters(int level) {
+        return switch (level) {
+            case 9 -> 5_000;
+            case 10 -> 10_000;
+            case 11 -> 25_000;
+            case 12 -> 50_000;
+            default -> 100_000;
+        };
+    }
+
+    private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
+        if (swLat >= neLat || swLng >= neLng) {
+            throw new InvalidMapBoundsException();
+        }
+    }
+
+    private void validateServiceTypes(List<String> types) {
+        if (types.isEmpty()) {
+            return;
+        }
+
+        long validTypeCount = storeRepository.countActiveServiceTypes(types);
+        if (validTypeCount != types.size()) {
+            throw new ServiceTypeNotFoundException();
+        }
+    }
+
+    private List<String> normalizeTypes(List<String> types) {
+        if (types == null) {
+            return List.of();
+        }
+        return types.stream()
+                .map(this::normalizeCondition)
+                .filter(type -> type != null)
+                .distinct()
+                .toList();
+    }
+
+    private String normalizeCondition(String condition) {
+        return condition == null || condition.isBlank() ? null : condition.trim();
     }
 }

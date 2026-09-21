@@ -1,19 +1,14 @@
-SELECT
-    s.store_id,
-    s.store_name,
-    s.sido,
-    s.sigungu,
-    s.address,
-    s.phone_number,
-    s.business_hours,
-    s.latitude,
-    s.longitude
+SELECT COUNT(*)
 FROM stores s
 WHERE s.is_active = TRUE
   AND s.deleted_at IS NULL
-  AND ST_Intersects(
-      s.location,
-      ST_MakeEnvelope(:swLng, :swLat, :neLng, :neLat, 4326)::geography
+  AND (
+      CAST(:sido AS VARCHAR) = ''
+      OR s.sido = CAST(:sido AS VARCHAR)
+  )
+  AND (
+      CAST(:sigungu AS VARCHAR) = ''
+      OR s.sigungu = CAST(:sigungu AS VARCHAR)
   )
   AND (
       :typeCount = 0
@@ -27,5 +22,4 @@ WHERE s.is_active = TRUE
           GROUP BY ss.store_id
           HAVING COUNT(DISTINCT st.service_code) = :typeCount
       )
-  )
-ORDER BY s.store_id;
+  );
