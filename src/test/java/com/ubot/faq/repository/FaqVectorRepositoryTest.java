@@ -7,6 +7,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +42,7 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
+    @DisplayName("유사도 검색은 가장 가까운 활성 FAQ를 먼저 반환한다")
     void getSimilarList_returnsNearestActiveFaqFirst() {
         // given
         PGvector queryVector = vectorOf(0);
@@ -54,6 +56,7 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
+    @DisplayName("유사도 검색은 삭제된 FAQ를 결과에서 제외한다")
     void getSimilarList_excludesDeletedFaq() {
         // given
         PGvector queryVector = vectorOf(0);
@@ -66,6 +69,7 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
+    @DisplayName("유사도 검색은 요청한 개수 이하의 결과를 반환한다")
     void getSimilarList_returnsAtMostTopKResults() {
         // given
         PGvector queryVector = vectorOf(0);
