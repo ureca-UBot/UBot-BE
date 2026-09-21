@@ -57,7 +57,7 @@ public enum ErrorCode {
 
         // ChatException
         // CHAT_QUESTION_REQUIRED → INVALID_CHAT_REQUEST로 이름 변경
-        INVALID_CHAT_REQUEST(HttpStatus.BAD_REQUEST, "INVALID_CHAT_REQUEST", "요청 값이 올바르지 않습니다.");
+        INVALID_CHAT_REQUEST(HttpStatus.BAD_REQUEST, "CHAT-001", "요청 값이 올바르지 않습니다.");
 
         private final HttpStatus status;
         private final String code;
