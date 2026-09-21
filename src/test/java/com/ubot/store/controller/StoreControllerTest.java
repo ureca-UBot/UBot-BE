@@ -42,7 +42,7 @@ class StoreControllerTest {
         mockMvc.perform(get("/stores").param("page", "-1"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-005"));
 
         verifyNoInteractions(storeService);
     }
@@ -53,7 +53,7 @@ class StoreControllerTest {
         mockMvc.perform(get("/stores").param("size", "101"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-005"));
 
         verifyNoInteractions(storeService);
     }
@@ -64,7 +64,7 @@ class StoreControllerTest {
         mockMvc.perform(get("/stores").param("type", "apple-as"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-005"));
 
         verifyNoInteractions(storeService);
     }
@@ -77,7 +77,7 @@ class StoreControllerTest {
                         "TYPE_07", "TYPE_08", "TYPE_09", "TYPE_10", "TYPE_11"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-005"));
 
         verifyNoInteractions(storeService);
     }
@@ -103,7 +103,7 @@ class StoreControllerTest {
                         .param("longitude", "127.0"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-005"));
 
         verifyNoInteractions(storeService);
     }
@@ -119,7 +119,7 @@ class StoreControllerTest {
                         .param("level", "14"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-005"));
 
         verifyNoInteractions(storeService);
     }
