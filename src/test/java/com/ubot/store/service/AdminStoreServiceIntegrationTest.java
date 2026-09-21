@@ -21,6 +21,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
+import com.ubot.store.exception.DeletedStoreAlreadyExistsException;
 import com.ubot.store.exception.DuplicateStoreException;
 import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.exception.ServiceTypeNotFoundException;
@@ -85,16 +86,15 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("소프트 삭제된 동일 매장은 복구하지 않고 새 매장으로 등록한다")
-    void createsNewStoreWhenSameStoreWasSoftDeleted() {
-
+    @DisplayName("소프트 삭제된 동일 매장이 존재하면 신규 등록할 수 없다")
+    void rejectsCreateWhenSameStoreWasSoftDeleted() {
         long deletedStoreId = 1L;
 
         adminStoreService.deleteStore(deletedStoreId);
         entityManager.flush();
         entityManager.clear();
 
-        int storeCountBeforeCreate = countStores();
+        int storeCountBefore = countStores();
 
         AdminStoreCreateRequestDto request =
                 new AdminStoreCreateRequestDto(
@@ -109,34 +109,11 @@ class AdminStoreServiceIntegrationTest {
                         List.of("IDENTITY_THEFT_REPORT")
                 );
 
+        assertThatThrownBy(
+                () -> adminStoreService.createStore(request)
+        ).isInstanceOf(DeletedStoreAlreadyExistsException.class);
 
-        AdminStoreResponseDto response = adminStoreService.createStore(request);
-
-        entityManager.flush();
-        entityManager.clear();
-
-
-        assertThat(response.storeId()).isNotEqualTo(deletedStoreId);
-
-        assertThat(response.active()).isTrue();
-
-        assertThat(countStores()).isEqualTo(storeCountBeforeCreate + 1);
-
-        Boolean oldStoreActive = jdbcTemplate.queryForObject(
-                "SELECT is_active FROM stores WHERE store_id = ?",
-                Boolean.class,
-                deletedStoreId
-        );
-
-        assertThat(oldStoreActive).isFalse();
-
-        LocalDateTime oldStoreDeletedAt = jdbcTemplate.queryForObject(
-                "SELECT deleted_at FROM stores WHERE store_id = ?",
-                LocalDateTime.class,
-                deletedStoreId
-        );
-
-        assertThat(oldStoreDeletedAt).isNotNull();
+        assertThat(countStores()).isEqualTo(storeCountBefore);
     }
 
     @Test
@@ -262,42 +239,10 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("동일한 활성 매장이 존재하면 삭제된 매장을 복구할 수 없다")
-    void rejectsDuplicateStoreOnActivate() {
-        long deletedStoreId = 1L;
-
-        adminStoreService.deleteStore(deletedStoreId);
-        entityManager.flush();
-        entityManager.clear();
-
-        AdminStoreCreateRequestDto request =
-                new AdminStoreCreateRequestDto(
-                        "강남역점",
-                        "서울특별시",
-                        "강남구",
-                        "서울특별시 강남구 강남대로 396",
-                        new BigDecimal("37.4000000"),
-                        new BigDecimal("127.1000000"),
-                        "031-1234-5678",
-                        "10:00-20:00",
-                        List.of("IDENTITY_THEFT_REPORT")
-                );
-
-        adminStoreService.createStore(request);
-
-        entityManager.flush();
-        entityManager.clear();
-
+    @DisplayName("존재하지 않는 매장은 복구할 수 없다")
+    void rejectsMissingStoreOnActivate() {
         assertThatThrownBy(
-                () -> adminStoreService.activateStore(deletedStoreId)
-        ).isInstanceOf(DuplicateStoreException.class);
-    }
-
-    @Test
-    @DisplayName("활성 상태인 매장은 복구할 수 없다")
-    void rejectsActiveStoreOnActivate() {
-        assertThatThrownBy(
-                () -> adminStoreService.activateStore(1L)
+                () -> adminStoreService.activateStore(999L)
         ).isInstanceOf(StoreNotFoundException.class);
     }
 

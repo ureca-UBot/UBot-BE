@@ -25,7 +25,8 @@ CREATE TABLE stores (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP
+	deleted_at TIMESTAMP,
+	UNIQUE (store_name, address)
 );
 
 CREATE INDEX idx_stores_location ON stores USING GIST (location);
@@ -70,7 +71,7 @@ INSERT INTO stores (
     deleted_at
 ) VALUES
     (4, '비활성매장', '제주특별자치도', '제주시', '제주특별자치도 제주시 비활성로 1', 126.5312, 33.4996, FALSE, NULL),
-    (5, '삭제매장', '대전광역시', '서구', '대전광역시 서구 삭제로 1', 127.3845, 36.3504, TRUE, CURRENT_TIMESTAMP);
+    (5, '삭제매장', '대전광역시', '서구', '대전광역시 서구 삭제로 1', 127.3845, 36.3504, FALSE, CURRENT_TIMESTAMP);
 
 INSERT INTO service_types (
     service_type_id,

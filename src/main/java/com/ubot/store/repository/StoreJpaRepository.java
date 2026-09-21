@@ -12,9 +12,9 @@ public interface StoreJpaRepository extends JpaRepository<Store, Long> {
 
     Optional<Store> findByStoreIdAndIsActiveFalseAndDeletedAtIsNotNull(Long storeId);
 
-    boolean existsByStoreNameAndAddressAndIsActiveTrueAndDeletedAtIsNull(String storeName, String address);
+    Optional<Store> findByStoreNameAndAddress(String storeName, String address);
 
-    boolean existsByStoreNameAndAddressAndStoreIdNotAndIsActiveTrueAndDeletedAtIsNull(
+    boolean existsByStoreNameAndAddressAndStoreIdNot (
             String storeName,
             String address,
             Long storeId

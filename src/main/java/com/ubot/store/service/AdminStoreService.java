@@ -13,6 +13,7 @@ import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
 import com.ubot.store.entity.ServiceType;
 import com.ubot.store.entity.Store;
+import com.ubot.store.exception.DeletedStoreAlreadyExistsException;
 import com.ubot.store.exception.DuplicateStoreException;
 import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.exception.ServiceTypeNotFoundException;
@@ -34,12 +35,13 @@ public class AdminStoreService {
         String storeName = normalize(request.storeName());
         String address = normalize(request.address());
 
-        if (storeJpaRepository.existsByStoreNameAndAddressAndIsActiveTrueAndDeletedAtIsNull(
-                storeName,
-                address
-        )) {
+        storeJpaRepository.findByStoreNameAndAddress(storeName, address).ifPresent(existingStore -> {
+            if (!existingStore.isActive()
+                    && existingStore.getDeletedAt() != null) {
+                throw new DeletedStoreAlreadyExistsException();
+            }
             throw new DuplicateStoreException();
-        }
+        });
 
         Set<ServiceType> serviceTypes = resolveServiceTypes(request.serviceCodes());
 
@@ -71,7 +73,7 @@ public class AdminStoreService {
                 ? normalize(request.address())
                 : store.getAddress();
 
-        if (storeJpaRepository.existsByStoreNameAndAddressAndStoreIdNotAndIsActiveTrueAndDeletedAtIsNull(
+        if (storeJpaRepository.existsByStoreNameAndAddressAndStoreIdNot(
                 newStoreName,
                 newAddress,
                 storeId
@@ -126,13 +128,7 @@ public class AdminStoreService {
     }
 
     public AdminStoreResponseDto activateStore(Long storeId) {
-        Store store = getDeleteStore(storeId);
-
-        if (storeJpaRepository.existsByStoreNameAndAddressAndIsActiveTrueAndDeletedAtIsNull(
-                    store.getStoreName(), store.getAddress()
-        )) {
-            throw new DuplicateStoreException();
-        }
+        Store store = getDeletedStore(storeId);
 
         store.activate();
 
@@ -144,8 +140,9 @@ public class AdminStoreService {
                 .orElseThrow(StoreNotFoundException::new);
     }
 
-    private Store getDeleteStore(Long storeId) {
-        return storeJpaRepository.findByStoreIdAndIsActiveFalseAndDeletedAtIsNotNull(storeId)
+    private Store getDeletedStore(Long storeId) {
+        return storeJpaRepository
+                .findByStoreIdAndIsActiveFalseAndDeletedAtIsNotNull(storeId)
                 .orElseThrow(StoreNotFoundException::new);
     }
 

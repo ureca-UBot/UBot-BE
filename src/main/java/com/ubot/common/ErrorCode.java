@@ -54,6 +54,7 @@ public enum ErrorCode {
     // ── 매장 도메인 ──
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."),
     DUPLICATE_STORE(HttpStatus.CONFLICT, "DUPLICATE_STORE", "이미 등록된 매장입니다."),
+    DELETED_STORE_ALREADY_EXISTS(HttpStatus.CONFLICT, "DELETE_STORE_ALREADY_EXISTS", "삭제된 동일 매장이 존재합니다. 기존 매장을 복구해주세요."),
     SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "SERVICE_TYPE_NOT_FOUND", "서비스 유형을 찾을 수 없습니다."),
     INVALID_STORE_COORDINATES(HttpStatus.BAD_REQUEST, "INVALID_STORE_COORDINATES", "위도와 경도는 함께 입력해야 합니다."),
     INVALID_MAP_BOUNDS(HttpStatus.BAD_REQUEST, "INVALID_MAP_BOUNDS", "지도 영역 좌표가 올바르지 않습니다.");
