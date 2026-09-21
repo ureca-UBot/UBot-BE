@@ -210,6 +210,98 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("소프트 삭제된 매장을 다시 활성화한다")
+    void activatesSoftDeletedStore() {
+        long storeId = 1L;
+
+        int storeCountBefore = countStores();
+        int serviceCountBefore = countStoreServices(storeId);
+
+        adminStoreService.deleteStore(storeId);
+        entityManager.flush();
+        entityManager.clear();
+
+        Boolean deletedActive = jdbcTemplate.queryForObject(
+                "SELECT is_active FROM stores WHERE store_id = ?",
+                Boolean.class,
+                storeId
+        );
+
+        LocalDateTime deletedAt = jdbcTemplate.queryForObject(
+                "SELECT deleted_at FROM stores WHERE store_id = ?",
+                LocalDateTime.class,
+                storeId
+        );
+
+        assertThat(deletedActive).isFalse();
+        assertThat(deletedAt).isNotNull();
+
+        AdminStoreResponseDto response = adminStoreService.activateStore(storeId);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(response.storeId()).isEqualTo(storeId);
+        assertThat(response.active()).isTrue();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT is_active FROM stores WHERE store_id = ?",
+                Boolean.class,
+                storeId
+        )).isTrue();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT deleted_at IS NULL FROM stores WHERE store_id = ?",
+                Boolean.class,
+                storeId
+        )).isTrue();
+
+        assertThat(countStores()).isEqualTo(storeCountBefore);
+
+        assertThat(countStoreServices(storeId)).isEqualTo(serviceCountBefore);
+    }
+
+    @Test
+    @DisplayName("동일한 활성 매장이 존재하면 삭제된 매장을 복구할 수 없다")
+    void rejectsDuplicateStoreOnActivate() {
+        long deletedStoreId = 1L;
+
+        adminStoreService.deleteStore(deletedStoreId);
+        entityManager.flush();
+        entityManager.clear();
+
+        AdminStoreCreateRequestDto request =
+                new AdminStoreCreateRequestDto(
+                        "강남역점",
+                        "서울특별시",
+                        "강남구",
+                        "서울특별시 강남구 강남대로 396",
+                        new BigDecimal("37.4000000"),
+                        new BigDecimal("127.1000000"),
+                        "031-1234-5678",
+                        "10:00-20:00",
+                        List.of("IDENTITY_THEFT_REPORT")
+                );
+
+        adminStoreService.createStore(request);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThatThrownBy(
+                () -> adminStoreService.activateStore(deletedStoreId)
+        ).isInstanceOf(DuplicateStoreException.class);
+    }
+
+    @Test
+    @DisplayName("활성 상태인 매장은 복구할 수 없다")
+    void rejectsActiveStoreOnActivate() {
+        assertThatThrownBy(
+                () -> adminStoreService.activateStore(1L)
+        ).isInstanceOf(StoreNotFoundException.class);
+    }
+
+    @Test
     @DisplayName("다른 활성 매장과 동일한 매장명과 주소로 수정할 수 없다")
     void rejectsDuplicateStoreOnUpdate() {
         AdminStoreCreateRequestDto createRequest = new AdminStoreCreateRequestDto(

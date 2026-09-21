@@ -125,8 +125,27 @@ public class AdminStoreService {
         getActiveStore(storeId).deactivate();
     }
 
+    public AdminStoreResponseDto activateStore(Long storeId) {
+        Store store = getDeleteStore(storeId);
+
+        if (storeJpaRepository.existsByStoreNameAndAddressAndIsActiveTrueAndDeletedAtIsNull(
+                    store.getStoreName(), store.getAddress()
+        )) {
+            throw new DuplicateStoreException();
+        }
+
+        store.activate();
+
+        return AdminStoreResponseDto.from(store);
+    }
+
     private Store getActiveStore(Long storeId) {
         return storeJpaRepository.findByStoreIdAndIsActiveTrueAndDeletedAtIsNull(storeId)
+                .orElseThrow(StoreNotFoundException::new);
+    }
+
+    private Store getDeleteStore(Long storeId) {
+        return storeJpaRepository.findByStoreIdAndIsActiveFalseAndDeletedAtIsNotNull(storeId)
                 .orElseThrow(StoreNotFoundException::new);
     }
 

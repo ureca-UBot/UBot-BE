@@ -54,4 +54,11 @@ public class AdminStoreController {
         adminStoreService.deleteStore(storeId);
         return ResponseEntity.noContent().build();
     }
+
+    @PatchMapping("/{storeId}/activate")
+    public ResponseEntity<ApiResponse<AdminStoreResponseDto>> activateStore(
+            @PathVariable @Positive Long storeId
+    ){
+        return ResponseEntity.ok(ApiResponse.success(adminStoreService.activateStore(storeId)));
+    }
 }

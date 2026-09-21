@@ -181,6 +181,19 @@ class AdminStoreControllerTest {
                 .andExpect(status().isNoContent());
     }
 
+    @Test
+    @DisplayName("소프트 삭제된 매장을 복구하면 200 응답을 반환한다")
+    void activatesStore() throws Exception {
+        when(adminStoreService.activateStore(1L))
+                .thenReturn(response(1L));
+
+        mockMvc.perform(patch("/admin/stores/1/activate"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.storeId").value(1))
+                .andExpect(jsonPath("$.data.active").value(true));
+    }
+
     private AdminStoreResponseDto response() {
         LocalDateTime now = LocalDateTime.now();
         return new AdminStoreResponseDto(
@@ -199,4 +212,30 @@ class AdminStoreControllerTest {
                 List.of(new AdminStoreResponseDto.ServiceResponse("APPLE_AS", "애플 A/S"))
         );
     }
+
+    private AdminStoreResponseDto response(long storeId) {
+        LocalDateTime now = LocalDateTime.now();
+
+        return new AdminStoreResponseDto(
+                storeId,
+                "강남역점",
+                "서울특별시",
+                "강남구",
+                "서울특별시 강남구 강남대로 396",
+                new BigDecimal("37.4987000"),
+                new BigDecimal("127.0286000"),
+                null,
+                null,
+                true,
+                now,
+                now,
+                List.of(
+                        new AdminStoreResponseDto.ServiceResponse(
+                                "APPLE_AS",
+                                "애플 A/S"
+                        )
+                )
+        );
+    }
+
 }

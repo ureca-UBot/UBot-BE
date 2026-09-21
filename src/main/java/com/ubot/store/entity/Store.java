@@ -142,6 +142,12 @@ public class Store {
         this.updatedAt = now;
     }
 
+    public void activate() {
+        this.isActive = true;
+        this.deletedAt = null;
+        this.updatedAt = LocalDateTime.now();
+    }
+
     public void markUpdated() {
         this.updatedAt = LocalDateTime.now();
     }
