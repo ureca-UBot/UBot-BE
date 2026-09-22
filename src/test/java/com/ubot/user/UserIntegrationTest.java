@@ -86,7 +86,7 @@ class UserIntegrationTest {
     }
 
     @Test
-    @DisplayName("빈 이름이나 미래 생년월일로 수정하면 400을 반환한다")
+    @DisplayName("빈 이름, 미래 생년월일, 수정할 항목이 없는 요청은 400을 반환한다")
     void rejectsInvalidUpdate() throws Exception {
         String accessToken = signUpAndLogin();
 
@@ -105,6 +105,13 @@ class UserIntegrationTest {
                                 { "birthDate": "2999-01-01" }
                                 """))
                 .andExpect(status().isBadRequest());
+
+        mockMvc.perform(patch("/auth/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("USER-013"));
     }
 
     @Test

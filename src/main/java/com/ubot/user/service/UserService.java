@@ -38,6 +38,13 @@ public class UserService {
 
 	@Transactional
 	public UserResponseDto updateActiveUser(Long userId, UserUpdateRequestDto requestDto) {
+		if(requestDto.name() == null
+				&& requestDto.birthDate() == null
+				&& requestDto.gender() == null
+				&& requestDto.residenceArea() == null){
+			throw new UserException(ErrorCode.INVALID_USER_UPDATE_REQUEST);
+		}
+
 		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
 				.orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
 		user.update(
