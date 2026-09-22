@@ -8,9 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pgvector.PGvector;
-import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
-import com.ubot.common.exception.FaqException;
+import com.ubot.faq.exception.FaqErrorCode;
+import com.ubot.faq.exception.FaqException;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCreateRequestDto;
 import com.ubot.faq.dto.request.FaqUpdateRequestDto;
@@ -84,7 +84,7 @@ class FaqServiceTest {
         // then
         throwable.isInstanceOf(FaqException.class)
                 .extracting(exception -> ((FaqException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.FAQ_CATEGORY_NOT_FOUND);
+                .isEqualTo(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND);
     }
 
     @Test

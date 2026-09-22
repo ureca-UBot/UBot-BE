@@ -1,8 +1,8 @@
 package com.ubot.faq.service;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
-import com.ubot.common.exception.FaqException;
+import com.ubot.faq.exception.FaqErrorCode;
+import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.dto.request.FaqCategoryCreateRequestDto;
 import com.ubot.faq.dto.request.FaqCategoryUpdateRequestDto;
 import com.ubot.faq.dto.response.FaqCategoryResponseDto;
@@ -29,7 +29,7 @@ public class FaqCategoryService {
 	public FaqCategoryResponseDto createFaqCategory(FaqCategoryCreateRequestDto requestDto) {
 		String categoryName = requestDto.name();
 		if(faqCategoryRepository.findByNameAndDeletedAtIsNull(categoryName).isPresent()) {
-			throw new FaqException(ErrorCode.FAQ_CATEGORY_EXIST, categoryName + "는 이미 존재하는 카테고리명입니다.");
+			throw new FaqException(FaqErrorCode.FAQ_CATEGORY_EXIST, categoryName + "는 이미 존재하는 카테고리명입니다.");
 		}
 
 		FaqCategory faqCategory = FaqCategory.builder()
@@ -42,7 +42,7 @@ public class FaqCategoryService {
 	}
 
 	public FaqCategoryResponseDto getFaqCategory(Long faqCategoryId) {
-		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 		return  FaqCategoryResponseDto.from(faqCategory);
 	}
 
@@ -61,16 +61,16 @@ public class FaqCategoryService {
 
 	@Transactional
 	public FaqCategoryResponseDto updateFaqCategory(Long faqCategoryId, FaqCategoryUpdateRequestDto requestDto) {
-		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 		String beforeCategoryName = faqCategory.getName();
 		String afterCategoryName = requestDto.afterName();
 
 		if(beforeCategoryName.equals(afterCategoryName)) {
-			throw new FaqException(ErrorCode.FAQ_CATEGORY_SAME_NAME);
+			throw new FaqException(FaqErrorCode.FAQ_CATEGORY_SAME_NAME);
 		}
 
 		if(faqCategoryRepository.findByNameAndDeletedAtIsNull(afterCategoryName).isPresent()) {
-			throw new FaqException(ErrorCode.FAQ_CATEGORY_EXIST, afterCategoryName + "는 이미 존재하는 카테고리명입니다.");
+			throw new FaqException(FaqErrorCode.FAQ_CATEGORY_EXIST, afterCategoryName + "는 이미 존재하는 카테고리명입니다.");
 		}
 
 		faqCategory.update(afterCategoryName);
@@ -81,10 +81,10 @@ public class FaqCategoryService {
 	@Transactional
 	public void deleteFaqCategory(Long faqCategoryId) {
 		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() ->
-				new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+				new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		if(faqRepository.existsAllByFaqCategoryId(faqCategoryId)){
-			throw new FaqException(ErrorCode.FAQ_CATEGORY_IN_USE);
+			throw new FaqException(FaqErrorCode.FAQ_CATEGORY_IN_USE);
 		}
 
 		faqCategory.delete();
