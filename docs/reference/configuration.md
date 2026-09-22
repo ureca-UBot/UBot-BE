@@ -1,6 +1,6 @@
 # 설정 Reference
 
-> 문서 기준 시점: 2026-09-22 (`develop` = `1ac3bf2`)
+> 문서 기준 시점: 2026-09-22 (`develop` = `04c5a6c`, LLM 채팅 연결 반영)
 
 ## 설정 파일
 
@@ -32,7 +32,9 @@ src/main/resources/
 | `OLLAMA_PORT` | Docker의 호스트 포트 | `11435` | Spring에서 읽지 않음 |
 | `OLLAMA_BASE_URL` | Spring (`spring.ai.ollama`, `ollama`) | `http://localhost:11435` | `http://localhost:11435` |
 | `OLLAMA_EMBEDDING_MODEL` | Spring, `ollama-init` | `bge-m3:567m` | `bge-m3:567m` |
-| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat`) | 빈 값 | 없음 |
+| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig` | 빈 값 (사용할 모델 지정) | YAML에는 없음. `LlmConfig`는 빈 값 허용 |
+| `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
+| `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingService` | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingService` | `10s` | `10s` |
 | `KAKAO_REST_API_KEY` | `KakaoLocalClient` | 빈 값 | 없음 |
@@ -95,7 +97,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 | 설정 키 | 읽는 주체 | 용도 |
 |---|---|---|
-| `spring.ai.ollama.*` | Spring AI 자동 구성 | LLM 채팅 (`spring.ai.model.chat: ollama`) |
+| `spring.ai.ollama.*` | Spring AI 자동 구성, `LlmConfig` | LLM 채팅. 서비스 호출에는 `LlmConfig`의 전용 모델 인스턴스 사용 |
 | `ollama.*` | `EmbeddingService` | 임베딩 생성 (`/api/embed` 직접 호출) |
 
 `ollama.*`에는 `base-url`, `embedding.model`, `connect-timeout`, `read-timeout`이 있습니다. 왜 이렇게 나뉘어 있는지는 [architecture.md](../architecture.md#spring-ai를-쓰는-범위)를 참고하세요.
@@ -114,6 +116,8 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 - `test`에서는 테스트 전용 임베딩 구현을 등록해 `PgVectorStore`가 만들어지고, 그 스키마(1024·HNSW·cosine)와 저장·검색을 검증합니다.
 - 따라서 **pgvector 관련 설정값을 검증하는 것은 테스트 프로필뿐**입니다. Spring AI 벡터 스토어를 정식 채택하면 `local`의 주석을 되살리고 두 프로필을 맞춰야 합니다.
 
+JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다. 별도의 Spring AI pgvector `initialize-schema: true`까지 끄는 것은 아닙니다.
+
 ## 기타 고정 설정값
 
 | 설정 | 값 | 파일 |
@@ -130,3 +134,22 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 - 테스트 DB: `ubot_test`. 사용자 `ubot_test`, 비밀번호는 실행마다 임의 생성. 호스트 포트는 Testcontainers가 할당하고 `@ServiceConnection`으로 Spring에 연결합니다.
 - 개발 DB와 볼륨을 공유하지 않고 컨테이너를 재사용하지 않습니다. 테스트 클래스가 끝나면 컨텍스트와 컨테이너를 정리합니다.
 - 사전 요구사항은 JDK 17 이상과 실행 중인 Docker입니다. Java 21 toolchain은 없으면 Gradle이 자동으로 내려받습니다. `.env`, 개발 Compose, Ollama 모델은 필요하지 않습니다.
+
+## LLM 호출 모듈 설정
+
+`LlmConfig`는 기존 `spring.ai.ollama.base-url`과 `OLLAMA_CHAT_MODEL`을 사용해
+LLM 호출 전용 Spring AI `OllamaChatModel`을 구성합니다. `spring.ai.ollama.chat.options.model`을
+명시한 경우에는 그 값이 `OLLAMA_CHAT_MODEL`보다 우선합니다. `application-local.yml`의
+`spring.ai.ollama.chat.model` 대신 이 우선순위에 따라 모델명을 읽습니다. 기존 임베딩 클라이언트와
+Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한 시간만 별도로 적용합니다.
+
+모델명이 비어 있어도 모듈 생성 시 외부 서버에 접속하지 않습니다. 실제 호출 시에는
+`LLM_MODEL_NOT_CONFIGURED` 오류를 반환합니다. 사용할 모델을 Ollama에 미리 준비하고
+모델명을 설정하세요. 이 모듈은 모델을 자동 다운로드하거나 요청을 자동 재시도하지 않습니다.
+
+현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
+전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,
+`prompts/faq-user.txt`는 담당자의 최종 본문을 기다리며 비워 두었습니다. 파일이 준비되지 않으면
+모델을 호출하지 않고 채팅 실패 응답을 반환합니다. 외부 프롬프트 파일을 사용하려면
+`prompt.faq.system-location`, `prompt.faq.user-location`에 Spring `file:` 리소스 경로를 지정합니다.
+호출 계약과 테스트 방법은 [LLM 모듈 연결 안내](../how-to/llm-module.md)를 참고하세요.
