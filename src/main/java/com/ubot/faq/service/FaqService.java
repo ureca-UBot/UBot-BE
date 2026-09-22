@@ -33,6 +33,7 @@ import java.time.LocalDateTime;
 public class FaqService {
 
 	private final FaqRepository faqRepository;
+	private final FaqVectorService faqVectorService;
 	private final FaqCategoryRepository faqCategoryRepository;
 	private final OldFaqRepository oldFaqRepository;
 	private final UserRepository userRepository;
@@ -46,8 +47,6 @@ public class FaqService {
 		User admin = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
-		PGvector vector = embeddingService.embedText(requestDto.question());
-
 		Faq faq = Faq.builder()
 				.admin(admin)
 				.faqCategory(category)
@@ -55,8 +54,10 @@ public class FaqService {
 				.answer(requestDto.answer())
 				.createdAt(LocalDateTime.now())
 				.updatedAt(LocalDateTime.now())
-				.vector(vector)
 				.build();
+
+		Faq savedFaq = faqRepository.save(faq);
+		faqVectorService.saveEmbedding(savedFaq.getId(), requestDto.question());
 
 		return FaqResponseDto.from(faqRepository.save(faq));
 	}
@@ -66,7 +67,7 @@ public class FaqService {
 	}
 
 	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size, String keyword, Long categoryId){
-		String normalizedKeyword = StringUtils.hasText(keyword) ? keyword : null;
+		String normalizedKeyword = StringUtils.hasText(keyword) ? keyword : "";
 
 		Page<FaqResponseDto> faqPage = faqRepository.
 				findAllActives(PageRequest.of(page, size, Sort.by(
@@ -113,21 +114,19 @@ public class FaqService {
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		if(!faq.getQuestion().equals(requestDto.question())) {
-			PGvector vector = embeddingService.embedText(requestDto.question());
-
 			faq.update(
 					category,
 					requestDto.question(),
-					requestDto.answer(),
-					vector
+					requestDto.answer()
 			);
+
+			faqVectorService.saveEmbedding(faq.getId(), requestDto.question());
 		}
 		else {
 			faq.update(
 					category,
 					requestDto.question(),
-					requestDto.answer(),
-					faq.getVector()
+					requestDto.answer()
 			);
 		}
 

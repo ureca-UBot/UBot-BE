@@ -32,4 +32,8 @@ public class FaqVectorRepository {
                                                 rs.getDouble("similarity_score")),
                                 queryEmbedding, queryEmbedding, topK);
         }
+
+        public void saveEmbedding(Long faqId, PGvector embedding) {
+                jdbcTemplate.update("UPDATE faq SET vector = ? WHERE id = ?", embedding, faqId);
+        }
 }

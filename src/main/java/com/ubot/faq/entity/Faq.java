@@ -28,6 +28,7 @@ public class Faq {
 	@Column(name = "answer")
 	private String answer;
 
+	@Transient
 	@Column(name = "vector")
 	private PGvector vector;
 
@@ -51,13 +52,11 @@ public class Faq {
 	public void update(
 			FaqCategory category,
 			String question,
-			String answer,
-			PGvector vector
+			String answe
 	){
 		this.faqCategory = category;
 		this.question = question;
 		this.answer = answer;
-		this.vector = vector;
 		this.updatedAt = LocalDateTime.now();
 		this.version++;
 	}

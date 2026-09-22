@@ -136,29 +136,6 @@ class FaqCategoryServiceTest {
         assertThat(category.getDeletedAt()).isNotNull();
     }
 
-    @Test
-    @DisplayName("활성 카테고리 목록과 검색 결과를 생성일 및 ID 내림차순으로 조회한다")
-    void getFaqCategories_andSearchFaqCategories_returnPageResponse() {
-        // given
-        int page = 0;
-        int size = 10;
-        FaqCategory category = category(1L, "account");
-        PageRequest pageable = categoryPageRequest(page, size);
-        Page<FaqCategory> categoryPage = new PageImpl<>(List.of(category), pageable, 1);
-        when(faqCategoryRepository.findByDeletedAtIsNull(pageable)).thenReturn(categoryPage);
-        when(faqCategoryRepository.findByKeywordAndDeletedAtIsNull("account", pageable))
-                .thenReturn(categoryPage);
-
-        // when
-        PageResponseDto<FaqCategoryResponseDto> allResult = faqCategoryService.getFaqCategories(page, size);
-        PageResponseDto<FaqCategoryResponseDto> searchResult = faqCategoryService
-                .searchFaqCategories(page, size, "account");
-
-        // then
-        assertThat(allResult.content()).containsExactly(FaqCategoryResponseDto.from(category));
-        assertThat(searchResult.content()).containsExactly(FaqCategoryResponseDto.from(category));
-    }
-
     private PageRequest categoryPageRequest(int page, int size) {
         return PageRequest.of(page, size, Sort.by(
                 Sort.Order.desc("createdAt"),

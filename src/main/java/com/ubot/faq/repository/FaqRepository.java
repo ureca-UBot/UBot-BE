@@ -23,11 +23,7 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 		select f
 		from Faq f
 		where f.deletedAt is null
-		and (
-			:keyword is null
-			or
-			lower(f.question) like lower(concat('%', :keyword, '%'))
-		)
+		and lower(f.question) like lower(concat('%', :keyword, '%'))
 		and (
 			:categoryId is null
 			or

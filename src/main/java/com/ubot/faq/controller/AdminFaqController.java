@@ -110,14 +110,7 @@ public class AdminFaqController {
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
-		PageResponseDto<FaqCategoryResponseDto> result;
-
-		if(StringUtils.hasText(keyword))
-			result = faqCategoryService.searchFaqCategories(page, size, keyword);
-		else
-			result = faqCategoryService.getFaqCategories(page, size);
-
-		return ApiResponse.success(result);
+		return ApiResponse.success(faqCategoryService.getFaqCategories(page, size, keyword));
 	}
 
 	@PostMapping("/faq-categories")

@@ -22,4 +22,9 @@ public class FaqVectorService {
         PGvector queryVector = embeddingService.embedText(userQuestion);
         return faqVectorRepository.getSimilarList(queryVector, topK);
     }
+
+    public void saveEmbedding(Long faqId, String question) {
+        PGvector vector = embeddingService.embedText(question);
+        faqVectorRepository.saveEmbedding(faqId, vector);
+    }
 }
