@@ -30,6 +30,9 @@ src/main/resources/
 | `OLLAMA_PORT` | Docker의 호스트 포트 | `11435` | Spring에서 읽지 않음 |
 | `OLLAMA_BASE_URL` | Spring (`local`) | `http://localhost:11435` | `http://localhost:11435` |
 | `OLLAMA_EMBEDDING_MODEL` | Spring (`local`), `ollama-init` | `bge-m3:567m` | `bge-m3:567m` |
+| `OLLAMA_CHAT_MODEL` | `llm/config/LlmConfig` | 비어 있음 (사용할 모델 지정) | YAML 연결 없이 LLM 설정에서 직접 읽음 |
+| `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
+| `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택 | `local` | `.env`에 적는 것만으로 프로필을 바꾸지 못함 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.
@@ -82,5 +85,23 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 | Health 상세 표시 | `always` | `application-local.yml` |
 
 > Embedding 모델을 바꾸면 pgvector 차원도 해당 모델의 출력 차원으로 함께 바꿔야 합니다.
+
+## LLM 호출 모듈 설정
+
+`LlmConfig`는 기존 `spring.ai.ollama.base-url`과 `OLLAMA_CHAT_MODEL`을 사용해
+LLM 호출 전용 Spring AI `OllamaChatModel`을 구성합니다. `spring.ai.ollama.chat.options.model`을
+명시한 경우에는 그 값이 `OLLAMA_CHAT_MODEL`보다 우선합니다. 기존 임베딩 클라이언트와
+Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한 시간만 별도로 적용합니다.
+
+모델명이 비어 있어도 모듈 생성 시 외부 서버에 접속하지 않습니다. 실제 호출 시에는
+`LLM_MODEL_NOT_CONFIGURED` 오류를 반환합니다. 사용할 모델을 Ollama에 미리 준비하고
+모델명을 설정하세요. 이 모듈은 모델을 자동 다운로드하거나 요청을 자동 재시도하지 않습니다.
+
+현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
+전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,
+`prompts/faq-user.txt`는 담당자의 최종 본문을 기다리며 비워 두었습니다. 파일이 준비되지 않으면
+모델을 호출하지 않고 채팅 실패 응답을 반환합니다. 외부 프롬프트 파일을 사용하려면
+`prompt.faq.system-location`, `prompt.faq.user-location`에 Spring `file:` 리소스 경로를 지정합니다.
+호출 계약과 테스트 방법은 [LLM 모듈 연결 안내](../how-to/llm-module.md)를 참고하세요.
 
 JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다. 별도의 Spring AI pgvector `initialize-schema: true`까지 끄는 것은 아닙니다.
