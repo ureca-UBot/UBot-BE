@@ -1,0 +1,26 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ubot-be:local}
+    container_name: ubot-backend
+
+    env_file:
+      - .env
+
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+
+      OLLAMA_BASE_URL: http://ollama:11434
+
+    ports:
+      - "8080:8080"
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy

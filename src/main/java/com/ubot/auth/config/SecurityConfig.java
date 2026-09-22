@@ -41,8 +41,12 @@ public class SecurityConfig {
 								"/auth/login",
 								"/auth/signup",
 								"/auth/refresh",
+								"/actuator/health",
 								"/stores/**"
 						).permitAll()
+						.requestMatchers(
+								"/admin/**"
+						).hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.addFilterBefore(
