@@ -59,6 +59,7 @@ public enum ErrorCode {
     INVALID_NAME_FORMAT(HttpStatus.BAD_REQUEST, "USER-010", "이름 입력이 올바르지 않습니다."),
     INVALID_GENDER_FORMAT(HttpStatus.BAD_REQUEST, "USER-011", "성별 입력이 올바르지 않습니다."),
     INVALID_RESIDENCE_FORMAT(HttpStatus.BAD_REQUEST, "USER-012", "사는 지역 입력이 올바르지 않습니다."),
+    INVALID_USER_UPDATE_REQUEST(HttpStatus.BAD_REQUEST, "USER-013", "수정할 항목이 없습니다."),
 
     // ── 매장 도메인 ──
     STORE_NOT_FOUND(HttpStatus.NOT_FOUND, "STORE_NOT_FOUND", "매장을 찾을 수 없습니다."),
