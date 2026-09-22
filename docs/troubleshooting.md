@@ -1,5 +1,7 @@
 # Troubleshooting
 
+> 문서 기준 시점: 2026-09-22 (`develop` = `1ac3bf2`)
+
 해결 후에는 항상 [quickstart 6단계](quickstart.md#6-동작-확인)의 health check를 다시 통과하는지 확인하세요.
 
 ## password authentication failed
@@ -41,6 +43,31 @@ psql 안에서:
 docker compose down -v
 docker compose up -d
 ```
+
+## DecodingException: Illegal base64 character
+
+**증상**
+
+```text
+Error creating bean with name 'jwtUtil' ... Constructor threw exception
+Caused by: io.jsonwebtoken.io.DecodingException: Illegal base64 character: '-'
+```
+
+**원인**
+
+`.env`의 `JWT_SECRET`이 `.env.example`의 기본값(안내 문구) 그대로입니다. `JwtUtil`은 기동 시점에 이 값을 Base64로 디코딩하므로 애플리케이션이 뜨지 않습니다.
+
+**해결**
+
+Base64로 인코딩된 32바이트 이상의 값을 만들어 `.env`의 `JWT_SECRET`에 넣습니다.
+
+```powershell
+$b = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+[Convert]::ToBase64String($b)
+```
+
+macOS/Linux에서는 `openssl rand -base64 32`를 사용합니다. 값을 넣은 뒤 애플리케이션을 다시 시작합니다. 키 길이가 32바이트보다 짧으면 `WeakKeyException`이 발생합니다.
 
 ## Could not resolve placeholder 'POSTGRES_PASSWORD'
 
