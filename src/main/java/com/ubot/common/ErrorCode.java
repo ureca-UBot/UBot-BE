@@ -61,7 +61,9 @@ public enum ErrorCode {
     DIRECTIONS_ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "DIRECTIONS_ROUTE_NOT_FOUND", "경로를 찾을 수 없습니다."),
     DIRECTIONS_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "DIRECTIONS_SERVICE_UNAVAILABLE",
                     "길찾기 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요."),
-    DIRECTIONS_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "DIRECTIONS_TIMEOUT", "길찾기 서비스 응답이 지연되고 있습니다.");
+    DIRECTIONS_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "DIRECTIONS_TIMEOUT", "길찾기 서비스 응답이 지연되고 있습니다."),
+    DIRECTIONS_INVALID_CANDIDATE(HttpStatus.BAD_REQUEST, "DIRECTIONS_INVALID_CANDIDATE",
+                    "대중교통 경로 후보만 도보 상세를 조회할 수 있습니다.");
 
     private final HttpStatus status;
     private final String code;

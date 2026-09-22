@@ -24,8 +24,13 @@ import org.springframework.web.client.RestClientResponseException;
 import com.ubot.common.ErrorCode;
 import com.ubot.direction.dto.DirectionsMode;
 import com.ubot.direction.dto.DirectionsResponseDto;
+import com.ubot.direction.dto.DirectionsResponseDto.CarFare;
+import com.ubot.direction.dto.DirectionsResponseDto.CarGuideDto;
+import com.ubot.direction.dto.DirectionsResponseDto.CarInfo;
 import com.ubot.direction.dto.DirectionsResponseDto.PointDto;
 import com.ubot.direction.dto.DirectionsResponseDto.StepDto;
+import com.ubot.direction.dto.DirectionsResponseDto.TransitFare;
+import com.ubot.direction.dto.DirectionsResponseDto.TransitInfo;
 import com.ubot.direction.exception.DirectionsException;
 
 /**
@@ -74,28 +79,19 @@ public class KakaoDirectionsClient {
         this.restClient = restClient;
     }
 
-    public DirectionsResponseDto getDirections(
-            DirectionsMode mode,
-            PointDto origin,
-            PointDto destination
-    ) {
-        return switch (mode) {
-            case WALK -> walk(origin, destination);
-            case CAR -> car(origin, destination);
-            case TRANSIT -> transit(origin, destination);
-        };
-    }
-
-    private DirectionsResponseDto walk(PointDto origin, PointDto destination) {
+    public DirectionsResponseDto walk(PointDto origin, PointDto destination) {
         WalkResponse response = fetch(MAP_HOST, "/v2/routing/walk", mapParams(origin, destination), WalkResponse.class);
 
         if (!STATUS_OK.equals(response.status()) || response.route() == null) {
             throw routeNotFound(DirectionsMode.WALK, response.status());
         }
 
-        List<PointDto> path = orEmpty(response.route().legs()).stream()
+        List<StepDto> steps = orEmpty(response.route().legs()).stream()
                 .flatMap(leg -> orEmpty(leg.steps()).stream())
-                .flatMap(step -> toPoints(step.path()).stream())
+                .map(this::toWalkStep)
+                .toList();
+        List<PointDto> path = steps.stream()
+                .flatMap(step -> step.path().stream())
                 .toList();
 
         return new DirectionsResponseDto(
@@ -103,11 +99,14 @@ public class KakaoDirectionsClient {
                 totalDistance(response.route().properties()),
                 totalTime(response.route().properties()),
                 path,
-                List.of()
+                steps,
+                response.route().properties() == null ? null : response.route().properties().landingUrl(),
+                null,
+                null
         );
     }
 
-    private DirectionsResponseDto transit(PointDto origin, PointDto destination) {
+    public List<DirectionsResponseDto> getTransitRoutes(PointDto origin, PointDto destination) {
         TransitResponse response = fetch(
                 MAP_HOST, "/v2/routing/publictraffic", mapParams(origin, destination), TransitResponse.class
         );
@@ -117,8 +116,12 @@ public class KakaoDirectionsClient {
             throw routeNotFound(DirectionsMode.TRANSIT, response.status());
         }
 
-        // 카카오는 후보 경로를 여러 개 주지만, 가장 앞선 추천 경로 하나만 사용합니다.
-        TransitRoute route = routes.getFirst();
+        // landingURL은 후보별이 아니라 전체 대중교통 검색 결과 전체에 대해 하나만 내려온다.
+        String landingUrl = response.properties() == null ? null : response.properties().landingURL();
+        return routes.stream().map(route -> toTransitResult(route, landingUrl)).toList();
+    }
+
+    private DirectionsResponseDto toTransitResult(TransitRoute route, String landingUrl) {
         List<StepDto> steps = orEmpty(route.steps()).stream()
                 .map(this::toStep)
                 .toList();
@@ -131,11 +134,26 @@ public class KakaoDirectionsClient {
                 totalDistance(route.properties()),
                 totalTime(route.properties()),
                 path,
-                steps
+                steps,
+                landingUrl,
+                toTransitInfo(route.properties()),
+                null
         );
     }
 
-    private DirectionsResponseDto car(PointDto origin, PointDto destination) {
+    private TransitInfo toTransitInfo(TransitRouteProperties properties) {
+        if (properties == null) {
+            return null;
+        }
+        TransitFareRaw fare = properties.fare();
+        return new TransitInfo(
+                fare == null ? null : new TransitFare(fare.value(), fare.min(), fare.max()),
+                orZero(properties.transfers()),
+                properties.type()
+        );
+    }
+
+    public DirectionsResponseDto car(PointDto origin, PointDto destination) {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("origin", xy(origin));
         params.put("destination", xy(destination));
@@ -154,13 +172,33 @@ public class KakaoDirectionsClient {
                 .flatMap(section -> orEmpty(section.roads()).stream())
                 .flatMap(road -> toFlatPoints(road.vertexes()).stream())
                 .toList();
+        List<CarGuideDto> guides = orEmpty(route.sections()).stream()
+                .flatMap(section -> orEmpty(section.guides()).stream())
+                .map(this::toCarGuide)
+                .toList();
+        CarFareRaw fare = route.summary().fare();
 
         return new DirectionsResponseDto(
                 DirectionsMode.CAR,
                 orZero(route.summary().distance()),
                 orZero(route.summary().duration()),
                 path,
-                List.of()
+                List.of(),
+                // 카카오모빌리티 길찾기 응답에는 카카오맵 딥링크가 없다.
+                null,
+                null,
+                new CarInfo(fare == null ? null : new CarFare(fare.taxi(), fare.toll()), guides)
+        );
+    }
+
+    private CarGuideDto toCarGuide(CarGuide guide) {
+        PointDto point = guide.x() == null || guide.y() == null ? null : new PointDto(guide.y(), guide.x());
+        return new CarGuideDto(
+                guide.name(),
+                guide.guidance(),
+                orZero(guide.distance()),
+                orZero(guide.duration()),
+                point
         );
     }
 
@@ -240,6 +278,22 @@ public class KakaoDirectionsClient {
         );
     }
 
+    private StepDto toWalkStep(WalkStep step) {
+        WalkStepProperties properties = step.properties();
+        if (properties == null) {
+            return new StepDto("WALKING", null, 0, 0, List.of(), List.of(), toPoints(step.path()));
+        }
+        return new StepDto(
+                "WALKING",
+                properties.guidance(),
+                orZero(properties.distance()),
+                orZero(properties.time()),
+                List.of(),
+                List.of(),
+                toPoints(step.path())
+        );
+    }
+
     /** 카카오는 [경도, 위도] 순서의 좌표 쌍 목록을 줍니다. */
     private List<PointDto> toPoints(Path path) {
         if (path == null) {
@@ -259,11 +313,19 @@ public class KakaoDirectionsClient {
                 .toList();
     }
 
-    private int totalDistance(RouteProperties properties) {
+    private int totalDistance(WalkRouteProperties properties) {
         return properties == null ? 0 : orZero(properties.totalDistance());
     }
 
-    private int totalTime(RouteProperties properties) {
+    private int totalTime(WalkRouteProperties properties) {
+        return properties == null ? 0 : orZero(properties.totalTime());
+    }
+
+    private int totalDistance(TransitRouteProperties properties) {
+        return properties == null ? 0 : orZero(properties.totalDistance());
+    }
+
+    private int totalTime(TransitRouteProperties properties) {
         return properties == null ? 0 : orZero(properties.totalTime());
     }
 
@@ -275,23 +337,37 @@ public class KakaoDirectionsClient {
         return list == null ? List.of() : list;
     }
 
-    private record RouteProperties(Integer totalDistance, Integer totalTime) {}
-
     private record Path(List<List<Double>> points) {}
 
     private record Named(String name) {}
 
     private record WalkResponse(String status, WalkRoute route) {}
 
-    private record WalkRoute(RouteProperties properties, List<WalkLeg> legs) {}
+    private record WalkRoute(WalkRouteProperties properties, List<WalkLeg> legs) {}
+
+    private record WalkRouteProperties(Integer totalDistance, Integer totalTime, String landingUrl) {}
 
     private record WalkLeg(List<WalkStep> steps) {}
 
-    private record WalkStep(Path path) {}
+    private record WalkStep(WalkStepProperties properties, Path path) {}
 
-    private record TransitResponse(String status, List<TransitRoute> routes) {}
+    private record WalkStepProperties(Integer distance, String guidance, Integer time) {}
 
-    private record TransitRoute(RouteProperties properties, List<TransitStep> steps) {}
+    private record TransitResponse(String status, TransitResponseProperties properties, List<TransitRoute> routes) {}
+
+    private record TransitResponseProperties(String landingURL) {}
+
+    private record TransitRoute(TransitRouteProperties properties, List<TransitStep> steps) {}
+
+    private record TransitRouteProperties(
+            Integer totalDistance,
+            Integer totalTime,
+            Integer transfers,
+            TransitFareRaw fare,
+            String type
+    ) {}
+
+    private record TransitFareRaw(Integer value, Integer min, Integer max) {}
 
     private record TransitStep(TransitStepProperties properties, Path path) {}
 
@@ -308,9 +384,20 @@ public class KakaoDirectionsClient {
 
     private record CarRoute(Integer result_code, CarSummary summary, List<CarSection> sections) {}
 
-    private record CarSummary(Integer distance, Integer duration) {}
+    private record CarSummary(Integer distance, Integer duration, CarFareRaw fare) {}
 
-    private record CarSection(List<CarRoad> roads) {}
+    private record CarFareRaw(Integer taxi, Integer toll) {}
+
+    private record CarSection(List<CarRoad> roads, List<CarGuide> guides) {}
 
     private record CarRoad(List<Double> vertexes) {}
+
+    private record CarGuide(
+            String name,
+            Double x,
+            Double y,
+            Integer distance,
+            Integer duration,
+            String guidance
+    ) {}
 }

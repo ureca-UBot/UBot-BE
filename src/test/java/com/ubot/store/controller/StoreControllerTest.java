@@ -4,6 +4,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -14,8 +15,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+
+import tools.jackson.databind.ObjectMapper;
 
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.common.PageResponseDto;
@@ -35,6 +39,9 @@ class StoreControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private StoreService storeService;
@@ -182,11 +189,11 @@ class StoreControllerTest {
     @DisplayName("길찾기는 이동수단, 현재 위치, 매장 ID로 경로를 조회한다")
     void returnsDirections() throws Exception {
         when(directionsService.getStoreDirections(1L, DirectionsMode.WALK, 37.5, 127.0))
-                .thenReturn(new DirectionsResponseDto(
+                .thenReturn(List.of(new DirectionsResponseDto(
                         DirectionsMode.WALK, 1200, 900,
                         List.of(new PointDto(37.5, 127.0), new PointDto(37.498, 127.028)),
                         List.of()
-                ));
+                )));
 
         mockMvc.perform(get("/stores/1/directions")
                         .param("mode", "WALK")
@@ -194,11 +201,52 @@ class StoreControllerTest {
                         .param("longitude", "127.0"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.mode").value("WALK"))
+                .andExpect(jsonPath("$.data[0].mode").value("WALK"))
+                .andExpect(jsonPath("$.data[0].distanceMeters").value(1200))
+                .andExpect(jsonPath("$.data[0].durationSeconds").value(900))
+                .andExpect(jsonPath("$.data[0].path[1].latitude").value(37.498))
+                .andExpect(jsonPath("$.data[0].path[1].longitude").value(127.028));
+    }
+
+    @Test
+    @DisplayName("대중교통 길찾기는 후보 경로 목록을 그대로 반환한다")
+    void returnsMultipleTransitCandidates() throws Exception {
+        when(directionsService.getStoreDirections(1L, DirectionsMode.TRANSIT, 37.5, 127.0))
+                .thenReturn(List.of(
+                        new DirectionsResponseDto(DirectionsMode.TRANSIT, 1000, 800, List.of(), List.of()),
+                        new DirectionsResponseDto(DirectionsMode.TRANSIT, 1500, 700, List.of(), List.of())
+                ));
+
+        mockMvc.perform(get("/stores/1/directions")
+                        .param("mode", "TRANSIT")
+                        .param("latitude", "37.5")
+                        .param("longitude", "127.0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].distanceMeters").value(1000))
+                .andExpect(jsonPath("$.data[1].distanceMeters").value(1500));
+    }
+
+    @Test
+    @DisplayName("대중교통 후보 상세 조회는 body의 후보를 그대로 서비스에 넘기고 도보가 채워진 결과를 반환한다")
+    void returnsTransitDetailWithFilledWalkingLegs() throws Exception {
+        DirectionsResponseDto candidate = new DirectionsResponseDto(
+                DirectionsMode.TRANSIT, 1000, 800, List.of(), List.of()
+        );
+        DirectionsResponseDto filled = new DirectionsResponseDto(
+                DirectionsMode.TRANSIT, 1200, 950, List.of(new PointDto(37.5, 127.0)), List.of()
+        );
+        when(directionsService.fillTransitWalkingLegs(1L, candidate, 37.5, 127.0)).thenReturn(filled);
+
+        mockMvc.perform(post("/stores/1/directions/transit-detail")
+                        .param("latitude", "37.5")
+                        .param("longitude", "127.0")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(candidate)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.distanceMeters").value(1200))
-                .andExpect(jsonPath("$.data.durationSeconds").value(900))
-                .andExpect(jsonPath("$.data.path[1].latitude").value(37.498))
-                .andExpect(jsonPath("$.data.path[1].longitude").value(127.028));
+                .andExpect(jsonPath("$.data.durationSeconds").value(950));
     }
 
     @Test

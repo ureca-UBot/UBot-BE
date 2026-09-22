@@ -12,6 +12,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,7 @@ class KakaoDirectionsClientTest {
     private final KakaoDirectionsClient client = new KakaoDirectionsClient(builder.build());
 
     @Test
-    @DisplayName("도보 경로의 거리, 시간, 좌표를 위도·경도 순으로 변환한다")
+    @DisplayName("도보 경로의 거리, 시간, 좌표, 구간별 안내와 카카오맵 딥링크를 변환한다")
     void mapsWalkRoute() {
         server.expect(requestTo(startsWith("https://dapi.kakao.com/v2/routing/walk")))
                 .andExpect(method(HttpMethod.GET))
@@ -65,7 +66,7 @@ class KakaoDirectionsClientTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        DirectionsResponseDto result = client.getDirections(DirectionsMode.WALK, ORIGIN, DESTINATION);
+        DirectionsResponseDto result = client.walk(ORIGIN, DESTINATION);
 
         assertThat(result.mode()).isEqualTo(DirectionsMode.WALK);
         assertThat(result.distanceMeters()).isEqualTo(4025);
@@ -76,7 +77,14 @@ class KakaoDirectionsClientTest {
                 new PointDto(37.45, 127.05),
                 new PointDto(37.4, 127.1)
         );
-        assertThat(result.steps()).isEmpty();
+        assertThat(result.steps()).hasSize(2);
+        assertThat(result.steps().get(0).type()).isEqualTo("WALKING");
+        assertThat(result.steps().get(0).guidance()).isEqualTo("출발");
+        assertThat(result.steps().get(0).distanceMeters()).isEqualTo(93);
+        assertThat(result.steps().get(1).guidance()).isEqualTo("도착");
+        assertThat(result.landingUrl()).isEqualTo("https://map.kakao.com");
+        assertThat(result.transitInfo()).isNull();
+        assertThat(result.carInfo()).isNull();
         server.verify();
     }
 
@@ -86,19 +94,22 @@ class KakaoDirectionsClientTest {
         server.expect(requestTo(startsWith("https://dapi.kakao.com/v2/routing/walk")))
                 .andRespond(withSuccess("{\"status\": \"TOO_FAR_AWAY\"}", MediaType.APPLICATION_JSON));
 
-        assertDirectionsError(DirectionsMode.WALK, ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+        assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
+                .isInstanceOf(DirectionsException.class)
+                .extracting(exception -> ((GlobalException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
-    @DisplayName("대중교통 경로는 도보·버스·지하철 구간과 전체 경로를 함께 변환한다")
-    void mapsTransitRouteWithSteps() {
+    @DisplayName("대중교통은 카카오가 준 후보 경로 전부를 각각 도보·버스·지하철 구간으로 변환한다")
+    void mapsAllTransitRouteCandidates() {
         server.expect(requestTo(startsWith("https://dapi.kakao.com/v2/routing/publictraffic")))
                 .andExpect(queryParam("start_x", "127.0"))
                 .andExpect(queryParam("end_y", "37.4"))
                 .andRespond(withSuccess("""
                         {
                           "status": "OK",
-                          "properties": {"total": 2},
+                          "properties": {"total": 2, "landingURL": "https://map.kakao.com/link/by/traffic/..."},
                           "routes": [
                             {
                               "properties": {"type": "BUS", "totalDistance": 5000, "totalTime": 1800, "transfers": 0,
@@ -112,29 +123,56 @@ class KakaoDirectionsClientTest {
                                  "path": {"points": [[127.01, 37.49], [127.1, 37.4]]}}
                               ]
                             },
-                            {"properties": {"type": "SUBWAY", "totalDistance": 1, "totalTime": 1}, "steps": []}
+                            {"properties": {"type": "SUBWAY", "totalDistance": 3000, "totalTime": 900, "transfers": 1,
+                                             "fare": {"min": 1500, "max": 2500}},
+                             "steps": [
+                              {"properties": {"type": "SUBWAY", "guidance": "2호선 탑승", "distance": 3000, "time": 900},
+                               "path": {"points": [[127.02, 37.48], [127.08, 37.41]]}}
+                            ]}
                           ]
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        DirectionsResponseDto result = client.getDirections(DirectionsMode.TRANSIT, ORIGIN, DESTINATION);
+        List<DirectionsResponseDto> results = client.getTransitRoutes(ORIGIN, DESTINATION);
 
-        assertThat(result.mode()).isEqualTo(DirectionsMode.TRANSIT);
-        assertThat(result.distanceMeters()).isEqualTo(5000);
-        assertThat(result.durationSeconds()).isEqualTo(1800);
-        assertThat(result.steps()).hasSize(2);
-        assertThat(result.steps().get(0).type()).isEqualTo("WALKING");
-        assertThat(result.steps().get(0).stops()).isEmpty();
-        assertThat(result.steps().get(1).type()).isEqualTo("BUS");
-        assertThat(result.steps().get(1).stops()).containsExactly("강남역", "역삼역");
-        assertThat(result.steps().get(1).vehicles()).containsExactly("146");
-        assertThat(result.steps().get(1).durationSeconds()).isEqualTo(1620);
-        assertThat(result.path()).containsExactly(
+        assertThat(results).hasSize(2);
+
+        DirectionsResponseDto first = results.get(0);
+        assertThat(first.mode()).isEqualTo(DirectionsMode.TRANSIT);
+        assertThat(first.distanceMeters()).isEqualTo(5000);
+        assertThat(first.durationSeconds()).isEqualTo(1800);
+        assertThat(first.steps()).hasSize(2);
+        assertThat(first.steps().get(0).type()).isEqualTo("WALKING");
+        assertThat(first.steps().get(1).type()).isEqualTo("BUS");
+        assertThat(first.steps().get(1).stops()).containsExactly("강남역", "역삼역");
+        assertThat(first.steps().get(1).vehicles()).containsExactly("146");
+        assertThat(first.path()).containsExactly(
                 new PointDto(37.5, 127.0),
                 new PointDto(37.49, 127.01),
                 new PointDto(37.49, 127.01),
                 new PointDto(37.4, 127.1)
         );
+        // 정액 요금은 value만 채워진다. 딥링크는 후보별이 아니라 응답 전체 기준 하나를 그대로 받는다.
+        assertThat(first.transitInfo().type()).isEqualTo("BUS");
+        assertThat(first.transitInfo().transfers()).isZero();
+        assertThat(first.transitInfo().fare().value()).isEqualTo(1500);
+        assertThat(first.transitInfo().fare().min()).isNull();
+        assertThat(first.landingUrl()).isEqualTo("https://map.kakao.com/link/by/traffic/...");
+        assertThat(first.carInfo()).isNull();
+
+        DirectionsResponseDto second = results.get(1);
+        assertThat(second.mode()).isEqualTo(DirectionsMode.TRANSIT);
+        assertThat(second.distanceMeters()).isEqualTo(3000);
+        assertThat(second.durationSeconds()).isEqualTo(900);
+        assertThat(second.steps()).hasSize(1);
+        assertThat(second.steps().getFirst().type()).isEqualTo("SUBWAY");
+        // 구간·환승 요금은 min/max만 채워진다.
+        assertThat(second.transitInfo().transfers()).isEqualTo(1);
+        assertThat(second.transitInfo().fare().min()).isEqualTo(1500);
+        assertThat(second.transitInfo().fare().max()).isEqualTo(2500);
+        assertThat(second.transitInfo().fare().value()).isNull();
+        assertThat(second.landingUrl()).isEqualTo("https://map.kakao.com/link/by/traffic/...");
+
         server.verify();
     }
 
@@ -144,7 +182,10 @@ class KakaoDirectionsClientTest {
         server.expect(requestTo(startsWith("https://dapi.kakao.com/v2/routing/publictraffic")))
                 .andRespond(withSuccess("{\"status\": \"NO_RESULTS\", \"routes\": []}", MediaType.APPLICATION_JSON));
 
-        assertDirectionsError(DirectionsMode.TRANSIT, ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+        assertThatThrownBy(() -> client.getTransitRoutes(ORIGIN, DESTINATION))
+                .isInstanceOf(DirectionsException.class)
+                .extracting(exception -> ((GlobalException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
@@ -162,17 +203,24 @@ class KakaoDirectionsClientTest {
                               "result_msg": "길찾기 성공",
                               "summary": {"distance": 19032, "duration": 3494, "fare": {"taxi": 22200, "toll": 0}},
                               "sections": [
-                                {"distance": 10000, "duration": 1000, "roads": [
+                                {"distance": 10000, "duration": 1000,
+                                 "roads": [
                                   {"name": "A로", "vertexes": [127.0, 37.5, 127.05, 37.45]},
                                   {"name": "B로", "vertexes": [127.05, 37.45, 127.1, 37.4]}
-                                ]}
+                                 ],
+                                 "guides": [
+                                  {"name": "출발지", "x": 127.0, "y": 37.5, "distance": 0, "duration": 0,
+                                   "type": 100, "guidance": "출발지", "road_index": 0},
+                                  {"name": "", "x": 127.05, "y": 37.45, "distance": 96, "duration": 40,
+                                   "type": 2, "guidance": "우회전", "road_index": 1}
+                                 ]}
                               ]
                             }
                           ]
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        DirectionsResponseDto result = client.getDirections(DirectionsMode.CAR, ORIGIN, DESTINATION);
+        DirectionsResponseDto result = client.car(ORIGIN, DESTINATION);
 
         assertThat(result.mode()).isEqualTo(DirectionsMode.CAR);
         assertThat(result.distanceMeters()).isEqualTo(19032);
@@ -184,6 +232,14 @@ class KakaoDirectionsClientTest {
                 new PointDto(37.4, 127.1)
         );
         assertThat(result.steps()).isEmpty();
+        assertThat(result.landingUrl()).isNull();
+        assertThat(result.transitInfo()).isNull();
+        assertThat(result.carInfo().fare().taxi()).isEqualTo(22200);
+        assertThat(result.carInfo().fare().toll()).isEqualTo(0);
+        assertThat(result.carInfo().guides()).hasSize(2);
+        assertThat(result.carInfo().guides().get(1).guidance()).isEqualTo("우회전");
+        assertThat(result.carInfo().guides().get(1).distanceMeters()).isEqualTo(96);
+        assertThat(result.carInfo().guides().get(1).point()).isEqualTo(new PointDto(37.45, 127.05));
         server.verify();
     }
 
@@ -195,7 +251,10 @@ class KakaoDirectionsClientTest {
                         {"routes": [{"result_code": 104, "result_msg": "출발지와 도착지가 5 m 이내로 설정된 경우 경로 탐색 불가"}]}
                         """, MediaType.APPLICATION_JSON));
 
-        assertDirectionsError(DirectionsMode.CAR, ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+        assertThatThrownBy(() -> client.car(ORIGIN, DESTINATION))
+                .isInstanceOf(DirectionsException.class)
+                .extracting(exception -> ((GlobalException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
@@ -206,7 +265,10 @@ class KakaoDirectionsClientTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"errorType\": \"RequestThrottled\", \"code\": -10}"));
 
-        assertDirectionsError(DirectionsMode.WALK, ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+        assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
+                .isInstanceOf(DirectionsException.class)
+                .extracting(exception -> ((GlobalException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
     }
 
     @Test
@@ -215,7 +277,10 @@ class KakaoDirectionsClientTest {
         server.expect(requestTo(startsWith("https://dapi.kakao.com/v2/routing/walk")))
                 .andRespond(withException(new SocketTimeoutException("Read timed out")));
 
-        assertDirectionsError(DirectionsMode.WALK, ErrorCode.DIRECTIONS_TIMEOUT);
+        assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
+                .isInstanceOf(DirectionsException.class)
+                .extracting(exception -> ((GlobalException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.DIRECTIONS_TIMEOUT);
     }
 
     @Test
@@ -224,13 +289,9 @@ class KakaoDirectionsClientTest {
         server.expect(requestTo(startsWith("https://dapi.kakao.com/v2/routing/walk")))
                 .andRespond(withException(new ConnectException("Connection refused")));
 
-        assertDirectionsError(DirectionsMode.WALK, ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
-    }
-
-    private void assertDirectionsError(DirectionsMode mode, ErrorCode expected) {
-        assertThatThrownBy(() -> client.getDirections(mode, ORIGIN, DESTINATION))
+        assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(expected);
+                .isEqualTo(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
     }
 }
