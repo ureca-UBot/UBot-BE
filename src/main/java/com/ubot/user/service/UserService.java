@@ -1,7 +1,7 @@
 package com.ubot.user.service;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.UserException;
+import com.ubot.user.exception.UserErrorCode;
+import com.ubot.user.exception.UserException;
 import com.ubot.user.dto.request.UserUpdateRequestDto;
 import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.entity.User;
@@ -32,7 +32,7 @@ public class UserService {
 
 	public UserResponseDto getActiveUser(Long userId) {
 		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
-				.orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
+				.orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 		return UserResponseDto.from(user);
 	}
 
@@ -42,11 +42,11 @@ public class UserService {
 				&& requestDto.birthDate() == null
 				&& requestDto.gender() == null
 				&& requestDto.residenceArea() == null){
-			throw new UserException(ErrorCode.INVALID_USER_UPDATE_REQUEST);
+			throw new UserException(UserErrorCode.INVALID_USER_UPDATE_REQUEST);
 		}
 
 		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
-				.orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
+				.orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 		user.update(
 				requestDto.name(),
 				requestDto.birthDate(),

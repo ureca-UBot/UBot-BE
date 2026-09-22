@@ -2,10 +2,11 @@ package com.ubot.faq.service;
 
 
 import com.pgvector.PGvector;
-import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
-import com.ubot.common.exception.FaqException;
-import com.ubot.common.exception.UserException;
+import com.ubot.faq.exception.FaqErrorCode;
+import com.ubot.faq.exception.FaqException;
+import com.ubot.user.exception.UserErrorCode;
+import com.ubot.user.exception.UserException;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCreateRequestDto;
 import com.ubot.faq.dto.request.FaqUpdateRequestDto;
@@ -42,8 +43,8 @@ public class FaqService {
 	@Transactional
 	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
 
-		User admin = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
-		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		User admin = userRepository.findById(adminId).orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		PGvector vector = embeddingService.embedText(requestDto.question());
 
@@ -61,7 +62,7 @@ public class FaqService {
 	}
 
 	public FaqResponseDto getActiveFaq(Long faqId){
-		return FaqResponseDto.from(faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND)));
+		return FaqResponseDto.from(faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND)));
 	}
 
 	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size){
@@ -112,13 +113,13 @@ public class FaqService {
 	@Transactional
 	public FaqResponseDto updateActiveFaq(FaqUpdateRequestDto requestDto, Long adminId){
 
-		Faq faq = faqRepository.findActiveById(requestDto.id()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND));
-		User updatedBy = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
+		Faq faq = faqRepository.findActiveById(requestDto.id()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+		User updatedBy = userRepository.findById(adminId).orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
 		oldFaqRepository.save(oldFaq);
 
-		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		if(!faq.getQuestion().equals(requestDto.question())) {
 			PGvector vector = embeddingService.embedText(requestDto.question());
@@ -144,7 +145,7 @@ public class FaqService {
 
 	@Transactional
 	public void deleteFaq(Long faqId){
-		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND));
+		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
 
 		faq.delete();
 	}

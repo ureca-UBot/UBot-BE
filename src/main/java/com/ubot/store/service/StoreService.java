@@ -10,9 +10,8 @@ import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
-import com.ubot.store.exception.InvalidMapBoundsException;
-import com.ubot.store.exception.ServiceTypeNotFoundException;
-import com.ubot.store.exception.StoreNotFoundException;
+import com.ubot.store.exception.StoreErrorCode;
+import com.ubot.store.exception.StoreException;
 import com.ubot.store.repository.StoreRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -53,7 +52,7 @@ public class StoreService {
 
     public StoreDetailResponseDto getStore(long storeId) {
         return storeRepository.findById(storeId)
-                .orElseThrow(StoreNotFoundException::new);
+                .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
 
     public List<String> getSidoList() {
@@ -133,7 +132,7 @@ public class StoreService {
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
         if (swLat >= neLat || swLng >= neLng) {
-            throw new InvalidMapBoundsException();
+            throw new StoreException(StoreErrorCode.INVALID_MAP_BOUNDS);
         }
     }
 
@@ -144,7 +143,7 @@ public class StoreService {
 
         long validTypeCount = storeRepository.countActiveServiceTypes(types);
         if (validTypeCount != types.size()) {
-            throw new ServiceTypeNotFoundException();
+            throw new StoreException(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
         }
     }
 

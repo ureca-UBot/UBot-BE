@@ -2,7 +2,7 @@ package com.ubot.chat.service;
 
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.ai.service.AiService;
-import com.ubot.common.exception.ChatException;
+import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.dto.response.LlmResponseDto;

@@ -1,7 +1,7 @@
 package com.ubot.auth.config;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.AuthException;
+import com.ubot.auth.exception.AuthErrorCode;
+import com.ubot.auth.exception.AuthException;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,6 +22,6 @@ public class JwtAccessDeniedHandler implements AccessDeniedHandler {
 					   HttpServletResponse response,
 					   AccessDeniedException accessDeniedException
 	) {
-		handlerExceptionResolver.resolveException(request, response, null, new AuthException(ErrorCode.FORBIDDEN));
+		handlerExceptionResolver.resolveException(request, response, null, new AuthException(AuthErrorCode.FORBIDDEN));
 	}
 }

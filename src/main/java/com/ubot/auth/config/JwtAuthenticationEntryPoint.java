@@ -1,7 +1,7 @@
 package com.ubot.auth.config;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.AuthException;
+import com.ubot.auth.exception.AuthErrorCode;
+import com.ubot.auth.exception.AuthException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +21,6 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
 						 HttpServletResponse response,
 						 AuthenticationException authException
 	) {
-		handlerExceptionResolver.resolveException(request, response, null, new AuthException(ErrorCode.UNAUTHORIZED));
+		handlerExceptionResolver.resolveException(request, response, null, new AuthException(AuthErrorCode.UNAUTHORIZED));
 	}
 }
