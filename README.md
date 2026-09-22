@@ -71,6 +71,6 @@ Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB 컨테이�
 - 인증: 회원가입, 로그인, refresh token (`/auth/**`)
 - 매장: 목록·상세·근처·지도 클러스터 조회 (PostGIS)
 - 위치: 카카오 로컬 API 기반 주소·좌표 검색
-- 챗봇: 질문 임베딩 → FAQ 벡터 유사도 검색 (LLM 연동은 아직 미구현)
+- 챗봇: 질문 임베딩 → FAQ 벡터 유사도 검색 → 프롬프트 구성 → Ollama LLM 답변 생성 (최종 프롬프트 문구 작성 대기, [LLM 모듈 안내](docs/how-to/llm-module.md))
 
 `/auth/login`, `/auth/signup`, `/auth/refresh`, `/actuator/health`를 제외한 모든 요청에는 JWT 인증이 필요합니다. 자세한 흐름과 진행 중인 작업은 [docs/architecture.md](docs/architecture.md)에 있습니다.
