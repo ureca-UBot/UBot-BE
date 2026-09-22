@@ -1,6 +1,6 @@
 package com.ubot.ai.service;
 
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.service.LlmService;

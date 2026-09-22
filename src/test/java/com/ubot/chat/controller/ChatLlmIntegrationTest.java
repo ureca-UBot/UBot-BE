@@ -13,7 +13,7 @@ import com.ubot.ai.service.AiService;
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.chat.service.ChatService;
 import com.ubot.common.GlobalExceptionHandler;
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.request.LlmRequestDto;

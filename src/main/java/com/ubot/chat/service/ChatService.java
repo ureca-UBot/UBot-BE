@@ -8,7 +8,7 @@ import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.ai.service.AiService;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.exception.ChatException;
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmException;

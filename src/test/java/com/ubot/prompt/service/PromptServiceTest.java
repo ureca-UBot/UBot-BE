@@ -3,7 +3,7 @@ package com.ubot.prompt.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.prompt.exception.PromptException;
 import java.nio.charset.StandardCharsets;

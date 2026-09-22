@@ -1,6 +1,6 @@
 # 코드 구조와 요청 흐름
 
-> 문서 기준 시점: 2026-09-22 (`develop` = `4aacf06`, LLM 채팅 연결 반영, 열린 PR #55·#34 미반영)
+> 문서 기준 시점: 2026-09-22 (`develop` = `04c5a6c`, LLM 채팅 연결 반영, 열린 PR #55 미반영)
 
 ## 패키지 구조
 
@@ -13,7 +13,7 @@ com.ubot
 ├── prompt     질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
 ├── llm        LLM 요청 검증·Ollama 호출·오류 변환
 ├── embedding  Ollama /api/embed 직접 호출 (EmbeddingService)
-├── faq        FAQ 벡터 검색 (FaqVectorRepository, FaqVectorService)
+├── faq        FAQ·카테고리 CRUD, 이력·로그 조회, FAQ 벡터 검색
 ├── location   카카오 로컬 API 연동 (주소·좌표 검색)
 ├── store      매장 조회 (목록·상세·근처·지도 클러스터, PostGIS)
 └── common     공통 응답·에러코드·전역 예외 처리
@@ -73,7 +73,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 ## 테스트 구성
 
 - `UbotBeApplicationTests`: 테스트 전용 DB 연결, Flyway `V1`·`V2`, `vector`·`postgis` 버전, PostGIS 좌표계, pgvector 스키마(1024·HNSW·cosine), 벡터 저장·검색
-- 도메인 테스트: `auth`(통합), `chat`, `ai`, `prompt`, `llm`, `store`(컨트롤러·서비스·저장소), `faq`(벡터 저장소), `location`, `embedding`
+- 도메인 테스트: `auth`(통합), `chat`, `ai`, `prompt`, `llm`, `store`(컨트롤러·서비스·저장소), `faq`(서비스·벡터 저장소), `location`, `embedding`
 - LLM 관련 테스트는 모의 모델과 로컬 HTTP 서버로 호출 흐름·요청 검증·오류 처리를 확인합니다. 실제 Ollama 모델의 답변 품질을 검증하지는 않습니다.
 - 테스트 프로필에서는 Ollama 자동 구성을 끄고 결정적인 테스트용 임베딩 구현을 사용합니다. 실제 BGE-M3 품질이나 Ollama 연결은 검증하지 않습니다.
 
@@ -84,6 +84,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 | PR | 내용 | 추가되는 것 |
 |---|---|---|
 | [#55](https://github.com/ureca-UBot/UBot-BE/pull/55) | 관리자 매장 관리 API | `AdminStoreController`, `AdminStoreService`, `Store`·`ServiceType` JPA 엔티티, 매장 중복·복구 정책, 지도 거리·클러스터링 개선 |
-| [#34](https://github.com/ureca-UBot/UBot-BE/pull/34) | FAQ CRUD | `AdminFaqController`, `Faq`·`FaqCategory`·`FaqLog`·`OldFaq` 엔티티와 서비스, FAQ DTO 정리(`faq/dto/response`로 이동) |
 
-두 PR 모두 `SecurityConfig`와 `ErrorCode`를 함께 수정하므로 충돌 가능성이 있습니다. 먼저 merge된 쪽을 반영한 뒤 나머지를 올리는 편이 안전합니다.
+FAQ CRUD [#34](https://github.com/ureca-UBot/UBot-BE/pull/34)는 반영되었습니다. `AdminFaqController`, FAQ 관련 엔티티·서비스와 `faq/dto/response`로의 DTO 이동을 포함하며, LLM 연결 코드도 변경된 DTO 위치를 사용합니다.
+
+#55도 `SecurityConfig`와 `ErrorCode`를 수정하므로, 병합 전 최신 `develop`을 반영하고 충돌 여부를 확인해야 합니다.
