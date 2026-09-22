@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -148,16 +149,20 @@ public class StoreRepository {
             double swLng,
             double neLat,
             double neLng,
+            Double latitude,
+            Double longitude,
             List<String> types
     ) {
-        Map<String, Object> parameters = Map.of(
-                "swLat", swLat,
-                "swLng", swLng,
-                "neLat", neLat,
-                "neLng", neLng,
-                "types", sqlTypes(types),
-                "typeCount", types.size()
-        );
+        Map<String, Object> parameters = new HashMap<>();
+        parameters.put("swLat", swLat);
+        parameters.put("swLng", swLng);
+        parameters.put("neLat", neLat);
+        parameters.put("neLng", neLng);
+        parameters.put("hasReference", latitude != null && longitude != null);
+        parameters.put("latitude", latitude == null ? 0.0 : latitude);
+        parameters.put("longitude", longitude == null ? 0.0 : longitude);
+        parameters.put("types", sqlTypes(types));
+        parameters.put("typeCount", types.size());
 
         return jdbcTemplate.query(FIND_IN_MAP_SQL, parameters, this::mapStore);
     }
@@ -167,7 +172,7 @@ public class StoreRepository {
             double swLng,
             double neLat,
             double neLng,
-            double gridMeters,
+            double clusterRadiusMeters,
             List<String> types
     ) {
         Map<String, Object> parameters = Map.of(
@@ -175,7 +180,7 @@ public class StoreRepository {
                 "swLng", swLng,
                 "neLat", neLat,
                 "neLng", neLng,
-                "gridMeters", gridMeters,
+                "clusterRadiusMeters", clusterRadiusMeters,
                 "types", sqlTypes(types),
                 "typeCount", types.size()
         );
@@ -228,7 +233,8 @@ public class StoreRepository {
                 resultSet.getString("phone_number"),
                 resultSet.getString("business_hours"),
                 resultSet.getDouble("latitude"),
-                resultSet.getDouble("longitude")
+                resultSet.getDouble("longitude"),
+                resultSet.getObject("distance_km", Double.class)
         );
     }
 

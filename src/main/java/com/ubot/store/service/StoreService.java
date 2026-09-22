@@ -11,6 +11,7 @@ import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
 import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.InvalidStoreCoordinatesException;
 import com.ubot.store.exception.ServiceTypeNotFoundException;
 import com.ubot.store.exception.StoreNotFoundException;
 import com.ubot.store.repository.StoreRepository;
@@ -88,14 +89,19 @@ public class StoreService {
             double swLng,
             double neLat,
             double neLng,
+            Double latitude,
+            Double longitude,
             List<String> types
     ) {
         validateMapBounds(swLat, swLng, neLat, neLng);
+        validateCoordinatePair(latitude, longitude);
 
         List<String> normalizedTypes = normalizeTypes(types);
         validateServiceTypes(normalizedTypes);
 
-        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizedTypes);
+        return storeRepository.findInMap(
+                swLat, swLng, neLat, neLng, latitude, longitude, normalizedTypes
+        );
     }
 
     public List<MapClusterResponseDto> getMapClusterList(
@@ -116,24 +122,32 @@ public class StoreService {
                 swLng,
                 neLat,
                 neLng,
-                clusterGridMeters(level),
+                clusterRadiusMeters(level),
                 normalizedTypes
         );
     }
 
-    private double clusterGridMeters(int level) {
+    private double clusterRadiusMeters(int level) {
         return switch (level) {
-            case 9 -> 5_000;
-            case 10 -> 10_000;
-            case 11 -> 25_000;
-            case 12 -> 50_000;
-            default -> 100_000;
+            case 7 -> 150;
+            case 8 -> 300;
+            case 9 -> 500;
+            case 10 -> 1_000;
+            case 11 -> 2_000;
+            case 12 -> 4_000;
+            default -> 8_000;
         };
     }
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
         if (swLat >= neLat || swLng >= neLng) {
             throw new InvalidMapBoundsException();
+        }
+    }
+
+    private void validateCoordinatePair(Double latitude, Double longitude) {
+        if ((latitude == null) != (longitude == null)) {
+            throw new InvalidStoreCoordinatesException();
         }
     }
 

@@ -9,5 +9,6 @@ public record MapStoreResponseDto(
         String phoneNumber,
         String businessHours,
         double latitude,
-        double longitude
+        double longitude,
+        Double distanceKm
 ) {}

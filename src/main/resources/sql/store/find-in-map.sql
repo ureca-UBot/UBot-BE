@@ -1,3 +1,12 @@
+WITH reference_location AS (
+    SELECT CASE
+        WHEN :hasReference THEN ST_SetSRID(
+            ST_MakePoint(:longitude, :latitude),
+            4326
+        )::geography
+        ELSE NULL
+    END AS location
+)
 SELECT
     s.store_id,
     s.store_name,
@@ -7,8 +16,13 @@ SELECT
     s.phone_number,
     s.business_hours,
     s.latitude,
-    s.longitude
+    s.longitude,
+    CASE
+        WHEN r.location IS NULL THEN NULL
+        ELSE ROUND((ST_Distance(s.location, r.location) / 1000.0)::numeric, 3)::double precision
+    END AS distance_km
 FROM stores s
+CROSS JOIN reference_location r
 WHERE s.is_active = TRUE
   AND s.deleted_at IS NULL
   AND ST_Intersects(
@@ -28,4 +42,4 @@ WHERE s.is_active = TRUE
           HAVING COUNT(DISTINCT st.service_code) = :typeCount
       )
   )
-ORDER BY s.store_id;
+ORDER BY distance_km ASC NULLS LAST, s.store_id ASC;

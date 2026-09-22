@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.common.PageResponseDto;
+import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.exception.InvalidMapBoundsException;
 import com.ubot.store.service.StoreService;
 
@@ -125,9 +126,39 @@ class StoreControllerTest {
     }
 
     @Test
+    @DisplayName("지도 조회 기준 좌표와 거리 정보를 응답한다")
+    void returnsMapStoresWithDistance() throws Exception {
+        when(storeService.getMapStoreList(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, null
+        )).thenReturn(List.of(new MapStoreResponseDto(
+                1L,
+                "강남역점",
+                "서울특별시",
+                "강남구",
+                "서울특별시 강남구 강남대로 396",
+                "02-0000-0001",
+                "09:00-18:00",
+                37.4987,
+                127.0286,
+                2.61
+        )));
+
+        mockMvc.perform(get("/stores/map")
+                        .param("swLat", "37.0")
+                        .param("swLng", "126.0")
+                        .param("neLat", "38.0")
+                        .param("neLng", "128.0")
+                        .param("latitude", "37.5")
+                        .param("longitude", "127.0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].storeId").value(1L))
+                .andExpect(jsonPath("$.data[0].distanceKm").value(2.61));
+    }
+
+    @Test
     @DisplayName("남서 좌표가 북동 좌표보다 크면 표준 400 응답을 반환한다")
     void returnsStandardErrorForInvalidMapBounds() throws Exception {
-        when(storeService.getMapStoreList(38.0, 126.0, 37.0, 128.0, null))
+        when(storeService.getMapStoreList(38.0, 126.0, 37.0, 128.0, null, null, null))
                 .thenThrow(new InvalidMapBoundsException());
 
         mockMvc.perform(get("/stores/map")

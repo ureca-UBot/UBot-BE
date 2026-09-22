@@ -1,9 +1,5 @@
 WITH cluster_source AS (
     SELECT
-        ST_SnapToGrid(
-            ST_Transform(s.location::geometry, 3857),
-            :gridMeters
-        ) AS grid_cell,
         ST_Transform(s.location::geometry, 3857) AS store_point
     FROM stores s
     WHERE s.is_active = TRUE
@@ -25,13 +21,18 @@ WITH cluster_source AS (
               HAVING COUNT(DISTINCT st.service_code) = :typeCount
           )
       )
+), clustered AS (
+    SELECT
+        store_point,
+        ST_ClusterDBSCAN(store_point, :clusterRadiusMeters, 1) OVER () AS cluster_id
+    FROM cluster_source
 ), clusters AS (
     SELECT
-        grid_cell,
+        cluster_id,
         ST_Centroid(ST_Collect(store_point)) AS center_point,
         COUNT(*) AS store_count
-    FROM cluster_source
-    GROUP BY grid_cell
+    FROM clustered
+    GROUP BY cluster_id
 )
 SELECT
     ST_Y(ST_Transform(center_point, 4326)) AS latitude,
