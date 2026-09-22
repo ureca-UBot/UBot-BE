@@ -118,7 +118,7 @@ public class FaqService {
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
 		oldFaqRepository.save(oldFaq);
 
-		FaqCategory category = faqCategoryRepository.findByNameAndDeletedAtIsNull(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		if(!faq.getQuestion().equals(requestDto.question())) {
 			PGvector vector = embeddingService.embedText(requestDto.question());

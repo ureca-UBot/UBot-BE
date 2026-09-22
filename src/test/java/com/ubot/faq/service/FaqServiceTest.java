@@ -102,10 +102,10 @@ class FaqServiceTest {
                 .createdAt(createdAt).updatedAt(createdAt).vector(vector(0.0f))
                 .build();
         PGvector newVector = vector(1.0f);
-        FaqUpdateRequestDto request = new FaqUpdateRequestDto(100L, "new", "new question", "new answer");
+        FaqUpdateRequestDto request = new FaqUpdateRequestDto(100L, 10L, "new question", "new answer");
         when(faqRepository.findActiveById(100L)).thenReturn(Optional.of(faq));
         when(userRepository.findById(2L)).thenReturn(Optional.of(editor));
-        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("new")).thenReturn(Optional.of(newCategory));
+        when(faqCategoryRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(newCategory));
         when(embeddingService.embedText("new question")).thenReturn(newVector);
         when(faqRepository.save(faq)).thenReturn(faq);
 
