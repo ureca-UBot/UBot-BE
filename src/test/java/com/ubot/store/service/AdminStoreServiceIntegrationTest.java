@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,14 +19,11 @@ import org.springframework.test.context.jdbc.Sql;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.common.ErrorCode;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
-import com.ubot.store.exception.DeletedStoreAlreadyExistsException;
-import com.ubot.store.exception.DuplicateStoreException;
-import com.ubot.store.exception.InvalidStoreCoordinatesException;
-import com.ubot.store.exception.ServiceTypeNotFoundException;
-import com.ubot.store.exception.StoreNotFoundException;
+import com.ubot.store.exception.StoreException;
 
 import jakarta.persistence.EntityManager;
 
@@ -81,8 +79,10 @@ class AdminStoreServiceIntegrationTest {
                 List.of("APPLE_AS")
         );
 
-        assertThatThrownBy(() -> adminStoreService.createStore(request))
-                .isInstanceOf(DuplicateStoreException.class);
+        assertStoreException(
+                () -> adminStoreService.createStore(request),
+                ErrorCode.DUPLICATE_STORE
+        );
     }
 
     @Test
@@ -109,9 +109,10 @@ class AdminStoreServiceIntegrationTest {
                         List.of("IDENTITY_THEFT_REPORT")
                 );
 
-        assertThatThrownBy(
-                () -> adminStoreService.createStore(request)
-        ).isInstanceOf(DeletedStoreAlreadyExistsException.class);
+        assertStoreException(
+                () -> adminStoreService.createStore(request),
+                ErrorCode.DELETED_STORE_ALREADY_EXISTS
+        );
 
         assertThat(countStores()).isEqualTo(storeCountBefore);
     }
@@ -241,25 +242,28 @@ class AdminStoreServiceIntegrationTest {
     @Test
     @DisplayName("활성 상태인 매장은 복구할 수 없다")
     void rejectsActiveStoreOnActivate() {
-        assertThatThrownBy(
-                () -> adminStoreService.activateStore(1L)
-        ).isInstanceOf(StoreNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.activateStore(1L),
+                ErrorCode.STORE_NOT_FOUND
+        );
     }
 
     @Test
     @DisplayName("삭제 이력이 없는 비활성 매장은 복구할 수 없다")
     void rejectsInactiveStoreOnActivate() {
-        assertThatThrownBy(
-                () -> adminStoreService.activateStore(4L)
-        ).isInstanceOf(StoreNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.activateStore(1L),
+                ErrorCode.STORE_NOT_FOUND
+        );
     }
 
     @Test
     @DisplayName("존재하지 않는 매장은 복구할 수 없다")
     void rejectsMissingStoreOnActivate() {
-        assertThatThrownBy(
-                () -> adminStoreService.activateStore(999L)
-        ).isInstanceOf(StoreNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.activateStore(1L),
+                ErrorCode.STORE_NOT_FOUND
+        );
     }
 
     @Test
@@ -281,16 +285,19 @@ class AdminStoreServiceIntegrationTest {
 
         entityManager.flush();
 
-        assertThatThrownBy(() -> adminStoreService.updateStore(
-                1L,
-                updateRequest(
-                        createdStore.storeName(),
-                        createdStore.address(),
-                        null,
-                        null,
-                        null
-                )
-        )).isInstanceOf(DuplicateStoreException.class);
+        assertStoreException(
+                () -> adminStoreService.updateStore(
+                        1L,
+                        updateRequest(
+                                createdStore.storeName(),
+                                createdStore.address(),
+                                null,
+                                null,
+                                null
+                        )
+                ),
+                ErrorCode.DUPLICATE_STORE
+        );
     }
 
     @Test
@@ -325,59 +332,92 @@ class AdminStoreServiceIntegrationTest {
     @Test
     @DisplayName("존재하지 않는 매장은 수정하거나 삭제할 수 없다")
     void rejectsMissingStore() {
-        assertThatThrownBy(() -> adminStoreService.updateStore(
-                999L,
-                updateRequest("없는 매장", null, null, null, null)
-        )).isInstanceOf(StoreNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.updateStore(
+                        999L,
+                        updateRequest("없는 매장", null, null, null, null)
+                ),
+                ErrorCode.STORE_NOT_FOUND
+        );
 
-        assertThatThrownBy(() -> adminStoreService.deleteStore(999L))
-                .isInstanceOf(StoreNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.deleteStore(999L),
+                ErrorCode.STORE_NOT_FOUND
+        );
     }
 
     @Test
     @DisplayName("비활성화되거나 삭제된 매장은 수정하거나 삭제할 수 없다")
     void rejectsInactiveOrDeletedStore() {
-        assertThatThrownBy(() -> adminStoreService.updateStore(
-                4L,
-                updateRequest("비활성 매장", null, null, null, null)
-        )).isInstanceOf(StoreNotFoundException.class);
-
-        assertThatThrownBy(() -> adminStoreService.deleteStore(4L))
-                .isInstanceOf(StoreNotFoundException.class);
-
-        assertThatThrownBy(() -> adminStoreService.updateStore(
-                5L,
-                updateRequest("삭제 매장", null, null, null, null)
-        )).isInstanceOf(StoreNotFoundException.class);
-
-        assertThatThrownBy(() -> adminStoreService.deleteStore(5L))
-                .isInstanceOf(StoreNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.updateStore(
+                        4L,
+                        updateRequest("비활성 매장", null, null, null, null)
+                ),
+                ErrorCode.STORE_NOT_FOUND
+        );
+        assertStoreException(
+                () -> adminStoreService.deleteStore(4L),
+                ErrorCode.STORE_NOT_FOUND
+        );
+        assertStoreException(
+                () -> adminStoreService.updateStore(
+                        5L,
+                        updateRequest("삭제 매장", null, null, null, null)
+                ),
+                ErrorCode.STORE_NOT_FOUND
+        );
+        assertStoreException(
+                () -> adminStoreService.deleteStore(5L),
+                ErrorCode.STORE_NOT_FOUND
+        );
     }
 
     @Test
     @DisplayName("존재하지 않는 서비스 코드가 포함되면 요청 전체를 실패시킨다")
     void rejectsUnknownServiceCode() {
-        assertThatThrownBy(() -> adminStoreService.createStore(
-                createRequest(List.of("APPLE_AS", "UNKNOWN_SERVICE"))
-        )).isInstanceOf(ServiceTypeNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.createStore(
+                        createRequest(List.of("APPLE_AS", "UNKNOWN_SERVICE"))
+                ),
+                ErrorCode.SERVICE_TYPE_NOT_FOUND
+        );
     }
 
     @Test
     @DisplayName("비활성 서비스 코드가 포함되면 요청 전체를 실패시킨다")
     void rejectsInactiveServiceCode() {
-        assertThatThrownBy(() -> adminStoreService.updateStore(
-                1L,
-                updateRequest(null, null, null, null, List.of("INACTIVE_SERVICE"))
-        )).isInstanceOf(ServiceTypeNotFoundException.class);
+        assertStoreException(
+                () -> adminStoreService.updateStore(
+                        1L,
+                        updateRequest(
+                                null,
+                                null,
+                                null,
+                                null,
+                                List.of("INACTIVE_SERVICE")
+                        )
+                ),
+                ErrorCode.SERVICE_TYPE_NOT_FOUND
+        );
     }
 
     @Test
     @DisplayName("PATCH에서 위도나 경도 중 하나만 전달하면 실패한다")
     void rejectsIncompleteCoordinates() {
-        assertThatThrownBy(() -> adminStoreService.updateStore(
-                1L,
-                updateRequest(null, null, new BigDecimal("37.5"), null, null)
-        )).isInstanceOf(InvalidStoreCoordinatesException.class);
+        assertStoreException(
+                () -> adminStoreService.updateStore(
+                        1L,
+                        updateRequest(
+                                null,
+                                null,
+                                new BigDecimal("37.5"),
+                                null,
+                                null
+                        )
+                ),
+                ErrorCode.INVALID_STORE_COORDINATES
+        );
     }
 
 
@@ -455,4 +495,15 @@ class AdminStoreServiceIntegrationTest {
     private int countStores() {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM stores", Integer.class);
     }
+
+    private void assertStoreException(
+            ThrowingCallable callable,
+            ErrorCode expectedErrorCode
+    ) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(StoreException.class)
+                .extracting(exception -> ((StoreException) exception).getErrorCode())
+                .isEqualTo(expectedErrorCode);
+    }
+
 }

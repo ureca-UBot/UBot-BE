@@ -24,11 +24,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.ubot.auth.config.JwtAuthenticationFilter;
+import com.ubot.common.ErrorCode;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
-import com.ubot.store.exception.DeletedStoreAlreadyExistsException;
-import com.ubot.store.exception.DuplicateStoreException;
-import com.ubot.store.exception.InvalidStoreCoordinatesException;
+import com.ubot.store.exception.StoreException;
 import com.ubot.store.service.AdminStoreService;
 
 @WebMvcTest(AdminStoreController.class)
@@ -74,7 +73,7 @@ class AdminStoreControllerTest {
     @DisplayName("활성 상태인 동일 매장을 다시 등록하면 409 응답을 반환한다")
     void rejectsDuplicateStore() throws Exception {
         when(adminStoreService.createStore(any(AdminStoreCreateRequestDto.class)))
-                .thenThrow(new DuplicateStoreException());
+            .thenThrow(new StoreException(ErrorCode.DUPLICATE_STORE));
 
         mockMvc.perform(post("/admin/stores")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -152,7 +151,7 @@ class AdminStoreControllerTest {
     @DisplayName("PATCH에서 좌표 한쪽만 전달하면 400 응답을 반환한다")
     void rejectsIncompleteCoordinatePair() throws Exception {
         when(adminStoreService.updateStore(any(), any()))
-                .thenThrow(new InvalidStoreCoordinatesException());
+            .thenThrow(new StoreException(ErrorCode.INVALID_STORE_COORDINATES));
 
         mockMvc.perform(patch("/admin/stores/1")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -199,7 +198,7 @@ class AdminStoreControllerTest {
     @DisplayName("삭제된 동일 매장이 존재하면 409 응답을 반환한다")
     void rejectsDeletedDuplicateStore() throws Exception {
         when(adminStoreService.createStore(any(AdminStoreCreateRequestDto.class)))
-                .thenThrow(new DeletedStoreAlreadyExistsException());
+                .thenThrow(new StoreException(ErrorCode.DELETED_STORE_ALREADY_EXISTS));
 
         mockMvc.perform(post("/admin/stores")
                         .contentType(MediaType.APPLICATION_JSON)
