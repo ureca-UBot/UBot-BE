@@ -49,7 +49,7 @@ class FaqServiceTest {
         FaqResponseDto result = service.createFaq(request, 1L);
         assertThat(result.question()).isEqualTo(request.question());
         verify(vectorService).saveVectorForFaq(result.id(), request.question());
-        verify(faqRepository, times(2)).save(any(Faq.class));
+        verify(faqRepository, times(1)).save(any(Faq.class));
     }
 
     @Test
