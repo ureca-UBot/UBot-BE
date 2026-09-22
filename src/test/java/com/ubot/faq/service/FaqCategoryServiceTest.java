@@ -7,9 +7,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
-import com.ubot.common.exception.FaqException;
+import com.ubot.faq.exception.FaqErrorCode;
+import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.dto.request.FaqCategoryCreateRequestDto;
 import com.ubot.faq.dto.request.FaqCategoryUpdateRequestDto;
 import com.ubot.faq.dto.response.FaqCategoryResponseDto;
@@ -66,7 +66,7 @@ class FaqCategoryServiceTest {
         // then
         throwable.isInstanceOf(FaqException.class)
                 .extracting(exception -> ((FaqException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.FAQ_CATEGORY_EXIST);
+                .isEqualTo(FaqErrorCode.FAQ_CATEGORY_EXIST);
     }
 
     @Test
@@ -118,7 +118,7 @@ class FaqCategoryServiceTest {
         // then
         throwable.isInstanceOf(FaqException.class)
                 .extracting(exception -> ((FaqException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.FAQ_CATEGORY_IN_USE);
+                .isEqualTo(FaqErrorCode.FAQ_CATEGORY_IN_USE);
     }
 
     @Test

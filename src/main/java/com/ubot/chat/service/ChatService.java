@@ -6,8 +6,8 @@ import org.springframework.stereotype.Service;
 
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.ai.service.AiService;
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.ChatException;
+import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.dto.response.LlmResponseDto;
@@ -30,7 +30,7 @@ public class ChatService {
     public ChatResponseDto createChat(String question) {
 
         if (!StringUtils.hasText(question)) {
-            throw new ChatException(ErrorCode.INVALID_CHAT_REQUEST);
+            throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
         }
 
         // TOP-K 검색 수행
