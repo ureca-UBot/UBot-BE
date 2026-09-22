@@ -56,7 +56,7 @@ public class FaqService {
 		Faq savedFaq = faqRepository.save(faq);
 		faqVectorService.saveVectorForFaq(savedFaq.getId(), requestDto.question());
 
-		return FaqResponseDto.from(faqRepository.save(faq));
+		return FaqResponseDto.from(savedFaq);
 	}
 
 	public FaqResponseDto getActiveFaq(Long faqId){
@@ -112,20 +112,14 @@ public class FaqService {
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		if(!faq.getQuestion().equals(requestDto.question())) {
-			faq.update(
-					category,
-					requestDto.question(),
-					requestDto.answer()
-			);
 			faqVectorService.saveVectorForFaq(faq.getId(), requestDto.question());
 		}
-		else {
-			faq.update(
-					category,
-					requestDto.question(),
-					requestDto.answer()
-			);
-		}
+
+		faq.update(
+				category,
+				requestDto.question(),
+				requestDto.answer()
+		);
 		return FaqResponseDto.from(faqRepository.save(faq));
 	}
 
