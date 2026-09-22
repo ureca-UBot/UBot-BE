@@ -5,22 +5,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
 @Repository
 public interface FaqRepository extends JpaRepository<Faq, Long> {
-	@Query("""
-		select f
-		from Faq f
-		where f.deletedAt is null and (
-			lower(f.question) like lower(concat('%', :keyword, '%'))
-		or	lower(f.answer) like lower(concat('%', :keyword, '%'))
-		)
-""")
-	Page<Faq> findActivesByKeyword(String keyword, Pageable pageable);
-
 	@Query("""
 		select f
 		from Faq f
@@ -32,8 +23,18 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 		select f
 		from Faq f
 		where f.deletedAt is null
+		and (
+			:keyword is null
+			or
+			lower(f.question) like lower(concat('%', :keyword, '%'))
+		)
+		and (
+			:categoryId is null
+			or
+			f.faqCategory.id = :categoryId
+		)
 """)
-	Page<Faq> findAllActives(Pageable pageable);
+	Page<Faq> findAllActives(Pageable pageable, @Param("keyword") String keyword, @Param("categoryId") Long categoryId);
 
 	@Query("""
 		select f

@@ -40,17 +40,11 @@ public class AdminFaqController {
 	@GetMapping("/faqs")
 	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqList(
 			@RequestParam(required = false) String keyword,
+			@RequestParam(required = false) Long categoryId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
-		PageResponseDto<FaqResponseDto> result;
-
-		if(StringUtils.hasText(keyword))
-			result = faqService.searchActiveFaq(page, size, keyword);
-		else
-			result = faqService.getActiveFaqList(page, size);
-
-		return ApiResponse.success(result);
+		return ApiResponse.success(faqService.getActiveFaqList(page, size, keyword, categoryId));
 	}
 
 	@GetMapping("/deleted-faqs")

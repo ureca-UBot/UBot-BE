@@ -24,6 +24,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
@@ -64,12 +65,14 @@ public class FaqService {
 		return FaqResponseDto.from(faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(ErrorCode.FAQ_NOT_FOUND)));
 	}
 
-	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size){
+	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size, String keyword, Long categoryId){
+		String normalizedKeyword = StringUtils.hasText(keyword) ? keyword : null;
+
 		Page<FaqResponseDto> faqPage = faqRepository.
 				findAllActives(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
-				)))
+				)), normalizedKeyword, categoryId)
 				.map(FaqResponseDto::from);
 
 
@@ -80,17 +83,6 @@ public class FaqService {
 		Page<FaqResponseDto> faqPage = faqRepository.
 				findAllDeletedFaq(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("deletedAt"),
-						Sort.Order.desc("id")
-				)))
-				.map(FaqResponseDto::from);
-
-		return PageResponseDto.from(faqPage);
-	}
-
-	public PageResponseDto<FaqResponseDto> searchActiveFaq(int page, int size, String keyword){
-		Page<FaqResponseDto> faqPage = faqRepository.
-				findActivesByKeyword(keyword, PageRequest.of(page, size, Sort.by(
-						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
 				)))
 				.map(FaqResponseDto::from);

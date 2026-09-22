@@ -145,10 +145,10 @@ class FaqServiceTest {
         Faq active = faq(1L, "active question", null);
         PageRequest pageable = faqPageRequest(page, size, "createdAt");
         Page<Faq> faqPage = new PageImpl<>(List.of(active), pageable, 1);
-        when(faqRepository.findAllActives(pageable)).thenReturn(faqPage);
+        when(faqRepository.findAllActives(pageable, null, null)).thenReturn(faqPage);
 
         // when
-        PageResponseDto<FaqResponseDto> result = faqService.getActiveFaqList(page, size);
+        PageResponseDto<FaqResponseDto> result = faqService.getActiveFaqList(page, size, null, null);
 
         // then
         assertPageResponse(result, page, size, FaqResponseDto.from(active));
