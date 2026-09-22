@@ -42,7 +42,8 @@ public class SecurityConfig {
 								"/auth/login",
 								"/auth/signup",
 								"/auth/refresh",
-								"/stores/**"
+								"/stores/**",
+								"/actuator/health"
 						).permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
