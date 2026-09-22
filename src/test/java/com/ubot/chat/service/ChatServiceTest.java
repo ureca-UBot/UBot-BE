@@ -2,7 +2,7 @@ package com.ubot.chat.service;
 
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.common.exception.ChatException;
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

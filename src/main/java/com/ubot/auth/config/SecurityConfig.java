@@ -43,6 +43,9 @@ public class SecurityConfig {
 								"/auth/refresh",
 								"/actuator/health"
 						).permitAll()
+						.requestMatchers(
+								"/admin/**"
+						).hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.addFilterBefore(

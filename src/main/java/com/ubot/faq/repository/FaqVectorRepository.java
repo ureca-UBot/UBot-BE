@@ -1,6 +1,6 @@
 package com.ubot.faq.repository;
 
-import com.ubot.faq.dto.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
 
 import lombok.RequiredArgsConstructor;
 
@@ -14,10 +14,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class FaqVectorRepository {
         private final JdbcTemplate jdbcTemplate;
-
-        public void saveEmbedding(Long faqId, PGvector embedding) {
-                jdbcTemplate.update("UPDATE faq SET vector = ? WHERE id = ?", embedding, faqId);
-        }
 
         public List<FaqSearchResponseDto> getSimilarList(PGvector queryEmbedding, int topK) {
                 String sql = """
