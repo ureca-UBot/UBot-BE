@@ -251,6 +251,28 @@ class StoreRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("지도 조회 기준 좌표가 없으면 거리 정보 없이 매장을 조회한다")
+    void findsMapStoresWithoutReferenceCoordinates() {
+        List<MapStoreResponseDto> stores = storeRepository.findInMap(
+                37.49,
+                127.02,
+                37.51,
+                127.04,
+                null,
+                null,
+                List.of()
+        );
+
+        assertThat(stores)
+                .extracting(MapStoreResponseDto::storeId)
+                .containsExactly(1L, 2L);
+
+        assertThat(stores)
+                .extracting(MapStoreResponseDto::distanceKm)
+                .containsOnlyNulls();
+    }
+
+    @Test
     @DisplayName("활성 매장의 시도 목록을 중복 없이 조회한다")
     void findsDistinctSidos() {
         assertThat(storeRepository.findSidos())

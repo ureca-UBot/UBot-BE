@@ -135,7 +135,8 @@ public class StoreService {
             case 10 -> 1_000;
             case 11 -> 2_000;
             case 12 -> 4_000;
-            default -> 8_000;
+            case 13 -> 8_000;
+            default -> throw new IllegalArgumentException("지원하지 않는 지도 레벨입니다: " + level);
         };
     }
 

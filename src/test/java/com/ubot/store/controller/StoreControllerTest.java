@@ -156,7 +156,6 @@ class StoreControllerTest {
                 .andExpect(jsonPath("$.data[0].distanceKm").value(2.61));
     }
 
-
     @Test
     @DisplayName("지도 조회 기준 위도만 전달하면 400 응답을 반환한다")
     void rejectsMapReferenceWithOnlyLatitude() throws Exception {
@@ -205,7 +204,6 @@ class StoreControllerTest {
                 .andExpect(jsonPath("$.code").value("STORE-005"));
     }
 
-
     @Test
     @DisplayName("남서 좌표가 북동 좌표보다 크면 표준 400 응답을 반환한다")
     void returnsStandardErrorForInvalidMapBounds() throws Exception {
@@ -237,7 +235,6 @@ class StoreControllerTest {
 
         verifyNoInteractions(storeService);
     }
-
 
     @Test
     @DisplayName("클러스터 지도 레벨 7을 허용한다")
