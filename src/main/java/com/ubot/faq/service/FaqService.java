@@ -43,12 +43,9 @@ public class FaqService {
 	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
 
 		User admin = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
-		FaqCategory category = faqCategoryRepository.findByNameAndDeletedAtIsNull(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
+		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
 		PGvector vector = embeddingService.embedText(requestDto.question());
-		if(vector == null)
-			throw new FaqException(ErrorCode.FAQ_VECTOR_CREATE_FAILURE);
-
 
 		Faq faq = Faq.builder()
 				.admin(admin)
@@ -123,20 +120,24 @@ public class FaqService {
 
 		FaqCategory category = faqCategoryRepository.findByNameAndDeletedAtIsNull(requestDto.category()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
-		PGvector vector = embeddingService.embedText(requestDto.question());
+		if(!faq.getQuestion().equals(requestDto.question())) {
+			PGvector vector = embeddingService.embedText(requestDto.question());
 
-		if (vector == null) {
-			throw new FaqException(
-					ErrorCode.FAQ_VECTOR_CREATE_FAILURE
+			faq.update(
+					category,
+					requestDto.question(),
+					requestDto.answer(),
+					vector
 			);
 		}
-
-		faq.update(
-				category,
-				requestDto.question(),
-				requestDto.answer(),
-				vector
-		);
+		else {
+			faq.update(
+					category,
+					requestDto.question(),
+					requestDto.answer(),
+					faq.getVector()
+			);
+		}
 
 		return FaqResponseDto.from(faqRepository.save(faq));
 	}

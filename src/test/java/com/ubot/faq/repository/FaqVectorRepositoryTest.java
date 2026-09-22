@@ -33,7 +33,7 @@ class FaqVectorRepositoryTest {
         jdbcTemplate.update("DELETE FROM faq");
         jdbcTemplate.update("DELETE FROM faq_category");
         categoryId = jdbcTemplate.queryForObject(
-                "INSERT INTO faq_category (name) VALUES ('test-category') RETURNING id",
+                "INSERT INTO faq_category (name) VALUES ('test-categoryId') RETURNING id",
                 Long.class
         );
         insertFaq(1L, "USIM reissue", "Visit a nearby store.", vectorOf(0), null);

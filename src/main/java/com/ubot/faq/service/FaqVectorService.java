@@ -17,7 +17,6 @@ import lombok.RequiredArgsConstructor;
 public class FaqVectorService {
     private final EmbeddingService embeddingService;
     private final FaqVectorRepository faqVectorRepository;
-    private final FaqRepository faqRepository;
 
     public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
         PGvector queryVector = embeddingService.embedText(userQuestion);

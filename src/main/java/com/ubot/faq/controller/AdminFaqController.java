@@ -103,7 +103,7 @@ public class AdminFaqController {
 
 	@GetMapping("/faq-categories/{faqCategoryId}/faqs")
 	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqListByFaqCategoryId(
-			@Positive @RequestParam Long faqCategoryId,
+			@Positive @PathVariable("faqCategoryId") Long faqCategoryId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){

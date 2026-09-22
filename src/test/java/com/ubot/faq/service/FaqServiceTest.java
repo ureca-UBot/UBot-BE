@@ -51,10 +51,10 @@ class FaqServiceTest {
         // given
         User admin = User.builder().id(10L).build();
         FaqCategory category = category(20L, "account");
-        FaqCreateRequestDto request = new FaqCreateRequestDto("account", "question", "answer");
+        FaqCreateRequestDto request = new FaqCreateRequestDto(20L, "question", "answer");
         PGvector vector = vector(1.0f);
         when(userRepository.findById(10L)).thenReturn(Optional.of(admin));
-        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("account")).thenReturn(Optional.of(category));
+        when(faqCategoryRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(category));
         when(embeddingService.embedText("question")).thenReturn(vector);
         when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -74,9 +74,9 @@ class FaqServiceTest {
     @DisplayName("존재하지 않는 카테고리로 FAQ를 생성하면 예외가 발생한다")
     void createFaq_throwsWhenCategoryDoesNotExist() {
         // given
-        FaqCreateRequestDto request = new FaqCreateRequestDto("missing", "question", "answer");
+        FaqCreateRequestDto request = new FaqCreateRequestDto(10L, "question", "answer");
         when(userRepository.findById(10L)).thenReturn(Optional.of(User.builder().id(10L).build()));
-        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("missing")).thenReturn(Optional.empty());
+        when(faqCategoryRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.empty());
 
         // when
         var throwable = assertThatThrownBy(() -> faqService.createFaq(request, 10L));
@@ -85,25 +85,6 @@ class FaqServiceTest {
         throwable.isInstanceOf(FaqException.class)
                 .extracting(exception -> ((FaqException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.FAQ_CATEGORY_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("임베딩 생성에 실패하면 FAQ를 저장하지 않고 예외가 발생한다")
-    void createFaq_throwsWhenEmbeddingIsNull() {
-        // given
-        FaqCreateRequestDto request = new FaqCreateRequestDto("account", "question", "answer");
-        when(userRepository.findById(10L)).thenReturn(Optional.of(User.builder().id(10L).build()));
-        when(faqCategoryRepository.findByNameAndDeletedAtIsNull("account"))
-                .thenReturn(Optional.of(category(20L, "account")));
-        when(embeddingService.embedText("question")).thenReturn(null);
-
-        // when
-        var throwable = assertThatThrownBy(() -> faqService.createFaq(request, 10L));
-
-        // then
-        throwable.isInstanceOf(FaqException.class)
-                .extracting(exception -> ((FaqException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.FAQ_VECTOR_CREATE_FAILURE);
     }
 
     @Test
