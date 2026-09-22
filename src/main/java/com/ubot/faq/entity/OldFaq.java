@@ -33,9 +33,6 @@ public class OldFaq {
 	@Column(name = "answer")
 	private String answer;
 
-	@Column(name = "vector")
-	private PGvector vector;
-
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "created_by")
 	private User createdBy;
@@ -54,7 +51,6 @@ public class OldFaq {
 				.faqCategory(faq.getFaqCategory())
 				.question(faq.getQuestion())
 				.answer(faq.getAnswer())
-				.vector(faq.getVector())
 				.createdBy(faq.getAdmin())
 				.updatedBy(updateAdmin)
 				.updatedAt(LocalDateTime.now())

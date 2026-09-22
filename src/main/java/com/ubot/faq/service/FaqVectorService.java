@@ -2,7 +2,8 @@ package com.ubot.faq.service;
 
 import java.util.List;
 
-import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.exception.FaqErrorCode;
+import com.ubot.faq.exception.FaqException;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
@@ -21,5 +22,18 @@ public class FaqVectorService {
     public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
         PGvector queryVector = embeddingService.embedText(userQuestion);
         return faqVectorRepository.getSimilarList(queryVector, topK);
+    }
+
+    public void saveVectorForFaq(Long faqId, String question) {
+        PGvector vector = embeddingService.embedText(question);
+        faqVectorRepository.saveVectorForFaq(faqId, vector);
+    }
+
+    public void saveVectorForOldFaq(Long faqId, Integer version) {
+        PGvector vector = faqVectorRepository.findVectorByFaqId(faqId);
+        if(vector == null) {
+            throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
+        }
+        faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
     }
 }

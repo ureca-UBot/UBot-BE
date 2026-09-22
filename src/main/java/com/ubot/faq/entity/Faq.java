@@ -28,9 +28,6 @@ public class Faq {
 	@Column(name = "answer")
 	private String answer;
 
-	@Column(name = "vector")
-	private PGvector vector;
-
 	@Builder.Default
 	@Column(name = "version")
 	private Integer version = 1;
@@ -51,13 +48,11 @@ public class Faq {
 	public void update(
 			FaqCategory category,
 			String question,
-			String answer,
-			PGvector vector
+			String answer
 	){
 		this.faqCategory = category;
 		this.question = question;
 		this.answer = answer;
-		this.vector = vector;
 		this.updatedAt = LocalDateTime.now();
 		this.version++;
 	}

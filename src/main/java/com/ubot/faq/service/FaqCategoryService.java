@@ -15,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
@@ -34,6 +35,7 @@ public class FaqCategoryService {
 		FaqCategory faqCategory = FaqCategory.builder()
 				.name(categoryName)
 				.createdAt(LocalDateTime.now())
+				.updatedAt(LocalDateTime.now())
 				.build();
 
 		return FaqCategoryResponseDto.from(faqCategoryRepository.save(faqCategory));
@@ -44,23 +46,14 @@ public class FaqCategoryService {
 		return  FaqCategoryResponseDto.from(faqCategory);
 	}
 
-	public PageResponseDto<FaqCategoryResponseDto> getFaqCategories(int page, int size) {
+	public PageResponseDto<FaqCategoryResponseDto> getFaqCategories(int page, int size, String keyword) {
+		String normalizedKeyword = StringUtils.hasText(keyword) ? keyword : "";
+
 		Page<FaqCategoryResponseDto> faqCategoryPage = faqCategoryRepository
 				.findByDeletedAtIsNull(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
-				)))
-				.map(FaqCategoryResponseDto::from);
-
-		return PageResponseDto.from(faqCategoryPage);
-	}
-
-	public PageResponseDto<FaqCategoryResponseDto> searchFaqCategories(int page, int size, String keyword){
-		Page<FaqCategoryResponseDto> faqCategoryPage = faqCategoryRepository
-				.findByKeywordAndDeletedAtIsNull(keyword, PageRequest.of(page, size, Sort.by(
-						Sort.Order.desc("createdAt"),
-						Sort.Order.desc("id")
-				)))
+				)), normalizedKeyword)
 				.map(FaqCategoryResponseDto::from);
 
 		return PageResponseDto.from(faqCategoryPage);
