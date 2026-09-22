@@ -51,4 +51,20 @@ public class User {
 
 	@Column(name = "deleted_at")
 	private LocalDateTime deletedAt;
+
+	public void update(String name, LocalDate birthDate, Gender gender, String residenceArea){
+		if(name != null){
+			this.name = name.trim();
+		}
+		if(birthDate != null){
+			this.birthDate = birthDate;
+		}
+		if(gender != null){
+			this.gender = gender;
+		}
+		if(residenceArea != null){
+			this.residenceArea = residenceArea.trim();
+		}
+		this.updatedAt = LocalDateTime.now();
+	}
 }
