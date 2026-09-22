@@ -148,13 +148,13 @@ class StoreServiceTest {
 
     @ParameterizedTest(name = "지도 레벨 {0}은 {1}m 클러스터 반경을 사용한다")
     @CsvSource({
-            "7, 150",
-            "8, 300",
-            "9, 500",
-            "10, 1000",
-            "11, 2000",
-            "12, 4000",
-            "13, 8000"
+            "7, 600",
+            "8, 1200",
+            "9, 2000",
+            "10, 4000",
+            "11, 8000",
+            "12, 16000",
+            "13, 32000"
     })
     @DisplayName("지도 레벨에 맞는 거리 반경으로 클러스터를 조회한다")
     void getsMapClustersWithRadiusForLevel(int level, double clusterRadiusMeters) {

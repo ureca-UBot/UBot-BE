@@ -129,13 +129,13 @@ public class StoreService {
 
     private double clusterRadiusMeters(int level) {
         return switch (level) {
-            case 7 -> 150;
-            case 8 -> 300;
-            case 9 -> 500;
-            case 10 -> 1_000;
-            case 11 -> 2_000;
-            case 12 -> 4_000;
-            case 13 -> 8_000;
+            case 7 -> 600;
+            case 8 -> 1_200;
+            case 9 -> 2_000;
+            case 10 -> 4_000;
+            case 11 -> 8_000;
+            case 12 -> 16_000;
+            case 13 -> 32_000;
             default -> throw new IllegalArgumentException("지원하지 않는 지도 레벨입니다: " + level);
         };
     }
