@@ -1,14 +1,10 @@
 package com.ubot.faq.service;
 
-
-import com.ubot.common.ErrorCode;
-import com.pgvector.PGvector;
 import com.ubot.common.PageResponseDto;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.user.exception.UserErrorCode;
 import com.ubot.user.exception.UserException;
-import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCreateRequestDto;
 import com.ubot.faq.dto.request.FaqUpdateRequestDto;
 import com.ubot.faq.dto.response.FaqResponseDto;
@@ -16,7 +12,6 @@ import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.entity.OldFaq;
 import com.ubot.faq.repository.FaqCategoryRepository;
-import com.ubot.faq.repository.FaqVectorRepository;
 import com.ubot.faq.repository.OldFaqRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.user.entity.User;

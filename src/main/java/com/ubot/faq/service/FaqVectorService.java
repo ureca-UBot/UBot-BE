@@ -2,8 +2,8 @@ package com.ubot.faq.service;
 
 import java.util.List;
 
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.FaqException;
+import com.ubot.faq.exception.FaqErrorCode;
+import com.ubot.faq.exception.FaqException;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
@@ -32,7 +32,7 @@ public class FaqVectorService {
     public void saveVectorForOldFaq(Long faqId, Integer version) {
         PGvector vector = faqVectorRepository.findVectorByFaqId(faqId);
         if(vector == null) {
-            throw new FaqException(ErrorCode.FAQ_VECTOR_CREATE_FAILURE);
+            throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
         }
         faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
     }
