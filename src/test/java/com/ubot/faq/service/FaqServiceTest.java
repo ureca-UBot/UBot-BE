@@ -117,7 +117,6 @@ class FaqServiceTest {
         verify(oldFaqRepository).save(historyCaptor.capture());
         assertThat(historyCaptor.getValue().getQuestion()).isEqualTo("old question");
         assertThat(historyCaptor.getValue().getUpdatedBy()).isSameAs(editor);
-        assertThat(faq.getVector()).isSameAs(newVector);
         assertThat(result.version()).isEqualTo(4);
         assertThat(result.categoryId()).isEqualTo(11L);
     }

@@ -28,10 +28,6 @@ public class Faq {
 	@Column(name = "answer")
 	private String answer;
 
-	@Transient
-	@Column(name = "vector")
-	private PGvector vector;
-
 	@Builder.Default
 	@Column(name = "version")
 	private Integer version = 1;
@@ -52,7 +48,7 @@ public class Faq {
 	public void update(
 			FaqCategory category,
 			String question,
-			String answe
+			String answer
 	){
 		this.faqCategory = category;
 		this.question = question;

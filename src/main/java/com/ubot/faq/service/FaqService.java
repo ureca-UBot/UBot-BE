@@ -1,7 +1,6 @@
 package com.ubot.faq.service;
 
 
-import com.pgvector.PGvector;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.FaqException;
@@ -14,6 +13,7 @@ import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.entity.OldFaq;
 import com.ubot.faq.repository.FaqCategoryRepository;
+import com.ubot.faq.repository.FaqVectorRepository;
 import com.ubot.faq.repository.OldFaqRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.user.entity.User;
@@ -37,10 +37,9 @@ public class FaqService {
 	private final FaqCategoryRepository faqCategoryRepository;
 	private final OldFaqRepository oldFaqRepository;
 	private final UserRepository userRepository;
-	private final EmbeddingService embeddingService;
 
 
-//	Todo: 중복되는 FAQ가 존재하는지를 확인하는 내용이 필요해보이는데, 어떻게 할지는 미정
+	//	Todo: 중복되는 FAQ가 존재하는지를 확인하는 내용이 필요해보이는데, 어떻게 할지는 미정
 	@Transactional
 	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
 
@@ -57,7 +56,7 @@ public class FaqService {
 				.build();
 
 		Faq savedFaq = faqRepository.save(faq);
-		faqVectorService.saveEmbedding(savedFaq.getId(), requestDto.question());
+		faqVectorService.saveVectorForFaq(savedFaq.getId(), requestDto.question());
 
 		return FaqResponseDto.from(faqRepository.save(faq));
 	}
@@ -109,7 +108,8 @@ public class FaqService {
 		User updatedBy = userRepository.findById(adminId).orElseThrow(() -> new UserException(ErrorCode.USER_NOT_FOUND));
 
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
-		oldFaqRepository.save(oldFaq);
+		oldFaqRepository.saveAndFlush(oldFaq);
+		faqVectorService.saveVectorForOldFaq(faq.getId(), faq.getVersion());
 
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(ErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
@@ -119,8 +119,7 @@ public class FaqService {
 					requestDto.question(),
 					requestDto.answer()
 			);
-
-			faqVectorService.saveEmbedding(faq.getId(), requestDto.question());
+			faqVectorService.saveVectorForFaq(faq.getId(), requestDto.question());
 		}
 		else {
 			faq.update(
@@ -129,7 +128,6 @@ public class FaqService {
 					requestDto.answer()
 			);
 		}
-
 		return FaqResponseDto.from(faqRepository.save(faq));
 	}
 
