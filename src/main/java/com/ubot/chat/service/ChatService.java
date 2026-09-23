@@ -1,75 +1,149 @@
 package com.ubot.chat.service;
 
-import java.util.List;
-
-import org.springframework.stereotype.Service;
-
-import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.ai.service.AiService;
+import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
-import com.ubot.chat.exception.ChatException;
+import com.ubot.embedding.exception.EmbeddingException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.dto.response.LlmResponseDto;
+import com.ubot.llm.enums.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.prompt.exception.PromptException;
-
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import lombok.RequiredArgsConstructor;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/** 기존 FAQ·AI 서비스를 호출하고 SSE로 답변 상태를 전달합니다. */
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class ChatService {
+	private static final int TOP_K = 3;
+	private static final double CONFIDENCE_THRESHOLD = 0.75;
+	private static final long STREAM_TIMEOUT_MILLIS = 180_000L;
 
-    private static final int TOP_K = 3; // TODO: threshold 테스트 결과로 교체
-    private static final double CONFIDENCE_THRESHOLD = 0.75; // TODO: 위와 동일
+	private final FaqVectorService faqVectorService;
+	private final AiService aiService;
+	private final ChatHistoryService chatHistoryService;
+	private final Executor chatExecutor;
 
-    private final FaqVectorService faqVectorService;
-    private final AiService aiService;
+	public ChatService(
+			FaqVectorService faqVectorService,
+			AiService aiService,
+			ChatHistoryService chatHistoryService,
+			@Qualifier("chatExecutor") Executor chatExecutor
+	) {
+		this.faqVectorService = faqVectorService;
+		this.aiService = aiService;
+		this.chatHistoryService = chatHistoryService;
+		this.chatExecutor = chatExecutor;
+	}
 
-    public ChatResponseDto createChat(String question) {
+	public SseEmitter createChat(Long userId, String question) {
+		AnswerAttemptsHistory attempt = chatHistoryService.createAnswerAttempt(userId, question);
+		return startAnswerGeneration(attempt);
+	}
 
-        if (!StringUtils.hasText(question)) {
-            throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
-        }
+	public SseEmitter retryChat(Long userId, String idempotencyKey) {
+		AnswerAttemptsHistory attempt = chatHistoryService.createRetryAttempt(userId, idempotencyKey);
+		return startAnswerGeneration(attempt);
+	}
 
-        // TOP-K 검색 수행
-        List<FaqSearchResponseDto> results = faqVectorService.getSimilarList(question, TOP_K);
+	private SseEmitter startAnswerGeneration(AnswerAttemptsHistory attempt) {
+		SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
+		sendEvent(emitter, "processing", ChatResponseDto.from(attempt, "답변 생성 중…", false));
+		try {
+			chatExecutor.execute(() -> generateAnswer(attempt, emitter));
+		} catch (RejectedExecutionException exception) {
+			handleAnswerFailure(attempt, emitter, ChatErrorCode.TASK_START_FAILED.getCode(),
+					ChatErrorCode.TASK_START_FAILED.getMessage());
+		}
+		return emitter;
+	}
 
-        // 예외 방지
-        if (results.isEmpty()) {
-            return ChatResponseDto.createFailureAnswer("검색 결과가 없습니다.");
-        }
+	private void generateAnswer(AnswerAttemptsHistory attempt, SseEmitter emitter) {
+		try {
+			// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
+			List<FaqSearchResponseDto> results;
+			try {
+				results = faqVectorService.getSimilarList(attempt.getQuestion(), TOP_K);
+			} catch (DataAccessException exception) {
+				handleAnswerFailure(attempt, emitter, ChatErrorCode.VECTOR_SEARCH_FAILED.getCode(),
+						ChatErrorCode.VECTOR_SEARCH_FAILED.getMessage());
+				return;
+			}
+			if (results == null || results.isEmpty()) {
+				handleAnswerFailure(attempt, emitter, "CHAT_NO_FAQ", "검색 결과가 없습니다.");
+				return;
+			}
+			double score = results.get(0).similarityScore();
+			if (!Double.isFinite(score) || score < CONFIDENCE_THRESHOLD) {
+				handleAnswerFailure(attempt, emitter, "CHAT_INSUFFICIENT_FAQ", "정확한 답변을 찾지 못했습니다.");
+				return;
+			}
+			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), results);
+			if (answer == null || !StringUtils.hasText(answer.answer())) {
+				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+			}
 
-        // 가장 유사한 FAQ의 점수로 답변 생성 여부를 판단합니다.
-        FaqSearchResponseDto bestResponse = results.get(0);
+			AnswerAttemptsHistory savedAttempt = chatHistoryService.saveAnswerSuccess(attempt, answer.answer(), results);
+			// 질문·답변·FAQ 로그와 성공 상태가 DB에 반영된 뒤 완료를 보냅니다.
+			completeStream(emitter, "completed", ChatResponseDto.from(savedAttempt, answer.answer(), false));
+		} catch (EmbeddingException exception) {
+			handleAnswerFailure(attempt, emitter, exception.getErrorCode().getCode(), exception.getErrorCode().getMessage());
+		} catch (LlmException exception) {
+			handleAnswerFailure(attempt, emitter, exception.getErrorCode().name(), exception.getErrorCode().getMessage());
+		} catch (PromptException exception) {
+			handleAnswerFailure(attempt, emitter, "CHAT_PROMPT_NOT_READY", "답변 프롬프트가 준비되지 않았습니다.");
+		} catch (DataAccessException exception) {
+			handleAnswerFailure(attempt, emitter, ChatErrorCode.STORAGE_UNAVAILABLE.getCode(),
+					ChatErrorCode.STORAGE_UNAVAILABLE.getMessage());
+		} catch (RuntimeException exception) {
+			log.error("답변 생성 실패: attemptId={}", attempt.getId(), exception);
+			handleAnswerFailure(attempt, emitter, "CHAT_INTERNAL_ERROR", "답변 생성 중 오류가 발생했습니다.");
+		}
+	}
 
-        if (bestResponse.similarityScore() < CONFIDENCE_THRESHOLD) { // 가장 유사한 응답의 유사도가 임계값보다 작은 경우
+	private void handleAnswerFailure(AnswerAttemptsHistory attempt, SseEmitter emitter, String code, String message) {
+		ChatResponseDto response;
+		try {
+			AnswerAttemptsHistory savedAttempt = chatHistoryService.saveAnswerFailure(attempt, code, message);
+			response = ChatResponseDto.from(savedAttempt, message, chatHistoryService.canRetryAnswer(savedAttempt));
+		} catch (RuntimeException exception) {
+			// 실패 기록 자체를 저장하지 못했으면 정상 저장으로 알리지 않습니다.
+			log.error("실패 기록 저장 실패: attemptId={}", attempt.getId(), exception);
+			response = new ChatResponseDto(
+					ChatErrorCode.STORAGE_UNAVAILABLE.getMessage(), false, "FAIL",
+					attempt.getIdempotencyKey(), attempt.getAttemptCount(), false
+			);
+		}
+		completeStream(emitter, "failed", response);
+	}
 
-            /* 이 질문을 클러스터링 용도로 따로 저장해두는 로직 추가 */
+	private void completeStream(SseEmitter emitter, String event, ChatResponseDto response) {
+		sendEvent(emitter, event, response);
+		try {
+			emitter.complete();
+		} catch (IllegalStateException ignored) {
+			// 이미 연결이 종료된 경우입니다.
+		}
+	}
 
-            return ChatResponseDto.createFailureAnswer("정확한 답변을 찾지 못했습니다.");
-        } else {
-
-            // 유사도 판정을 통과하면, 원래 질문과 검색된 FAQ 목록 전체를 AI 처리에 전달합니다.
-            // 프롬프트 구성과 모델 호출은 AiService가 조율합니다.
-            LlmResponseDto response;
-            try {
-                response = aiService.generateAnswer(question, results);
-            } catch (PromptException exception) {
-                // 승지님 프롬프트가 준비되지 않았거나 입력을 구성하지 못한 경우입니다.
-                return ChatResponseDto.createFailureAnswer(exception.getMessage());
-            } catch (LlmException exception) {
-                // 모델 호출 실패를 FAQ 정답처럼 반환하지 않고, 기존 실패 응답 형식으로 전달합니다.
-                return ChatResponseDto.createFailureAnswer(exception.getErrorCode().getMessage());
-            }
-
-            /* question_log에 사용자 질문 저장하는 로직 추가 */
-
-            /* 각 검색 결과마다 faq_log에 저장하는 로직 추가 */
-
-            // DB의 1등 FAQ 원문 대신 LLM이 생성한 최종 답변을 채팅으로 반환합니다.
-            return ChatResponseDto.createSuccessAnswer(response.answer());
-        }
-    }
+	private void sendEvent(SseEmitter emitter, String event, ChatResponseDto response) {
+		try {
+			emitter.send(SseEmitter.event().name(event).data(response, MediaType.APPLICATION_JSON));
+		} catch (IOException | IllegalStateException exception) {
+			// 브라우저가 닫혀도 진행 중인 DB 기록은 마무리합니다.
+			log.debug("SSE 연결 종료: {}", event);
+		}
+	}
 }
