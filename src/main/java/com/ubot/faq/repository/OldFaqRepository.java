@@ -10,5 +10,4 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface OldFaqRepository extends JpaRepository<OldFaq, OldFaqId> {
 	Page<OldFaq> findByFaqId(Long faqId, Pageable pageable);
-	Page<OldFaq> findByFaqCategoryId(Long faqCategoryId, Pageable pageable);
 }
