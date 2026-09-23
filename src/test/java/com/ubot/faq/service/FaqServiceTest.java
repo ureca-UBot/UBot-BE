@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 
 import com.ubot.common.PageResponseDto;
 import com.ubot.faq.dto.request.FaqCreateRequestDto;
+import com.ubot.faq.dto.request.FaqRestoreRequestDto;
 import com.ubot.faq.dto.request.FaqUpdateRequestDto;
 import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
@@ -115,6 +116,20 @@ class FaqServiceTest {
         when(faqRepository.findActiveById(10L)).thenReturn(Optional.of(faq));
         service.deleteFaq(10L);
         assertThat(faq.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("저장소에서 조회한 삭제 FAQ만 복구한다")
+    void restoreFaqs_restoresOnlyDeletedFaqsReturnedByRepository() {
+        var deletedFaq = faq(10L, "삭제된 질문", 1, category(2L, "카테고리"));
+        deletedFaq.delete();
+        var request = new FaqRestoreRequestDto(List.of(10L, 11L));
+        when(faqRepository.findDeletedFaqByFaqIds(request.faqIds())).thenReturn(List.of(deletedFaq));
+
+        service.restoreFaqs(request);
+
+        assertThat(deletedFaq.getDeletedAt()).isNull();
+        verify(faqRepository).findDeletedFaqByFaqIds(request.faqIds());
     }
 
     private void assertFaqError(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, FaqErrorCode code) {
