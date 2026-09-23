@@ -43,17 +43,12 @@ public class SecurityConfig {
 								"/auth/signup",
 								"/auth/refresh",
 								"/stores/**",
-								"/actuator/health"
-						).permitAll()
-						.requestMatchers("/admin/**").hasRole("ADMIN")
 								"/actuator/health",
 								"/v3/api-docs/**",
-						        "/swagger-ui/**",
-						        "/swagger-ui.html"
+								"/swagger-ui/**",
+								"/swagger-ui.html"
 						).permitAll()
-						.requestMatchers(
-								"/admin/**"
-						).hasRole("ADMIN")
+						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.addFilterBefore(
