@@ -29,5 +29,5 @@ app:
   jwt:
     # Base64 encoded 32-byte key used only by the disposable test profile.
     secret: MDEyMzQ1Njc4OUFCQ0RFRjAxMjM0NTY3ODlBQkNERUY=
-    access-token-expiration-millis: 600000
+    access-token-expiration-millis: 60000000
     refresh-token-expiration-days: 14

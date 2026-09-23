@@ -1,8 +1,6 @@
 package com.ubot.common;
 
-import com.ubot.common.exception.AuthException;
-import com.ubot.common.exception.MyJwtException;
-import com.ubot.common.exception.UserException;
+import com.ubot.common.exception.CommonErrorCode;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -40,25 +38,25 @@ public class GlobalExceptionHandler {
         }
 
         return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.INVALID_INPUT, errors));
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors));
     }
 
     @ExceptionHandler({ConstraintViolationException.class, MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiResponse<Void>> handleInvalidParameter(Exception exception) {
         return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.INVALID_PARAMETER));
+                .body(ApiResponse.error(CommonErrorCode.INVALID_PARAMETER));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnreadableMessage(HttpMessageNotReadableException exception) {
         return ResponseEntity.badRequest()
-                .body(ApiResponse.error(ErrorCode.INVALID_REQUEST_BODY));
+                .body(ApiResponse.error(CommonErrorCode.INVALID_REQUEST_BODY));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
         log.error("처리되지 않은 예외가 발생했습니다.", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(ErrorCode.INTERNAL_SERVER_ERROR));
+                .body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
     }
 }

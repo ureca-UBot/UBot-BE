@@ -1,5 +1,9 @@
 package com.ubot.user.service;
 
+import com.ubot.user.exception.UserErrorCode;
+import com.ubot.user.exception.UserException;
+import com.ubot.user.dto.request.UserUpdateRequestDto;
+import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,5 +28,31 @@ public class UserService {
 	@Transactional
 	public void saveUser(User user) {
 		userRepository.saveAndFlush(user);
+	}
+
+	public UserResponseDto getActiveUser(Long userId) {
+		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+				.orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+		return UserResponseDto.from(user);
+	}
+
+	@Transactional
+	public UserResponseDto updateActiveUser(Long userId, UserUpdateRequestDto requestDto) {
+		if(requestDto.name() == null
+				&& requestDto.birthDate() == null
+				&& requestDto.gender() == null
+				&& requestDto.residenceArea() == null){
+			throw new UserException(UserErrorCode.INVALID_USER_UPDATE_REQUEST);
+		}
+
+		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+				.orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+		user.update(
+				requestDto.name(),
+				requestDto.birthDate(),
+				requestDto.gender(),
+				requestDto.residenceArea()
+		);
+		return UserResponseDto.from(user);
 	}
 }

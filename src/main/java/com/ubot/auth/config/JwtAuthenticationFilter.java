@@ -1,9 +1,10 @@
 package com.ubot.auth.config;
 
 import com.ubot.auth.util.JwtUtil;
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.MyJwtException;
-import com.ubot.common.exception.UserException;
+import com.ubot.auth.exception.JwtErrorCode;
+import com.ubot.auth.exception.MyJwtException;
+import com.ubot.user.exception.UserErrorCode;
+import com.ubot.user.exception.UserException;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
 import io.jsonwebtoken.ExpiredJwtException;
@@ -47,17 +48,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		try {
 			userId = jwtUtil.getUserId(token);
 		}catch( ExpiredJwtException e ) {
-			resolveException(request, response, new MyJwtException(ErrorCode.EXPIRED_ACCESS_TOKEN));
+			resolveException(request, response, new MyJwtException(JwtErrorCode.EXPIRED_ACCESS_TOKEN));
 			return;
 		} catch (JwtException | IllegalArgumentException e){
-			resolveException(request, response, new MyJwtException(ErrorCode.INVALID_ACCESS_TOKEN));
+			resolveException(request, response, new MyJwtException(JwtErrorCode.INVALID_ACCESS_TOKEN));
 			return;
 		}
 
 		User user = userRepository.findByIdAndDeletedAtIsNull(userId).orElse(null);
 
 		if(user == null) {
-			resolveException(request, response, new UserException(ErrorCode.USER_NOT_FOUND));
+			resolveException(request, response, new UserException(UserErrorCode.USER_NOT_FOUND));
 			return;
 		}
 
