@@ -88,13 +88,6 @@ public class AdminFaqController {
 
 //	FaqCategory 관련 컨트롤러들
 
-	@GetMapping("/faq-categories/{faqCategoryId}")
-	public ApiResponse<FaqCategoryResponseDto> getFaqCategoryById(
-			@Positive @PathVariable("faqCategoryId") Long faqCategoryId
-	){
-		return ApiResponse.success(faqCategoryService.getFaqCategory(faqCategoryId));
-	}
-
 	@GetMapping("/faq-categories/{faqCategoryId}/faqs")
 	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqListByFaqCategoryId(
 			@Positive @PathVariable("faqCategoryId") Long faqCategoryId,
@@ -166,14 +159,5 @@ public class AdminFaqController {
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
 		return ApiResponse.success(oldFaqService.getOldFaqByFaqId(page, size, faqId));
-	}
-
-	@GetMapping("/old-faqs/faq-category")
-	public ApiResponse<PageResponseDto<OldFaqResponseDto>>getOldFaqByFaqCategoryId(
-			@Positive @RequestParam Long faqCategoryId,
-			@RequestParam(defaultValue = "0") @Min(0) int page,
-			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
-	){
-		return ApiResponse.success(oldFaqService.getOldFaqByFaqCategoryId(page, size, faqCategoryId));
 	}
 }

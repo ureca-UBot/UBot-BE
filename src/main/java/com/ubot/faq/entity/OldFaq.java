@@ -53,7 +53,7 @@ public class OldFaq {
 				.answer(faq.getAnswer())
 				.createdBy(faq.getAdmin())
 				.updatedBy(updateAdmin)
-				.updatedAt(LocalDateTime.now())
+				.updatedAt(faq.getUpdatedAt())
 				.build();
 	}
 }

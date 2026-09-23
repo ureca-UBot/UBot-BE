@@ -23,16 +23,4 @@ public class OldFaqService {
 
 		return PageResponseDto.from(oldFaqPage);
 	}
-
-	public PageResponseDto<OldFaqResponseDto> getOldFaqByFaqCategoryId(int page, int size, Long faqCategoryId){
-		Page<OldFaqResponseDto> oldFaqPage = oldFaqRepository.
-				findByFaqCategoryId(faqCategoryId, PageRequest.of(page, size, Sort.by(
-						Sort.Order.desc("updatedAt"),
-						Sort.Order.desc("faqId"),
-						Sort.Order.desc("version")
-				)))
-				.map(OldFaqResponseDto::from);
-
-		return PageResponseDto.from(oldFaqPage);
-	}
 }
