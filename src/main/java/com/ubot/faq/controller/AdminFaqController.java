@@ -167,13 +167,4 @@ public class AdminFaqController {
 	){
 		return ApiResponse.success(oldFaqService.getOldFaqByFaqId(page, size, faqId));
 	}
-
-	@GetMapping("/old-faqs/faq-category")
-	public ApiResponse<PageResponseDto<OldFaqResponseDto>>getOldFaqByFaqCategoryId(
-			@Positive @RequestParam Long faqCategoryId,
-			@RequestParam(defaultValue = "0") @Min(0) int page,
-			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
-	){
-		return ApiResponse.success(oldFaqService.getOldFaqByFaqCategoryId(page, size, faqCategoryId));
-	}
 }
