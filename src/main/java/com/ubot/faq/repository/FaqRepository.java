@@ -40,10 +40,8 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 """)
 	Page<Faq> findAllDeletedFaq(Pageable pageable);
 
-	//삭제된 FAQ도 포함해서, 삭제된 FAQ를 복구했을때 Category가 없는 경우를 방지
-	Page<Faq> findAllByFaqCategoryId(Long faqCategoryId, Pageable pageable);
+	Page<Faq> findAllByFaqCategoryIdAndDeletedAtIsNull(Long faqCategoryId, Pageable pageable);
 
-	//삭제된 FAQ도 포함해서, 삭제된 FAQ를 복구했을때 Category가 없는 경우를 방지
 	boolean existsAllByFaqCategoryIdAndDeletedAtIsNull(Long faqCategoryId);
 
 	@Query("""

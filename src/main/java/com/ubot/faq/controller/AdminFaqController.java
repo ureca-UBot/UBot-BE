@@ -21,8 +21,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/admin")
 @RequiredArgsConstructor
@@ -95,12 +93,12 @@ public class AdminFaqController {
 //	FaqCategory 관련 컨트롤러들
 
 	@GetMapping("/faq-categories/{faqCategoryId}/faqs")
-	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqListByFaqCategoryId(
+	public ApiResponse<PageResponseDto<FaqResponseDto>> getActiveFaqListByFaqCategoryId(
 			@Positive @PathVariable("faqCategoryId") Long faqCategoryId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
-		return ApiResponse.success(faqService.getFaqListByFaqCategoryId(page, size, faqCategoryId));
+		return ApiResponse.success(faqService.getActiveFaqListByFaqCategoryId(page, size, faqCategoryId));
 	}
 
 	@GetMapping("/faq-categories")

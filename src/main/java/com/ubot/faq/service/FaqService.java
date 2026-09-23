@@ -90,9 +90,9 @@ public class FaqService {
 		return PageResponseDto.from(faqPage);
 	}
 
-	public PageResponseDto<FaqResponseDto> getFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
+	public PageResponseDto<FaqResponseDto> getActiveFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
 		Page<FaqResponseDto> faqPage = faqRepository.
-				findAllByFaqCategoryId(faqCategoryId, PageRequest.of(page, size, Sort.by(
+				findAllByFaqCategoryIdAndDeletedAtIsNull(faqCategoryId, PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
 				)))
