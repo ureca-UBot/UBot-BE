@@ -1,6 +1,7 @@
 package com.ubot.faq.service;
 
 import com.ubot.common.PageResponseDto;
+import com.ubot.faq.dto.request.FaqRestoreRequestDto;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.user.exception.UserErrorCode;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -128,5 +130,13 @@ public class FaqService {
 		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
 
 		faq.delete();
+	}
+
+	@Transactional
+	public void restoreFaqs(FaqRestoreRequestDto requestDto){
+		List<Faq> faqs = faqRepository.findDeletedFaqByFaqIds(requestDto.faqIds());
+		for(Faq faq : faqs){
+			faq.restore();
+		}
 	}
 }
