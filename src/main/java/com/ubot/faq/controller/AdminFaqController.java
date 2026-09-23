@@ -3,10 +3,7 @@ package com.ubot.faq.controller;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
-import com.ubot.faq.dto.request.FaqCategoryCreateRequestDto;
-import com.ubot.faq.dto.request.FaqCategoryUpdateRequestDto;
-import com.ubot.faq.dto.request.FaqCreateRequestDto;
-import com.ubot.faq.dto.request.FaqUpdateRequestDto;
+import com.ubot.faq.dto.request.*;
 import com.ubot.faq.dto.response.FaqCategoryResponseDto;
 import com.ubot.faq.dto.response.FaqLogResponseDto;
 import com.ubot.faq.dto.response.FaqResponseDto;
@@ -21,7 +18,6 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -86,15 +82,23 @@ public class AdminFaqController {
 		return ApiResponse.success("해당 FAQ가 삭제되었습니다.", null);
 	}
 
+	@PostMapping("/faqs/restore")
+	public ApiResponse<Void> restoreFaqs(
+			@Valid @RequestBody FaqRestoreRequestDto requestDto
+	){
+		faqService.restoreFaqs(requestDto);
+		return ApiResponse.success("FAQ가 복구되었습니다.", null);
+	}
+
 //	FaqCategory 관련 컨트롤러들
 
 	@GetMapping("/faq-categories/{faqCategoryId}/faqs")
-	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqListByFaqCategoryId(
+	public ApiResponse<PageResponseDto<FaqResponseDto>> getActiveFaqListByFaqCategoryId(
 			@Positive @PathVariable("faqCategoryId") Long faqCategoryId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
-		return ApiResponse.success(faqService.getFaqListByFaqCategoryId(page, size, faqCategoryId));
+		return ApiResponse.success(faqService.getActiveFaqListByFaqCategoryId(page, size, faqCategoryId));
 	}
 
 	@GetMapping("/faq-categories")
