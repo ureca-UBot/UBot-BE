@@ -22,11 +22,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 import com.ubot.direction.dto.DirectionsMode;
 import com.ubot.direction.dto.DirectionsResponseDto;
 import com.ubot.direction.dto.DirectionsResponseDto.PointDto;
+import com.ubot.direction.exception.DirectionsErrorCode;
 import com.ubot.direction.exception.DirectionsException;
 
 @DisplayName("카카오 길찾기 Client 테스트")
@@ -97,7 +97,7 @@ class KakaoDirectionsClientTest {
         assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
@@ -185,7 +185,7 @@ class KakaoDirectionsClientTest {
         assertThatThrownBy(() -> client.getTransitRoutes(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
@@ -254,7 +254,7 @@ class KakaoDirectionsClientTest {
         assertThatThrownBy(() -> client.car(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
@@ -268,7 +268,7 @@ class KakaoDirectionsClientTest {
         assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
     }
 
     @Test
@@ -280,7 +280,7 @@ class KakaoDirectionsClientTest {
         assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_TIMEOUT);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_TIMEOUT);
     }
 
     @Test
@@ -292,6 +292,6 @@ class KakaoDirectionsClientTest {
         assertThatThrownBy(() -> client.walk(ORIGIN, DESTINATION))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((GlobalException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
     }
 }

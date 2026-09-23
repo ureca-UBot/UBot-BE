@@ -1,6 +1,6 @@
 package com.ubot.embedding.service;
 
-import com.ubot.common.ErrorCode;
+import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
 import com.pgvector.PGvector;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,12 +57,12 @@ public class EmbeddingService {
 
         Map<String, Object> response = callOllama(requestBody); // Ollama 전체 응답
         if (response == null) {
-            throw new EmbeddingException(ErrorCode.EMBEDDING_RESPONSE_INVALID);
+            throw new EmbeddingException(EmbeddingErrorCode.EMBEDDING_RESPONSE_INVALID);
         }
 
         Object embeddingsRaw = response.get("embeddings"); // 응답에서 벡터 추출
         if (!(embeddingsRaw instanceof List<?> embeddings) || embeddings.isEmpty()) {
-            throw new EmbeddingException(ErrorCode.EMBEDDING_RESPONSE_INVALID);
+            throw new EmbeddingException(EmbeddingErrorCode.EMBEDDING_RESPONSE_INVALID);
         }
 
         @SuppressWarnings("unchecked") // 형 변환 경고 무시. 위에서 List 타입인지 이미 확인했으므로 안전한 형변환
@@ -78,9 +78,9 @@ public class EmbeddingService {
                     .retrieve()
                     .body(Map.class);
         } catch (ResourceAccessException e) {
-            throw new EmbeddingException(ErrorCode.EMBEDDING_TIMEOUT);
+            throw new EmbeddingException(EmbeddingErrorCode.EMBEDDING_TIMEOUT);
         } catch (RestClientException e) {
-            throw new EmbeddingException(ErrorCode.EMBEDDING_SERVICE_UNAVAILABLE);
+            throw new EmbeddingException(EmbeddingErrorCode.EMBEDDING_SERVICE_UNAVAILABLE);
         }
     }
 

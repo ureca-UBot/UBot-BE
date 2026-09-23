@@ -1,0 +1,5 @@
+질문:
+{{question}}
+
+참고 FAQ:
+{{faqs}}

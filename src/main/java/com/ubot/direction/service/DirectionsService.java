@@ -6,12 +6,12 @@ import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.direction.client.KakaoDirectionsClient;
 import com.ubot.direction.dto.DirectionsMode;
 import com.ubot.direction.dto.DirectionsResponseDto;
 import com.ubot.direction.dto.DirectionsResponseDto.PointDto;
 import com.ubot.direction.dto.DirectionsResponseDto.StepDto;
+import com.ubot.direction.exception.DirectionsErrorCode;
 import com.ubot.direction.exception.DirectionsException;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.service.StoreService;
@@ -64,7 +64,7 @@ public class DirectionsService {
             double longitude
     ) {
         if (candidate.mode() != DirectionsMode.TRANSIT) {
-            throw new DirectionsException(ErrorCode.DIRECTIONS_INVALID_CANDIDATE);
+            throw new DirectionsException(DirectionsErrorCode.DIRECTIONS_INVALID_CANDIDATE);
         }
 
         StoreDetailResponseDto store = storeService.getStore(storeId);

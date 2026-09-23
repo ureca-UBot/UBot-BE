@@ -10,10 +10,8 @@ import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
-import com.ubot.store.exception.InvalidMapBoundsException;
-import com.ubot.store.exception.InvalidOriginException;
-import com.ubot.store.exception.ServiceTypeNotFoundException;
-import com.ubot.store.exception.StoreNotFoundException;
+import com.ubot.store.exception.StoreErrorCode;
+import com.ubot.store.exception.StoreException;
 import com.ubot.store.repository.StoreRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -74,7 +72,7 @@ public class StoreService {
         validateOrigin(latitude, longitude);
 
         return storeRepository.findById(storeId, latitude, longitude)
-                .orElseThrow(StoreNotFoundException::new);
+                .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
 
 
@@ -155,13 +153,13 @@ public class StoreService {
 
     private void validateOrigin(Double latitude, Double longitude) {
         if ((latitude == null) != (longitude == null)) {
-            throw new InvalidOriginException();
+            throw new StoreException(StoreErrorCode.INVALID_ORIGIN);
         }
     }
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
         if (swLat >= neLat || swLng >= neLng) {
-            throw new InvalidMapBoundsException();
+            throw new StoreException(StoreErrorCode.INVALID_MAP_BOUNDS);
         }
     }
 
@@ -172,7 +170,7 @@ public class StoreService {
 
         long validTypeCount = storeRepository.countActiveServiceTypes(types);
         if (validTypeCount != types.size()) {
-            throw new ServiceTypeNotFoundException();
+            throw new StoreException(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
         }
     }
 

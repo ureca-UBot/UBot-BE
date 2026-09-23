@@ -40,17 +40,11 @@ public class AdminFaqController {
 	@GetMapping("/faqs")
 	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqList(
 			@RequestParam(required = false) String keyword,
+			@RequestParam(required = false) Long categoryId,
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
-		PageResponseDto<FaqResponseDto> result;
-
-		if(StringUtils.hasText(keyword))
-			result = faqService.searchActiveFaq(page, size, keyword);
-		else
-			result = faqService.getActiveFaqList(page, size);
-
-		return ApiResponse.success(result);
+		return ApiResponse.success(faqService.getActiveFaqList(page, size, keyword, categoryId));
 	}
 
 	@GetMapping("/deleted-faqs")
@@ -94,13 +88,6 @@ public class AdminFaqController {
 
 //	FaqCategory 관련 컨트롤러들
 
-	@GetMapping("/faq-categories/{faqCategoryId}")
-	public ApiResponse<FaqCategoryResponseDto> getFaqCategoryById(
-			@Positive @PathVariable("faqCategoryId") Long faqCategoryId
-	){
-		return ApiResponse.success(faqCategoryService.getFaqCategory(faqCategoryId));
-	}
-
 	@GetMapping("/faq-categories/{faqCategoryId}/faqs")
 	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqListByFaqCategoryId(
 			@Positive @PathVariable("faqCategoryId") Long faqCategoryId,
@@ -116,14 +103,7 @@ public class AdminFaqController {
 			@RequestParam(defaultValue = "0") @Min(0) int page,
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
-		PageResponseDto<FaqCategoryResponseDto> result;
-
-		if(StringUtils.hasText(keyword))
-			result = faqCategoryService.searchFaqCategories(page, size, keyword);
-		else
-			result = faqCategoryService.getFaqCategories(page, size);
-
-		return ApiResponse.success(result);
+		return ApiResponse.success(faqCategoryService.getFaqCategories(page, size, keyword));
 	}
 
 	@PostMapping("/faq-categories")
@@ -179,14 +159,5 @@ public class AdminFaqController {
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
 		return ApiResponse.success(oldFaqService.getOldFaqByFaqId(page, size, faqId));
-	}
-
-	@GetMapping("/old-faqs/faq-category")
-	public ApiResponse<PageResponseDto<OldFaqResponseDto>>getOldFaqByFaqCategoryId(
-			@Positive @RequestParam Long faqCategoryId,
-			@RequestParam(defaultValue = "0") @Min(0) int page,
-			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
-	){
-		return ApiResponse.success(oldFaqService.getOldFaqByFaqCategoryId(page, size, faqCategoryId));
 	}
 }

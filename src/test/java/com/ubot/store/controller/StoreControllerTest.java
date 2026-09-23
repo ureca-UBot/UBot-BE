@@ -29,7 +29,8 @@ import com.ubot.direction.dto.DirectionsResponseDto.PointDto;
 import com.ubot.direction.service.DirectionsService;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
-import com.ubot.store.exception.InvalidMapBoundsException;
+import com.ubot.store.exception.StoreErrorCode;
+import com.ubot.store.exception.StoreException;
 import com.ubot.store.service.StoreService;
 
 @WebMvcTest(StoreController.class)
@@ -135,7 +136,7 @@ class StoreControllerTest {
                         .param("latitude", "40.0")
                         .param("longitude", "127.0"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-002"));
 
         verifyNoInteractions(storeService);
     }
@@ -173,7 +174,7 @@ class StoreControllerTest {
     @DisplayName("남서 좌표가 북동 좌표보다 크면 표준 400 응답을 반환한다")
     void returnsStandardErrorForInvalidMapBounds() throws Exception {
         when(storeService.getMapStoreList(38.0, 126.0, 37.0, 128.0, null))
-                .thenThrow(new InvalidMapBoundsException());
+                .thenThrow(new StoreException(StoreErrorCode.INVALID_MAP_BOUNDS));
 
         mockMvc.perform(get("/stores/map")
                         .param("swLat", "38.0")
@@ -182,7 +183,7 @@ class StoreControllerTest {
                         .param("neLng", "128.0"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("INVALID_MAP_BOUNDS"));
+                .andExpect(jsonPath("$.code").value("STORE-003"));
     }
 
     @Test
@@ -257,7 +258,7 @@ class StoreControllerTest {
                         .param("latitude", "37.5")
                         .param("longitude", "127.0"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-002"));
 
         verifyNoInteractions(directionsService);
     }
@@ -270,7 +271,7 @@ class StoreControllerTest {
                         .param("latitude", "40.0")
                         .param("longitude", "127.0"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+                .andExpect(jsonPath("$.code").value("G-002"));
 
         verifyNoInteractions(directionsService);
     }

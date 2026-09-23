@@ -21,7 +21,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.direction.dto.DirectionsMode;
 import com.ubot.direction.dto.DirectionsResponseDto;
 import com.ubot.direction.dto.DirectionsResponseDto.CarFare;
@@ -31,6 +30,7 @@ import com.ubot.direction.dto.DirectionsResponseDto.PointDto;
 import com.ubot.direction.dto.DirectionsResponseDto.StepDto;
 import com.ubot.direction.dto.DirectionsResponseDto.TransitFare;
 import com.ubot.direction.dto.DirectionsResponseDto.TransitInfo;
+import com.ubot.direction.exception.DirectionsErrorCode;
 import com.ubot.direction.exception.DirectionsException;
 
 /**
@@ -230,20 +230,20 @@ public class KakaoDirectionsClient {
             // 쿼터 초과, 권한 없음(카카오맵 사용 설정 OFF 등)을 구분할 수 있도록 상태와 본문을 남깁니다.
             log.warn("카카오 길찾기 API가 오류를 반환했습니다. host={}, path={}, status={}, body={}",
                     host, path, exception.getStatusCode().value(), exception.getResponseBodyAsString());
-            throw new DirectionsException(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+            throw new DirectionsException(DirectionsErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
         } catch (ResourceAccessException exception) {
             log.warn("카카오 길찾기 API에 연결하지 못했습니다. host={}, path={}", host, path, exception);
             throw new DirectionsException(isTimeout(exception)
-                    ? ErrorCode.DIRECTIONS_TIMEOUT
-                    : ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+                    ? DirectionsErrorCode.DIRECTIONS_TIMEOUT
+                    : DirectionsErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
         } catch (RestClientException exception) {
             log.warn("카카오 길찾기 API 응답을 처리하지 못했습니다. host={}, path={}", host, path, exception);
-            throw new DirectionsException(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+            throw new DirectionsException(DirectionsErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
         }
 
         if (response == null) {
             log.warn("카카오 길찾기 API 응답 본문이 비어 있습니다. host={}, path={}", host, path);
-            throw new DirectionsException(ErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
+            throw new DirectionsException(DirectionsErrorCode.DIRECTIONS_SERVICE_UNAVAILABLE);
         }
         return response;
     }
@@ -259,7 +259,7 @@ public class KakaoDirectionsClient {
 
     private DirectionsException routeNotFound(DirectionsMode mode, String reason) {
         log.info("카카오 길찾기 경로를 찾지 못했습니다. mode={}, reason={}", mode, reason);
-        return new DirectionsException(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+        return new DirectionsException(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     private StepDto toStep(TransitStep step) {

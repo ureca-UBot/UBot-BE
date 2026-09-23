@@ -15,15 +15,16 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.direction.client.KakaoDirectionsClient;
 import com.ubot.direction.dto.DirectionsMode;
 import com.ubot.direction.dto.DirectionsResponseDto;
 import com.ubot.direction.dto.DirectionsResponseDto.PointDto;
 import com.ubot.direction.dto.DirectionsResponseDto.StepDto;
+import com.ubot.direction.exception.DirectionsErrorCode;
 import com.ubot.direction.exception.DirectionsException;
 import com.ubot.store.dto.StoreDetailResponseDto;
-import com.ubot.store.exception.StoreNotFoundException;
+import com.ubot.store.exception.StoreErrorCode;
+import com.ubot.store.exception.StoreException;
 import com.ubot.store.service.StoreService;
 
 @DisplayName("길찾기 Service 테스트")
@@ -37,11 +38,11 @@ class DirectionsServiceTest {
     @Test
     @DisplayName("매장이 없으면 카카오를 호출하지 않고 예외가 발생한다")
     void doesNotCallKakaoWhenStoreDoesNotExist() {
-        when(storeService.getStore(999L)).thenThrow(new StoreNotFoundException());
+        when(storeService.getStore(999L)).thenThrow(new StoreException(StoreErrorCode.STORE_NOT_FOUND));
 
         assertThatThrownBy(() ->
                 directionsService.getStoreDirections(999L, DirectionsMode.WALK, 37.5, 127.0))
-                .isInstanceOf(StoreNotFoundException.class);
+                .isInstanceOf(StoreException.class);
 
         verifyNoInteractions(kakaoDirectionsClient);
     }
@@ -213,13 +214,13 @@ class DirectionsServiceTest {
 
         when(storeService.getStore(1L)).thenReturn(store);
         when(kakaoDirectionsClient.walk(origin, transitFirst))
-                .thenThrow(new DirectionsException(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND));
+                .thenThrow(new DirectionsException(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND));
 
         assertThatThrownBy(() ->
                 directionsService.fillTransitWalkingLegs(1L, candidate, 37.5, 127.0))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((DirectionsException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
 
         // 앞쪽이 이미 실패했으므로 뒤쪽 도보는 아예 조회하지 않는다(쓸모없는 카카오 호출을 만들지 않는다).
         verify(kakaoDirectionsClient, never()).walk(transitLast, destination);
@@ -253,13 +254,13 @@ class DirectionsServiceTest {
         when(storeService.getStore(1L)).thenReturn(store);
         when(kakaoDirectionsClient.walk(origin, transitFirst)).thenReturn(leadingWalk);
         when(kakaoDirectionsClient.walk(transitLast, destination))
-                .thenThrow(new DirectionsException(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND));
+                .thenThrow(new DirectionsException(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND));
 
         assertThatThrownBy(() ->
                 directionsService.fillTransitWalkingLegs(1L, candidate, 37.5, 127.0))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((DirectionsException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_ROUTE_NOT_FOUND);
     }
 
     @Test
@@ -291,7 +292,7 @@ class DirectionsServiceTest {
                 directionsService.fillTransitWalkingLegs(1L, walkCandidate, 37.5, 127.0))
                 .isInstanceOf(DirectionsException.class)
                 .extracting(exception -> ((DirectionsException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.DIRECTIONS_INVALID_CANDIDATE);
+                .isEqualTo(DirectionsErrorCode.DIRECTIONS_INVALID_CANDIDATE);
 
         verifyNoInteractions(storeService);
         verifyNoInteractions(kakaoDirectionsClient);

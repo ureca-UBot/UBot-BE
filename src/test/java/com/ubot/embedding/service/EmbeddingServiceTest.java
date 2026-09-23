@@ -1,7 +1,7 @@
 package com.ubot.embedding.service;
 
 import com.sun.net.httpserver.HttpServer;
-import com.ubot.common.ErrorCode;
+import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
 import com.pgvector.PGvector;
 import org.junit.jupiter.api.AfterEach;
@@ -109,7 +109,7 @@ class EmbeddingServiceTest {
         assertThatThrownBy(() -> service.embedText("테스트"))
                 .isInstanceOf(EmbeddingException.class)
                 .extracting(ex -> ((EmbeddingException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.EMBEDDING_RESPONSE_INVALID);
+                .isEqualTo(EmbeddingErrorCode.EMBEDDING_RESPONSE_INVALID);
     }
 
     @Test
@@ -123,7 +123,7 @@ class EmbeddingServiceTest {
         assertThatThrownBy(() -> service.embedText("테스트"))
                 .isInstanceOf(EmbeddingException.class)
                 .extracting(ex -> ((EmbeddingException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.EMBEDDING_RESPONSE_INVALID);
+                .isEqualTo(EmbeddingErrorCode.EMBEDDING_RESPONSE_INVALID);
     }
 
     @Test
@@ -135,7 +135,7 @@ class EmbeddingServiceTest {
         assertThatThrownBy(() -> service.embedText("테스트"))
                 .isInstanceOf(EmbeddingException.class)
                 .extracting(ex -> ((EmbeddingException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.EMBEDDING_SERVICE_UNAVAILABLE);
+                .isEqualTo(EmbeddingErrorCode.EMBEDDING_SERVICE_UNAVAILABLE);
     }
 
     @Test
@@ -148,7 +148,7 @@ class EmbeddingServiceTest {
         assertThatThrownBy(() -> service.embedText("테스트"))
                 .isInstanceOf(EmbeddingException.class)
                 .extracting(ex -> ((EmbeddingException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.EMBEDDING_TIMEOUT);
+                .isEqualTo(EmbeddingErrorCode.EMBEDDING_TIMEOUT);
     }
 
     @FunctionalInterface

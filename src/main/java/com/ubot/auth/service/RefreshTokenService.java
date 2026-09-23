@@ -3,8 +3,8 @@ package com.ubot.auth.service;
 import com.ubot.auth.entity.RefreshToken;
 import com.ubot.auth.repository.RefreshTokenRepository;
 import com.ubot.auth.util.RefreshTokenGenerator;
-import com.ubot.common.ErrorCode;
-import com.ubot.common.exception.MyJwtException;
+import com.ubot.auth.exception.JwtErrorCode;
+import com.ubot.auth.exception.MyJwtException;
 import com.ubot.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,7 +47,7 @@ public class RefreshTokenService {
 								.build()
 				);
 			} catch(DataIntegrityViolationException e){
-				throw new MyJwtException(ErrorCode.DUPLICATED_CREATE_REFRESH_TOKEN);
+				throw new MyJwtException(JwtErrorCode.DUPLICATED_CREATE_REFRESH_TOKEN);
 			}
 		}
 
@@ -55,7 +55,7 @@ public class RefreshTokenService {
 	}
 
 	public RefreshToken getRefreshToken(String token){
-		return refreshTokenRepository.findByToken(token).orElseThrow(() -> new MyJwtException(ErrorCode.REFRESH_TOKEN_NOT_FOUND));
+		return refreshTokenRepository.findByToken(token).orElseThrow(() -> new MyJwtException(JwtErrorCode.REFRESH_TOKEN_NOT_FOUND));
 	}
 
 	@Transactional
