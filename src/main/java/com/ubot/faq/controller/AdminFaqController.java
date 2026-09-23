@@ -87,14 +87,7 @@ public class AdminFaqController {
 	}
 
 //	FaqCategory 관련 컨트롤러들
-
-	@GetMapping("/faq-categories/{faqCategoryId}")
-	public ApiResponse<FaqCategoryResponseDto> getFaqCategoryById(
-			@Positive @PathVariable("faqCategoryId") Long faqCategoryId
-	){
-		return ApiResponse.success(faqCategoryService.getFaqCategory(faqCategoryId));
-	}
-
+	
 	@GetMapping("/faq-categories/{faqCategoryId}/faqs")
 	public ApiResponse<PageResponseDto<FaqResponseDto>> getFaqListByFaqCategoryId(
 			@Positive @PathVariable("faqCategoryId") Long faqCategoryId,
