@@ -11,6 +11,7 @@ import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
+import com.ubot.store.exception.StoreErrorCode;
 import com.ubot.store.exception.StoreException;
 import com.ubot.store.repository.StoreRepository;
 
@@ -52,8 +53,7 @@ public class StoreService {
 
     public StoreDetailResponseDto getStore(long storeId) {
         return storeRepository.findById(storeId)
-                .orElseThrow(() ->new StoreException(ErrorCode.STORE_NOT_FOUND)
-        );
+                .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
 
     public List<String> getSidoList() {
@@ -141,13 +141,13 @@ public class StoreService {
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
         if (swLat >= neLat || swLng >= neLng) {
-            throw new StoreException(ErrorCode.INVALID_MAP_BOUNDS);
+            throw new StoreException(StoreErrorCode.INVALID_MAP_BOUNDS);
         }
     }
 
     private void validateCoordinatePair(Double latitude, Double longitude) {
         if ((latitude == null) != (longitude == null)) {
-            throw new StoreException(ErrorCode.INVALID_STORE_COORDINATES);
+            throw new StoreException(StoreErrorCode.INVALID_STORE_COORDINATES);
         }
     }
 
@@ -158,7 +158,7 @@ public class StoreService {
 
         long validTypeCount = storeRepository.countActiveServiceTypes(types);
         if (validTypeCount != types.size()) {
-            throw new StoreException(ErrorCode.SERVICE_TYPE_NOT_FOUND);
+            throw new StoreException(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
         }
     }
 

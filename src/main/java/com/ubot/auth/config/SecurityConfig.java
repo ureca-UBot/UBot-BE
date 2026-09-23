@@ -46,6 +46,14 @@ public class SecurityConfig {
 								"/actuator/health"
 						).permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
+								"/actuator/health",
+								"/v3/api-docs/**",
+						        "/swagger-ui/**",
+						        "/swagger-ui.html"
+						).permitAll()
+						.requestMatchers(
+								"/admin/**"
+						).hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)
 				.addFilterBefore(

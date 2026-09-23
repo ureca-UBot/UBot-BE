@@ -70,8 +70,8 @@ class ChatControllerTest {
         @DisplayName("Service에서 예외가 나면 GlobalExceptionHandler가 400으로 변환한다")
         void rejectsBlankQuestion() throws Exception {
                 when(chatService.createChat(anyString()))
-                                .thenThrow(new com.ubot.common.exception.ChatException(
-                                                com.ubot.common.ErrorCode.INVALID_CHAT_REQUEST));
+                                .thenThrow(new com.ubot.chat.exception.ChatException(
+                                                com.ubot.chat.exception.ChatErrorCode.INVALID_CHAT_REQUEST));
 
                 mockMvc.perform(post("/chat/questions")
                                 .contentType("application/json")

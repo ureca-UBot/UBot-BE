@@ -16,12 +16,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
 import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.dto.StoreDetailResponseDto;
 import com.ubot.store.dto.StoreListResponseDto;
+import com.ubot.store.exception.StoreErrorCode;
 import com.ubot.store.exception.StoreException;
 import com.ubot.store.repository.StoreRepository;
 
@@ -68,9 +68,8 @@ class StoreServiceTest {
                 null, null, List.of("UNKNOWN_SERVICE"), 0, 20
         ))
                 .isInstanceOf(StoreException.class)
-                .extracting(exception ->
-                        ((StoreException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.SERVICE_TYPE_NOT_FOUND);
+                .extracting(exception -> ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
 
         verify(storeRepository, never()).findStores(
                 null, null, List.of("UNKNOWN_SERVICE"), 0, 20
@@ -109,9 +108,8 @@ class StoreServiceTest {
                 List.of()
         ))
                 .isInstanceOf(StoreException.class)
-                .extracting(exception ->
-                        ((StoreException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.INVALID_MAP_BOUNDS);
+                .extracting(exception -> ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.INVALID_MAP_BOUNDS);
 
         verifyNoInteractions(storeRepository);
     }
@@ -131,7 +129,7 @@ class StoreServiceTest {
                 .isInstanceOf(StoreException.class)
                 .extracting(exception ->
                         ((StoreException) exception).getErrorCode())
-                .isEqualTo(ErrorCode.INVALID_STORE_COORDINATES);
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
 
         verifyNoInteractions(storeRepository);
     }
@@ -185,10 +183,9 @@ class StoreServiceTest {
         when(storeRepository.findById(999L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> storeService.getStore(999L))
-        .isInstanceOf(StoreException.class)
-        .extracting(exception ->
-                ((StoreException) exception).getErrorCode())
-        .isEqualTo(ErrorCode.STORE_NOT_FOUND);
+                .isInstanceOf(StoreException.class)
+                .extracting(exception -> ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.STORE_NOT_FOUND);
     }
 
     @Test
