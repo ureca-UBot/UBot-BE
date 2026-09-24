@@ -1,8 +1,5 @@
--- DB 담당자 검토용. 개발 DB에 실행하지 않으며 Flyway 경로에도 두지 않습니다.
--- 기존 V1~V11과 팀원의 FAQ 테이블은 유지합니다. 새 V 번호는 담당자가 결정합니다.
--- 세션은 사용하지 않습니다.
--- 사용자 소유권 확인에 user_id가 필요합니다. PENDING은 중복 재시도 차단용입니다.
--- 기존 answer_attempts_history가 있다면 담당자가 해당 스키마에 맞는 ALTER를 작성해야 합니다.
+-- 채팅 통합 테스트 전용 스키마. Testcontainers 임시 DB에만 적용합니다.
+-- 개발·운영 DB용 Flyway 마이그레이션은 DB 담당자와 확정합니다.
 
 ALTER TABLE question_log ADD COLUMN IF NOT EXISTS llm_question TEXT NOT NULL DEFAULT '';
 
