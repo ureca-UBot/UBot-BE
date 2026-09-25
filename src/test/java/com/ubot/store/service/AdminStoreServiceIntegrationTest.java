@@ -19,10 +19,10 @@ import org.springframework.test.context.jdbc.Sql;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ubot.PgvectorTestConfiguration;
-import com.ubot.common.ErrorCode;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
+import com.ubot.store.exception.StoreErrorCode;
 import com.ubot.store.exception.StoreException;
 
 import jakarta.persistence.EntityManager;
@@ -81,7 +81,7 @@ class AdminStoreServiceIntegrationTest {
 
         assertStoreException(
                 () -> adminStoreService.createStore(request),
-                ErrorCode.DUPLICATE_STORE
+                StoreErrorCode.DUPLICATE_STORE
         );
     }
 
@@ -111,7 +111,7 @@ class AdminStoreServiceIntegrationTest {
 
         assertStoreException(
                 () -> adminStoreService.createStore(request),
-                ErrorCode.DELETED_STORE_ALREADY_EXISTS
+                StoreErrorCode.DELETED_STORE_ALREADY_EXISTS
         );
 
         assertThat(countStores()).isEqualTo(storeCountBefore);
@@ -244,7 +244,7 @@ class AdminStoreServiceIntegrationTest {
     void rejectsActiveStoreOnActivate() {
         assertStoreException(
                 () -> adminStoreService.activateStore(1L),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
     }
 
@@ -253,7 +253,7 @@ class AdminStoreServiceIntegrationTest {
     void rejectsInactiveStoreOnActivate() {
         assertStoreException(
                 () -> adminStoreService.activateStore(1L),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
     }
 
@@ -262,7 +262,7 @@ class AdminStoreServiceIntegrationTest {
     void rejectsMissingStoreOnActivate() {
         assertStoreException(
                 () -> adminStoreService.activateStore(1L),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
     }
 
@@ -296,7 +296,7 @@ class AdminStoreServiceIntegrationTest {
                                 null
                         )
                 ),
-                ErrorCode.DUPLICATE_STORE
+                StoreErrorCode.DUPLICATE_STORE
         );
     }
 
@@ -337,12 +337,12 @@ class AdminStoreServiceIntegrationTest {
                         999L,
                         updateRequest("없는 매장", null, null, null, null)
                 ),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
 
         assertStoreException(
                 () -> adminStoreService.deleteStore(999L),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
     }
 
@@ -354,22 +354,22 @@ class AdminStoreServiceIntegrationTest {
                         4L,
                         updateRequest("비활성 매장", null, null, null, null)
                 ),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
         assertStoreException(
                 () -> adminStoreService.deleteStore(4L),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
         assertStoreException(
                 () -> adminStoreService.updateStore(
                         5L,
                         updateRequest("삭제 매장", null, null, null, null)
                 ),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
         assertStoreException(
                 () -> adminStoreService.deleteStore(5L),
-                ErrorCode.STORE_NOT_FOUND
+                StoreErrorCode.STORE_NOT_FOUND
         );
     }
 
@@ -380,7 +380,7 @@ class AdminStoreServiceIntegrationTest {
                 () -> adminStoreService.createStore(
                         createRequest(List.of("APPLE_AS", "UNKNOWN_SERVICE"))
                 ),
-                ErrorCode.SERVICE_TYPE_NOT_FOUND
+                StoreErrorCode.SERVICE_TYPE_NOT_FOUND
         );
     }
 
@@ -398,7 +398,7 @@ class AdminStoreServiceIntegrationTest {
                                 List.of("INACTIVE_SERVICE")
                         )
                 ),
-                ErrorCode.SERVICE_TYPE_NOT_FOUND
+                StoreErrorCode.SERVICE_TYPE_NOT_FOUND
         );
     }
 
@@ -416,7 +416,7 @@ class AdminStoreServiceIntegrationTest {
                                 null
                         )
                 ),
-                ErrorCode.INVALID_STORE_COORDINATES
+                StoreErrorCode.INVALID_STORE_COORDINATES
         );
     }
 
@@ -498,7 +498,7 @@ class AdminStoreServiceIntegrationTest {
 
     private void assertStoreException(
             ThrowingCallable callable,
-            ErrorCode expectedErrorCode
+            StoreErrorCode expectedErrorCode
     ) {
         assertThatThrownBy(callable)
                 .isInstanceOf(StoreException.class)

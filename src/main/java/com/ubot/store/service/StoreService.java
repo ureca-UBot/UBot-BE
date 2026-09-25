@@ -4,7 +4,6 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.common.PageResponseDto;
 import com.ubot.store.dto.MapClusterResponseDto;
 import com.ubot.store.dto.MapStoreResponseDto;

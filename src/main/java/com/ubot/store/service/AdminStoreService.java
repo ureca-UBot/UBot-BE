@@ -8,12 +8,12 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
 import com.ubot.store.dto.request.AdminStoreUpdateRequestDto;
 import com.ubot.store.dto.response.AdminStoreResponseDto;
 import com.ubot.store.entity.ServiceType;
 import com.ubot.store.entity.Store;
+import com.ubot.store.exception.StoreErrorCode;
 import com.ubot.store.exception.StoreException;
 import com.ubot.store.repository.ServiceTypeJpaRepository;
 import com.ubot.store.repository.StoreJpaRepository;
@@ -35,10 +35,10 @@ public class AdminStoreService {
         storeJpaRepository.findByStoreNameAndAddress(storeName, address).ifPresent(existingStore -> {
             if (!existingStore.isActive()
                     && existingStore.getDeletedAt() != null) {
-                throw new StoreException(ErrorCode.DELETED_STORE_ALREADY_EXISTS);
+                throw new StoreException(StoreErrorCode.DELETED_STORE_ALREADY_EXISTS);
             }
 
-            throw new StoreException(ErrorCode.DUPLICATE_STORE);
+            throw new StoreException(StoreErrorCode.DUPLICATE_STORE);
         });
 
         Set<ServiceType> serviceTypes = resolveServiceTypes(request.serviceCodes());
@@ -76,7 +76,7 @@ public class AdminStoreService {
                 newAddress,
                 storeId
         )) {
-            throw new StoreException(ErrorCode.DUPLICATE_STORE);
+            throw new StoreException(StoreErrorCode.DUPLICATE_STORE);
         }
 
         boolean updated = false;
@@ -136,13 +136,13 @@ public class AdminStoreService {
     private Store getActiveStore(Long storeId) {
         return storeJpaRepository
                 .findByStoreIdAndIsActiveTrueAndDeletedAtIsNull(storeId)
-                .orElseThrow(() -> new StoreException(ErrorCode.STORE_NOT_FOUND));
+                .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
 
     private Store getDeletedStore(Long storeId) {
         return storeJpaRepository
                 .findByStoreIdAndIsActiveFalseAndDeletedAtIsNotNull(storeId)
-                .orElseThrow(() -> new StoreException(ErrorCode.STORE_NOT_FOUND));
+                .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
 
     private Set<ServiceType> resolveServiceTypes(List<String> serviceCodes) {
@@ -154,7 +154,7 @@ public class AdminStoreService {
         List<ServiceType> serviceTypes = serviceTypeJpaRepository
                 .findAllByServiceCodeInAndIsActiveTrue(normalizedCodes);
         if (serviceTypes.size() != normalizedCodes.size()) {
-            throw new StoreException(ErrorCode.SERVICE_TYPE_NOT_FOUND);
+            throw new StoreException(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
         }
         return new LinkedHashSet<>(serviceTypes);
     }
@@ -170,7 +170,7 @@ public class AdminStoreService {
 
     private void validateCoordinatePair(AdminStoreUpdateRequestDto request) {
         if ((request.latitude() == null) != (request.longitude() == null)) {
-            throw new StoreException(ErrorCode.INVALID_STORE_COORDINATES);
+            throw new StoreException(StoreErrorCode.INVALID_STORE_COORDINATES);
         }
     }
 
