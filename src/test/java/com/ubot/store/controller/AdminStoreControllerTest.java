@@ -105,7 +105,7 @@ class AdminStoreControllerTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.code").value("G-001"));
 
         verifyNoInteractions(adminStoreService);
     }
@@ -122,7 +122,7 @@ class AdminStoreControllerTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.code").value("G-001"));
 
         verifyNoInteractions(adminStoreService);
     }
@@ -142,7 +142,7 @@ class AdminStoreControllerTest {
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.code").value("G-001"));
 
         verifyNoInteractions(adminStoreService);
     }
@@ -171,7 +171,7 @@ class AdminStoreControllerTest {
                                 {"address": "   "}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+                .andExpect(jsonPath("$.code").value("G-001"));
     }
 
     @Test
