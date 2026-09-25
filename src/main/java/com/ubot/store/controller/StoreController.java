@@ -103,11 +103,19 @@ public class StoreController {
             @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double neLat,
             @RequestParam
             @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
+            @RequestParam(required = false)
+            @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) Double latitude,
+            @RequestParam(required = false)
+            @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) Double longitude,
             @RequestParam(required = false, name = "type")
             @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types
     ) {
-        return ApiResponse.success(storeService.getMapStoreList(swLat, swLng, neLat, neLng, types));
+        return ApiResponse.success(
+                storeService.getMapStoreList(
+                        swLat, swLng, neLat, neLng, latitude, longitude, types
+                )
+        );
     }
 
     @GetMapping("/map/clusters")
@@ -120,7 +128,7 @@ public class StoreController {
             @DecimalMin(MIN_KOREA_LATITUDE) @DecimalMax(MAX_KOREA_LATITUDE) double neLat,
             @RequestParam
             @DecimalMin(MIN_KOREA_LONGITUDE) @DecimalMax(MAX_KOREA_LONGITUDE) double neLng,
-            @RequestParam @Min(9) @Max(13) int level,
+            @RequestParam @Min(7) @Max(13) int level,
             @RequestParam(required = false, name = "type")
             @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> types
