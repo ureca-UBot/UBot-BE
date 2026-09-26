@@ -1,83 +1,101 @@
 package com.ubot.chat.controller;
 
-import com.ubot.auth.config.JwtAuthenticationFilter;
+import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.service.ChatService;
-import org.junit.jupiter.api.DisplayName;
+import com.ubot.common.GlobalExceptionHandler;
+import com.ubot.user.entity.User;
+import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.core.MethodParameter;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.request.NativeWebRequest;
+import org.springframework.web.method.support.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-@WebMvcTest(ChatController.class)
-@Import(com.ubot.common.GlobalExceptionHandler.class)
-@AutoConfigureMockMvc(addFilters = false)
-@DisplayName("Chat Controller 테스트")
 class ChatControllerTest {
+	ChatService service = mock(ChatService.class);
+	CustomUserDetails principal = new CustomUserDetails(User.builder().id(1L).build());
+	MockMvc mvc;
 
-        @Autowired
-        private MockMvc mockMvc;
+	@BeforeEach void setup() {
+		mvc = MockMvcBuilders.standaloneSetup(new ChatController(service))
+				.setControllerAdvice(new GlobalExceptionHandler())
+				.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
+					public boolean supportsParameter(MethodParameter p) { return p.getParameterType() == CustomUserDetails.class; }
+					public Object resolveArgument(MethodParameter p, ModelAndViewContainer c, NativeWebRequest r,
+							org.springframework.web.bind.support.WebDataBinderFactory f) { return principal; }
+				}).build();
+	}
 
-        @MockitoBean
-        private ChatService chatService;
+	@Test void existingQuestionRouteUsesAuthenticatedUserAndSingleJsonResponse() throws Exception {
+		var answer = new CompletableFuture<ChatResponseDto>();
+		when(service.createChat(1L, "질문")).thenReturn(answer);
+		var pending = mvc.perform(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\",\"userId\":999}")).andExpect(request().asyncStarted()).andReturn();
+		verify(service).createChat(1L, "질문");
+		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
+		answer.complete(ChatResponseDto.createSuccessAnswer("완성된 답변"));
+		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith("application/json"))
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.code").value("SUCCESS"))
+				.andExpect(jsonPath("$.message").isString())
+				.andExpect(jsonPath("$.data.answer").value("완성된 답변"))
+				.andExpect(jsonPath("$.data.status").value("SUCCESS"))
+				.andExpect(jsonPath("$.data.success").doesNotExist());
+	}
 
-        @MockitoBean
-        private JwtAuthenticationFilter jwtAuthenticationFilter;
+	@Test void retryUsesKeyWithoutSessionOrQuestionIds() throws Exception {
+		String key = "a".repeat(64);
+		var answer = new CompletableFuture<ChatResponseDto>();
+		when(service.retryChat(1L, key)).thenReturn(answer);
+		var pending = mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", key))
+				.andExpect(request().asyncStarted()).andReturn();
+		verify(service).retryChat(1L, key);
+		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
+		answer.complete(new ChatResponseDto("생성 실패", "FAIL", key, 2, true));
+		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith("application/json"))
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.code").value("SUCCESS"))
+				.andExpect(jsonPath("$.message").isString())
+				.andExpect(jsonPath("$.data.answer").value("생성 실패"))
+				.andExpect(jsonPath("$.data.status").value("FAIL"))
+				.andExpect(jsonPath("$.data.success").doesNotExist())
+				.andExpect(jsonPath("$.data.idempotencyKey").value(key))
+				.andExpect(jsonPath("$.data.attemptCount").value(2))
+				.andExpect(jsonPath("$.data.retryable").value(true));
+	}
 
-        @Test
-        @DisplayName("질문을 보내면 200과 성공 응답을 받는다")
-        void returnsSuccessResponse() throws Exception {
-                when(chatService.createChat(anyString()))
-                                .thenReturn(ChatResponseDto.createSuccessAnswer("매장에서 가능합니다"));
+	@Test void invalidRetryRequestUsesCommonErrorResponse() throws Exception {
+		when(service.retryChat(1L, "invalid-key"))
+				.thenThrow(new ChatException(ChatErrorCode.INVALID_CHAT_RETRY_REQUEST));
 
-                mockMvc.perform(post("/chat/questions")
-                                .contentType("application/json")
-                                .content("""
-                                                {"question": "유심 재발급 어떻게 해요"}
-                                                """))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.success").value(true))
-                                .andExpect(jsonPath("$.data.success").value(true))
-                                .andExpect(jsonPath("$.data.answer").value("매장에서 가능합니다"));
-        }
+		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", "invalid-key"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("CHAT-011"))
+				.andExpect(jsonPath("$.data").doesNotExist());
+		verify(service).retryChat(1L, "invalid-key");
+	}
 
-        @Test
-        @DisplayName("검색 결과가 없으면 사유와 함께 success:false 응답을 받는다")
-        void returnsFailureWithReason() throws Exception {
-                when(chatService.createChat(anyString()))
-                                .thenReturn(ChatResponseDto.createFailureAnswer("검색 결과가 없습니다."));
+	@Test void blankQuestionIsRejectedBeforeService() throws Exception {
+		mvc.perform(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\" \"}")).andExpect(status().isBadRequest());
+		verifyNoInteractions(service);
+	}
 
-                mockMvc.perform(post("/chat/questions")
-                                .contentType("application/json")
-                                .content("""
-                                                {"question": "전혀 관계없는 질문"}
-                                                """))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.data.success").value(false))
-                                .andExpect(jsonPath("$.data.answer").value("검색 결과가 없습니다."));
-        }
-
-        @Test
-        @DisplayName("Service에서 예외가 나면 GlobalExceptionHandler가 400으로 변환한다")
-        void rejectsBlankQuestion() throws Exception {
-                when(chatService.createChat(anyString()))
-                                .thenThrow(new com.ubot.chat.exception.ChatException(
-                                                com.ubot.chat.exception.ChatErrorCode.INVALID_CHAT_REQUEST));
-
-                mockMvc.perform(post("/chat/questions")
-                                .contentType("application/json")
-                                .content("""
-                                                {"question": ""}
-                                                """))
-                                .andExpect(status().isBadRequest());
-        }
+	@Test void sessionApiNoLongerExists() throws Exception {
+		// 팀의 공통 예외 처리기는 없는 경로도 공통 오류로 변환하므로 핸들러 부재를 확인합니다.
+		org.assertj.core.api.Assertions.assertThat(mvc.perform(post("/chat/sessions")).andReturn().getHandler()).isNull();
+		org.assertj.core.api.Assertions.assertThat(mvc.perform(post("/chat/sessions/1/questions")).andReturn().getHandler()).isNull();
+		verifyNoInteractions(service);
+	}
 }
