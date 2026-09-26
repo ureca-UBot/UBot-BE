@@ -1,0 +1,110 @@
+name: Backend Manual CD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ubot-backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # 당장은 develop만 배포 허용
+    if: github.ref == 'refs/heads/develop'
+
+    runs-on: ubuntu-latest
+
+    environment: staging
+
+    env:
+      IMAGE_NAME: ubot-be
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Build backend Docker image
+        run: |
+          docker build \
+            -t "${IMAGE_NAME}:${GITHUB_SHA}" \
+            .
+
+      - name: Save backend Docker image
+        run: |
+          docker save "${IMAGE_NAME}:${GITHUB_SHA}" \
+            | gzip > ubot-be.tar.gz
+
+      - name: Package deploy configuration
+        run: |
+          tar -czf ubot-deploy.tar.gz \
+            docker-compose.yml \
+            docker-compose.deploy.yml \
+            infra/nginx/nginx.conf
+
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload deployment files
+        run: |
+          ssh "${EC2_USER}@${EC2_HOST}" \
+            "mkdir -p ~/ubot-deploy"
+
+          scp \
+            ubot-be.tar.gz \
+            ubot-deploy.tar.gz \
+            "${EC2_USER}@${EC2_HOST}:~/ubot-deploy/"
+
+      - name: Deploy on EC2
+        run: |
+          ssh "${EC2_USER}@${EC2_HOST}" "
+            set -e
+
+            mkdir -p ~/ubot
+            tar -xzf ~/ubot-deploy/ubot-deploy.tar.gz -C ~/ubot
+
+            gunzip -c ~/ubot-deploy/ubot-be.tar.gz | docker load
+
+            cd ~/ubot
+
+            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
+              docker compose \
+                -f docker-compose.yml \
+                -f docker-compose.deploy.yml \
+                up -d backend nginx
+          "
+
+      - name: Health check
+        run: |
+          ssh "${EC2_USER}@${EC2_HOST}" '
+            for i in {1..20}; do
+              if curl -fsS http://127.0.0.1/actuator/health; then
+                exit 0
+              fi
+
+              sleep 3
+            done
+
+            echo "Health check failed"
+
+            cd ~/ubot
+            docker compose \
+              -f docker-compose.yml \
+              -f docker-compose.deploy.yml \
+              logs --tail=100 backend nginx
+
+            exit 1
+          '
