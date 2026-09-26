@@ -1,35 +1,47 @@
 package com.ubot.auth.config;
 
-import com.ubot.auth.util.JwtUtil;
-import com.ubot.auth.exception.JwtErrorCode;
-import com.ubot.auth.exception.MyJwtException;
-import com.ubot.user.exception.UserErrorCode;
-import com.ubot.user.exception.UserException;
-import com.ubot.user.entity.User;
-import com.ubot.user.repository.UserRepository;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.JwtException;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
+import java.io.IOException;
+
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
-import java.io.IOException;
+import com.ubot.auth.exception.JwtErrorCode;
+import com.ubot.auth.exception.MyJwtException;
+import com.ubot.auth.util.JwtUtil;
+import com.ubot.user.entity.User;
+import com.ubot.user.exception.UserErrorCode;
+import com.ubot.user.exception.UserException;
+import com.ubot.user.repository.UserRepository;
+
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Component
-@RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private final JwtUtil jwtUtil;
 	private final UserRepository userRepository;
 	private final HandlerExceptionResolver handlerExceptionResolver;
 
+	public JwtAuthenticationFilter(
+            JwtUtil jwtUtil,
+            UserRepository userRepository,
+            @Qualifier("handlerExceptionResolver")
+            HandlerExceptionResolver handlerExceptionResolver
+    ) {
+        this.jwtUtil = jwtUtil;
+        this.userRepository = userRepository;
+        this.handlerExceptionResolver = handlerExceptionResolver;
+    }
+	
 	@Override
 	protected void doFilterInternal(
 			HttpServletRequest request,

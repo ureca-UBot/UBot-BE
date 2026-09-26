@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -39,9 +40,14 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 """)
 	Page<Faq> findAllDeletedFaq(Pageable pageable);
 
-	//삭제된 FAQ도 포함해서, 삭제된 FAQ를 복구했을때 Category가 없는 경우를 방지
-	Page<Faq> findAllByFaqCategoryId(Long faqCategoryId, Pageable pageable);
+	Page<Faq> findAllByFaqCategoryIdAndDeletedAtIsNull(Long faqCategoryId, Pageable pageable);
 
-	//삭제된 FAQ도 포함해서, 삭제된 FAQ를 복구했을때 Category가 없는 경우를 방지
-	boolean existsAllByFaqCategoryId(Long faqCategoryId);
+	boolean existsAllByFaqCategoryIdAndDeletedAtIsNull(Long faqCategoryId);
+
+	@Query("""
+		select f
+		from Faq f
+		where f.deletedAt is not null and f.id IN :faqIds
+""")
+	List<Faq> findDeletedFaqByFaqIds(@Param("faqIds") List<Long> faqIds);
 }
