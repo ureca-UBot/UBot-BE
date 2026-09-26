@@ -49,7 +49,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(properties = {
 		"prompt.faq.system-location=classpath:prompts/test-faq-system.txt",
-		"prompt.faq.user-location=classpath:prompts/test-faq-user.txt"})
+		"prompt.faq.user-location=classpath:prompts/test-faq-user.txt",
+		"CHAT_TOP_K=3",
+		"CHAT_CONFIDENCE_THRESHOLD=0.75",
+		"CHAT_MAX_ATTEMPTS=3"})
 @Import(PgvectorTestConfiguration.class)
 @AutoConfigureMockMvc
 @Sql(scripts = "/sql/chat-test-schema.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
@@ -84,15 +87,15 @@ class ChatLlmIntegrationTest {
 				Long.class, category, "유심 재발급", "매장 방문");
 	}
 
-	@Test void successfulNewQuestionEmitsProcessingThenCompletedAfterRealJpaWrites() throws Exception {
+	@Test void successfulNewQuestionReturnsFinalJsonAfterRealJpaWrites() throws Exception {
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(faqId, "재발급 방법", "매장 방문", 0.9)));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("모의 LLM이 생성한 답변"));
 
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"유심 재발급\",\"userId\":999}"));
-		assertThat(body).containsSubsequence("event:processing", "event:completed")
-				.contains("모의 LLM이 생성한 답변", "\"success\":true", "\"attemptCount\":1");
+		assertThat(body).contains("모의 LLM이 생성한 답변", "\"status\":\"SUCCESS\"", "\"success\":true", "\"attemptCount\":1")
+				.doesNotContain("event:", "data:");
 		var stored = questions.findAll().getFirst();
 		assertThat(stored.getUserId()).isEqualTo(user.getId());
 		assertThat(stored.getAnswer()).isEqualTo("모의 LLM이 생성한 답변");
@@ -110,7 +113,7 @@ class ChatLlmIntegrationTest {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 		String body = complete(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"));
-		assertThat(body).containsSubsequence("event:processing", "event:failed").contains("\"retryable\":true");
+		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":true", "\"retryable\":true");
 		String key = keyFrom(body);
 		for (int count = 2; count <= 3; count++) {
 			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key));
@@ -129,7 +132,7 @@ class ChatLlmIntegrationTest {
 	@Test void insufficientEvidenceSkipsLlmAndStoresFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74)));
 		assertThat(complete(post("/chat/questions").contentType("application/json")
-				.content("{\"question\":\"질문\"}"))).contains("event:failed", "정확한 답변을 찾지 못했습니다.");
+				.content("{\"question\":\"질문\"}"))).contains("\"status\":\"FAIL\"", "정확한 답변을 찾지 못했습니다.");
 		assertThat(attempts.findAll().getFirst().getStatus()).isEqualTo("FAIL");
 		verifyNoInteractions(llm);
 	}
@@ -138,30 +141,40 @@ class ChatLlmIntegrationTest {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(-999L, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("저장되지 않아야 하는 답변"));
 		String body = complete(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"));
-		assertThat(body).contains("event:failed").doesNotContain("event:completed", "foreign key");
+		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":true")
+				.doesNotContain("\"status\":\"SUCCESS\"", "foreign key");
 		assertThat(questions.count()).isZero();
 		assertThat(faqLogs.count()).isZero();
 		assertThat(attempts.findAll().getFirst().getStatus()).isEqualTo("FAIL");
 	}
 
-	@Test void authenticationAndOwnershipAreEnforcedByExistingSecurityAndJpa() throws Exception {
+	@Test void unauthenticatedRequestsAreRejectedByExistingSecurityFilter() throws Exception {
 		mvc.perform(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"))
-				.andExpect(status().isUnauthorized());
-		var other = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
-				.hashedPassword("test").name("다른 회원").role(UserRole.USER)
-				.createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
-		var failed = new AnswerAttemptsHistory(other.getId(), "질문", 1, "b".repeat(64), LocalDateTime.now(), "", "");
-		failed.fail("LLM_TIMEOUT", "실패");
-		attempts.saveAndFlush(failed);
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("AUTH-001"));
+		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", "b".repeat(64)))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("AUTH-001"));
+		assertThat(attempts.count()).isZero();
+		verifyNoInteractions(vector, llm);
+	}
+
+	@Test void unknownRetryKeyIsRejectedWithoutStartingGeneration() throws Exception {
 		mvc.perform(post("/chat/questions/retries").header("Authorization", authorization)
-				.header("Idempotency-Key", "b".repeat(64))).andExpect(status().isNotFound());
+				.header("Idempotency-Key", "b".repeat(64)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.ATTEMPT_NOT_FOUND.getCode()));
+		assertThat(attempts.count()).isZero();
 		verifyNoInteractions(vector, llm);
 	}
 
 	@Test void concurrentRetryCreatesOnlyOneNewAttemptUnderJpaLock() throws Exception {
 		String key = "c".repeat(64);
 		var first = new AnswerAttemptsHistory(user.getId(), "질문", 1, key, LocalDateTime.now(), "", "");
-		first.fail("LLM_TIMEOUT", "실패");
+		first.fail(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		attempts.saveAndFlush(first);
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
 		CountDownLatch release = new CountDownLatch(1);
@@ -190,7 +203,7 @@ class ChatLlmIntegrationTest {
 		// 다음 테스트가 시작하기 전에 worker의 트랜잭션까지 끝났는지 제한 시간 안에 확인합니다.
 		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
 		while (System.nanoTime() < deadline) {
-			var latest = attempts.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(user.getId(), key).orElseThrow();
+			var latest = attempts.findFirstByIdempotencyKeyOrderByAttemptCountDesc(key).orElseThrow();
 			if ("SUCCESS".equals(latest.getStatus())) return;
 			Thread.sleep(20);
 		}
@@ -201,7 +214,13 @@ class ChatLlmIntegrationTest {
 		var pending = mvc.perform(request.header("Authorization", authorization))
 				.andExpect(request().asyncStarted()).andReturn();
 		pending.getAsyncResult(10_000);
-		return mvc.perform(asyncDispatch(pending)).andExpect(status().isOk()).andReturn()
+		return mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith("application/json"))
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.code").value("SUCCESS"))
+				.andExpect(jsonPath("$.message").isString())
+				.andExpect(jsonPath("$.data.success").doesNotExist())
+				.andExpect(jsonPath("$.data.answer").isString()).andReturn()
 				.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
 	}
 

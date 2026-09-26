@@ -1,5 +1,6 @@
 package com.ubot.chat.entity;
 
+import com.ubot.common.ErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -79,9 +80,9 @@ public class AnswerAttemptsHistory {
 		this.status = "SUCCESS";
 	}
 
-	public void fail(String code, String message) {
+	public void fail(ErrorCode errorCode) {
 		this.status = "FAIL";
-		this.errorCode = code;
-		this.errorMessage = message;
+		this.errorCode = errorCode.getCode();
+		this.errorMessage = errorCode.getMessage();
 	}
 }

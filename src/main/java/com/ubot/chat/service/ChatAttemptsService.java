@@ -6,6 +6,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.common.ErrorCode;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.FaqLog;
@@ -22,17 +23,16 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.util.StringUtils;
 
 /** 시도 횟수·멱등키와 JPA 기록 저장을 담당합니다. */
 @Service
-public class ChatHistoryService {
-	private static final int MAX_ATTEMPTS = 3;
+public class ChatAttemptsService {
+	@Value("${CHAT_MAX_ATTEMPTS:3}")
+	private int maxAttempts;
 
 	private final AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository;
 	private final QuestionLogRepository questionLogRepository;
@@ -46,7 +46,7 @@ public class ChatHistoryService {
 	@Value("${ollama.embedding.model:}")
 	private String embeddingModel;
 
-	public ChatHistoryService(
+	public ChatAttemptsService(
 			AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
 			QuestionLogRepository questionLogRepository,
 			FaqLogRepository faqLogRepository,
@@ -63,50 +63,32 @@ public class ChatHistoryService {
 	}
 
 	public AnswerAttemptsHistory createAnswerAttempt(Long userId, String question) {
-		validateUser(userId);
-		if (!StringUtils.hasText(question) || question.length() > 4000) {
-			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
-		}
-
 		String input = question.strip();
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createIdempotencyKey(userId, input, createdAt);
-		try {
-			return transactionTemplate.execute(transactionStatus ->
-					answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-							userId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel
-					))
-			);
-		} catch (DataAccessException exception) {
-			throw new ChatException(ChatErrorCode.STORAGE_UNAVAILABLE);
-		}
+		return transactionTemplate.execute(transactionStatus ->
+				answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
+						userId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel
+				))
+		);
 	}
 
 	public AnswerAttemptsHistory createRetryAttempt(Long userId, String idempotencyKey) {
-		validateUser(userId);
-		if (idempotencyKey == null || !idempotencyKey.matches("[0-9a-f]{64}")) {
-			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
-		}
+		return transactionTemplate.execute(transactionStatus -> {
+			// 최초 행을 잠가서 같은 질문에 대한 동시 재시도를 직렬로 처리합니다.
+			answerAttemptsHistoryRepository
+					.findInitialAttemptsForLock(idempotencyKey, 1)
+					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+			AnswerAttemptsHistory latestAttempt = answerAttemptsHistoryRepository
+					.findFirstByIdempotencyKeyOrderByAttemptCountDesc(idempotencyKey)
+					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
-		try {
-			return transactionTemplate.execute(transactionStatus -> {
-				// 최초 행을 잠가서 같은 질문에 대한 동시 재시도를 직렬로 처리합니다.
-				answerAttemptsHistoryRepository
-						.findByUserIdAndIdempotencyKeyAndAttemptCount(userId, idempotencyKey, 1)
-						.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
-				AnswerAttemptsHistory latestAttempt = answerAttemptsHistoryRepository
-						.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
-						.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
-
-				validateRetryAttempt(latestAttempt);
-				return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-						userId, latestAttempt.getQuestion(), latestAttempt.getAttemptCount() + 1,
-						idempotencyKey, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel
-				));
-			});
-		} catch (DataAccessException exception) {
-			throw new ChatException(ChatErrorCode.STORAGE_UNAVAILABLE);
-		}
+			validateRetryAttempt(latestAttempt);
+			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
+					userId, latestAttempt.getQuestion(), latestAttempt.getAttemptCount() + 1,
+					idempotencyKey, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel
+			));
+		});
 	}
 
 	public AnswerAttemptsHistory saveAnswerSuccess(
@@ -121,6 +103,7 @@ public class ChatHistoryService {
 					attempt.getUserId(), attempt.getQuestion(), answer, attempt.getCreatedAt()
 			));
 			List<FaqLog> faqLogs = new ArrayList<>();
+			LocalDateTime now = LocalDateTime.now();
 			for (int index = 0; index < sources.size(); index++) {
 				FaqSearchResponseDto source = sources.get(index);
 				faqLogs.add(FaqLog.builder()
@@ -128,7 +111,7 @@ public class ChatHistoryService {
 						.faq(faqRepository.getReferenceById(source.faqId()))
 						.rank(index + 1)
 						.similarity(source.similarityScore())
-						.createdAt(LocalDateTime.now())
+						.createdAt(now)
 						.build());
 			}
 			faqLogRepository.saveAll(faqLogs);
@@ -137,29 +120,23 @@ public class ChatHistoryService {
 		});
 	}
 
-	public AnswerAttemptsHistory saveAnswerFailure(AnswerAttemptsHistory attempt, String code, String message) {
+	public AnswerAttemptsHistory saveAnswerFailure(AnswerAttemptsHistory attempt, ErrorCode errorCode) {
 		return transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findById(attempt.getId()).orElseThrow();
-			currentAttempt.fail(code, message);
+			currentAttempt.fail(errorCode);
 			return currentAttempt;
 		});
 	}
 
 	public boolean canRetryAnswer(AnswerAttemptsHistory attempt) {
-		if (!"FAIL".equals(attempt.getStatus()) || attempt.getAttemptCount() >= MAX_ATTEMPTS) {
+		if (!"FAIL".equals(attempt.getStatus()) || attempt.getAttemptCount() >= maxAttempts) {
 			return false;
 		}
 		String errorCode = attempt.getErrorCode();
 		return ChatErrorCode.VECTOR_SEARCH_FAILED.getCode().equals(errorCode)
 				|| Arrays.stream(EmbeddingErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))
 				|| Arrays.stream(LlmErrorCode.values()).anyMatch(code -> code.name().equals(errorCode));
-	}
-
-	private void validateUser(Long userId) {
-		if (userId == null || userId <= 0) {
-			throw new ChatException(ChatErrorCode.LOGIN_REQUIRED);
-		}
 	}
 
 	private void validateRetryAttempt(AnswerAttemptsHistory attempt) {
@@ -169,7 +146,7 @@ public class ChatHistoryService {
 		if ("SUCCESS".equals(attempt.getStatus())) {
 			throw new ChatException(ChatErrorCode.ALREADY_SUCCEEDED);
 		}
-		if (attempt.getAttemptCount() >= MAX_ATTEMPTS) {
+		if (attempt.getAttemptCount() >= maxAttempts) {
 			throw new ChatException(ChatErrorCode.LIMIT_REACHED);
 		}
 		if (!canRetryAnswer(attempt)) {

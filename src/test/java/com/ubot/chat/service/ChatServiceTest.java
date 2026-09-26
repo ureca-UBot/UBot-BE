@@ -22,7 +22,7 @@ import com.ubot.llm.enums.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.user.entity.User;
-import java.time.LocalDateTime;
+import java.util.stream.IntStream;
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +31,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -56,6 +57,7 @@ class ChatServiceTest {
 	List<AnswerAttemptsHistory> saved = new ArrayList<>();
 	Deque<Runnable> jobs = new ArrayDeque<>();
 	ChatService service;
+	ChatAttemptsService attemptsService;
 	MockMvc mvc;
 
 	@BeforeEach void setup() {
@@ -68,12 +70,11 @@ class ChatServiceTest {
 		});
 		when(attempts.findById(anyLong())).thenAnswer(call ->
 				saved.stream().filter(a -> a.getId().equals(call.getArgument(0))).findFirst());
-		when(attempts.findByUserIdAndIdempotencyKeyAndAttemptCount(anyLong(), anyString(), eq(1))).thenAnswer(call ->
-				saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
-						&& a.getIdempotencyKey().equals(call.getArgument(1)) && a.getAttemptCount() == 1).findFirst());
-		when(attempts.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(anyLong(), anyString()))
-				.thenAnswer(call -> saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
-						&& a.getIdempotencyKey().equals(call.getArgument(1)))
+		when(attempts.findInitialAttemptsForLock(anyString(), eq(1))).thenAnswer(call ->
+				saved.stream().filter(a -> a.getIdempotencyKey().equals(call.getArgument(0))
+						&& a.getAttemptCount() == 1).findFirst());
+		when(attempts.findFirstByIdempotencyKeyOrderByAttemptCountDesc(anyString()))
+				.thenAnswer(call -> saved.stream().filter(a -> a.getIdempotencyKey().equals(call.getArgument(0)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
 		when(questions.saveAndFlush(any())).thenAnswer(call -> {
 			QuestionLog result = call.getArgument(0);
@@ -81,8 +82,11 @@ class ChatServiceTest {
 			return result;
 		});
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
-		ChatHistoryService history = new ChatHistoryService(attempts, questions, faqLogs, faqs, tx);
-		service = new ChatService(vector, ai, history, jobs::add);
+		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, tx);
+		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
+		service = new ChatService(vector, ai, attemptsService, jobs::add);
+		ReflectionTestUtils.setField(service, "topK", 3);
+		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
 		mvc = MockMvcBuilders.standaloneSetup(new ChatController(service))
 				.setControllerAdvice(new GlobalExceptionHandler())
 				.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
@@ -104,19 +108,20 @@ class ChatServiceTest {
 		service.createChat(1L, "질문");
 		var attempt = saved.getFirst();
 		assertThat(attempt.getIdempotencyKey()).isEqualTo(
-				ChatHistoryService.createIdempotencyKey(1L, "질문", attempt.getCreatedAt())).hasSize(64);
-		assertThat(ChatHistoryService.createIdempotencyKey(2L, "질문", attempt.getCreatedAt())).isNotEqualTo(attempt.getIdempotencyKey());
-		assertThat(ChatHistoryService.createIdempotencyKey(1L, "다른 질문", attempt.getCreatedAt())).isNotEqualTo(attempt.getIdempotencyKey());
-		assertThat(ChatHistoryService.createIdempotencyKey(1L, "질문", attempt.getCreatedAt().plusNanos(1000))).isNotEqualTo(attempt.getIdempotencyKey());
+				ChatAttemptsService.createIdempotencyKey(1L, "질문", attempt.getCreatedAt())).hasSize(64);
+		assertThat(ChatAttemptsService.createIdempotencyKey(2L, "질문", attempt.getCreatedAt())).isNotEqualTo(attempt.getIdempotencyKey());
+		assertThat(ChatAttemptsService.createIdempotencyKey(1L, "다른 질문", attempt.getCreatedAt())).isNotEqualTo(attempt.getIdempotencyKey());
+		assertThat(ChatAttemptsService.createIdempotencyKey(1L, "질문", attempt.getCreatedAt().plusNanos(1000))).isNotEqualTo(attempt.getIdempotencyKey());
 	}
 
-	@Test void successSendsProcessingThenCompletedAndSavesAllFaqReferences() throws Exception {
+	@Test void successReturnsFinalJsonAndSavesAllFaqReferences() throws Exception {
 		var sources = List.of(new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9),
 				new FaqSearchResponseDto(2L, "준비물", "준비물 원문", 0.8));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
 		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("생성된 답변"));
 		String body = completeRequest();
-		assertThat(body).containsSubsequence("event:processing", "event:completed").contains("생성된 답변");
+		assertThat(body).contains("\"status\":\"SUCCESS\"", "\"success\":true", "생성된 답변")
+				.doesNotContain("event:", "data:");
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
 		verify(ai).generateAnswer("질문", sources);
 		verify(questions).saveAndFlush(argThat(q -> q.getUserId() == 1L
@@ -125,20 +130,22 @@ class ChatServiceTest {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(list::add);
 			return list.size() == 2 && list.get(0).getQuestionLogId() == 10L
-					&& list.get(0).getRank() == 1 && list.get(1).getRank() == 2;
+					&& list.get(0).getRank() == 1 && list.get(1).getRank() == 2
+					&& list.get(0).getCreatedAt() != null
+					&& list.get(0).getCreatedAt().equals(list.get(1).getCreatedAt());
 		}));
 	}
 
 	@Test void noResultsSkipLlmAndPersistFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
-		assertThat(completeRequest()).contains("검색 결과가 없습니다.", "event:failed");
+		assertThat(completeRequest()).contains("검색 결과가 없습니다.", "\"status\":\"FAIL\"");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo("CHAT_NO_FAQ");
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
 	@Test void insufficientSimilaritySkipsLlm() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.74)));
-		assertThat(completeRequest()).contains("정확한 답변을 찾지 못했습니다.", "event:failed");
+		assertThat(completeRequest()).contains("정확한 답변을 찾지 못했습니다.", "\"status\":\"FAIL\"");
 		verifyNoInteractions(ai);
 	}
 
@@ -146,31 +153,46 @@ class ChatServiceTest {
 		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.75));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
 		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
-		assertThat(completeRequest()).contains("event:completed");
+		assertThat(completeRequest()).contains("\"status\":\"SUCCESS\"");
+	}
+
+	@Test void configuredSearchSizeAndThresholdAreUsed() throws Exception {
+		ReflectionTestUtils.setField(service, "topK", 5);
+		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.8);
+		when(vector.getSimilarList("질문", 5)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.79)));
+
+		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"retryable\":false");
+		verify(vector).getSimilarList("질문", 5);
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ.getCode());
+		verifyNoInteractions(ai);
 	}
 
 	@ParameterizedTest @EnumSource(LlmErrorCode.class)
 	void llmExceptionsAreRecordedAndExposeOnlySafeMessages(LlmErrorCode code) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
 		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new LlmException(code, new RuntimeException("secret")));
-		assertThat(completeRequest()).containsSubsequence("event:processing", "event:failed")
+		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"success\":true", "\"retryable\":true")
 				.contains(code.getMessage(), saved.getFirst().getIdempotencyKey()).doesNotContain("secret");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(code.name());
+		assertThat(saved.getFirst().getErrorMessage()).isEqualTo(code.getMessage());
 		verifyNoInteractions(questions, faqLogs);
 	}
 
 	@ParameterizedTest @EnumSource(EmbeddingErrorCode.class)
 	void embeddingExceptionsAreRecorded(EmbeddingErrorCode code) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenThrow(new EmbeddingException(code));
-		assertThat(completeRequest()).contains("event:failed", code.getMessage());
+		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", code.getMessage());
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(code.getCode());
+		assertThat(saved.getFirst().getErrorMessage()).isEqualTo(code.getMessage());
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
 	@Test void missingPromptBecomesRecordedFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
 		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new PromptException("준비 안 됨"));
-		assertThat(completeRequest()).contains("event:failed", "답변 프롬프트가 준비되지 않았습니다.");
+		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"retryable\":false",
+				ChatErrorCode.PROMPT_NOT_READY.getMessage());
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_NOT_READY.getCode());
 	}
 
 	@Test void pendingAndSucceededAttemptsCannotStartAnotherGeneration() {
@@ -183,40 +205,82 @@ class ChatServiceTest {
 		assertThat(jobs).hasSize(1);
 	}
 
-	@Test void initialPlusTwoRetriesKeepsKeyAndBlocksFourthAttempt() {
+	@ParameterizedTest @ValueSource(ints = {1, 2, 3})
+	void configuredAttemptLimitKeepsKeyAndBlocksNextAttempt(int maxAttempts) {
+		ReflectionTestUtils.setField(attemptsService, "maxAttempts", maxAttempts);
 		when(vector.getSimilarList("질문", 3)).thenThrow(new EmbeddingException(EmbeddingErrorCode.EMBEDDING_TIMEOUT));
 		service.createChat(1L, "질문");
 		jobs.remove().run();
 		String key = saved.getFirst().getIdempotencyKey();
-		for (int i = 0; i < 2; i++) {
+		for (int count = 2; count <= maxAttempts; count++) {
 			service.retryChat(1L, key);
 			jobs.remove().run();
 		}
-		assertThat(saved).extracting(AnswerAttemptsHistory::getAttemptCount).containsExactly(1, 2, 3);
+		assertThat(saved).extracting(AnswerAttemptsHistory::getAttemptCount)
+				.containsExactlyElementsOf(IntStream.rangeClosed(1, maxAttempts).boxed().toList());
 		assertThat(saved).allMatch(a -> a.getIdempotencyKey().equals(key) && a.getStatus().equals("FAIL"));
 		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.LIMIT_REACHED);
-		assertThat(saved).hasSize(3);
+		assertThat(saved).hasSize(maxAttempts);
 	}
 
-	@Test void retryRejectsAnotherUsersKey() {
-		service.createChat(1L, "질문");
-		saved.getFirst().fail("FAIL", "실패");
-		assertChatError(() -> service.retryChat(2L, saved.getFirst().getIdempotencyKey()), ChatErrorCode.ATTEMPT_NOT_FOUND);
-		assertThat(saved).hasSize(1);
+	@Test void retryRejectsUnknownKey() {
+		assertChatError(() -> service.retryChat(1L, "a".repeat(64)), ChatErrorCode.ATTEMPT_NOT_FOUND);
+		assertThat(saved).isEmpty();
+		assertThat(jobs).isEmpty();
+		verifyNoInteractions(vector, ai);
 	}
 
 	@ParameterizedTest @NullAndEmptySource @ValueSource(strings = {"not-a-key"})
 	void invalidRetryKeyDoesNotTouchDb(String key) {
-		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.INVALID_CHAT_REQUEST);
+		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		verifyNoInteractions(attempts);
+	}
+
+	@Test void unexpectedExceptionUsesRegisteredErrorCodeWithoutExposingCause() throws Exception {
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
+		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new IllegalStateException("secret"));
+
+		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"retryable\":false",
+				ChatErrorCode.INTERNAL_ERROR.getMessage()).doesNotContain("secret");
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INTERNAL_ERROR.getCode());
+	}
+
+	@ParameterizedTest @ValueSource(booleans = {false, true})
+	void attemptRepositoryFailureReachesCommonExceptionHandler(boolean retry) throws Exception {
+		var failure = new DataAccessResourceFailureException("database secret");
+		var request = retry
+				? post("/chat/questions/retries").header("Idempotency-Key", "a".repeat(64))
+				: post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}");
+		if (retry) {
+			doThrow(failure).when(attempts).findInitialAttemptsForLock(anyString(), eq(1));
+		} else {
+			doThrow(failure).when(attempts).saveAndFlush(any());
+		}
+
+		var result = mvc.perform(request).andExpect(status().isInternalServerError())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("G-005"))
+				.andExpect(jsonPath("$.message").value("서버 오류가 발생했습니다."))
+				.andReturn();
+		assertThat(result.getResolvedException()).isSameAs(failure);
+		assertThat(result.getResponse().getContentAsString()).doesNotContain("database secret");
+		assertThat(jobs).isEmpty();
+		verifyNoInteractions(vector, ai);
 	}
 
 	private String completeRequest() throws Exception {
 		var result = mvc.perform(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}")).andExpect(request().asyncStarted()).andReturn();
 		verifyNoInteractions(vector, ai); // 답변 생성은 요청 스레드에서 실행하지 않습니다.
+		assertThat(result.getResponse().getContentAsString()).isEmpty();
 		jobs.remove().run();
-		return mvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn()
+		return mvc.perform(asyncDispatch(result)).andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith("application/json"))
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.code").value("SUCCESS"))
+				.andExpect(jsonPath("$.message").isString())
+				.andExpect(jsonPath("$.data.success").doesNotExist())
+				.andExpect(jsonPath("$.data.answer").isString()).andReturn()
 				.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
 	}
 

@@ -38,7 +38,7 @@ public class SecurityConfig {
 						.accessDeniedHandler(jwtAccessDeniedHandler)
 				)
 				.authorizeHttpRequests(auth -> auth
-						// 최초 HTTP 요청은 JWT 인증, SSE 완료를 위한 내부 ASYNC 재디스패치는 허용합니다.
+						// 최초 HTTP 요청은 JWT 인증, 비동기 응답 완료를 위한 내부 ASYNC 재디스패치는 허용합니다.
 						.requestMatchers(request -> request.getDispatcherType() == DispatcherType.ASYNC
 								&& request.getRequestURI().startsWith(request.getContextPath() + "/chat/"))
 						.permitAll()
