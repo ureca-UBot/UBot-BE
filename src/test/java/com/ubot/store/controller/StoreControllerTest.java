@@ -1,7 +1,7 @@
 package com.ubot.store.controller;
 
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.common.PageResponseDto;
+import com.ubot.store.dto.MapStoreResponseDto;
 import com.ubot.store.exception.StoreErrorCode;
 import com.ubot.store.exception.StoreException;
 import com.ubot.store.service.StoreService;
@@ -126,9 +127,87 @@ class StoreControllerTest {
     }
 
     @Test
+    @DisplayName("지도 조회 기준 좌표와 거리 정보를 응답한다")
+    void returnsMapStoresWithDistance() throws Exception {
+        when(storeService.getMapStoreList(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, null
+        )).thenReturn(List.of(new MapStoreResponseDto(
+                1L,
+                "강남역점",
+                "서울특별시",
+                "강남구",
+                "서울특별시 강남구 강남대로 396",
+                "02-0000-0001",
+                "09:00-18:00",
+                37.4987,
+                127.0286,
+                2.61
+        )));
+
+        mockMvc.perform(get("/stores/map")
+                        .param("swLat", "37.0")
+                        .param("swLng", "126.0")
+                        .param("neLat", "38.0")
+                        .param("neLng", "128.0")
+                        .param("latitude", "37.5")
+                        .param("longitude", "127.0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].storeId").value(1L))
+                .andExpect(jsonPath("$.data[0].distanceKm").value(2.61));
+    }
+
+    @Test
+    @DisplayName("지도 조회 기준 위도만 전달하면 400 응답을 반환한다")
+    void rejectsMapReferenceWithOnlyLatitude() throws Exception {
+        when(storeService.getMapStoreList(
+                37.0,
+                126.0,
+                38.0,
+                128.0,
+                37.5,
+                null,
+                null
+        )).thenThrow(new StoreException(StoreErrorCode.INVALID_STORE_COORDINATES));
+
+        mockMvc.perform(get("/stores/map")
+                        .param("swLat", "37.0")
+                        .param("swLng", "126.0")
+                        .param("neLat", "38.0")
+                        .param("neLng", "128.0")
+                        .param("latitude", "37.5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("STORE-005"));
+    }
+
+    @Test
+    @DisplayName("지도 조회 기준 경도만 전달하면 400 응답을 반환한다")
+    void rejectsMapReferenceWithOnlyLongitude() throws Exception {
+        when(storeService.getMapStoreList(
+                37.0,
+                126.0,
+                38.0,
+                128.0,
+                null,
+                127.0,
+                null
+        )).thenThrow(new StoreException(StoreErrorCode.INVALID_STORE_COORDINATES));
+
+        mockMvc.perform(get("/stores/map")
+                        .param("swLat", "37.0")
+                        .param("swLng", "126.0")
+                        .param("neLat", "38.0")
+                        .param("neLng", "128.0")
+                        .param("longitude", "127.0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("STORE-005"));
+    }
+
+    @Test
     @DisplayName("남서 좌표가 북동 좌표보다 크면 표준 400 응답을 반환한다")
     void returnsStandardErrorForInvalidMapBounds() throws Exception {
-        when(storeService.getMapStoreList(38.0, 126.0, 37.0, 128.0, null))
+        when(storeService.getMapStoreList(38.0, 126.0, 37.0, 128.0, null, null, null))
                 .thenThrow(new StoreException(StoreErrorCode.INVALID_MAP_BOUNDS));
 
         mockMvc.perform(get("/stores/map")
@@ -138,6 +217,43 @@ class StoreControllerTest {
                         .param("neLng", "128.0"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("STORE-003"));
+                .andExpect(jsonPath("$.code").value("STORE-006"));
     }
+
+    @Test
+    @DisplayName("클러스터 지도 레벨 6은 400 응답을 반환한다")
+    void rejectsClusterLevelBelowMinimum() throws Exception {
+        mockMvc.perform(get("/stores/map/clusters")
+                        .param("swLat", "37.0")
+                        .param("swLng", "126.0")
+                        .param("neLat", "38.0")
+                        .param("neLng", "128.0")
+                        .param("level", "6"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("G-002"));
+
+        verifyNoInteractions(storeService);
+    }
+
+    @Test
+    @DisplayName("클러스터 지도 레벨 7을 허용한다")
+    void acceptsClusterLevelSeven() throws Exception {
+        when(storeService.getMapClusterList(
+                37.0, 126.0, 38.0, 128.0, 7, null
+        )).thenReturn(List.of());
+
+        mockMvc.perform(get("/stores/map/clusters")
+                        .param("swLat", "37.0")
+                        .param("swLng", "126.0")
+                        .param("neLat", "38.0")
+                        .param("neLng", "128.0")
+                        .param("level", "7"))
+                .andExpect(status().isOk());
+
+        verify(storeService).getMapClusterList(
+                37.0, 126.0, 38.0, 128.0, 7, null
+        );
+    }
+
 }
