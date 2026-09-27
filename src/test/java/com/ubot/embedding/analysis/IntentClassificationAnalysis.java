@@ -6,6 +6,7 @@ import com.ubot.embedding.service.EmbeddingService;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -59,6 +60,7 @@ import java.util.*;
         "ollama.base-url=http://localhost:11435",
         "spring.ai.ollama.base-url=http://localhost:11435"
 })
+@DisabledIfEnvironmentVariable(named = "CI", matches = "true")
 class IntentClassificationAnalysis {
 
     private static final int K = 3;
