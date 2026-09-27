@@ -180,18 +180,24 @@ class StoreRepositoryIntegrationTest {
                 127.02,
                 37.51,
                 127.04,
+                37.4987,
+                127.0286,
                 List.of()
         );
 
         assertThat(stores)
                 .extracting(MapStoreResponseDto::storeId)
                 .containsExactly(1L, 2L);
+        assertThat(stores.getFirst().distanceKm()).isZero();
+        assertThat(stores.get(1).distanceKm()).isPositive();
 
         List<MapStoreResponseDto> multiServiceStores = storeRepository.findInMap(
                 37.49,
                 127.02,
                 37.51,
                 127.04,
+                37.4987,
+                127.0286,
                 List.of("APPLE_AS", "FOREIGN_LANGUAGE_SUPPORT")
         );
 
@@ -201,7 +207,7 @@ class StoreRepositoryIntegrationTest {
     }
 
     @Test
-    @DisplayName("지도 영역의 매장을 공간 격자로 묶어 조회한다")
+    @DisplayName("지도 영역의 매장을 거리 기반으로 묶어 조회한다")
     void findsStoreClustersInsideMapBounds() {
         List<MapClusterResponseDto> clusters = storeRepository.findClusters(
                 37.49,
@@ -218,7 +224,7 @@ class StoreRepositoryIntegrationTest {
         assertThat(cluster.latitude()).isBetween(37.4987, 37.5000);
         assertThat(cluster.longitude()).isBetween(127.0286, 127.0300);
 
-        List<MapClusterResponseDto> fineGridClusters = storeRepository.findClusters(
+        List<MapClusterResponseDto> fineRadiusClusters = storeRepository.findClusters(
                 37.49,
                 127.02,
                 37.51,
@@ -226,7 +232,7 @@ class StoreRepositoryIntegrationTest {
                 50,
                 List.of()
         );
-        assertThat(fineGridClusters).hasSize(2);
+        assertThat(fineRadiusClusters).hasSize(2);
 
         List<MapClusterResponseDto> multiServiceClusters = storeRepository.findClusters(
                 37.49,
@@ -239,6 +245,22 @@ class StoreRepositoryIntegrationTest {
         assertThat(multiServiceClusters).singleElement()
                 .extracting(MapClusterResponseDto::count)
                 .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("클러스터에는 활성 상태이고 삭제되지 않은 매장만 포함한다")
+    void excludesInactiveAndDeletedStoresFromClusters() {
+        List<MapClusterResponseDto> clusters = storeRepository.findClusters(
+                33.0,
+                124.0,
+                39.0,
+                132.0,
+                5_000,
+                List.of()
+        );
+
+        assertThat(clusters.stream().mapToLong(MapClusterResponseDto::count).sum())
+                .isEqualTo(3L);
     }
 
     @Test
@@ -263,6 +285,28 @@ class StoreRepositoryIntegrationTest {
         // 역삼역점(37.5000, 127.0300)에서 강남역점까지 약 0.19km
         StoreDetailResponseDto fromYeoksam = storeRepository.findById(1L, 37.5000, 127.0300).orElseThrow();
         assertThat(fromYeoksam.distanceKm()).isBetween(0.15, 0.25);
+    }
+
+    @Test
+    @DisplayName("지도 조회 기준 좌표가 없으면 거리 정보 없이 매장을 조회한다")
+    void findsMapStoresWithoutReferenceCoordinates() {
+        List<MapStoreResponseDto> stores = storeRepository.findInMap(
+                37.49,
+                127.02,
+                37.51,
+                127.04,
+                null,
+                null,
+                List.of()
+        );
+
+        assertThat(stores)
+                .extracting(MapStoreResponseDto::storeId)
+                .containsExactly(1L, 2L);
+
+        assertThat(stores)
+                .extracting(MapStoreResponseDto::distanceKm)
+                .containsOnlyNulls();
     }
 
     @Test
