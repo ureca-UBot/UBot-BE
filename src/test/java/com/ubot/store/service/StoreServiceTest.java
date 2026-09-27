@@ -103,6 +103,8 @@ class StoreServiceTest {
                 127.00,
                 37.48,
                 127.05,
+                null,
+                null,
                 List.of()
         ))
                 .isInstanceOf(StoreException.class)
@@ -112,28 +114,66 @@ class StoreServiceTest {
         verifyNoInteractions(storeRepository);
     }
 
-    @ParameterizedTest(name = "지도 레벨 {0}은 {1}m 격자를 사용한다")
+    @Test
+    @DisplayName("지도 조회 기준 위도와 경도 중 하나만 전달하면 예외가 발생한다")
+    void rejectsIncompleteMapReferenceCoordinates() {
+        assertThatThrownBy(() -> storeService.getMapStoreList(
+                37.0,
+                126.0,
+                38.0,
+                128.0,
+                37.5,
+                null,
+                List.of()
+        ))
+                .isInstanceOf(StoreException.class)
+                .extracting(exception ->
+                        ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
+
+        verifyNoInteractions(storeRepository);
+    }
+
+    @Test
+    @DisplayName("지도 조회 기준 좌표를 Repository에 전달한다")
+    void getsMapStoresUsingReferenceCoordinates() {
+        when(storeRepository.findInMap(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, List.of()
+        )).thenReturn(List.of());
+
+        assertThat(storeService.getMapStoreList(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, List.of()
+        )).isEmpty();
+
+        verify(storeRepository).findInMap(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, List.of()
+        );
+    }
+
+    @ParameterizedTest(name = "지도 레벨 {0}은 {1}m 클러스터 반경을 사용한다")
     @CsvSource({
-            "9, 5000",
-            "10, 10000",
-            "11, 25000",
-            "12, 50000",
-            "13, 100000"
+            "7, 600",
+            "8, 1200",
+            "9, 2000",
+            "10, 4000",
+            "11, 8000",
+            "12, 16000",
+            "13, 32000"
     })
-    @DisplayName("지도 레벨에 맞는 격자 크기로 클러스터를 조회한다")
-    void getsMapClustersWithGridSizeForLevel(int level, double gridMeters) {
+    @DisplayName("지도 레벨에 맞는 거리 반경으로 클러스터를 조회한다")
+    void getsMapClustersWithRadiusForLevel(int level, double clusterRadiusMeters) {
         List<MapClusterResponseDto> clusters = List.of(
                 new MapClusterResponseDto(37.5, 127.0, 12)
         );
         when(storeRepository.findClusters(
-                37.0, 126.0, 38.0, 128.0, gridMeters, List.of()
+                37.0, 126.0, 38.0, 128.0, clusterRadiusMeters, List.of()
         )).thenReturn(clusters);
 
         assertThat(storeService.getMapClusterList(
                 37.0, 126.0, 38.0, 128.0, level, List.of()
         )).isSameAs(clusters);
         verify(storeRepository).findClusters(
-                37.0, 126.0, 38.0, 128.0, gridMeters, List.of()
+                37.0, 126.0, 38.0, 128.0, clusterRadiusMeters, List.of()
         );
     }
 
