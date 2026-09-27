@@ -75,8 +75,8 @@ class IntentClassificationAnalysis {
             "MAP_API", "매장검색관련",
             "USER_INFO", "사용자검색관련");
 
-    private static final String CORPUS_RESOURCE = "faq_intent_corpus.csv";
-    private static final String TEST_SET_RESOURCE = "intent_test_set.csv";
+    private static final String CORPUS_RESOURCE = "threshold/faq_intent_corpus.csv";
+    private static final String TEST_SET_RESOURCE = "threshold/intent_test_set.csv";
 
     @Autowired
     private EmbeddingService embeddingService;
