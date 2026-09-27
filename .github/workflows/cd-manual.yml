@@ -61,14 +61,12 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Windows CRLF가 섞여 있어도 제거
           printf '%s\n' "$EC2_SSH_KEY" \
             | tr -d '\r' \
             > ~/.ssh/deploy_key
 
           chmod 600 ~/.ssh/deploy_key
 
-          # private key가 실제로 파싱 가능한 키인지 확인
           ssh-keygen -y \
             -f ~/.ssh/deploy_key \
             > /tmp/deploy_key.pub
@@ -76,13 +74,11 @@ jobs:
           echo "Deploy key fingerprint:"
           ssh-keygen -lf /tmp/deploy_key.pub
 
-          # 서버 host key 등록
           ssh-keyscan -H "$EC2_HOST" \
             >> ~/.ssh/known_hosts
 
           chmod 600 ~/.ssh/known_hosts
 
-          # 이후 ssh/scp에서 동일 설정 사용
           cat > ~/.ssh/config <<EOF
           Host ubot-staging
             HostName ${EC2_HOST}
@@ -169,14 +165,16 @@ jobs:
 
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
+                -p ubot \
                 -f docker-compose.yml \
                 -f docker-compose.deploy.yml \
                 up -d --build backend
 
-            echo '== Start nginx =='
+            echo '== Recreate nginx =='
 
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
+                -p ubot \
                 -f docker-compose.yml \
                 -f docker-compose.deploy.yml \
                 up -d \
@@ -188,6 +186,7 @@ jobs:
 
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
+                -p ubot \
                 -f docker-compose.yml \
                 -f docker-compose.deploy.yml \
                 ps
@@ -199,8 +198,6 @@ jobs:
       - name: Health check
         run: |
           ssh ubot-staging '
-            set -e
-
             echo "Waiting for backend..."
 
             for i in $(seq 1 30); do
@@ -224,6 +221,7 @@ jobs:
             echo "== Container status =="
 
             docker compose \
+              -p ubot \
               -f docker-compose.yml \
               -f docker-compose.deploy.yml \
               ps -a
@@ -231,6 +229,7 @@ jobs:
             echo "== Backend / nginx logs =="
 
             docker compose \
+              -p ubot \
               -f docker-compose.yml \
               -f docker-compose.deploy.yml \
               logs \
