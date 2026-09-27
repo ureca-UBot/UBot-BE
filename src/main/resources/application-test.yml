@@ -19,6 +19,8 @@ spring:
 
 ollama:
   base-url: http://localhost:11434
+  connect-timeout: 5s
+  read-timeout: 60s
   embedding:
     model: bge-m3:567m
 kakao:
