@@ -21,10 +21,7 @@ import com.ubot.store.service.StoreService;
 import com.ubot.user.repository.UserRepository;
 
 /**
- * 실제 SecurityConfig를 적용해 매장 API가 로그인 사용자에게만 열려 있는지 검증합니다.
- *
- * <p>로그인한 요청의 성공 경로는 다루지 않습니다. WebMvcTest의 MockMvc는 JwtAuthenticationFilter를 보안 필터
- * 체인보다 먼저 한 번 더 실행해서 인증 정보가 지워지므로, 운영 환경과 같은 방식으로 재현할 수 없습니다.
+ * 실제 SecurityConfig를 적용해 매장 API가 로그인하지 않은 사용자에게도 열려 있는지 검증합니다.
  */
 @WebMvcTest(StoreController.class)
 @Import({
@@ -33,7 +30,7 @@ import com.ubot.user.repository.UserRepository;
         JwtAuthenticationEntryPoint.class,
         JwtAccessDeniedHandler.class
 })
-@DisplayName("매장 API 로그인 접근 테스트")
+@DisplayName("매장 API 비로그인 접근 테스트")
 class StoreSecurityTest {
 
     @Autowired
@@ -52,20 +49,20 @@ class StoreSecurityTest {
     private UserRepository userRepository;
 
     @Test
-    @DisplayName("로그인하지 않으면 길찾기를 포함한 매장 API가 401 응답을 반환한다")
-    void rejectsAnonymousStoreRequests() throws Exception {
+    @DisplayName("로그인하지 않아도 길찾기를 포함한 매장 API에 접근할 수 있다")
+    void allowsAnonymousStoreRequests() throws Exception {
         mockMvc.perform(get("/stores/1/directions")
                         .param("mode", "WALK")
                         .param("latitude", "37.5")
                         .param("longitude", "127.0"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk());
         mockMvc.perform(get("/stores"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk());
         mockMvc.perform(get("/stores/1"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk());
         mockMvc.perform(get("/stores/nearby")
                         .param("latitude", "37.5")
                         .param("longitude", "127.0"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk());
     }
 }
