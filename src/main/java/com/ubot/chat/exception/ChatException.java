@@ -1,10 +1,9 @@
-package com.ubot.common.exception;
+package com.ubot.chat.exception;
 
-import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 
 public class ChatException extends GlobalException {
-    public ChatException(ErrorCode errorCode) {
+    public ChatException(ChatErrorCode errorCode) {
         super(errorCode);
     }
 }
