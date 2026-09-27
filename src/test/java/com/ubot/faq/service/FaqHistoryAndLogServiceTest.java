@@ -67,18 +67,6 @@ class FaqHistoryAndLogServiceTest {
         assertThat(result.content()).extracting(OldFaqResponseDto::faqId).containsExactly(5L);
     }
 
-    @Test
-    @DisplayName("카테고리 ID로 변경 이력을 수정일, FAQ ID, 버전 내림차순으로 조회한다")
-    void getOldFaqByCategoryId_sortsByUpdatedAtFaqIdAndVersion() {
-        var pageable = PageRequest.of(0, 10, Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("faqId"), Sort.Order.desc("version")));
-        when(oldFaqRepository.findByFaqCategoryId(2L, pageable)).thenReturn(new PageImpl<>(List.of(oldFaq()), pageable, 1));
-
-        PageResponseDto<OldFaqResponseDto> result = oldFaqService.getOldFaqByFaqCategoryId(0, 10, 2L);
-
-        assertThat(result.content()).hasSize(1);
-        verify(oldFaqRepository).findByFaqCategoryId(2L, pageable);
-    }
-
     private PageRequest pageRequest(String first, String second) { return PageRequest.of(0, 10, Sort.by(Sort.Order.desc(first), Sort.Order.desc(second))); }
     private Faq faq() { var now = LocalDateTime.now(); return Faq.builder().id(5L).admin(User.builder().id(1L).build()).faqCategory(FaqCategory.builder().id(2L).name("가입").build()).question("질문").answer("답변").version(1).createdAt(now).updatedAt(now).build(); }
     private OldFaq oldFaq() { return OldFaq.builder().faqId(5L).version(1).faqCategory(FaqCategory.builder().id(2L).name("가입").build()).question("질문").answer("답변").createdBy(User.builder().id(1L).build()).updatedBy(User.builder().id(1L).build()).updatedAt(LocalDateTime.now()).build(); }

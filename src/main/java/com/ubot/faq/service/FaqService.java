@@ -1,6 +1,7 @@
 package com.ubot.faq.service;
 
 import com.ubot.common.PageResponseDto;
+import com.ubot.faq.dto.request.FaqRestoreRequestDto;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.user.exception.UserErrorCode;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -88,9 +90,9 @@ public class FaqService {
 		return PageResponseDto.from(faqPage);
 	}
 
-	public PageResponseDto<FaqResponseDto> getFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
+	public PageResponseDto<FaqResponseDto> getActiveFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
 		Page<FaqResponseDto> faqPage = faqRepository.
-				findAllByFaqCategoryId(faqCategoryId, PageRequest.of(page, size, Sort.by(
+				findAllByFaqCategoryIdAndDeletedAtIsNull(faqCategoryId, PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
 				)))
@@ -128,5 +130,13 @@ public class FaqService {
 		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
 
 		faq.delete();
+	}
+
+	@Transactional
+	public void restoreFaqs(FaqRestoreRequestDto requestDto){
+		List<Faq> faqs = faqRepository.findDeletedFaqByFaqIds(requestDto.faqIds());
+		for(Faq faq : faqs){
+			faq.restore();
+		}
 	}
 }

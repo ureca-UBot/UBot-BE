@@ -83,10 +83,9 @@ public class FaqCategoryService {
 		FaqCategory faqCategory = faqCategoryRepository.findByIdAndDeletedAtIsNull(faqCategoryId).orElseThrow(() ->
 				new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
-		if(faqRepository.existsAllByFaqCategoryId(faqCategoryId)){
+		if(faqRepository.existsAllByFaqCategoryIdAndDeletedAtIsNull(faqCategoryId)){
 			throw new FaqException(FaqErrorCode.FAQ_CATEGORY_IN_USE);
 		}
-
 		faqCategory.delete();
 	}
 }

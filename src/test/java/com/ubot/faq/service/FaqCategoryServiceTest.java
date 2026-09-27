@@ -86,10 +86,10 @@ class FaqCategoryServiceTest {
     }
 
     @Test
-    @DisplayName("삭제된 FAQ를 포함해 카테고리를 사용 중이면 카테고리를 삭제할 수 없다")
-    void deleteCategory_throwsWhenFaqExists() {
+    @DisplayName("활성 FAQ가 카테고리를 사용 중이면 카테고리를 삭제할 수 없다")
+    void deleteCategory_throwsWhenActiveFaqExists() {
         when(categoryRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(category(1L, "가입")));
-        when(faqRepository.existsAllByFaqCategoryId(1L)).thenReturn(true);
+        when(faqRepository.existsAllByFaqCategoryIdAndDeletedAtIsNull(1L)).thenReturn(true);
 
         assertFaqError(() -> service.deleteFaqCategory(1L), FaqErrorCode.FAQ_CATEGORY_IN_USE);
     }
@@ -99,11 +99,12 @@ class FaqCategoryServiceTest {
     void deleteCategory_marksDeleted() {
         var category = category(1L, "가입");
         when(categoryRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(category));
-        when(faqRepository.existsAllByFaqCategoryId(1L)).thenReturn(false);
+        when(faqRepository.existsAllByFaqCategoryIdAndDeletedAtIsNull(1L)).thenReturn(false);
 
         service.deleteFaqCategory(1L);
 
         assertThat(category.getDeletedAt()).isNotNull();
+        verify(faqRepository).existsAllByFaqCategoryIdAndDeletedAtIsNull(1L);
     }
 
     private FaqCategory category(Long id, String name) { return FaqCategory.builder().id(id).name(name).build(); }
