@@ -35,7 +35,7 @@ public class StoreService {
             int page,
             int size
     ) {
-        validateOrigin(latitude, longitude);
+        validateCoordinatePair(latitude, longitude);
 
         List<String> normalizedTypes = normalizeTypes(types);
         validateServiceTypes(normalizedTypes);
@@ -69,7 +69,7 @@ public class StoreService {
      * 두 값은 함께 전달하거나 함께 생략해야 합니다.
      */
     public StoreDetailResponseDto getStore(long storeId, Double latitude, Double longitude) {
-        validateOrigin(latitude, longitude);
+        validateCoordinatePair(latitude, longitude);
 
         return storeRepository.findById(storeId, latitude, longitude)
                 .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
@@ -157,12 +157,6 @@ public class StoreService {
             case 13 -> 32_000;
             default -> throw new IllegalArgumentException("지원하지 않는 지도 레벨입니다: " + level);
         };
-    }
-
-    private void validateOrigin(Double latitude, Double longitude) {
-        if ((latitude == null) != (longitude == null)) {
-            throw new StoreException(StoreErrorCode.INVALID_ORIGIN);
-        }
     }
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {

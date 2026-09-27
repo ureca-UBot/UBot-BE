@@ -89,7 +89,7 @@ class StoreServiceTest {
         ))
                 .isInstanceOf(StoreException.class)
                 .extracting(exception -> ((StoreException) exception).getErrorCode())
-                .isEqualTo(StoreErrorCode.INVALID_ORIGIN);
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
 
         verifyNoInteractions(storeRepository);
     }
@@ -263,7 +263,7 @@ class StoreServiceTest {
         assertThatThrownBy(() -> storeService.getStore(1L, latitude, longitude))
                 .isInstanceOf(StoreException.class)
                 .extracting(exception -> ((StoreException) exception).getErrorCode())
-                .isEqualTo(StoreErrorCode.INVALID_ORIGIN);
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
 
         verifyNoInteractions(storeRepository);
     }
