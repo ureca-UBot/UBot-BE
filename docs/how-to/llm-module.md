@@ -7,7 +7,7 @@
 
 ```text
 POST /chat/questions
-  → ChatService: FAQ 검색 및 기존 유사도 판정
+  → ChatService: FAQ 검색 및 각 결과의 유사도 필터링
   → AiService.generateAnswer(question, results)
   → PromptService.createPrompt(question, results)
   → LlmService.generateAnswer(LlmRequestDto)
@@ -18,9 +18,11 @@ POST /chat/questions
   → ChatResponseDto: 채팅 응답
 ```
 
-기존 TOP-K 3개 검색과 가장 높은 점수의 0.75 기준은 유지합니다. 기준을 통과하면
-원래 질문과 검색 결과 전체를 전달하며, FAQ를 다시 조회하지 않습니다.
-모든 검색 결과가 각각 0.75 이상이어야 하는 구조는 아닙니다.
+기본 설정으로 TOP-K 3개를 검색한 뒤, 각 FAQ의 유사도를 기준값 0.75와 비교합니다.
+기준값 이상인 FAQ만 원래 질문과 함께 전달하고, 실제 전달한 FAQ만 참고 로그에 저장합니다.
+기준값 미만이거나 유한한 숫자가 아닌 점수는 제외하며, 남은 FAQ가 없으면 LLM을 호출하지 않고
+`INSUFFICIENT_FAQ`로 실패 처리합니다. 검색 결과 자체가 없으면 기존 `NO_FAQ`를 반환합니다.
+검색 개수와 기준값은 `CHAT_TOP_K`, `CHAT_CONFIDENCE_THRESHOLD`로 설정하며, FAQ를 다시 조회하지 않습니다.
 
 승지님이 작성할 최종 프롬프트는 `src/main/resources/prompts/faq-system.txt`,
 `faq-user.txt`로 분리했고, 현재 두 파일의 본문은 의도적으로 비워 두었습니다.
@@ -78,24 +80,30 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 
 ## 오류 연결
 
-모듈 실패는 `LlmException`으로 전달하며 `getErrorCode()`로 구분합니다.
+모듈 실패는 `GlobalException`을 상속한 `LlmException`으로 전달하며 `getErrorCode()`로 구분합니다.
+`llm/exception/LlmErrorCode`는 공통 `ErrorCode`를 구현합니다.
 
-| 코드 | 의미 |
-|---|---|
-| `LLM_REQUEST_INVALID` | 입력 메시지 누락·공백 또는 마지막 역할 오류 |
-| `LLM_MODEL_NOT_CONFIGURED` | 모델명 미설정 |
-| `LLM_SERVICE_UNAVAILABLE` | 연결 거부 또는 서버 오류 등 |
-| `LLM_TIMEOUT` | HTTP 연결·응답 제한 시간 초과 |
-| `LLM_RESPONSE_INVALID` | 응답 파싱 실패, 최종 답변 누락, 길이 제한 종료, 지원하지 않는 도구 호출 |
+| 오류 | 코드 | HTTP 상태 | 의미 |
+|---|---|---|---|
+| `LLM_REQUEST_INVALID` | `LLM-001` | 400 | 입력 메시지 누락·공백 또는 마지막 역할 오류 |
+| `LLM_MODEL_NOT_CONFIGURED` | `LLM-002` | 500 | 모델명 미설정 |
+| `LLM_SERVICE_UNAVAILABLE` | `LLM-003` | 503 | 연결 거부 또는 서버 오류 등 |
+| `LLM_TIMEOUT` | `LLM-004` | 504 | HTTP 연결·응답 제한 시간 초과 |
+| `LLM_RESPONSE_INVALID` | `LLM-005` | 500 | 응답 파싱 실패, 최종 답변 누락, 길이 제한 종료, 지원하지 않는 도구 호출 |
 
-`ChatService`는 `PromptException`과 `LlmException`을 기존 `ChatResponseDto`의 실패 응답으로
-변환합니다. 프롬프트 미준비, 모델 미설정, 시간 초과 등의 경우 `data.success`가 `false`이며
-`data.answer`에는 안내 문구가 들어갑니다. 모델 오류의 내부 원인이나 원문은 반환하지 않습니다.
-실패 시 기존 FAQ 원문을 성공 답변으로 대신 반환하지 않습니다.
+`ChatService`는 실패 기록을 저장한 뒤 해당 오류 코드와 재시도 정보를 담은 `ChatException`을
+전달합니다. 전역 예외 처리기가 오류별 HTTP 상태와 `success: false`, `code`, `message`를 반환합니다.
+`data`에는 `status: "FAIL"`, 안내 문구인 `answer`, `idempotencyKey`, `attemptCount`, `retryable`이
+포함됩니다. 모델 오류의 내부 원인이나 원문은 반환하지 않으며, FAQ 원문을 성공 답변으로 대신 반환하지 않습니다.
+채팅 전체 응답 제한 시간 초과는 별도의 `CHAT-016`(HTTP 504)으로 구분합니다.
 
-기존 컨트롤러 계약에 따라 이러한 응답의 HTTP 상태는 200이고, 바깥쪽 `ApiResponse.success`는
-`true`입니다. 답변 생성 성공 여부는 `data.success`로 확인합니다.
-공통 `ErrorCode`와 `GlobalExceptionHandler`는 수정하지 않았습니다.
+본인의 시도가 `FAIL`로 기록되어 있고 최대 시도 횟수가 남아 있으면 오류 종류와 관계없이
+재시도할 수 있습니다. `retryable`은 현재 상태와 시도 횟수로 계산하며, 실제 재시도 요청에서도
+본인 기록인지 확인하고 동일한 조건을 검증합니다. `PENDING` 또는 `SUCCESS` 상태에서는 재시도하지 않습니다.
+기본 설정은 최초 요청을 포함해 총 3회이며 `CHAT_MAX_ATTEMPTS`로 변경할 수 있습니다.
+
+LLM 실패 기록에는 `LLM-001`~`LLM-005`를 저장합니다. 컨버터는 다른 오류 코드와 동일하게
+정의된 오류 코드만 변환하며, `LLM_TIMEOUT` 같은 enum 이름은 허용하지 않습니다.
 
 이 모듈의 응답 검사는 전송·형식 검증입니다. 답변의 사실 정확성이나 FAQ 근거 충실도를
 보증하지 않으며, 내용 검증은 프롬프트/출력 검사 및 별도 평가가 필요합니다.

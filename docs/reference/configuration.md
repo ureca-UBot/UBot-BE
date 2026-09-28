@@ -35,6 +35,10 @@ src/main/resources/
 | `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig` | 빈 값 (사용할 모델 지정) | YAML에는 없음. `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
+| `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
+| `CHAT_TOP_K` | `ChatService`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
+| `CHAT_CONFIDENCE_THRESHOLD` | `ChatService`: 답변 생성에 필요한 최상위 FAQ 유사도 기준 | `0.75` | `0.75` |
+| `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingService` | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingService` | `10s` | `10s` |
 | `KAKAO_REST_API_KEY` | `KakaoLocalClient` | 빈 값 | 없음 |

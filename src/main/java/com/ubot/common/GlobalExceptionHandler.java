@@ -1,5 +1,7 @@
 package com.ubot.common;
 
+import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.exception.ChatException;
 import com.ubot.common.exception.CommonErrorCode;
 import jakarta.validation.ConstraintViolationException;
 import java.util.LinkedHashMap;
@@ -20,6 +22,13 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+	@ExceptionHandler(ChatException.class)
+	public ResponseEntity<ApiResponse<ChatResponseDto>> handleChatException(ChatException exception) {
+		ErrorCode errorCode = exception.getErrorCode();
+		return ResponseEntity.status(errorCode.getStatus())
+				.body(ApiResponse.error(errorCode.getCode(), exception.getMessage(), exception.getResponse()));
+	}
 
     @ExceptionHandler(GlobalException.class)
     public ResponseEntity<ApiResponse<Void>> handleGlobalException(GlobalException exception) {

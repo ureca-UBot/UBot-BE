@@ -9,7 +9,7 @@ import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmException;
 import java.util.ArrayList;
