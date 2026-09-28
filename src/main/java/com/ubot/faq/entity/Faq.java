@@ -1,6 +1,7 @@
 package com.ubot.faq.entity;
 
 import com.pgvector.PGvector;
+import com.ubot.faq.enums.Intent;
 import com.ubot.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
@@ -32,6 +33,10 @@ public class Faq {
 	@Column(name = "version")
 	private Integer version = 1;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "intent")
+	private Intent intent;
+
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "admin_id")
 	private User admin;
@@ -48,11 +53,13 @@ public class Faq {
 	public void update(
 			FaqCategory category,
 			String question,
-			String answer
+			String answer,
+			Intent intent
 	){
 		this.faqCategory = category;
 		this.question = question;
 		this.answer = answer;
+		this.intent = intent;
 		this.updatedAt = LocalDateTime.now();
 		this.version++;
 	}

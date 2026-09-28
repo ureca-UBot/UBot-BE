@@ -2,6 +2,7 @@ package com.ubot.faq.entity;
 
 import com.pgvector.PGvector;
 import com.ubot.faq.entity.id.OldFaqId;
+import com.ubot.faq.enums.Intent;
 import com.ubot.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
@@ -33,6 +34,10 @@ public class OldFaq {
 	@Column(name = "answer")
 	private String answer;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "intent")
+	private Intent intent;
+
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "created_by")
 	private User createdBy;
@@ -51,6 +56,7 @@ public class OldFaq {
 				.faqCategory(faq.getFaqCategory())
 				.question(faq.getQuestion())
 				.answer(faq.getAnswer())
+				.intent(faq.getIntent())
 				.createdBy(faq.getAdmin())
 				.updatedBy(updateAdmin)
 				.updatedAt(faq.getUpdatedAt())
