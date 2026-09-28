@@ -36,11 +36,14 @@ class AnswerAttemptErrorCodeConverterTest {
 
 	@ParameterizedTest
 	@EnumSource(LlmErrorCode.class)
-	void readsLegacyLlmNamesAndWritesCanonicalCodes(LlmErrorCode code) {
-		ErrorCode restored = converter.convertToEntityAttribute(code.name());
-		assertThat(restored).isSameAs(code);
-		assertThat(converter.convertToDatabaseColumn(restored)).isEqualTo(code.getCode());
-		assertThat(converter.convertToEntityAttribute(code.getCode())).isSameAs(code);
+	void rejectsLlmEnumNamesOnReadAndWrite(LlmErrorCode code) {
+		ErrorCode namedCode = mock(ErrorCode.class);
+		when(namedCode.getCode()).thenReturn(code.name());
+
+		assertThatIllegalArgumentException()
+				.isThrownBy(() -> converter.convertToEntityAttribute(code.name()));
+		assertThatIllegalArgumentException()
+				.isThrownBy(() -> converter.convertToDatabaseColumn(namedCode));
 	}
 
 	@Test

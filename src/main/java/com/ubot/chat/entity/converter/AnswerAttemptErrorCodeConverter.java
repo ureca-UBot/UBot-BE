@@ -32,8 +32,7 @@ public class AnswerAttemptErrorCodeConverter implements AttributeConverter<Error
 			}
 		}
 		for (LlmErrorCode code : LlmErrorCode.values()) {
-			// 번호 도입 전에 enum 이름으로 저장한 기존 기록도 읽습니다.
-			if (code.getCode().equals(value) || code.name().equals(value)) {
+			if (code.getCode().equals(value)) {
 				return code;
 			}
 		}
