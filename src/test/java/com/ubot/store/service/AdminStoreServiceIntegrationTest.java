@@ -461,6 +461,8 @@ class AdminStoreServiceIntegrationTest {
                         "강남",
                         null,
                         null,
+                        null,
+                        null,
                         0,
                         20
                 );
@@ -478,6 +480,8 @@ class AdminStoreServiceIntegrationTest {
                         null,
                         "051",
                         null,
+                        null,
+                        null,
                         0,
                         20
                 );
@@ -492,6 +496,8 @@ class AdminStoreServiceIntegrationTest {
     void filtersStoresByServiceCodes() {
         PageResponseDto<AdminStoreResponseDto> response =
                 adminStoreService.getStores(
+                        null,
+                        null,
                         null,
                         null,
                         List.of(
@@ -522,6 +528,8 @@ class AdminStoreServiceIntegrationTest {
                         null,
                         null,
                         null,
+                        null,
+                        null,
                         0,
                         2
                 );
@@ -530,6 +538,27 @@ class AdminStoreServiceIntegrationTest {
 
         assertThat(statistics.getPrepareStatementCount())
                 .isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("시도와 시군구로 관리자 매장 목록을 조회한다")
+    void filtersStoresByRegion() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        null,
+                        "서울특별시",
+                        "강남구",
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .allSatisfy(store -> {
+                    assertThat(store.sido()).isEqualTo("서울특별시");
+                    assertThat(store.sigungu()).isEqualTo("강남구");
+                });
     }
     
     private AdminStoreCreateRequestDto createRequest(List<String> serviceCodes) {
