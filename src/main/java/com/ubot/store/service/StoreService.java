@@ -22,13 +22,21 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
 
+    /**
+     * 매장 목록을 조회합니다. 현재 위치({@code latitude}, {@code longitude})를 함께 주면 각 매장의 직선거리를 채웁니다.
+     * 두 값은 함께 전달하거나 함께 생략해야 합니다.
+     */
     public PageResponseDto<StoreListResponseDto> getStoreList(
             String sido,
             String sigungu,
             List<String> types,
+            Double latitude,
+            Double longitude,
             int page,
             int size
     ) {
+        validateCoordinatePair(latitude, longitude);
+
         List<String> normalizedTypes = normalizeTypes(types);
         validateServiceTypes(normalizedTypes);
 
@@ -38,6 +46,8 @@ public class StoreService {
                 normalizedSido,
                 normalizedSigungu,
                 normalizedTypes,
+                latitude,
+                longitude,
                 page,
                 size
         );
@@ -51,9 +61,20 @@ public class StoreService {
     }
 
     public StoreDetailResponseDto getStore(long storeId) {
-        return storeRepository.findById(storeId)
+        return getStore(storeId, null, null);
+    }
+
+    /**
+     * 매장 상세를 조회합니다. 현재 위치({@code latitude}, {@code longitude})를 함께 주면 직선거리를 채웁니다.
+     * 두 값은 함께 전달하거나 함께 생략해야 합니다.
+     */
+    public StoreDetailResponseDto getStore(long storeId, Double latitude, Double longitude) {
+        validateCoordinatePair(latitude, longitude);
+
+        return storeRepository.findById(storeId, latitude, longitude)
                 .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
+
 
     public List<String> getSidoList() {
         return storeRepository.findSidos();
