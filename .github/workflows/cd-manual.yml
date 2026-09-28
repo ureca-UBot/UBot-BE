@@ -12,10 +12,10 @@ concurrency:
 
 jobs:
   deploy:
-    # 당장은 develop만 배포 허용
+  # 당장은 develop만 배포 허용
     if: github.ref == 'refs/heads/develop'
-
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     environment: staging
 
@@ -28,6 +28,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      # --------------------------------------------------
+      # 1. Backend image build
+      # --------------------------------------------------
       - name: Build backend Docker image
         run: |
           docker build \
@@ -39,6 +42,9 @@ jobs:
           docker save "${IMAGE_NAME}:${GITHUB_SHA}" \
             | gzip > ubot-be.tar.gz
 
+      # --------------------------------------------------
+      # 2. Package deployment configuration
+      # --------------------------------------------------
       - name: Package deploy configuration
         run: |
           tar -czf ubot-deploy.tar.gz \
@@ -47,6 +53,9 @@ jobs:
             infra/postgres/Dockerfile \
             infra/nginx/nginx.conf
 
+      # --------------------------------------------------
+      # 3. SSH configuration
+      # --------------------------------------------------
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
@@ -54,64 +63,180 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$EC2_SSH_KEY" \
+            | tr -d '\r' \
+            > ~/.ssh/deploy_key
 
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key
 
+          ssh-keygen -y \
+            -f ~/.ssh/deploy_key \
+            > /tmp/deploy_key.pub
+
+          echo "Deploy key fingerprint:"
+          ssh-keygen -lf /tmp/deploy_key.pub
+
+          ssh-keyscan -H "$EC2_HOST" \
+            >> ~/.ssh/known_hosts
+
+          chmod 600 ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host ubot-staging
+            HostName ${EC2_HOST}
+            User ${EC2_USER}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          EOF
+
+          chmod 600 ~/.ssh/config
+
+      # --------------------------------------------------
+      # 4. SSH connection test
+      # --------------------------------------------------
+      - name: Test SSH connection
+        run: |
+          ssh ubot-staging '
+            echo "SSH connection successful"
+            echo "user=$(whoami)"
+            echo "host=$(hostname)"
+          '
+
+      # --------------------------------------------------
+      # 5. Server preflight
+      # --------------------------------------------------
+      - name: Check deployment environment
+        run: |
+          ssh ubot-staging '
+            set -e
+
+            echo "== Docker =="
+            docker version --format "{{.Server.Version}}"
+
+            echo "== Docker Compose =="
+            docker compose version
+
+            echo "== Environment file =="
+
+            if [ ! -f ~/ubot/.env ]; then
+              echo "ERROR: ~/ubot/.env does not exist"
+              exit 1
+            fi
+
+            echo "~/ubot/.env exists"
+
+            mkdir -p ~/ubot-deploy
+          '
+
+      # --------------------------------------------------
+      # 6. Upload
+      # --------------------------------------------------
       - name: Upload deployment files
         run: |
-          ssh "${EC2_USER}@${EC2_HOST}" \
-            "mkdir -p ~/ubot-deploy"
-
           scp \
             ubot-be.tar.gz \
             ubot-deploy.tar.gz \
-            "${EC2_USER}@${EC2_HOST}:~/ubot-deploy/"
+            ubot-staging:~/ubot-deploy/
 
+      # --------------------------------------------------
+      # 7. Deploy
+      # --------------------------------------------------
       - name: Deploy on EC2
         run: |
-          ssh "${EC2_USER}@${EC2_HOST}" "
+          ssh ubot-staging "
             set -e
 
-            mkdir -p ~/ubot
-            tar -xzf ~/ubot-deploy/ubot-deploy.tar.gz -C ~/ubot
+            echo '== Prepare deployment directory =='
 
-            gunzip -c ~/ubot-deploy/ubot-be.tar.gz | docker load
+            mkdir -p ~/ubot
+
+            tar -xzf \
+              ~/ubot-deploy/ubot-deploy.tar.gz \
+              -C ~/ubot
+
+            echo '== Load backend Docker image =='
+
+            gunzip -c \
+              ~/ubot-deploy/ubot-be.tar.gz \
+              | docker load
 
             cd ~/ubot
 
+            echo '== Start backend stack =='
+
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
+                -p ubot \
                 -f docker-compose.yml \
                 -f docker-compose.deploy.yml \
                 up -d backend
 
+            echo '== Recreate nginx =='
+
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
+                -p ubot \
                 -f docker-compose.yml \
                 -f docker-compose.deploy.yml \
-                up -d --no-deps --force-recreate nginx
+                up -d \
+                --no-deps \
+                --force-recreate \
+                nginx
+
+            echo '== Container status =='
+
+            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
+              docker compose \
+                -p ubot \
+                -f docker-compose.yml \
+                -f docker-compose.deploy.yml \
+                ps
           "
 
+      # --------------------------------------------------
+      # 8. Health check
+      # --------------------------------------------------
       - name: Health check
         run: |
-          ssh "${EC2_USER}@${EC2_HOST}" '
-            for i in {1..20}; do
-              if curl -fsS http://127.0.0.1/actuator/health; then
+          ssh ubot-staging '
+            echo "Waiting for backend..."
+
+            for i in $(seq 1 30); do
+              if curl -fsS \
+                http://127.0.0.1/actuator/health; then
+
+                echo
+                echo "Backend is healthy"
                 exit 0
               fi
 
-              sleep 3
+              echo "Health check attempt ${i}/30 failed"
+              sleep 5
             done
 
+            echo
             echo "Health check failed"
 
             cd ~/ubot
+
+            echo "== Container status =="
+
             docker compose \
+              -p ubot \
               -f docker-compose.yml \
               -f docker-compose.deploy.yml \
-              logs --tail=100 backend nginx
+              ps -a
+
+            echo "== Backend / nginx logs =="
+
+            docker compose \
+              -p ubot \
+              -f docker-compose.yml \
+              -f docker-compose.deploy.yml \
+              logs \
+                --tail=200 \
+                backend nginx
 
             exit 1
           '
