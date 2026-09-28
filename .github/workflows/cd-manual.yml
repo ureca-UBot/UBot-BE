@@ -12,6 +12,8 @@ concurrency:
 
 jobs:
   deploy:
+  # 당장은 develop만 배포 허용
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -24,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       # --------------------------------------------------
       # 1. Backend image build
@@ -168,7 +170,7 @@ jobs:
                 -p ubot \
                 -f docker-compose.yml \
                 -f docker-compose.deploy.yml \
-                up -d --build backend
+                up -d backend
 
             echo '== Recreate nginx =='
 

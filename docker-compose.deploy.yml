@@ -1,7 +1,6 @@
 services:
   backend:
     image: ${BACKEND_IMAGE:-ubot-be:local}
-    container_name: ubot-backend
 
     env_file:
       - .env
@@ -25,7 +24,6 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: ubot-nginx
 
     ports:
       - "80:80"
