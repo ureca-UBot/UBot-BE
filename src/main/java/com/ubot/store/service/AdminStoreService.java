@@ -1,16 +1,12 @@
 package com.ubot.store.service;
 
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.ubot.common.PageResponseDto;
 import com.ubot.store.repository.AdminStoreSpecification;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -208,9 +204,40 @@ public class AdminStoreService {
                 Sort.by(Sort.Direction.DESC, "storeId")
         );
 
-        Page<Store> storePage = storeJpaRepository.findAll(specification, pageable);
+        Page<Store> storePage =
+                storeJpaRepository.findAll(specification, pageable);
 
-        Page<AdminStoreResponseDto> responsePage = storePage.map(AdminStoreResponseDto::from);
+        if (storePage.isEmpty()) {
+            return PageResponseDto.from(
+                    storePage.map(AdminStoreResponseDto::from)
+            );
+        }
+
+        List<Long> storeIds = storePage.getContent().stream()
+                .map(Store::getStoreId)
+                .toList();
+
+        Map<Long, Store> storesWithServices =
+                storeJpaRepository
+                        .findAllByStoreIdIn(storeIds)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                Store::getStoreId,
+                                Function.identity()
+                        ));
+
+        List<AdminStoreResponseDto> content =
+                storeIds.stream()
+                        .map(storesWithServices::get)
+                        .map(AdminStoreResponseDto::from)
+                        .toList();
+
+        Page<AdminStoreResponseDto> responsePage =
+                new PageImpl<>(
+                        content,
+                        pageable,
+                        storePage.getTotalElements()
+                );
 
         return PageResponseDto.from(responsePage);
     }

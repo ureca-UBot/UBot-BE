@@ -9,6 +9,8 @@ import java.util.List;
 
 import com.ubot.common.PageResponseDto;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -505,6 +507,31 @@ class AdminStoreServiceIntegrationTest {
                 .containsExactly("강남역점");
     }
 
+    @Test
+    @DisplayName("관리자 매장 목록 조회 시 제공 서비스 N+1 쿼리가 발생하지 않는다")
+    void avoidsNPlusOneWhenLoadingServices() {
+        SessionFactory sessionFactory = entityManager.getEntityManagerFactory().unwrap(SessionFactory.class);
+
+        Statistics statistics = sessionFactory.getStatistics();
+
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        null,
+                        null,
+                        0,
+                        2
+                );
+
+        assertThat(response.content()).hasSize(2);
+
+        assertThat(statistics.getPrepareStatementCount())
+                .isEqualTo(3);
+    }
+    
     private AdminStoreCreateRequestDto createRequest(List<String> serviceCodes) {
         return new AdminStoreCreateRequestDto(
                 "신규 매장",

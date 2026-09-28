@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.ubot.store.entity.Store;
@@ -23,4 +24,10 @@ public interface StoreJpaRepository extends JpaRepository<Store, Long>, JpaSpeci
             String address,
             Long storeId
     );
+
+    @EntityGraph(attributePaths = "serviceTypes")
+    List<Store> findAllByStoreIdIn(
+            Collection<Long> storeIds
+    );
+
 }
