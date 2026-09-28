@@ -35,7 +35,7 @@ class StoreServiceTest {
     @DisplayName("매장 조회 조건의 앞뒤 공백을 제거한다")
     void normalizesStoreSearchConditions() {
         when(storeRepository.countActiveServiceTypes(List.of("APPLE_AS"))).thenReturn(1L);
-        when(storeRepository.findStores("서울특별시", "강남구", List.of("APPLE_AS"), 0, 20))
+        when(storeRepository.findStores("서울특별시", "강남구", List.of("APPLE_AS"), null, null, 0, 20))
                 .thenReturn(List.of());
         when(storeRepository.countStores("서울특별시", "강남구", List.of("APPLE_AS")))
                 .thenReturn(0L);
@@ -44,6 +44,8 @@ class StoreServiceTest {
                 " 서울특별시 ",
                 " 강남구 ",
                 List.of(" APPLE_AS ", "APPLE_AS"),
+                null,
+                null,
                 0,
                 20
         );
@@ -56,7 +58,40 @@ class StoreServiceTest {
         assertThat(result.first()).isTrue();
         assertThat(result.last()).isTrue();
         verify(storeRepository).countActiveServiceTypes(List.of("APPLE_AS"));
-        verify(storeRepository).findStores("서울특별시", "강남구", List.of("APPLE_AS"), 0, 20);
+        verify(storeRepository).findStores("서울특별시", "강남구", List.of("APPLE_AS"), null, null, 0, 20);
+    }
+
+    @Test
+    @DisplayName("현재 위치를 전달하면 매장 목록 조회에 그대로 넘긴다")
+    void passesOriginToStoreList() {
+        StoreListResponseDto store = new StoreListResponseDto(
+                1L, "강남역점", "서울특별시", "강남구", "서울특별시 강남구 강남대로 396",
+                "02-0000-0000", null, 37.498, 127.028, 1.234
+        );
+        when(storeRepository.findStores(null, null, List.of(), 37.5, 127.0, 0, 20))
+                .thenReturn(List.of(store));
+        when(storeRepository.countStores(null, null, List.of())).thenReturn(1L);
+
+        PageResponseDto<StoreListResponseDto> result = storeService.getStoreList(
+                null, null, null, 37.5, 127.0, 0, 20
+        );
+
+        assertThat(result.content()).containsExactly(store);
+        assertThat(result.content().getFirst().distanceKm()).isEqualTo(1.234);
+    }
+
+    @ParameterizedTest
+    @CsvSource(nullValues = "null", value = {"37.5, null", "null, 127.0"})
+    @DisplayName("매장 목록의 현재 위치가 위도와 경도 중 하나뿐이면 예외가 발생한다")
+    void rejectsPartialOriginForStoreList(Double latitude, Double longitude) {
+        assertThatThrownBy(() -> storeService.getStoreList(
+                null, null, null, latitude, longitude, 0, 20
+        ))
+                .isInstanceOf(StoreException.class)
+                .extracting(exception -> ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
+
+        verifyNoInteractions(storeRepository);
     }
 
     @Test
@@ -65,14 +100,14 @@ class StoreServiceTest {
         when(storeRepository.countActiveServiceTypes(List.of("UNKNOWN_SERVICE"))).thenReturn(0L);
 
         assertThatThrownBy(() -> storeService.getStoreList(
-                null, null, List.of("UNKNOWN_SERVICE"), 0, 20
+                null, null, List.of("UNKNOWN_SERVICE"), null, null, 0, 20
         ))
                 .isInstanceOf(StoreException.class)
                 .extracting(exception -> ((StoreException) exception).getErrorCode())
                 .isEqualTo(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
 
         verify(storeRepository, never()).findStores(
-                null, null, List.of("UNKNOWN_SERVICE"), 0, 20
+                null, null, List.of("UNKNOWN_SERVICE"), null, null, 0, 20
         );
     }
 
@@ -103,6 +138,8 @@ class StoreServiceTest {
                 127.00,
                 37.48,
                 127.05,
+                null,
+                null,
                 List.of()
         ))
                 .isInstanceOf(StoreException.class)
@@ -112,35 +149,73 @@ class StoreServiceTest {
         verifyNoInteractions(storeRepository);
     }
 
-    @ParameterizedTest(name = "지도 레벨 {0}은 {1}m 격자를 사용한다")
+    @Test
+    @DisplayName("지도 조회 기준 위도와 경도 중 하나만 전달하면 예외가 발생한다")
+    void rejectsIncompleteMapReferenceCoordinates() {
+        assertThatThrownBy(() -> storeService.getMapStoreList(
+                37.0,
+                126.0,
+                38.0,
+                128.0,
+                37.5,
+                null,
+                List.of()
+        ))
+                .isInstanceOf(StoreException.class)
+                .extracting(exception ->
+                        ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
+
+        verifyNoInteractions(storeRepository);
+    }
+
+    @Test
+    @DisplayName("지도 조회 기준 좌표를 Repository에 전달한다")
+    void getsMapStoresUsingReferenceCoordinates() {
+        when(storeRepository.findInMap(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, List.of()
+        )).thenReturn(List.of());
+
+        assertThat(storeService.getMapStoreList(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, List.of()
+        )).isEmpty();
+
+        verify(storeRepository).findInMap(
+                37.0, 126.0, 38.0, 128.0, 37.5, 127.0, List.of()
+        );
+    }
+
+    @ParameterizedTest(name = "지도 레벨 {0}은 {1}m 클러스터 반경을 사용한다")
     @CsvSource({
-            "9, 5000",
-            "10, 10000",
-            "11, 25000",
-            "12, 50000",
-            "13, 100000"
+            "7, 600",
+            "8, 1200",
+            "9, 2000",
+            "10, 4000",
+            "11, 8000",
+            "12, 16000",
+            "13, 32000"
     })
-    @DisplayName("지도 레벨에 맞는 격자 크기로 클러스터를 조회한다")
-    void getsMapClustersWithGridSizeForLevel(int level, double gridMeters) {
+    @DisplayName("지도 레벨에 맞는 거리 반경으로 클러스터를 조회한다")
+    void getsMapClustersWithRadiusForLevel(int level, double clusterRadiusMeters) {
         List<MapClusterResponseDto> clusters = List.of(
                 new MapClusterResponseDto(37.5, 127.0, 12)
         );
         when(storeRepository.findClusters(
-                37.0, 126.0, 38.0, 128.0, gridMeters, List.of()
+                37.0, 126.0, 38.0, 128.0, clusterRadiusMeters, List.of()
         )).thenReturn(clusters);
 
         assertThat(storeService.getMapClusterList(
                 37.0, 126.0, 38.0, 128.0, level, List.of()
         )).isSameAs(clusters);
         verify(storeRepository).findClusters(
-                37.0, 126.0, 38.0, 128.0, gridMeters, List.of()
+                37.0, 126.0, 38.0, 128.0, clusterRadiusMeters, List.of()
         );
     }
 
     @Test
     @DisplayName("매장이 존재하지 않으면 예외가 발생한다")
     void throwsNotFoundWhenStoreDoesNotExist() {
-        when(storeRepository.findById(999L)).thenReturn(Optional.empty());
+        when(storeRepository.findById(999L, null, null)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> storeService.getStore(999L))
                 .isInstanceOf(StoreException.class)
@@ -161,11 +236,36 @@ class StoreServiceTest {
                 null,
                 37.498,
                 127.028,
+                null,
                 List.of()
         );
-        when(storeRepository.findById(1L)).thenReturn(Optional.of(detail));
+        when(storeRepository.findById(1L, null, null)).thenReturn(Optional.of(detail));
 
         assertThat(storeService.getStore(1L)).isSameAs(detail);
+    }
+
+    @Test
+    @DisplayName("현재 위치를 전달하면 직선거리가 포함된 상세 정보를 조회한다")
+    void passesOriginToRepositoryWhenGivenCurrentLocation() {
+        StoreDetailResponseDto detail = new StoreDetailResponseDto(
+                1L, "강남역점", "서울특별시", "강남구", "서울특별시 강남구 강남대로 396",
+                "02-0000-0000", null, 37.498, 127.028, 1.234, List.of()
+        );
+        when(storeRepository.findById(1L, 37.5, 127.0)).thenReturn(Optional.of(detail));
+
+        assertThat(storeService.getStore(1L, 37.5, 127.0).distanceKm()).isEqualTo(1.234);
+    }
+
+    @ParameterizedTest
+    @CsvSource(nullValues = "null", value = {"37.5, null", "null, 127.0"})
+    @DisplayName("현재 위치의 위도와 경도 중 하나만 전달하면 예외가 발생한다")
+    void rejectsPartialOrigin(Double latitude, Double longitude) {
+        assertThatThrownBy(() -> storeService.getStore(1L, latitude, longitude))
+                .isInstanceOf(StoreException.class)
+                .extracting(exception -> ((StoreException) exception).getErrorCode())
+                .isEqualTo(StoreErrorCode.INVALID_STORE_COORDINATES);
+
+        verifyNoInteractions(storeRepository);
     }
 
     @Test

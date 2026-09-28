@@ -13,6 +13,7 @@ import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.entity.OldFaq;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqCategoryRepository;
@@ -43,7 +44,7 @@ class FaqServiceTest {
     @Test
     @DisplayName("관리자와 활성 카테고리가 있으면 FAQ를 저장하고 질문 벡터를 생성한다")
     void createFaq_savesFaqAndVector() {
-        var request = new FaqCreateRequestDto(2L, "요금제가 궁금해요", "요금제 안내입니다.");
+        var request = new FaqCreateRequestDto(2L, "요금제가 궁금해요", "요금제 안내입니다.", Intent.GENERAL);
         when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(category(2L, "요금제")));
         when(faqRepository.save(any(Faq.class))).thenAnswer(i -> i.getArgument(0));
@@ -57,7 +58,7 @@ class FaqServiceTest {
     @DisplayName("존재하지 않는 관리자로 FAQ를 생성하면 사용자 없음 예외가 발생한다")
     void createFaq_throwsWhenAdminMissing() {
         when(userRepository.findById(1L)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.createFaq(new FaqCreateRequestDto(2L, "질문", "답변"), 1L)).isInstanceOf(UserException.class);
+        assertThatThrownBy(() -> service.createFaq(new FaqCreateRequestDto(2L, "질문", "답변", Intent.GENERAL), 1L)).isInstanceOf(UserException.class);
         verifyNoInteractions(categoryRepository, faqRepository, vectorService);
     }
 
@@ -66,7 +67,7 @@ class FaqServiceTest {
     void createFaq_throwsWhenCategoryMissing() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.empty());
-        assertFaqError(() -> service.createFaq(new FaqCreateRequestDto(2L, "질문", "답변"), 1L), FaqErrorCode.FAQ_CATEGORY_NOT_FOUND);
+        assertFaqError(() -> service.createFaq(new FaqCreateRequestDto(2L, "질문", "답변", Intent.GENERAL), 1L), FaqErrorCode.FAQ_CATEGORY_NOT_FOUND);
     }
 
     @Test
@@ -77,7 +78,7 @@ class FaqServiceTest {
         when(userRepository.findById(9L)).thenReturn(Optional.of(User.builder().id(9L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(category(3L, "변경")));
         when(faqRepository.save(faq)).thenReturn(faq);
-        FaqResponseDto result = service.updateActiveFaq(new FaqUpdateRequestDto(10L, 3L, "새 질문", "새 답변"), 9L);
+        FaqResponseDto result = service.updateActiveFaq(new FaqUpdateRequestDto(10L, 3L, "새 질문", "새 답변", Intent.GENERAL), 9L);
         var history = ArgumentCaptor.forClass(OldFaq.class);
         verify(oldFaqRepository).saveAndFlush(history.capture());
         assertThat(history.getValue().getQuestion()).isEqualTo("기존 질문");
@@ -94,7 +95,7 @@ class FaqServiceTest {
         when(userRepository.findById(9L)).thenReturn(Optional.of(User.builder().id(9L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(category(2L, "기존")));
         when(faqRepository.save(faq)).thenReturn(faq);
-        service.updateActiveFaq(new FaqUpdateRequestDto(10L, 2L, "같은 질문", "수정 답변"), 9L);
+        service.updateActiveFaq(new FaqUpdateRequestDto(10L, 2L, "같은 질문", "수정 답변", Intent.GENERAL), 9L);
         verify(vectorService).saveVectorForOldFaq(10L, 1);
         verify(vectorService, never()).saveVectorForFaq(anyLong(), anyString());
     }

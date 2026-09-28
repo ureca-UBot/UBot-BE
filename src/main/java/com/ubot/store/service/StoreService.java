@@ -22,13 +22,21 @@ public class StoreService {
 
     private final StoreRepository storeRepository;
 
+    /**
+     * 매장 목록을 조회합니다. 현재 위치({@code latitude}, {@code longitude})를 함께 주면 각 매장의 직선거리를 채웁니다.
+     * 두 값은 함께 전달하거나 함께 생략해야 합니다.
+     */
     public PageResponseDto<StoreListResponseDto> getStoreList(
             String sido,
             String sigungu,
             List<String> types,
+            Double latitude,
+            Double longitude,
             int page,
             int size
     ) {
+        validateCoordinatePair(latitude, longitude);
+
         List<String> normalizedTypes = normalizeTypes(types);
         validateServiceTypes(normalizedTypes);
 
@@ -38,6 +46,8 @@ public class StoreService {
                 normalizedSido,
                 normalizedSigungu,
                 normalizedTypes,
+                latitude,
+                longitude,
                 page,
                 size
         );
@@ -51,9 +61,20 @@ public class StoreService {
     }
 
     public StoreDetailResponseDto getStore(long storeId) {
-        return storeRepository.findById(storeId)
+        return getStore(storeId, null, null);
+    }
+
+    /**
+     * 매장 상세를 조회합니다. 현재 위치({@code latitude}, {@code longitude})를 함께 주면 직선거리를 채웁니다.
+     * 두 값은 함께 전달하거나 함께 생략해야 합니다.
+     */
+    public StoreDetailResponseDto getStore(long storeId, Double latitude, Double longitude) {
+        validateCoordinatePair(latitude, longitude);
+
+        return storeRepository.findById(storeId, latitude, longitude)
                 .orElseThrow(() -> new StoreException(StoreErrorCode.STORE_NOT_FOUND));
     }
+
 
     public List<String> getSidoList() {
         return storeRepository.findSidos();
@@ -87,14 +108,19 @@ public class StoreService {
             double swLng,
             double neLat,
             double neLng,
+            Double latitude,
+            Double longitude,
             List<String> types
     ) {
         validateMapBounds(swLat, swLng, neLat, neLng);
+        validateCoordinatePair(latitude, longitude);
 
         List<String> normalizedTypes = normalizeTypes(types);
         validateServiceTypes(normalizedTypes);
 
-        return storeRepository.findInMap(swLat, swLng, neLat, neLng, normalizedTypes);
+        return storeRepository.findInMap(
+                swLat, swLng, neLat, neLng, latitude, longitude, normalizedTypes
+        );
     }
 
     public List<MapClusterResponseDto> getMapClusterList(
@@ -115,24 +141,33 @@ public class StoreService {
                 swLng,
                 neLat,
                 neLng,
-                clusterGridMeters(level),
+                clusterRadiusMeters(level),
                 normalizedTypes
         );
     }
 
-    private double clusterGridMeters(int level) {
+    private double clusterRadiusMeters(int level) {
         return switch (level) {
-            case 9 -> 5_000;
-            case 10 -> 10_000;
-            case 11 -> 25_000;
-            case 12 -> 50_000;
-            default -> 100_000;
+            case 7 -> 600;
+            case 8 -> 1_200;
+            case 9 -> 2_000;
+            case 10 -> 4_000;
+            case 11 -> 8_000;
+            case 12 -> 16_000;
+            case 13 -> 32_000;
+            default -> throw new IllegalArgumentException("지원하지 않는 지도 레벨입니다: " + level);
         };
     }
 
     private void validateMapBounds(double swLat, double swLng, double neLat, double neLng) {
         if (swLat >= neLat || swLng >= neLng) {
             throw new StoreException(StoreErrorCode.INVALID_MAP_BOUNDS);
+        }
+    }
+
+    private void validateCoordinatePair(Double latitude, Double longitude) {
+        if ((latitude == null) != (longitude == null)) {
+            throw new StoreException(StoreErrorCode.INVALID_STORE_COORDINATES);
         }
     }
 
