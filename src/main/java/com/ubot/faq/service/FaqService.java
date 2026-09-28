@@ -51,6 +51,7 @@ public class FaqService {
 				.faqCategory(category)
 				.question(requestDto.question())
 				.answer(requestDto.answer())
+				.intent(requestDto.intent())
 				.createdAt(LocalDateTime.now())
 				.updatedAt(LocalDateTime.now())
 				.build();
@@ -120,7 +121,8 @@ public class FaqService {
 		faq.update(
 				category,
 				requestDto.question(),
-				requestDto.answer()
+				requestDto.answer(),
+				requestDto.intent()
 		);
 		return FaqResponseDto.from(faqRepository.save(faq));
 	}
