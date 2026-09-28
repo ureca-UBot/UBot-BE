@@ -1,10 +1,12 @@
 package com.ubot.chat.repository;
 
 import com.ubot.chat.entity.AnswerAttemptsHistory;
+import com.ubot.common.ErrorCode;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -26,5 +28,21 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 	Optional<AnswerAttemptsHistory> findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(
 			Long userId,
 			String idempotencyKey
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select a from AnswerAttemptsHistory a where a.id = :attemptId")
+	Optional<AnswerAttemptsHistory> findAttemptForLock(@Param("attemptId") Long attemptId);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update AnswerAttemptsHistory a
+			set a.status = 'FAIL', a.errorCode = :errorCode, a.errorMessage = :errorMessage
+			where a.id = :attemptId and a.status = 'PENDING'
+			""")
+	int failPendingAttempt(
+			@Param("attemptId") Long attemptId,
+			@Param("errorCode") ErrorCode errorCode,
+			@Param("errorMessage") String errorMessage
 	);
 }

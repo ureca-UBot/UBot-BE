@@ -3,11 +3,12 @@ package com.ubot.chat.controller;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.dto.request.ChatRequestDto;
 import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
 import com.ubot.common.ApiResponse;
 import jakarta.validation.Valid;
-import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +22,8 @@ import org.springframework.web.context.request.async.DeferredResult;
 @RequiredArgsConstructor
 @RequestMapping("/chat")
 public class ChatController {
-	private static final long RESPONSE_TIMEOUT_MILLIS = 180_000L;
+	@Value("${CHAT_RESPONSE_TIMEOUT_MILLIS:180000}")
+	private long responseTimeoutMillis;
 
 	private final ChatService chatService;
 
@@ -41,9 +43,10 @@ public class ChatController {
 		return createResponse(chatService.retryChat(user.getUserId(), idempotencyKey));
 	}
 
-	private DeferredResult<ApiResponse<ChatResponseDto>> createResponse(CompletableFuture<ChatResponseDto> answer) {
-		DeferredResult<ApiResponse<ChatResponseDto>> response = new DeferredResult<>(RESPONSE_TIMEOUT_MILLIS);
-		answer.whenComplete((result, exception) -> {
+	private DeferredResult<ApiResponse<ChatResponseDto>> createResponse(ChatAnswerTask answer) {
+		DeferredResult<ApiResponse<ChatResponseDto>> response = new DeferredResult<>(responseTimeoutMillis);
+		response.onTimeout(answer::timeout);
+		answer.result().whenComplete((result, exception) -> {
 			if (exception != null) {
 				response.setErrorResult(exception);
 			} else {

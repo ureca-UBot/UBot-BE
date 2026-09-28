@@ -68,7 +68,7 @@ class ChatServiceTest {
 			saved.add(attempt);
 			return attempt;
 		});
-		when(attempts.findById(anyLong())).thenAnswer(call ->
+		when(attempts.findAttemptForLock(anyLong())).thenAnswer(call ->
 				saved.stream().filter(a -> a.getId().equals(call.getArgument(0))).findFirst());
 		when(attempts.findInitialAttemptsForLock(anyLong(), anyString(), eq(1))).thenAnswer(call ->
 				saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
@@ -89,7 +89,9 @@ class ChatServiceTest {
 		service = new ChatService(vector, ai, attemptsService, jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
-		mvc = MockMvcBuilders.standaloneSetup(new ChatController(service))
+		var controller = new ChatController(service);
+		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
+		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
 				.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
 					public boolean supportsParameter(MethodParameter p) { return p.getParameterType() == CustomUserDetails.class; }
@@ -267,6 +269,65 @@ class ChatServiceTest {
 		assertThat(result.getResolvedException()).isSameAs(failure);
 		assertThat(result.getResponse().getContentAsString()).doesNotContain("database secret");
 		assertThat(jobs).isEmpty();
+		verifyNoInteractions(vector, ai);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"SUCCESS", "FAIL"})
+	void completedAttemptRejectsLateSuccessLogsAndFailure(String status) {
+		service.createChat(1L, "질문");
+		var stored = saved.getFirst();
+		if ("SUCCESS".equals(status)) {
+			stored.succeed();
+		} else {
+			stored.fail(ChatErrorCode.RESPONSE_TIMEOUT);
+		}
+		var previousError = stored.getErrorCode();
+		var previousMessage = stored.getErrorMessage();
+		var staleAttempt = AnswerAttemptsHistory.builder().id(stored.getId()).userId(1L)
+				.question("질문").status("PENDING").build();
+
+		attemptsService.saveAnswerSuccess(staleAttempt, "늦게 도착한 답변",
+				List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
+		attemptsService.saveAnswerFailure(staleAttempt, ChatErrorCode.INTERNAL_ERROR);
+
+		assertThat(stored.getStatus()).isEqualTo(status);
+		assertThat(stored.getErrorCode()).isEqualTo(previousError);
+		assertThat(stored.getErrorMessage()).isEqualTo(previousMessage);
+		verifyNoInteractions(questions, faqLogs, faqs);
+	}
+
+	@ParameterizedTest
+	@ValueSource(ints = {1, 3, 5})
+	void timeoutRetriesRespectConfiguredAttemptLimit(int maxAttempts) {
+		ReflectionTestUtils.setField(attemptsService, "maxAttempts", maxAttempts);
+		service.createChat(1L, "질문");
+		String key = saved.getFirst().getIdempotencyKey();
+
+		for (int count = 1; count <= maxAttempts; count++) {
+			var attempt = saved.getLast();
+			attempt.fail(ChatErrorCode.RESPONSE_TIMEOUT);
+			assertThat(attempt.getAttemptCount()).isEqualTo(count);
+			assertThat(attemptsService.canRetryAnswer(attempt)).isEqualTo(count < maxAttempts);
+			if (count < maxAttempts) {
+				service.retryChat(1L, key);
+			}
+		}
+
+		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.LIMIT_REACHED);
+		assertThat(saved).hasSize(maxAttempts).allSatisfy(attempt ->
+				assertThat(attempt.getIdempotencyKey()).isEqualTo(key));
+	}
+
+	@Test
+	void timeoutRetryStillRejectsAnotherUsersKey() {
+		service.createChat(1L, "질문");
+		var attempt = saved.getFirst();
+		attempt.fail(ChatErrorCode.RESPONSE_TIMEOUT);
+
+		assertChatError(() -> service.retryChat(2L, attempt.getIdempotencyKey()),
+				ChatErrorCode.ATTEMPT_NOT_FOUND);
+		assertThat(saved).hasSize(1);
 		verifyNoInteractions(vector, ai);
 	}
 

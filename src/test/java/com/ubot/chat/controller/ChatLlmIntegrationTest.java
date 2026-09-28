@@ -7,6 +7,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.chat.service.ChatAttemptsService;
 import com.ubot.chat.service.ChatService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.repository.FaqLogRepository;
@@ -19,13 +20,17 @@ import com.ubot.llm.exception.LlmException;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.repository.UserRepository;
+import jakarta.servlet.AsyncEvent;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +38,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockAsyncContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -59,6 +65,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ChatLlmIntegrationTest {
 	@Autowired MockMvc mvc;
 	@Autowired ChatService service;
+	@Autowired ChatAttemptsService attemptsService;
 	@Autowired JwtUtil jwt;
 	@Autowired UserRepository users;
 	@Autowired AnswerAttemptsHistoryRepository attempts;
@@ -240,6 +247,108 @@ class ChatLlmIntegrationTest {
 			Thread.sleep(20);
 		}
 		fail("Worker did not persist success");
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void timeoutCommitsFailureBeforeReturningError(boolean retry) throws Exception {
+		String key = "d".repeat(64);
+		AnswerAttemptsHistory initialAttempt = null;
+		if (retry) {
+			initialAttempt = new AnswerAttemptsHistory(user.getId(), "질문", 1, key, LocalDateTime.now(), "", "");
+			initialAttempt.fail(ChatErrorCode.VECTOR_SEARCH_FAILED);
+			initialAttempt = attempts.saveAndFlush(initialAttempt);
+		}
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		var entered = new CountDownLatch(1);
+		var interrupted = new CountDownLatch(1);
+		var release = new CountDownLatch(1);
+		var worker = new AtomicReference<Thread>();
+		when(llm.generateAnswer(any())).thenAnswer(call -> {
+			worker.set(Thread.currentThread());
+			entered.countDown();
+			try {
+				if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("test timeout");
+			} catch (InterruptedException exception) {
+				interrupted.countDown();
+				if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("test timeout");
+			}
+			return new LlmResponseDto("취소 이후 도착한 답변");
+		});
+		String timeoutResponseKey;
+		var request = retry ? post("/chat/questions/retries").header("Idempotency-Key", key)
+				: post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}");
+		try {
+			var pending = mvc.perform(request.header("Authorization", authorization))
+					.andExpect(request().asyncStarted()).andReturn();
+			assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+			var timedAttempt = attempts.findAll().stream().filter(a -> "PENDING".equals(a.getStatus())).findFirst().orElseThrow();
+			var context = (MockAsyncContext) pending.getRequest().getAsyncContext();
+			for (var listener : context.getListeners()) {
+				listener.onTimeout(new AsyncEvent(context));
+			}
+
+			assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
+			assertThat(pending.getAsyncResult()).isInstanceOfSatisfying(ChatException.class,
+					exception -> assertThat(exception.getErrorCode()).isEqualTo(ChatErrorCode.RESPONSE_TIMEOUT));
+			var stored = attempts.findById(timedAttempt.getId()).orElseThrow();
+			assertThat(stored.getStatus()).isEqualTo("FAIL");
+			assertThat(stored.getErrorCode()).isEqualTo(ChatErrorCode.RESPONSE_TIMEOUT);
+			assertThat(stored.getErrorMessage()).isEqualTo(ChatErrorCode.RESPONSE_TIMEOUT.getMessage());
+			assertThat(jdbc.queryForObject("select error_code from answer_attempts_history where attempt_id = ?",
+					String.class, stored.getId())).isEqualTo("CHAT-016");
+			if (retry) {
+				var initial = attempts.findById(initialAttempt.getId()).orElseThrow();
+				assertThat(initial.getErrorCode()).isEqualTo(ChatErrorCode.VECTOR_SEARCH_FAILED);
+				assertThat(stored.getAttemptCount()).isEqualTo(2);
+			}
+			String body = mvc.perform(asyncDispatch(pending)).andExpect(status().isGatewayTimeout())
+					.andExpect(jsonPath("$.success").value(false))
+					.andExpect(jsonPath("$.code").value("CHAT-016"))
+					.andExpect(jsonPath("$.message").value("답변 생성 시간이 초과되었습니다."))
+					.andExpect(jsonPath("$.data.status").value("FAIL"))
+					.andExpect(jsonPath("$.data.idempotencyKey").value(stored.getIdempotencyKey()))
+					.andExpect(jsonPath("$.data.attemptCount").value(retry ? 2 : 1))
+					.andExpect(jsonPath("$.data.retryable").value(true))
+					.andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+			timeoutResponseKey = keyFrom(body);
+		} finally {
+			release.countDown();
+			if (worker.get() != null) {
+				worker.get().join(5_000L);
+				assertThat(worker.get().isAlive()).isFalse();
+			}
+		}
+		assertThat(questions.count()).isZero();
+		assertThat(faqLogs.count()).isZero();
+
+		doReturn(new LlmResponseDto("재시도 답변")).when(llm).generateAnswer(any());
+		String retried = complete(post("/chat/questions/retries").header("Idempotency-Key", timeoutResponseKey));
+		assertThat(keyFrom(retried)).isEqualTo(timeoutResponseKey);
+		assertThat(retried).contains("\"status\":\"SUCCESS\"", "\"attemptCount\":" + (retry ? 3 : 2));
+		var timedOut = attempts.findAll().stream()
+				.filter(attempt -> attempt.getAttemptCount() == (retry ? 2 : 1)).findFirst().orElseThrow();
+		assertThat(timedOut.getStatus()).isEqualTo("FAIL");
+		assertThat(timedOut.getErrorCode()).isEqualTo(ChatErrorCode.RESPONSE_TIMEOUT);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"SUCCESS", "FAIL"})
+	void timeoutStorageLeavesFinishedAttemptsUnchanged(String status) {
+		var attempt = new AnswerAttemptsHistory(user.getId(), "질문", 1, "e".repeat(64), LocalDateTime.now(), "", "");
+		if ("SUCCESS".equals(status)) {
+			attempt.succeed();
+		} else {
+			attempt.fail(ChatErrorCode.VECTOR_SEARCH_FAILED);
+		}
+		attempt = attempts.saveAndFlush(attempt);
+
+		attemptsService.saveAnswerTimeout(attempt);
+
+		var stored = attempts.findById(attempt.getId()).orElseThrow();
+		assertThat(stored.getStatus()).isEqualTo(status);
+		assertThat(stored.getErrorCode()).isEqualTo(attempt.getErrorCode());
+		assertThat(stored.getErrorMessage()).isEqualTo(attempt.getErrorMessage());
 	}
 
 	private String complete(MockHttpServletRequestBuilder request) throws Exception {

@@ -98,7 +98,10 @@ public class ChatAttemptsService {
 	) {
 		return transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
-					.findById(attempt.getId()).orElseThrow();
+					.findAttemptForLock(attempt.getId()).orElseThrow();
+			if (!"PENDING".equals(currentAttempt.getStatus())) {
+				return currentAttempt;
+			}
 			QuestionLog questionLog = questionLogRepository.saveAndFlush(new QuestionLog(
 					attempt.getUserId(), attempt.getQuestion(), answer
 			));
@@ -123,9 +126,22 @@ public class ChatAttemptsService {
 	public AnswerAttemptsHistory saveAnswerFailure(AnswerAttemptsHistory attempt, ErrorCode errorCode) {
 		return transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
-					.findById(attempt.getId()).orElseThrow();
+					.findAttemptForLock(attempt.getId()).orElseThrow();
+			if (!"PENDING".equals(currentAttempt.getStatus())) {
+				return currentAttempt;
+			}
 			currentAttempt.fail(errorCode);
 			return currentAttempt;
+		});
+	}
+
+	public AnswerAttemptsHistory saveAnswerTimeout(AnswerAttemptsHistory attempt) {
+		// 트랜잭션 커밋이 끝난 기록으로 재시도 응답을 구성합니다.
+		return transactionTemplate.execute(transactionStatus -> {
+			answerAttemptsHistoryRepository.failPendingAttempt(
+					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage()
+			);
+			return answerAttemptsHistoryRepository.findById(attempt.getId()).orElseThrow();
 		});
 	}
 
@@ -135,6 +151,7 @@ public class ChatAttemptsService {
 		}
 		String errorCode = attempt.getErrorCode() == null ? null : attempt.getErrorCode().getCode();
 		return ChatErrorCode.VECTOR_SEARCH_FAILED.getCode().equals(errorCode)
+				|| ChatErrorCode.RESPONSE_TIMEOUT.getCode().equals(errorCode)
 				|| Arrays.stream(EmbeddingErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))
 				|| Arrays.stream(LlmErrorCode.values()).anyMatch(code -> code.name().equals(errorCode));
 	}
