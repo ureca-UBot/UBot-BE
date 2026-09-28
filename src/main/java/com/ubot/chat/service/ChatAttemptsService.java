@@ -77,10 +77,10 @@ public class ChatAttemptsService {
 		return transactionTemplate.execute(transactionStatus -> {
 			// 최초 행을 잠가서 같은 질문에 대한 동시 재시도를 직렬로 처리합니다.
 			answerAttemptsHistoryRepository
-					.findInitialAttemptsForLock(idempotencyKey, 1)
+					.findInitialAttemptsForLock(userId, idempotencyKey, 1)
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 			AnswerAttemptsHistory latestAttempt = answerAttemptsHistoryRepository
-					.findFirstByIdempotencyKeyOrderByAttemptCountDesc(idempotencyKey)
+					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
 			validateRetryAttempt(latestAttempt);
@@ -100,7 +100,7 @@ public class ChatAttemptsService {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findById(attempt.getId()).orElseThrow();
 			QuestionLog questionLog = questionLogRepository.saveAndFlush(new QuestionLog(
-					attempt.getUserId(), attempt.getQuestion(), answer, attempt.getCreatedAt()
+					attempt.getUserId(), attempt.getQuestion(), answer
 			));
 			List<FaqLog> faqLogs = new ArrayList<>();
 			LocalDateTime now = LocalDateTime.now();
@@ -133,7 +133,7 @@ public class ChatAttemptsService {
 		if (!"FAIL".equals(attempt.getStatus()) || attempt.getAttemptCount() >= maxAttempts) {
 			return false;
 		}
-		String errorCode = attempt.getErrorCode();
+		String errorCode = attempt.getErrorCode() == null ? null : attempt.getErrorCode().getCode();
 		return ChatErrorCode.VECTOR_SEARCH_FAILED.getCode().equals(errorCode)
 				|| Arrays.stream(EmbeddingErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))
 				|| Arrays.stream(LlmErrorCode.values()).anyMatch(code -> code.name().equals(errorCode));

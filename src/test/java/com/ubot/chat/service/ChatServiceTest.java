@@ -70,11 +70,13 @@ class ChatServiceTest {
 		});
 		when(attempts.findById(anyLong())).thenAnswer(call ->
 				saved.stream().filter(a -> a.getId().equals(call.getArgument(0))).findFirst());
-		when(attempts.findInitialAttemptsForLock(anyString(), eq(1))).thenAnswer(call ->
-				saved.stream().filter(a -> a.getIdempotencyKey().equals(call.getArgument(0))
+		when(attempts.findInitialAttemptsForLock(anyLong(), anyString(), eq(1))).thenAnswer(call ->
+				saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
+						&& a.getIdempotencyKey().equals(call.getArgument(1))
 						&& a.getAttemptCount() == 1).findFirst());
-		when(attempts.findFirstByIdempotencyKeyOrderByAttemptCountDesc(anyString()))
-				.thenAnswer(call -> saved.stream().filter(a -> a.getIdempotencyKey().equals(call.getArgument(0)))
+		when(attempts.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(anyLong(), anyString()))
+				.thenAnswer(call -> saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
+						&& a.getIdempotencyKey().equals(call.getArgument(1)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
 		when(questions.saveAndFlush(any())).thenAnswer(call -> {
 			QuestionLog result = call.getArgument(0);
@@ -139,7 +141,7 @@ class ChatServiceTest {
 	@Test void noResultsSkipLlmAndPersistFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
 		assertThat(completeRequest()).contains("검색 결과가 없습니다.", "\"status\":\"FAIL\"");
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo("CHAT_NO_FAQ");
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
@@ -163,7 +165,7 @@ class ChatServiceTest {
 
 		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"retryable\":false");
 		verify(vector).getSimilarList("질문", 5);
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ.getCode());
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verifyNoInteractions(ai);
 	}
 
@@ -173,7 +175,7 @@ class ChatServiceTest {
 		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new LlmException(code, new RuntimeException("secret")));
 		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"success\":true", "\"retryable\":true")
 				.contains(code.getMessage(), saved.getFirst().getIdempotencyKey()).doesNotContain("secret");
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo(code.name());
+		assertThat(saved.getFirst().getErrorCode().getCode()).isEqualTo(code.name());
 		assertThat(saved.getFirst().getErrorMessage()).isEqualTo(code.getMessage());
 		verifyNoInteractions(questions, faqLogs);
 	}
@@ -182,7 +184,7 @@ class ChatServiceTest {
 	void embeddingExceptionsAreRecorded(EmbeddingErrorCode code) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenThrow(new EmbeddingException(code));
 		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", code.getMessage());
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo(code.getCode());
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(code);
 		assertThat(saved.getFirst().getErrorMessage()).isEqualTo(code.getMessage());
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
@@ -192,7 +194,7 @@ class ChatServiceTest {
 		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new PromptException("준비 안 됨"));
 		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"retryable\":false",
 				ChatErrorCode.PROMPT_NOT_READY.getMessage());
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_NOT_READY.getCode());
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_NOT_READY);
 	}
 
 	@Test void pendingAndSucceededAttemptsCannotStartAnotherGeneration() {
@@ -242,7 +244,7 @@ class ChatServiceTest {
 
 		assertThat(completeRequest()).contains("\"status\":\"FAIL\"", "\"retryable\":false",
 				ChatErrorCode.INTERNAL_ERROR.getMessage()).doesNotContain("secret");
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INTERNAL_ERROR.getCode());
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INTERNAL_ERROR);
 	}
 
 	@ParameterizedTest @ValueSource(booleans = {false, true})
@@ -252,7 +254,7 @@ class ChatServiceTest {
 				? post("/chat/questions/retries").header("Idempotency-Key", "a".repeat(64))
 				: post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}");
 		if (retry) {
-			doThrow(failure).when(attempts).findInitialAttemptsForLock(anyString(), eq(1));
+			doThrow(failure).when(attempts).findInitialAttemptsForLock(anyLong(), anyString(), eq(1));
 		} else {
 			doThrow(failure).when(attempts).saveAndFlush(any());
 		}

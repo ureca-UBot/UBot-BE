@@ -1,7 +1,9 @@
 package com.ubot.chat.entity;
 
+import com.ubot.chat.entity.converter.AnswerAttemptErrorCodeConverter;
 import com.ubot.common.ErrorCode;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -49,7 +51,8 @@ public class AnswerAttemptsHistory {
 	private String embeddingModel;
 
 	@Column(name = "error_code")
-	private String errorCode;
+	@Convert(converter = AnswerAttemptErrorCodeConverter.class)
+	private ErrorCode errorCode;
 
 	@Column(name = "error_message")
 	private String errorMessage;
@@ -82,7 +85,7 @@ public class AnswerAttemptsHistory {
 
 	public void fail(ErrorCode errorCode) {
 		this.status = "FAIL";
-		this.errorCode = errorCode.getCode();
+		this.errorCode = errorCode;
 		this.errorMessage = errorCode.getMessage();
 	}
 }

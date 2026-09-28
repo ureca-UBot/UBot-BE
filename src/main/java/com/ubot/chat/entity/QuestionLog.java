@@ -37,10 +37,10 @@ public class QuestionLog {
 	@Column(name = "created_at")
 	private LocalDateTime createdAt;
 
-	public QuestionLog(Long userId, String question, String answer, LocalDateTime createdAt) {
+	public QuestionLog(Long userId, String question, String answer) {
 		this.userId = userId;
 		this.userQuestion = question;
 		this.answer = answer;
-		this.createdAt = createdAt;
+		this.createdAt = LocalDateTime.now();
 	}
 }

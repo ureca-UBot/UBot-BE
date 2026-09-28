@@ -21,10 +21,10 @@ public enum ChatErrorCode implements ErrorCode {
 	TASK_START_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-009", "답변 생성 작업을 시작하지 못했습니다."),
 	VECTOR_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-010", "벡터 검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."),
 	INVALID_CHAT_RETRY_REQUEST(HttpStatus.BAD_REQUEST, "CHAT-011", "요청 값이 올바르지 않습니다."),
-	NO_FAQ(HttpStatus.NOT_FOUND, "CHAT_NO_FAQ", "검색 결과가 없습니다."),
-	INSUFFICIENT_FAQ(HttpStatus.NOT_FOUND, "CHAT_INSUFFICIENT_FAQ", "정확한 답변을 찾지 못했습니다."),
-	PROMPT_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "CHAT_PROMPT_NOT_READY", "답변 프롬프트가 준비되지 않았습니다."),
-	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CHAT_INTERNAL_ERROR", "답변 생성 중 오류가 발생했습니다.");
+	NO_FAQ(HttpStatus.NOT_FOUND, "CHAT-012", "검색 결과가 없습니다."),
+	INSUFFICIENT_FAQ(HttpStatus.NOT_FOUND, "CHAT-013", "정확한 답변을 찾지 못했습니다."),
+	PROMPT_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-014", "답변 프롬프트가 준비되지 않았습니다."),
+	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CHAT-015", "답변 생성 중 오류가 발생했습니다.");
 
 	private final HttpStatus status;
 	private final String code;

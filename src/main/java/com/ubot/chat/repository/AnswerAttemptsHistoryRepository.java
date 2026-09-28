@@ -13,15 +13,18 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 	@Query("""
 			select a
 			from AnswerAttemptsHistory a
-			where a.idempotencyKey = :idempotencyKey
+			where a.userId = :userId
+			  and a.idempotencyKey = :idempotencyKey
 			  and a.attemptCount = :attemptCount
 			""")
 	Optional<AnswerAttemptsHistory> findInitialAttemptsForLock(
+			@Param("userId") Long userId,
 			@Param("idempotencyKey") String idempotencyKey,
 			@Param("attemptCount") int attemptCount
 	);
 
-	Optional<AnswerAttemptsHistory> findFirstByIdempotencyKeyOrderByAttemptCountDesc(
+	Optional<AnswerAttemptsHistory> findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(
+			Long userId,
 			String idempotencyKey
 	);
 }

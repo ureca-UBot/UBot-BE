@@ -28,13 +28,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import static org.assertj.core.api.Assertions.*;
@@ -52,10 +52,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 		"prompt.faq.user-location=classpath:prompts/test-faq-user.txt",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
-		"CHAT_MAX_ATTEMPTS=3"})
+		"CHAT_MAX_ATTEMPTS=5"})
 @Import(PgvectorTestConfiguration.class)
 @AutoConfigureMockMvc
-@Sql(scripts = "/sql/chat-test-schema.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ChatLlmIntegrationTest {
 	@Autowired MockMvc mvc;
@@ -68,6 +67,7 @@ class ChatLlmIntegrationTest {
 	@Autowired JdbcTemplate jdbc;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean LlmClient llm;
+	@Value("${CHAT_MAX_ATTEMPTS}") int maxAttempts;
 
 	User user;
 	String authorization;
@@ -109,24 +109,26 @@ class ChatLlmIntegrationTest {
 				.contains("유심 재발급", "[FAQ ID: " + faqId + "]", "매장 방문");
 	}
 
-	@Test void failurePlusTwoRetriesPersistsThreeRowsWithSameKeyAndBlocksFourth() throws Exception {
+	@Test void configuredAttemptLimitAllowsMoreThanThreeAttemptsAndBlocksNext() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 		String body = complete(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"));
 		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":true", "\"retryable\":true");
 		String key = keyFrom(body);
-		for (int count = 2; count <= 3; count++) {
+		for (int count = 2; count <= maxAttempts; count++) {
 			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key));
 			assertThat(body).contains("\"attemptCount\":" + count, key);
 		}
 		assertThat(body).contains("\"retryable\":false");
 		mvc.perform(post("/chat/questions/retries").header("Authorization", authorization)
-				.header("Idempotency-Key", key)).andExpect(status().isConflict());
-		assertThat(attempts.findAll()).hasSize(3).allMatch(
+				.header("Idempotency-Key", key)).andExpect(status().isConflict())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.LIMIT_REACHED.getCode()));
+		assertThat(attempts.findAll()).hasSize(maxAttempts).allMatch(
 				a -> a.getIdempotencyKey().equals(key) && "FAIL".equals(a.getStatus()));
 		assertThat(questions.count()).isZero();
 		assertThat(faqLogs.count()).isZero();
-		verify(llm, times(3)).generateAnswer(any());
+		verify(llm, times(maxAttempts)).generateAnswer(any());
 	}
 
 	@Test void insufficientEvidenceSkipsLlmAndStoresFailure() throws Exception {
@@ -171,6 +173,36 @@ class ChatLlmIntegrationTest {
 		verifyNoInteractions(vector, llm);
 	}
 
+	@Test void anotherUsersRetryKeyIsRejectedWithoutStartingGeneration() throws Exception {
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
+		String body = complete(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}"));
+		assertThat(body).contains("\"retryable\":true");
+		String key = keyFrom(body);
+		User otherUser = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
+				.hashedPassword("test-hash").name("다른 사용자").role(UserRole.USER)
+				.createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
+		String otherAuthorization = "Bearer " + jwt.createAccessToken(otherUser);
+
+		mvc.perform(post("/chat/questions/retries").header("Authorization", otherAuthorization)
+				.header("Idempotency-Key", key))
+				.andExpect(status().isNotFound())
+				.andExpect(request().asyncNotStarted())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.ATTEMPT_NOT_FOUND.getCode()));
+		assertThat(attempts.findAll()).hasSize(1).first().satisfies(attempt -> {
+			assertThat(attempt.getUserId()).isEqualTo(user.getId());
+			assertThat(attempt.getIdempotencyKey()).isEqualTo(key);
+			assertThat(attempt.getAttemptCount()).isEqualTo(1);
+			assertThat(attempt.getStatus()).isEqualTo("FAIL");
+		});
+		assertThat(questions.count()).isZero();
+		assertThat(faqLogs.count()).isZero();
+		verify(vector, times(1)).getSimilarList("질문", 3);
+		verify(llm, times(1)).generateAnswer(any());
+	}
+
 	@Test void concurrentRetryCreatesOnlyOneNewAttemptUnderJpaLock() throws Exception {
 		String key = "c".repeat(64);
 		var first = new AnswerAttemptsHistory(user.getId(), "질문", 1, key, LocalDateTime.now(), "", "");
@@ -203,7 +235,7 @@ class ChatLlmIntegrationTest {
 		// 다음 테스트가 시작하기 전에 worker의 트랜잭션까지 끝났는지 제한 시간 안에 확인합니다.
 		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
 		while (System.nanoTime() < deadline) {
-			var latest = attempts.findFirstByIdempotencyKeyOrderByAttemptCountDesc(key).orElseThrow();
+			var latest = attempts.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(user.getId(), key).orElseThrow();
 			if ("SUCCESS".equals(latest.getStatus())) return;
 			Thread.sleep(20);
 		}

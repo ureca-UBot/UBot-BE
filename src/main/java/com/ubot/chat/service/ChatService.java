@@ -5,6 +5,7 @@ import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
+import com.ubot.chat.exception.LlmErrorCodeAdapter;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -21,7 +22,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -133,23 +133,5 @@ public class ChatService {
 			);
 		}
 		return response;
-	}
-
-	// 기존 LLM 오류의 코드와 메시지를 유지하면서 실패 기록에 사용할 공통 규격으로 연결합니다.
-	private record LlmErrorCodeAdapter(LlmErrorCode source) implements ErrorCode {
-		@Override
-		public HttpStatus getStatus() {
-			return HttpStatus.INTERNAL_SERVER_ERROR;
-		}
-
-		@Override
-		public String getCode() {
-			return source.name();
-		}
-
-		@Override
-		public String getMessage() {
-			return source.getMessage();
-		}
 	}
 }
