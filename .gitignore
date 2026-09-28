@@ -40,3 +40,6 @@ out/
 # OS 생성 파일
 .DS_Store
 Thumbs.db
+
+# threshold 테스트 중 사용했던 GPU 설정 파일입니다.
+docker-compose.override.yml
