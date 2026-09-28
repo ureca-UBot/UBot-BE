@@ -8,14 +8,12 @@ services:
 
     environment:
       SPRING_PROFILES_ACTIVE: local
-
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-
       OLLAMA_BASE_URL: http://ollama:11434
 
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
 
     restart: unless-stopped
 
@@ -24,3 +22,18 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    container_name: ubot-nginx
+
+    ports:
+      - "80:80"
+
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+    depends_on:
+      - backend
+
+    restart: unless-stopped
