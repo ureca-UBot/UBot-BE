@@ -8,6 +8,6 @@ public record FaqUpdateRequestDto(
 		@Positive @NotNull Long categoryId,
 		@NotBlank @Size(max = 1000)String question,
 		@NotBlank @Size(max = 1000)String answer,
-		@NotBlank Intent intent
+		@NotNull Intent intent
 ){
 }
