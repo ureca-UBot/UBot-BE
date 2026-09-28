@@ -22,6 +22,8 @@ public final class AdminStoreSpecification {
     public static Specification<Store> filter(
             String storeName,
             String phoneNumber,
+            String sido,
+            String sigungu,
             Set<String> serviceCodes
     ) {
         return (root, query, criteriaBuilder) -> {
@@ -49,6 +51,13 @@ public final class AdminStoreSpecification {
                 );
             }
 
+            if (sido != null) {
+                predicates.add(criteriaBuilder.equal(root.get("sido"), sido));
+            }
+
+            if (sigungu != null) {
+                predicates.add(criteriaBuilder.equal(root.get("sigungu"), sigungu));
+            }
             if (!serviceCodes.isEmpty()) {
                 Subquery<Long> serviceCount = query.subquery(Long.class);
 

@@ -69,6 +69,12 @@ public class AdminStoreController {
             @RequestParam(required = false) @Size(max = 30)
             String phoneNumber,
 
+            @RequestParam(required = false) @Size(max = 50)
+            String sido,
+
+            @RequestParam(required = false) @Size(max = 50)
+            String sigungu,
+
             @RequestParam(required = false, name = "type") @Size(max = MAX_SERVICE_TYPE_COUNT)
             List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> serviceCodes,
 
@@ -82,6 +88,8 @@ public class AdminStoreController {
                 adminStoreService.getStores(
                         storeName,
                         phoneNumber,
+                        sido,
+                        sigungu,
                         serviceCodes,
                         page,
                         size

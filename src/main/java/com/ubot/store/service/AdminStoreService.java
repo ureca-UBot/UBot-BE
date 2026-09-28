@@ -181,12 +181,16 @@ public class AdminStoreService {
     public PageResponseDto<AdminStoreResponseDto> getStores(
             String storeName,
             String phoneNumber,
+            String sido,
+            String sigungu,
             List<String> serviceCodes,
             int page,
             int size
     ) {
         String normalizedStoreName = normalizeCondition(storeName);
         String normalizedPhoneNumber = normalizeCondition(phoneNumber);
+        String normalizedSido = normalizeCondition(sido);
+        String normalizedSigungu = normalizeCondition(sigungu);
         Set<String> normalizedServiceCodes = normalizeServiceCodes(serviceCodes);
 
         validateServiceTypes(normalizedServiceCodes);
@@ -195,6 +199,8 @@ public class AdminStoreService {
                 AdminStoreSpecification.filter(
                         normalizedStoreName,
                         normalizedPhoneNumber,
+                        normalizedSido,
+                        normalizedSigungu,
                         normalizedServiceCodes
                 );
 
@@ -245,6 +251,8 @@ public class AdminStoreService {
     private String normalizeCondition(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
+
+    
     private void validateServiceTypes(Set<String> serviceCodes) {
         if (serviceCodes.isEmpty()) {return;}
 
