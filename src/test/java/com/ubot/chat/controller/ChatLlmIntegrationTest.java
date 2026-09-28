@@ -375,13 +375,13 @@ class ChatLlmIntegrationTest {
 	}
 
 	@Test
-	void legacyLlmFailureCodeStillAllowsOwnedRetry() throws Exception {
+	void numberedLlmFailureCodeAllowsOwnedRetry() throws Exception {
 		String key = "f".repeat(64);
 		var first = new AnswerAttemptsHistory(user.getId(), "질문", 1, key, LocalDateTime.now(), "", "");
 		first.fail(LlmErrorCode.LLM_TIMEOUT);
 		first = attempts.saveAndFlush(first);
-		// 이전 버전에서 저장한 값이 남아 있는 임시 테스트 DB를 재현합니다.
-		jdbc.update("update answer_attempts_history set error_code = ? where attempt_id = ?", "LLM_TIMEOUT", first.getId());
+		assertThat(jdbc.queryForObject("select error_code from answer_attempts_history where attempt_id = ?",
+				String.class, first.getId())).isEqualTo("LLM-004");
 		assertThat(attempts.findById(first.getId()).orElseThrow().getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT);
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
