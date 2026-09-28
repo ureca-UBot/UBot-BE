@@ -7,7 +7,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.ubot.common.PageResponseDto;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -448,6 +451,177 @@ class AdminStoreServiceIntegrationTest {
         );
 
         assertThat(after).isAfter(before);
+    }
+
+    @Test
+    @DisplayName("매장명으로 관리자 매장 목록을 부분 검색한다")
+    void filtersStoresByName() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        "강남",
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("강남역점");
+    }
+
+    @Test
+    @DisplayName("연락처로 관리자 매장 목록을 부분 검색한다")
+    void filtersStoresByPhoneNumber() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        "051",
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("부산역점");
+    }
+
+    @Test
+    @DisplayName("선택한 서비스를 모두 제공하는 매장만 조회한다")
+    void filtersStoresByServiceCodes() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(
+                                "APPLE_AS",
+                                "FOREIGN_LANGUAGE_SUPPORT"
+                        ),
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("강남역점");
+    }
+
+    @Test
+    @DisplayName("소프트 삭제된 매장만 관리자 삭제 목록에서 조회한다")
+    void getsDeletedStores() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getDeletedStores(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("삭제매장");
+    }
+
+    @Test
+    @DisplayName("소프트 삭제한 매장을 삭제 목록에서 조회한 뒤 복구할 수 있다")
+    void findsAndRestoresDeletedStore() {
+        adminStoreService.deleteStore(1L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        PageResponseDto<AdminStoreResponseDto> deletedStores =
+                adminStoreService.getDeletedStores(
+                        "강남",
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(deletedStores.content())
+                .extracting(AdminStoreResponseDto::storeId)
+                .contains(1L);
+
+        adminStoreService.activateStore(1L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        PageResponseDto<AdminStoreResponseDto> afterRestore =
+                adminStoreService.getDeletedStores(
+                        "강남",
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(afterRestore.content())
+                .extracting(AdminStoreResponseDto::storeId)
+                .doesNotContain(1L);
+    }
+
+    @Test
+    @DisplayName("관리자 매장 목록 조회 시 제공 서비스 N+1 쿼리가 발생하지 않는다")
+    void avoidsNPlusOneWhenLoadingServices() {
+        SessionFactory sessionFactory = entityManager.getEntityManagerFactory().unwrap(SessionFactory.class);
+
+        Statistics statistics = sessionFactory.getStatistics();
+
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        2
+                );
+
+        assertThat(response.content()).hasSize(2);
+
+        assertThat(statistics.getPrepareStatementCount())
+                .isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("시도와 시군구로 관리자 매장 목록을 조회한다")
+    void filtersStoresByRegion() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        null,
+                        "서울특별시",
+                        "강남구",
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .allSatisfy(store -> {
+                    assertThat(store.sido()).isEqualTo("서울특별시");
+                    assertThat(store.sigungu()).isEqualTo("강남구");
+                });
     }
 
     private AdminStoreCreateRequestDto createRequest(List<String> serviceCodes) {
