@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
 
 import com.ubot.store.entity.ServiceType;
@@ -16,8 +15,10 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 
-@RequiredArgsConstructor
 public final class AdminStoreSpecification {
+
+    private AdminStoreSpecification() {
+    }
 
     public static Specification<Store> filter(
             String storeName,
@@ -26,12 +27,51 @@ public final class AdminStoreSpecification {
             String sigungu,
             Set<String> serviceCodes
     ) {
+        return build(
+                storeName,
+                phoneNumber,
+                sido,
+                sigungu,
+                serviceCodes,
+                false
+        );
+    }
+
+    public static Specification<Store> deletedFilter(
+            String storeName,
+            String phoneNumber,
+            String sido,
+            String sigungu,
+            Set<String> serviceCodes
+    ) {
+        return build(
+                storeName,
+                phoneNumber,
+                sido,
+                sigungu,
+                serviceCodes,
+                true
+        );
+    }
+
+    private static Specification<Store> build(
+            String storeName,
+            String phoneNumber,
+            String sido,
+            String sigungu,
+            Set<String> serviceCodes,
+            boolean deleted
+    ) {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
 
-            predicates.add(criteriaBuilder.isTrue(root.get("isActive")));
-
-            predicates.add(criteriaBuilder.isNull(root.get("deletedAt")));
+            if (deleted) {
+                predicates.add(criteriaBuilder.isFalse(root.get("isActive")));
+                predicates.add(criteriaBuilder.isNotNull(root.get("deletedAt")));
+            } else {
+                predicates.add(criteriaBuilder.isTrue(root.get("isActive")));
+                predicates.add(criteriaBuilder.isNull(root.get("deletedAt")));
+            }
 
             if (storeName != null) {
                 predicates.add(
@@ -58,6 +98,7 @@ public final class AdminStoreSpecification {
             if (sigungu != null) {
                 predicates.add(criteriaBuilder.equal(root.get("sigungu"), sigungu));
             }
+
             if (!serviceCodes.isEmpty()) {
                 Subquery<Long> serviceCount = query.subquery(Long.class);
 
@@ -78,7 +119,8 @@ public final class AdminStoreSpecification {
                         )
                 );
 
-                predicates.add(criteriaBuilder.equal(serviceCount, (long) serviceCodes.size()));
+                predicates.add(criteriaBuilder.equal(serviceCount, (long) serviceCodes.size())
+                );
             }
 
             return criteriaBuilder.and(predicates.toArray(Predicate[]::new));

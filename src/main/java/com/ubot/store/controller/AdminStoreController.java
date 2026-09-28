@@ -96,4 +96,48 @@ public class AdminStoreController {
                 )
         );
     }
+
+    @GetMapping("/deleted")
+    public ApiResponse<PageResponseDto<AdminStoreResponseDto>> getDeletedStores(
+            @RequestParam(required = false)
+            @Size(max = 150)
+            String storeName,
+
+            @RequestParam(required = false)
+            @Size(max = 30)
+            String phoneNumber,
+
+            @RequestParam(required = false)
+            @Size(max = 50)
+            String sido,
+
+            @RequestParam(required = false)
+            @Size(max = 50)
+            String sigungu,
+
+            @RequestParam(required = false, name = "type")
+            @Size(max = MAX_SERVICE_TYPE_COUNT)
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> serviceCodes,
+
+            @RequestParam(defaultValue = "0")
+            @Min(0)
+            int page,
+
+            @RequestParam(defaultValue = "20")
+            @Min(1)
+            @Max(100)
+            int size
+    ) {
+        return ApiResponse.success(
+                adminStoreService.getDeletedStores(
+                        storeName,
+                        phoneNumber,
+                        sido,
+                        sigungu,
+                        serviceCodes,
+                        page,
+                        size
+                )
+        );
+    }
 }

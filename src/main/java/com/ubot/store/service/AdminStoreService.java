@@ -210,13 +210,55 @@ public class AdminStoreService {
                 Sort.by(Sort.Direction.DESC, "storeId")
         );
 
-        Page<Store> storePage =
-                storeJpaRepository.findAll(specification, pageable);
+        return getStorePage(specification, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponseDto<AdminStoreResponseDto> getDeletedStores(
+            String storeName,
+            String phoneNumber,
+            String sido,
+            String sigungu,
+            List<String> serviceCodes,
+            int page,
+            int size
+    ) {
+        String normalizedStoreName = normalizeCondition(storeName);
+        String normalizedPhoneNumber = normalizeCondition(phoneNumber);
+        String normalizedSido = normalizeCondition(sido);
+        String normalizedSigungu = normalizeCondition(sigungu);
+        Set<String> normalizedServiceCodes =
+                normalizeServiceCodes(serviceCodes);
+
+        validateServiceTypes(normalizedServiceCodes);
+
+        Specification<Store> specification =
+                AdminStoreSpecification.deletedFilter(
+                        normalizedStoreName,
+                        normalizedPhoneNumber,
+                        normalizedSido,
+                        normalizedSigungu,
+                        normalizedServiceCodes
+                );
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "deletedAt")
+                        .and(Sort.by(Sort.Direction.DESC, "storeId"))
+        );
+
+        return getStorePage(specification, pageable);
+    }
+
+    private PageResponseDto<AdminStoreResponseDto> getStorePage(
+            Specification<Store> specification,
+            Pageable pageable
+    ) {
+        Page<Store> storePage = storeJpaRepository.findAll(specification, pageable);
 
         if (storePage.isEmpty()) {
-            return PageResponseDto.from(
-                    storePage.map(AdminStoreResponseDto::from)
-            );
+            return PageResponseDto.from(storePage.map(AdminStoreResponseDto::from));
         }
 
         List<Long> storeIds = storePage.getContent().stream()
