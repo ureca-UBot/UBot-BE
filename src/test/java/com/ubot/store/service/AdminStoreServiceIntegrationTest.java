@@ -514,6 +514,69 @@ class AdminStoreServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("소프트 삭제된 매장만 관리자 삭제 목록에서 조회한다")
+    void getsDeletedStores() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getDeletedStores(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("삭제매장");
+    }
+
+    @Test
+    @DisplayName("소프트 삭제한 매장을 삭제 목록에서 조회한 뒤 복구할 수 있다")
+    void findsAndRestoresDeletedStore() {
+        adminStoreService.deleteStore(1L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        PageResponseDto<AdminStoreResponseDto> deletedStores =
+                adminStoreService.getDeletedStores(
+                        "강남",
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(deletedStores.content())
+                .extracting(AdminStoreResponseDto::storeId)
+                .contains(1L);
+
+        adminStoreService.activateStore(1L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        PageResponseDto<AdminStoreResponseDto> afterRestore =
+                adminStoreService.getDeletedStores(
+                        "강남",
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(afterRestore.content())
+                .extracting(AdminStoreResponseDto::storeId)
+                .doesNotContain(1L);
+    }
+
+    @Test
     @DisplayName("관리자 매장 목록 조회 시 제공 서비스 N+1 쿼리가 발생하지 않는다")
     void avoidsNPlusOneWhenLoadingServices() {
         SessionFactory sessionFactory = entityManager.getEntityManagerFactory().unwrap(SessionFactory.class);
@@ -560,7 +623,7 @@ class AdminStoreServiceIntegrationTest {
                     assertThat(store.sigungu()).isEqualTo("강남구");
                 });
     }
-    
+
     private AdminStoreCreateRequestDto createRequest(List<String> serviceCodes) {
         return new AdminStoreCreateRequestDto(
                 "신규 매장",
