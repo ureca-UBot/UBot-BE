@@ -7,7 +7,15 @@ SELECT
     s.phone_number,
     s.business_hours,
     s.latitude,
-    s.longitude
+    s.longitude,
+    CASE
+        WHEN :hasOrigin THEN ROUND((
+            ST_Distance(
+                s.location,
+                ST_SetSRID(ST_MakePoint(:originLongitude, :originLatitude), 4326)::geography
+            ) / 1000.0
+        )::numeric, 3)::double precision
+    END AS distance_km
 FROM stores s
 WHERE s.is_active = TRUE
   AND s.deleted_at IS NULL
