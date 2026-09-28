@@ -1,10 +1,9 @@
 package com.ubot.chat.entity.converter;
 
 import com.ubot.chat.exception.ChatErrorCode;
-import com.ubot.chat.exception.LlmErrorCodeAdapter;
 import com.ubot.common.ErrorCode;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
@@ -33,8 +32,9 @@ public class AnswerAttemptErrorCodeConverter implements AttributeConverter<Error
 			}
 		}
 		for (LlmErrorCode code : LlmErrorCode.values()) {
-			if (code.name().equals(value)) {
-				return new LlmErrorCodeAdapter(code);
+			// 번호 도입 전에 enum 이름으로 저장한 기존 기록도 읽습니다.
+			if (code.getCode().equals(value) || code.name().equals(value)) {
+				return code;
 			}
 		}
 		throw new IllegalArgumentException("Unknown answer attempt error code: " + value);

@@ -5,13 +5,12 @@ import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
-import com.ubot.chat.exception.LlmErrorCodeAdapter;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.dto.response.LlmResponseDto;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.prompt.exception.PromptException;
 import java.util.List;
@@ -76,7 +75,7 @@ public class ChatService {
 		ChatAnswerTask generation = new ChatAnswerTask(new CompletableFuture<>(), () -> {
 			AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerTimeout(attempt);
 			return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
-					chatAttemptsService.canRetryAnswer(savedAttempt));
+					chatAttemptsService.validateRetryAttempt(savedAttempt).isEmpty());
 		});
 		FutureTask<Void> task = new FutureTask<>(() -> {
 			try {
@@ -124,8 +123,7 @@ public class ChatService {
 			return generation.complete(() -> {
 				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), results);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
-					return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
-							chatAttemptsService.canRetryAnswer(savedAttempt));
+					throw createAnswerFailure(savedAttempt);
 				}
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
 				return ChatResponseDto.from(savedAttempt, answer.answer(), false);
@@ -134,9 +132,6 @@ public class ChatService {
 			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);
 		} catch (Exception exception) {
 			checkCancellation(generation);
-			if (exception instanceof LlmException llmException) {
-				return handleAnswerFailure(attempt, new LlmErrorCodeAdapter(llmException.getErrorCode()), generation);
-			}
 			if (exception instanceof PromptException) {
 				return handleAnswerFailure(attempt, ChatErrorCode.PROMPT_NOT_READY, generation);
 			}
@@ -160,19 +155,26 @@ public class ChatService {
 	) {
 		checkCancellation(generation);
 		return generation.complete(() -> {
+			AnswerAttemptsHistory savedAttempt;
 			try {
-				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerFailure(attempt, errorCode);
-				return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
-						chatAttemptsService.canRetryAnswer(savedAttempt));
+				savedAttempt = chatAttemptsService.saveAnswerFailure(attempt, errorCode);
 			} catch (RuntimeException exception) {
 				checkCancellation(generation);
 				// 실패 기록 자체를 저장하지 못했으면 정상 저장으로 알리지 않습니다.
 				log.error("실패 기록 저장 실패: attemptId={}", attempt.getId(), exception);
-				return new ChatResponseDto(
+				throw new ChatException(ChatErrorCode.STORAGE_UNAVAILABLE, new ChatResponseDto(
 						ChatErrorCode.STORAGE_UNAVAILABLE.getMessage(), "FAIL",
 						attempt.getIdempotencyKey(), attempt.getAttemptCount(), false
-				);
+				));
 			}
+			throw createAnswerFailure(savedAttempt);
 		});
+	}
+
+	private ChatException createAnswerFailure(AnswerAttemptsHistory attempt) {
+		ErrorCode errorCode = attempt.getErrorCode() == null ? ChatErrorCode.INTERNAL_ERROR : attempt.getErrorCode();
+		ChatResponseDto response = ChatResponseDto.from(attempt, errorCode.getMessage(),
+				chatAttemptsService.validateRetryAttempt(attempt).isEmpty());
+		return new ChatException(errorCode, response);
 	}
 }

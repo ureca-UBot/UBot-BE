@@ -12,7 +12,7 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.FaqLog;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -83,7 +84,9 @@ public class ChatAttemptsService {
 					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
-			validateRetryAttempt(latestAttempt);
+			validateRetryAttempt(latestAttempt).ifPresent(errorCode -> {
+				throw new ChatException(errorCode);
+			});
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
 					userId, latestAttempt.getQuestion(), latestAttempt.getAttemptCount() + 1,
 					idempotencyKey, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel
@@ -138,37 +141,35 @@ public class ChatAttemptsService {
 	public AnswerAttemptsHistory saveAnswerTimeout(AnswerAttemptsHistory attempt) {
 		// 트랜잭션 커밋이 끝난 기록으로 재시도 응답을 구성합니다.
 		return transactionTemplate.execute(transactionStatus -> {
-			answerAttemptsHistoryRepository.failPendingAttempt(
+			answerAttemptsHistoryRepository.updatePendingAttemptToFail(
 					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage()
 			);
 			return answerAttemptsHistoryRepository.findById(attempt.getId()).orElseThrow();
 		});
 	}
 
-	public boolean canRetryAnswer(AnswerAttemptsHistory attempt) {
-		if (!"FAIL".equals(attempt.getStatus()) || attempt.getAttemptCount() >= maxAttempts) {
-			return false;
-		}
-		String errorCode = attempt.getErrorCode() == null ? null : attempt.getErrorCode().getCode();
-		return ChatErrorCode.VECTOR_SEARCH_FAILED.getCode().equals(errorCode)
-				|| ChatErrorCode.RESPONSE_TIMEOUT.getCode().equals(errorCode)
-				|| Arrays.stream(EmbeddingErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))
-				|| Arrays.stream(LlmErrorCode.values()).anyMatch(code -> code.name().equals(errorCode));
-	}
-
-	private void validateRetryAttempt(AnswerAttemptsHistory attempt) {
+	/** 재시도가 불가능한 사유를 반환하고, 가능하면 빈 결과를 반환합니다. */
+	public Optional<ChatErrorCode> validateRetryAttempt(AnswerAttemptsHistory attempt) {
 		if ("PENDING".equals(attempt.getStatus())) {
-			throw new ChatException(ChatErrorCode.PROCESSING);
+			return Optional.of(ChatErrorCode.PROCESSING);
 		}
 		if ("SUCCESS".equals(attempt.getStatus())) {
-			throw new ChatException(ChatErrorCode.ALREADY_SUCCEEDED);
+			return Optional.of(ChatErrorCode.ALREADY_SUCCEEDED);
 		}
 		if (attempt.getAttemptCount() >= maxAttempts) {
-			throw new ChatException(ChatErrorCode.LIMIT_REACHED);
+			return Optional.of(ChatErrorCode.LIMIT_REACHED);
 		}
-		if (!canRetryAnswer(attempt)) {
-			throw new ChatException(ChatErrorCode.RETRY_NOT_ALLOWED);
+		if (!"FAIL".equals(attempt.getStatus())) {
+			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}
+		String errorCode = attempt.getErrorCode() == null ? null : attempt.getErrorCode().getCode();
+		if (ChatErrorCode.VECTOR_SEARCH_FAILED.getCode().equals(errorCode)
+				|| ChatErrorCode.RESPONSE_TIMEOUT.getCode().equals(errorCode)
+				|| Arrays.stream(EmbeddingErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))
+				|| Arrays.stream(LlmErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))) {
+			return Optional.empty();
+		}
+		return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 	}
 
 	static String createIdempotencyKey(Long userId, String question, LocalDateTime createdAt) {

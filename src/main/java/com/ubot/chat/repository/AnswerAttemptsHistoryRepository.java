@@ -40,7 +40,7 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 			set a.status = 'FAIL', a.errorCode = :errorCode, a.errorMessage = :errorMessage
 			where a.id = :attemptId and a.status = 'PENDING'
 			""")
-	int failPendingAttempt(
+	int updatePendingAttemptToFail(
 			@Param("attemptId") Long attemptId,
 			@Param("errorCode") ErrorCode errorCode,
 			@Param("errorMessage") String errorMessage

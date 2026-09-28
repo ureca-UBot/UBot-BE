@@ -8,13 +8,16 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ChatAnswerTaskTest {
-	@Test
-	void successfulSaveAndResponseFinishTogetherBeforeWaitingTimeout() throws Exception {
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void savedResultAndResponseFinishTogetherBeforeWaitingTimeout(boolean failure) throws Exception {
 		Runnable timeoutStorage = mock(Runnable.class);
 		var task = new ChatAnswerTask(new CompletableFuture<>(), () -> {
 			timeoutStorage.run();
@@ -25,9 +28,14 @@ class ChatAnswerTaskTest {
 		var finishSave = new CountDownLatch(1);
 		var timeoutRequested = new CountDownLatch(1);
 		var answer = ChatResponseDto.createSuccessAnswer("확정된 답변");
+		var error = new ChatException(ChatErrorCode.VECTOR_SEARCH_FAILED,
+				new ChatResponseDto(ChatErrorCode.VECTOR_SEARCH_FAILED.getMessage(), "FAIL", "a".repeat(64), 1, true));
 		var success = CompletableFuture.runAsync(() -> task.complete(() -> {
 			saving.countDown();
 			await(finishSave);
+			if (failure) {
+				throw error;
+			}
 			return answer;
 		}));
 		CompletableFuture<Void> timeout = null;
@@ -44,7 +52,11 @@ class ChatAnswerTaskTest {
 			success.get(5, TimeUnit.SECONDS);
 			if (timeout != null) timeout.get(5, TimeUnit.SECONDS);
 		}
-		assertThat(task.result().get(5, TimeUnit.SECONDS)).isSameAs(answer);
+		if (failure) {
+			assertThatThrownBy(() -> task.result().get(5, TimeUnit.SECONDS)).hasCause(error);
+		} else {
+			assertThat(task.result().get(5, TimeUnit.SECONDS)).isSameAs(answer);
+		}
 		verifyNoInteractions(timeoutStorage);
 	}
 

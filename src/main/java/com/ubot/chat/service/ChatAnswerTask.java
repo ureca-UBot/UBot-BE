@@ -52,6 +52,10 @@ public final class ChatAnswerTask {
 			ChatResponseDto response = saveResult.get();
 			result.complete(response);
 			return response;
+		} catch (ChatException exception) {
+			// 실패 저장 후의 오류 응답도 같은 잠금 안에서 확정합니다.
+			result.completeExceptionally(exception);
+			return null;
 		} finally {
 			completionLock.unlock();
 		}

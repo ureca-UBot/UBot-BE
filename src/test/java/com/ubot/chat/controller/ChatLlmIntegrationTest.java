@@ -9,13 +9,14 @@ import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.service.ChatAttemptsService;
 import com.ubot.chat.service.ChatService;
+import com.ubot.common.ErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
@@ -119,11 +120,12 @@ class ChatLlmIntegrationTest {
 	@Test void configuredAttemptLimitAllowsMoreThanThreeAttemptsAndBlocksNext() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
-		String body = complete(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"));
-		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":true", "\"retryable\":true");
+		String body = complete(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}"), LlmErrorCode.LLM_TIMEOUT);
+		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":false", "\"retryable\":true");
 		String key = keyFrom(body);
 		for (int count = 2; count <= maxAttempts; count++) {
-			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key));
+			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key), LlmErrorCode.LLM_TIMEOUT);
 			assertThat(body).contains("\"attemptCount\":" + count, key);
 		}
 		assertThat(body).contains("\"retryable\":false");
@@ -141,7 +143,8 @@ class ChatLlmIntegrationTest {
 	@Test void insufficientEvidenceSkipsLlmAndStoresFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74)));
 		assertThat(complete(post("/chat/questions").contentType("application/json")
-				.content("{\"question\":\"질문\"}"))).contains("\"status\":\"FAIL\"", "정확한 답변을 찾지 못했습니다.");
+				.content("{\"question\":\"질문\"}"), ChatErrorCode.INSUFFICIENT_FAQ))
+				.contains("\"status\":\"FAIL\"", "정확한 답변을 찾지 못했습니다.");
 		assertThat(attempts.findAll().getFirst().getStatus()).isEqualTo("FAIL");
 		verifyNoInteractions(llm);
 	}
@@ -149,8 +152,9 @@ class ChatLlmIntegrationTest {
 	@Test void failedFaqInsertRollsBackSuccessLogsButCommitsFailureRecordSeparately() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(-999L, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("저장되지 않아야 하는 답변"));
-		String body = complete(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"));
-		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":true")
+		String body = complete(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}"), ChatErrorCode.STORAGE_UNAVAILABLE);
+		assertThat(body).contains("\"status\":\"FAIL\"", "\"success\":false")
 				.doesNotContain("\"status\":\"SUCCESS\"", "foreign key");
 		assertThat(questions.count()).isZero();
 		assertThat(faqLogs.count()).isZero();
@@ -184,7 +188,7 @@ class ChatLlmIntegrationTest {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 		String body = complete(post("/chat/questions").contentType("application/json")
-				.content("{\"question\":\"질문\"}"));
+				.content("{\"question\":\"질문\"}"), LlmErrorCode.LLM_TIMEOUT);
 		assertThat(body).contains("\"retryable\":true");
 		String key = keyFrom(body);
 		User otherUser = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
@@ -351,14 +355,41 @@ class ChatLlmIntegrationTest {
 		assertThat(stored.getErrorMessage()).isEqualTo(attempt.getErrorMessage());
 	}
 
+	@Test
+	void legacyLlmFailureCodeStillAllowsOwnedRetry() throws Exception {
+		String key = "f".repeat(64);
+		var first = new AnswerAttemptsHistory(user.getId(), "질문", 1, key, LocalDateTime.now(), "", "");
+		first.fail(LlmErrorCode.LLM_TIMEOUT);
+		first = attempts.saveAndFlush(first);
+		// 이전 버전에서 저장한 값이 남아 있는 임시 테스트 DB를 재현합니다.
+		jdbc.update("update answer_attempts_history set error_code = ? where attempt_id = ?", "LLM_TIMEOUT", first.getId());
+		assertThat(attempts.findById(first.getId()).orElseThrow().getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT);
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
+
+		String body = complete(post("/chat/questions/retries").header("Idempotency-Key", key), LlmErrorCode.LLM_TIMEOUT);
+
+		assertThat(body).contains("\"attemptCount\":2", "\"retryable\":true", key);
+		var latest = attempts.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(user.getId(), key).orElseThrow();
+		assertThat(jdbc.queryForObject("select error_code from answer_attempts_history where attempt_id = ?",
+				String.class, latest.getId())).isEqualTo("LLM-004");
+		assertThat(questions.count()).isZero();
+		assertThat(faqLogs.count()).isZero();
+	}
+
 	private String complete(MockHttpServletRequestBuilder request) throws Exception {
+		return complete(request, null);
+	}
+
+	private String complete(MockHttpServletRequestBuilder request, ErrorCode expectedError) throws Exception {
 		var pending = mvc.perform(request.header("Authorization", authorization))
 				.andExpect(request().asyncStarted()).andReturn();
 		pending.getAsyncResult(10_000);
-		return mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+		return mvc.perform(asyncDispatch(pending))
+				.andExpect(status().is(expectedError == null ? 200 : expectedError.getStatus().value()))
 				.andExpect(content().contentTypeCompatibleWith("application/json"))
-				.andExpect(jsonPath("$.success").value(true))
-				.andExpect(jsonPath("$.code").value("SUCCESS"))
+				.andExpect(jsonPath("$.success").value(expectedError == null))
+				.andExpect(jsonPath("$.code").value(expectedError == null ? "SUCCESS" : expectedError.getCode()))
 				.andExpect(jsonPath("$.message").isString())
 				.andExpect(jsonPath("$.data.success").doesNotExist())
 				.andExpect(jsonPath("$.data.answer").isString()).andReturn()

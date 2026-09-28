@@ -9,7 +9,7 @@ import com.sun.net.httpserver.HttpServer;
 import com.ubot.llm.config.LlmConfig;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;

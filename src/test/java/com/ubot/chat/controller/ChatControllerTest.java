@@ -4,6 +4,7 @@ import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
 import com.ubot.common.GlobalExceptionHandler;
@@ -73,13 +74,14 @@ class ChatControllerTest {
 				.andExpect(request().asyncStarted()).andReturn();
 		verify(service).retryChat(1L, key);
 		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
-		answer.complete(new ChatResponseDto("생성 실패", "FAIL", key, 2, true));
-		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+		answer.completeExceptionally(new ChatException(LlmErrorCode.LLM_TIMEOUT,
+				new ChatResponseDto(LlmErrorCode.LLM_TIMEOUT.getMessage(), "FAIL", key, 2, true)));
+		mvc.perform(asyncDispatch(pending)).andExpect(status().isGatewayTimeout())
 				.andExpect(content().contentTypeCompatibleWith("application/json"))
-				.andExpect(jsonPath("$.success").value(true))
-				.andExpect(jsonPath("$.code").value("SUCCESS"))
-				.andExpect(jsonPath("$.message").isString())
-				.andExpect(jsonPath("$.data.answer").value("생성 실패"))
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value("LLM-004"))
+				.andExpect(jsonPath("$.message").value(LlmErrorCode.LLM_TIMEOUT.getMessage()))
+				.andExpect(jsonPath("$.data.answer").value(LlmErrorCode.LLM_TIMEOUT.getMessage()))
 				.andExpect(jsonPath("$.data.status").value("FAIL"))
 				.andExpect(jsonPath("$.data.success").doesNotExist())
 				.andExpect(jsonPath("$.data.idempotencyKey").value(key))

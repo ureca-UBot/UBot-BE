@@ -7,9 +7,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.common.GlobalException;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmException;
 import java.net.ConnectException;
@@ -83,9 +84,13 @@ class OllamaClientTest {
 
     @Test
     void distinguishesTimeoutFromConnectionFailure() {
-        when(chatModel.call(any(Prompt.class))).thenThrow(
-                new ResourceAccessException("IO", new HttpTimeoutException("timeout")));
-        assertError(new OllamaClient(chatModel, "test-model"), LlmErrorCode.LLM_TIMEOUT);
+        var failure = new ResourceAccessException("IO", new HttpTimeoutException("timeout"));
+        when(chatModel.call(any(Prompt.class))).thenThrow(failure);
+        assertThatThrownBy(() -> new OllamaClient(chatModel, "test-model").generateAnswer(request))
+                .isInstanceOf(GlobalException.class)
+                .hasCause(failure)
+                .isInstanceOfSatisfying(LlmException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT));
     }
 
     @Test

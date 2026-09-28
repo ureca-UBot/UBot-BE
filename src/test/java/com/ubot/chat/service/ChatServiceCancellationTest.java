@@ -8,11 +8,12 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.dto.response.LlmResponseDto;
-import com.ubot.llm.enums.LlmErrorCode;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -134,7 +135,7 @@ class ChatServiceCancellationTest {
 			attempt.fail(ChatErrorCode.RESPONSE_TIMEOUT);
 			return attempt;
 		}).when(attempts).saveAnswerTimeout(attempt);
-		when(attempts.canRetryAnswer(attempt)).thenReturn(true);
+		when(attempts.validateRetryAttempt(attempt)).thenReturn(Optional.empty());
 
 		task.timeout();
 		jobs.remove().run();

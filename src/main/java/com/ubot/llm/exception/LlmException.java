@@ -1,19 +1,14 @@
 package com.ubot.llm.exception;
 
-import com.ubot.llm.enums.LlmErrorCode;
-import lombok.Getter;
+import com.ubot.common.GlobalException;
 
-@Getter
-public class LlmException extends RuntimeException {
+public class LlmException extends GlobalException {
+	public LlmException(LlmErrorCode errorCode) {
+		super(errorCode);
+	}
 
-    private final LlmErrorCode errorCode;
-
-    public LlmException(LlmErrorCode errorCode) {
-        this(errorCode, null);
-    }
-
-    public LlmException(LlmErrorCode errorCode, Throwable cause) {
-        super(errorCode.getMessage(), cause);
-        this.errorCode = errorCode;
-    }
+	public LlmException(LlmErrorCode errorCode, Throwable cause) {
+		super(errorCode);
+		initCause(cause);
+	}
 }
