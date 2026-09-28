@@ -53,7 +53,7 @@ public class AdminStoreService {
                 address,
                 request.latitude(),
                 request.longitude(),
-                normalizeCondition(request.phoneNumber()),
+                normalizePhoneNumber(request.phoneNumber()),
                 normalizeCondition(request.businessHours())
         );
         store.replaceServiceTypes(serviceTypes);
@@ -105,7 +105,7 @@ public class AdminStoreService {
             updated = true;
         }
         if (request.phoneNumber() != null) {
-            store.updatePhoneNumber(normalizeCondition(request.phoneNumber()));
+            store.updatePhoneNumber(normalizePhoneNumber(request.phoneNumber()));
             updated = true;
         }
         if (request.businessHours() != null) {
@@ -252,7 +252,33 @@ public class AdminStoreService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    
+    private String normalizePhoneNumber(String phoneNumber) {
+        String normalized = normalizeCondition(phoneNumber);
+
+        if (normalized == null) {
+            return null;
+        }
+
+        String digits = normalized.replaceAll("\\D", "");
+
+        if (digits.matches("^02\\d{7,8}$")) {
+            if (digits.length() == 9) {
+                return digits.replaceFirst("(02)(\\d{3})(\\d{4})", "$1-$2-$3");
+            }
+            return digits.replaceFirst("(02)(\\d{4})(\\d{4})", "$1-$2-$3");
+        }
+
+        if (digits.matches("^\\d{10}$")) {
+            return digits.replaceFirst("(\\d{3})(\\d{3})(\\d{4})", "$1-$2-$3");
+        }
+
+        if (digits.matches("^\\d{11}$")) {
+            return digits.replaceFirst("(\\d{3})(\\d{4})(\\d{4})", "$1-$2-$3");
+        }
+
+        return normalized;
+    }
+
     private void validateServiceTypes(Set<String> serviceCodes) {
         if (serviceCodes.isEmpty()) {return;}
 
