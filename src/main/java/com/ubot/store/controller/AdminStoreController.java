@@ -1,16 +1,13 @@
 package com.ubot.store.controller;
 
 import java.net.URI;
+import java.util.List;
 
+import com.ubot.common.PageResponseDto;
+import jakarta.validation.constraints.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import com.ubot.common.ApiResponse;
 import com.ubot.store.dto.request.AdminStoreCreateRequestDto;
@@ -19,7 +16,6 @@ import com.ubot.store.dto.response.AdminStoreResponseDto;
 import com.ubot.store.service.AdminStoreService;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -29,6 +25,9 @@ import lombok.RequiredArgsConstructor;
 public class AdminStoreController {
 
     private final AdminStoreService adminStoreService;
+
+    private static final String SERVICE_TYPE_PATTERN = "\\s*[A-Z][A-Z0-9_]*\\s*";
+    private static final int MAX_SERVICE_TYPE_COUNT = 10;
 
     @PostMapping
     public ResponseEntity<ApiResponse<AdminStoreResponseDto>> createStore(
@@ -60,5 +59,85 @@ public class AdminStoreController {
             @PathVariable @Positive Long storeId
     ){
         return ResponseEntity.ok(ApiResponse.success(adminStoreService.activateStore(storeId)));
+    }
+
+    @GetMapping
+    public ApiResponse<PageResponseDto<AdminStoreResponseDto>> getStores(
+            @RequestParam(required = false) @Size(max = 150)
+            String storeName,
+
+            @RequestParam(required = false) @Size(max = 30)
+            String phoneNumber,
+
+            @RequestParam(required = false) @Size(max = 50)
+            String sido,
+
+            @RequestParam(required = false) @Size(max = 50)
+            String sigungu,
+
+            @RequestParam(required = false, name = "type") @Size(max = MAX_SERVICE_TYPE_COUNT)
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> serviceCodes,
+
+            @RequestParam(defaultValue = "0") @Min(0)
+            int page,
+
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100)
+            int size
+    ) {
+        return ApiResponse.success(
+                adminStoreService.getStores(
+                        storeName,
+                        phoneNumber,
+                        sido,
+                        sigungu,
+                        serviceCodes,
+                        page,
+                        size
+                )
+        );
+    }
+
+    @GetMapping("/deleted")
+    public ApiResponse<PageResponseDto<AdminStoreResponseDto>> getDeletedStores(
+            @RequestParam(required = false)
+            @Size(max = 150)
+            String storeName,
+
+            @RequestParam(required = false)
+            @Size(max = 30)
+            String phoneNumber,
+
+            @RequestParam(required = false)
+            @Size(max = 50)
+            String sido,
+
+            @RequestParam(required = false)
+            @Size(max = 50)
+            String sigungu,
+
+            @RequestParam(required = false, name = "type")
+            @Size(max = MAX_SERVICE_TYPE_COUNT)
+            List<@Pattern(regexp = SERVICE_TYPE_PATTERN) String> serviceCodes,
+
+            @RequestParam(defaultValue = "0")
+            @Min(0)
+            int page,
+
+            @RequestParam(defaultValue = "20")
+            @Min(1)
+            @Max(100)
+            int size
+    ) {
+        return ApiResponse.success(
+                adminStoreService.getDeletedStores(
+                        storeName,
+                        phoneNumber,
+                        sido,
+                        sigungu,
+                        serviceCodes,
+                        page,
+                        size
+                )
+        );
     }
 }
