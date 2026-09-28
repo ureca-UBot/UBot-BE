@@ -141,17 +141,46 @@ class ChatServiceTest {
 		}));
 	}
 
+	@ParameterizedTest
+	@ValueSource(doubles = {0.74, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
+	void onlyFaqsMeetingThresholdArePassedToLlmAndLogged(double excludedScore) throws Exception {
+		var first = new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9);
+		var excluded = new FaqSearchResponseDto(2L, "관련 없는 질문", "제외할 답변", excludedScore);
+		var third = new FaqSearchResponseDto(3L, "준비물", "준비물 안내", 0.75);
+		var accepted = List.of(first, third);
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(first, excluded, third));
+		when(ai.generateAnswer("질문", accepted)).thenReturn(new LlmResponseDto("생성된 답변"));
+
+		assertThat(completeRequest()).contains("\"status\":\"SUCCESS\"", "생성된 답변");
+		verify(ai).generateAnswer("질문", accepted);
+		verify(faqLogs).saveAll(argThat(items -> {
+			var logs = new ArrayList<com.ubot.faq.entity.FaqLog>();
+			items.forEach(logs::add);
+			return logs.size() == 2
+					&& logs.get(0).getFaq().getId().equals(first.faqId())
+					&& logs.get(0).getRank() == 1 && logs.get(0).getSimilarity() == 0.9
+					&& logs.get(1).getFaq().getId().equals(third.faqId())
+					&& logs.get(1).getRank() == 2 && logs.get(1).getSimilarity() == 0.75;
+		}));
+		verify(faqs, never()).getReferenceById(excluded.faqId());
+	}
+
 	@Test void noResultsSkipLlmAndPersistFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
-		assertThat(completeRequest(ChatErrorCode.NO_FAQ)).contains("검색 결과가 없습니다.", "\"status\":\"FAIL\"");
+		assertThat(completeRequest(ChatErrorCode.NO_FAQ)).contains("검색 결과가 없습니다.", "\"status\":\"FAIL\"", "\"retryable\":true");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
-	@Test void insufficientSimilaritySkipsLlm() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.74)));
-		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("정확한 답변을 찾지 못했습니다.", "\"status\":\"FAIL\"");
-		verifyNoInteractions(ai);
+	@ParameterizedTest
+	@ValueSource(doubles = {0.74, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
+	void noFaqMeetingThresholdSkipsLlmAndSuccessLogs(double score) throws Exception {
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(
+				new FaqSearchResponseDto(1L, "q", "a", score),
+				new FaqSearchResponseDto(2L, "q2", "a2", 0.7)));
+		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("정확한 답변을 찾지 못했습니다.", "\"status\":\"FAIL\"", "\"retryable\":true");
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
+		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
 	@Test void thresholdEqualityStillCallsLlm() throws Exception {
@@ -166,7 +195,7 @@ class ChatServiceTest {
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.8);
 		when(vector.getSimilarList("질문", 5)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.79)));
 
-		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("\"status\":\"FAIL\"", "\"retryable\":false");
+		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("\"status\":\"FAIL\"", "\"retryable\":true");
 		verify(vector).getSimilarList("질문", 5);
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verifyNoInteractions(ai);
@@ -193,16 +222,18 @@ class ChatServiceTest {
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
-	@Test void missingPromptBecomesRecordedFailure() throws Exception {
+	@Test void missingPromptBecomesRecordedFailureAndAllowsRetry() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
 		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new PromptException("준비 안 됨"));
-		assertThat(completeRequest(ChatErrorCode.PROMPT_NOT_READY)).contains("\"status\":\"FAIL\"", "\"retryable\":false",
+		assertThat(completeRequest(ChatErrorCode.PROMPT_NOT_READY)).contains("\"status\":\"FAIL\"", "\"retryable\":true",
 				ChatErrorCode.PROMPT_NOT_READY.getMessage());
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_NOT_READY);
-		assertThat(attemptsService.validateRetryAttempt(saved.getFirst())).contains(ChatErrorCode.RETRY_NOT_ALLOWED);
-		assertChatError(() -> service.retryChat(1L, saved.getFirst().getIdempotencyKey()), ChatErrorCode.RETRY_NOT_ALLOWED);
-		assertThat(saved).hasSize(1);
-		assertThat(jobs).isEmpty();
+		assertThat(attemptsService.validateRetryAttempt(saved.getFirst())).isEmpty();
+		service.retryChat(1L, saved.getFirst().getIdempotencyKey());
+		assertThat(saved).hasSize(2);
+		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
+		assertThat(saved.getLast().getStatus()).isEqualTo("PENDING");
+		assertThat(jobs).hasSize(1);
 	}
 
 	@Test void pendingAndSucceededAttemptsCannotStartAnotherGeneration() {
@@ -242,6 +273,30 @@ class ChatServiceTest {
 		verifyNoInteractions(vector, ai);
 	}
 
+	@ParameterizedTest
+	@EnumSource(value = ChatErrorCode.class, names = {
+			"NO_FAQ", "INSUFFICIENT_FAQ", "PROMPT_NOT_READY", "INTERNAL_ERROR", "STORAGE_UNAVAILABLE", "TASK_START_FAILED"
+	})
+	void failedAttemptsCanRetryUntilThirdAttempt(ChatErrorCode code) {
+		var attempt = attemptsService.createAnswerAttempt(1L, "질문");
+		String key = attempt.getIdempotencyKey();
+		for (int count = 1; count <= 3; count++) {
+			attempt = attemptsService.saveAnswerFailure(attempt, code);
+			assertThat(attempt.getAttemptCount()).isEqualTo(count);
+			assertThat(attemptsService.validateRetryAttempt(attempt))
+					.isEqualTo(count < 3 ? Optional.empty() : Optional.of(ChatErrorCode.LIMIT_REACHED));
+			if (count < 3) {
+				attempt = attemptsService.createRetryAttempt(1L, key);
+			}
+		}
+		assertChatError(() -> attemptsService.createRetryAttempt(1L, key), ChatErrorCode.LIMIT_REACHED);
+		assertThat(saved).hasSize(3).allSatisfy(stored -> {
+			assertThat(stored.getIdempotencyKey()).isEqualTo(key);
+			assertThat(stored.getErrorCode()).isEqualTo(code);
+		});
+		verifyNoInteractions(vector, ai);
+	}
+
 	@Test
 	void failureStorageErrorReturnsSafeErrorWithoutEnablingRetry() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
@@ -267,7 +322,7 @@ class ChatServiceTest {
 					var failure = (ChatException) exception.getCause();
 					assertThat(failure.getErrorCode()).isEqualTo(ChatErrorCode.TASK_START_FAILED);
 					assertThat(failure.getResponse().idempotencyKey()).isEqualTo(saved.getFirst().getIdempotencyKey());
-					assertThat(failure.getResponse().retryable()).isFalse();
+					assertThat(failure.getResponse().retryable()).isTrue();
 				});
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.TASK_START_FAILED);
 		verifyNoInteractions(vector, ai, questions, faqLogs);
@@ -283,7 +338,7 @@ class ChatServiceTest {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
 		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new IllegalStateException("secret"));
 
-		assertThat(completeRequest(ChatErrorCode.INTERNAL_ERROR)).contains("\"status\":\"FAIL\"", "\"retryable\":false",
+		assertThat(completeRequest(ChatErrorCode.INTERNAL_ERROR)).contains("\"status\":\"FAIL\"", "\"retryable\":true",
 				ChatErrorCode.INTERNAL_ERROR.getMessage()).doesNotContain("secret");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INTERNAL_ERROR);
 	}

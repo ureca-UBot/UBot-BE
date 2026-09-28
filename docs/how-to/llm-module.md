@@ -7,7 +7,7 @@
 
 ```text
 POST /chat/questions
-  → ChatService: FAQ 검색 및 기존 유사도 판정
+  → ChatService: FAQ 검색 및 각 결과의 유사도 필터링
   → AiService.generateAnswer(question, results)
   → PromptService.createPrompt(question, results)
   → LlmService.generateAnswer(LlmRequestDto)
@@ -18,9 +18,11 @@ POST /chat/questions
   → ChatResponseDto: 채팅 응답
 ```
 
-기존 TOP-K 3개 검색과 가장 높은 점수의 0.75 기준은 유지합니다. 기준을 통과하면
-원래 질문과 검색 결과 전체를 전달하며, FAQ를 다시 조회하지 않습니다.
-모든 검색 결과가 각각 0.75 이상이어야 하는 구조는 아닙니다.
+기본 설정으로 TOP-K 3개를 검색한 뒤, 각 FAQ의 유사도를 기준값 0.75와 비교합니다.
+기준값 이상인 FAQ만 원래 질문과 함께 전달하고, 실제 전달한 FAQ만 참고 로그에 저장합니다.
+기준값 미만이거나 유한한 숫자가 아닌 점수는 제외하며, 남은 FAQ가 없으면 LLM을 호출하지 않고
+`INSUFFICIENT_FAQ`로 실패 처리합니다. 검색 결과 자체가 없으면 기존 `NO_FAQ`를 반환합니다.
+검색 개수와 기준값은 `CHAT_TOP_K`, `CHAT_CONFIDENCE_THRESHOLD`로 설정하며, FAQ를 다시 조회하지 않습니다.
 
 승지님이 작성할 최종 프롬프트는 `src/main/resources/prompts/faq-system.txt`,
 `faq-user.txt`로 분리했고, 현재 두 파일의 본문은 의도적으로 비워 두었습니다.
@@ -95,8 +97,13 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 포함됩니다. 모델 오류의 내부 원인이나 원문은 반환하지 않으며, FAQ 원문을 성공 답변으로 대신 반환하지 않습니다.
 채팅 전체 응답 제한 시간 초과는 별도의 `CHAT-016`(HTTP 504)으로 구분합니다.
 
+본인의 시도가 `FAIL`로 기록되어 있고 최대 시도 횟수가 남아 있으면 오류 종류와 관계없이
+재시도할 수 있습니다. `retryable`은 현재 상태와 시도 횟수로 계산하며, 실제 재시도 요청에서도
+본인 기록인지 확인하고 동일한 조건을 검증합니다. `PENDING` 또는 `SUCCESS` 상태에서는 재시도하지 않습니다.
+기본 설정은 최초 요청을 포함해 총 3회이며 `CHAT_MAX_ATTEMPTS`로 변경할 수 있습니다.
+
 새 LLM 실패 기록에는 `LLM-001`~`LLM-005`를 저장합니다. 컨버터는 기존에 enum 이름으로 저장한
-`LLM_TIMEOUT` 등의 값도 같은 오류 객체로 읽어 재시도 여부를 판단할 수 있게 합니다.
+`LLM_TIMEOUT` 등의 값도 같은 오류 객체로 읽어 실패 원인을 확인할 수 있게 합니다.
 
 이 모듈의 응답 검사는 전송·형식 검증입니다. 답변의 사실 정확성이나 FAQ 근거 충실도를
 보증하지 않으며, 내용 검증은 프롬프트/출력 검사 및 별도 평가가 필요합니다.

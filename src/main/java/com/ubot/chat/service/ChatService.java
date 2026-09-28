@@ -108,12 +108,15 @@ public class ChatService {
 			if (results == null || results.isEmpty()) {
 				return handleAnswerFailure(attempt, ChatErrorCode.NO_FAQ, generation);
 			}
-			double score = results.get(0).similarityScore();
-			if (!Double.isFinite(score) || score < confidenceThreshold) {
+			List<FaqSearchResponseDto> filteredResults = results.stream()
+					.filter(result -> Double.isFinite(result.similarityScore())
+							&& result.similarityScore() >= confidenceThreshold)
+					.toList();
+			if (filteredResults.isEmpty()) {
 				return handleAnswerFailure(attempt, ChatErrorCode.INSUFFICIENT_FAQ, generation);
 			}
 			checkCancellation(generation);
-			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), results);
+			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), filteredResults);
 			checkCancellation(generation);
 			if (answer == null || !StringUtils.hasText(answer.answer())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
@@ -121,7 +124,7 @@ public class ChatService {
 
 			checkCancellation(generation);
 			return generation.complete(() -> {
-				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), results);
+				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
 					throw createAnswerFailure(savedAttempt);
 				}

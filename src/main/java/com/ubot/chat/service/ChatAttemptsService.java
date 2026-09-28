@@ -7,19 +7,16 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.common.ErrorCode;
-import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.FaqLog;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
-import com.ubot.llm.exception.LlmErrorCode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -162,14 +159,7 @@ public class ChatAttemptsService {
 		if (!"FAIL".equals(attempt.getStatus())) {
 			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}
-		String errorCode = attempt.getErrorCode() == null ? null : attempt.getErrorCode().getCode();
-		if (ChatErrorCode.VECTOR_SEARCH_FAILED.getCode().equals(errorCode)
-				|| ChatErrorCode.RESPONSE_TIMEOUT.getCode().equals(errorCode)
-				|| Arrays.stream(EmbeddingErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))
-				|| Arrays.stream(LlmErrorCode.values()).anyMatch(code -> code.getCode().equals(errorCode))) {
-			return Optional.empty();
-		}
-		return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
+		return Optional.empty();
 	}
 
 	static String createIdempotencyKey(Long userId, String question, LocalDateTime createdAt) {

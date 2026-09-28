@@ -31,6 +31,7 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -140,12 +141,30 @@ class ChatLlmIntegrationTest {
 		verify(llm, times(maxAttempts)).generateAnswer(any());
 	}
 
-	@Test void insufficientEvidenceSkipsLlmAndStoresFailure() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74)));
-		assertThat(complete(post("/chat/questions").contentType("application/json")
-				.content("{\"question\":\"질문\"}"), ChatErrorCode.INSUFFICIENT_FAQ))
-				.contains("\"status\":\"FAIL\"", "정확한 답변을 찾지 못했습니다.");
-		assertThat(attempts.findAll().getFirst().getStatus()).isEqualTo("FAIL");
+	@ParameterizedTest
+	@EnumSource(value = ChatErrorCode.class, names = {"NO_FAQ", "INSUFFICIENT_FAQ"})
+	void evidenceFailureAllowsRetryUntilConfiguredLimitWithoutCallingLlm(ChatErrorCode code) throws Exception {
+		when(vector.getSimilarList("질문", 3)).thenReturn(code == ChatErrorCode.NO_FAQ
+				? List.of() : List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74)));
+		String body = complete(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}"), code);
+		assertThat(body).contains("\"status\":\"FAIL\"", "\"retryable\":true", code.getMessage());
+		String key = keyFrom(body);
+		for (int count = 2; count <= maxAttempts; count++) {
+			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key), code);
+			assertThat(body).contains("\"attemptCount\":" + count, key, "\"retryable\":" + (count < maxAttempts));
+		}
+		mvc.perform(post("/chat/questions/retries").header("Authorization", authorization)
+				.header("Idempotency-Key", key)).andExpect(status().isConflict())
+				.andExpect(jsonPath("$.success").value(false))
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.LIMIT_REACHED.getCode()));
+		assertThat(attempts.findAll()).hasSize(maxAttempts).allSatisfy(attempt -> {
+			assertThat(attempt.getIdempotencyKey()).isEqualTo(key);
+			assertThat(attempt.getStatus()).isEqualTo("FAIL");
+			assertThat(attempt.getErrorCode()).isEqualTo(code);
+		});
+		assertThat(questions.count()).isZero();
+		assertThat(faqLogs.count()).isZero();
 		verifyNoInteractions(llm);
 	}
 
