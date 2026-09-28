@@ -5,6 +5,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.ubot.common.PageResponseDto;
+import com.ubot.store.repository.AdminStoreSpecification;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,8 +36,8 @@ public class AdminStoreService {
     private final ServiceTypeJpaRepository serviceTypeJpaRepository;
 
     public AdminStoreResponseDto createStore(AdminStoreCreateRequestDto request) {
-        String storeName = normalize(request.storeName());
-        String address = normalize(request.address());
+        String storeName = normalizeCondition(request.storeName());
+        String address = normalizeCondition(request.address());
 
         storeJpaRepository.findByStoreNameAndAddress(storeName, address).ifPresent(existingStore -> {
             if (!existingStore.isActive()
@@ -45,13 +52,13 @@ public class AdminStoreService {
 
         Store store = Store.create(
                 storeName,
-                normalize(request.sido()),
-                normalize(request.sigungu()),
+                normalizeCondition(request.sido()),
+                normalizeCondition(request.sigungu()),
                 address,
                 request.latitude(),
                 request.longitude(),
-                normalize(request.phoneNumber()),
-                normalize(request.businessHours())
+                normalizeCondition(request.phoneNumber()),
+                normalizeCondition(request.businessHours())
         );
         store.replaceServiceTypes(serviceTypes);
 
@@ -64,11 +71,11 @@ public class AdminStoreService {
 
 
         String newStoreName = request.storeName() != null
-                ? normalize(request.storeName())
+                ? normalizeCondition(request.storeName())
                 : store.getStoreName();
 
         String newAddress = request.address() != null
-                ? normalize(request.address())
+                ? normalizeCondition(request.address())
                 : store.getAddress();
 
         if (storeJpaRepository.existsByStoreNameAndAddressAndStoreIdNot(
@@ -90,11 +97,11 @@ public class AdminStoreService {
             updated = true;
         }
         if (request.sido() != null) {
-            store.updateSido(normalize(request.sido()));
+            store.updateSido(normalizeCondition(request.sido()));
             updated = true;
         }
         if (request.sigungu() != null) {
-            store.updateSigungu(normalize(request.sigungu()));
+            store.updateSigungu(normalizeCondition(request.sigungu()));
             updated = true;
         }
         if (request.latitude() != null) {
@@ -102,11 +109,11 @@ public class AdminStoreService {
             updated = true;
         }
         if (request.phoneNumber() != null) {
-            store.updatePhoneNumber(normalize(request.phoneNumber()));
+            store.updatePhoneNumber(normalizeCondition(request.phoneNumber()));
             updated = true;
         }
         if (request.businessHours() != null) {
-            store.updateBusinessHours(normalize(request.businessHours()));
+            store.updateBusinessHours(normalizeCondition(request.businessHours()));
             updated = true;
         }
         if (request.serviceCodes() != null) {
@@ -164,7 +171,7 @@ public class AdminStoreService {
             return Set.of();
         }
         return serviceCodes.stream()
-                .map(this::normalize)
+                .map(this::normalizeCondition)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -174,7 +181,51 @@ public class AdminStoreService {
         }
     }
 
-    private String normalize(String value) {
-        return value == null ? null : value.trim();
+    @Transactional(readOnly = true)
+    public PageResponseDto<AdminStoreResponseDto> getStores(
+            String storeName,
+            String phoneNumber,
+            List<String> serviceCodes,
+            int page,
+            int size
+    ) {
+        String normalizedStoreName = normalizeCondition(storeName);
+        String normalizedPhoneNumber = normalizeCondition(phoneNumber);
+        Set<String> normalizedServiceCodes = normalizeServiceCodes(serviceCodes);
+
+        validateServiceTypes(normalizedServiceCodes);
+
+        Specification<Store> specification =
+                AdminStoreSpecification.filter(
+                        normalizedStoreName,
+                        normalizedPhoneNumber,
+                        normalizedServiceCodes
+                );
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "storeId")
+        );
+
+        Page<Store> storePage = storeJpaRepository.findAll(specification, pageable);
+
+        Page<AdminStoreResponseDto> responsePage = storePage.map(AdminStoreResponseDto::from);
+
+        return PageResponseDto.from(responsePage);
     }
+
+    private String normalizeCondition(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+    private void validateServiceTypes(Set<String> serviceCodes) {
+        if (serviceCodes.isEmpty()) {return;}
+
+        List<ServiceType> serviceTypes = serviceTypeJpaRepository.findAllByServiceCodeInAndIsActiveTrue(serviceCodes);
+
+        if (serviceTypes.size() != serviceCodes.size()) {
+            throw new StoreException(StoreErrorCode.SERVICE_TYPE_NOT_FOUND);
+        }
+    }
+
 }

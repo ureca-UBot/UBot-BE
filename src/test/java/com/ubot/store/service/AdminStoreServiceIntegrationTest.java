@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.ubot.common.PageResponseDto;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -448,6 +449,60 @@ class AdminStoreServiceIntegrationTest {
         );
 
         assertThat(after).isAfter(before);
+    }
+
+    @Test
+    @DisplayName("매장명으로 관리자 매장 목록을 부분 검색한다")
+    void filtersStoresByName() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        "강남",
+                        null,
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("강남역점");
+    }
+
+    @Test
+    @DisplayName("연락처로 관리자 매장 목록을 부분 검색한다")
+    void filtersStoresByPhoneNumber() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        "051",
+                        null,
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("부산역점");
+    }
+
+    @Test
+    @DisplayName("선택한 서비스를 모두 제공하는 매장만 조회한다")
+    void filtersStoresByServiceCodes() {
+        PageResponseDto<AdminStoreResponseDto> response =
+                adminStoreService.getStores(
+                        null,
+                        null,
+                        List.of(
+                                "APPLE_AS",
+                                "FOREIGN_LANGUAGE_SUPPORT"
+                        ),
+                        0,
+                        20
+                );
+
+        assertThat(response.content())
+                .extracting(AdminStoreResponseDto::storeName)
+                .containsExactly("강남역점");
     }
 
     private AdminStoreCreateRequestDto createRequest(List<String> serviceCodes) {
