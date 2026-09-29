@@ -1,5 +1,7 @@
 # Exception과 ErrorCode 사용 안내
 
+> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+
 비즈니스 예외는 `GlobalException`을 상속하고, 오류의 HTTP 상태·코드·기본 메시지는 도메인별 `ErrorCode` 구현체에서 관리합니다. `GlobalExceptionHandler`가 예외를 표준 API 응답으로 변환하므로 서비스와 컨트롤러에서 별도 `try-catch`를 작성하지 않습니다.
 
 ## ErrorCode는 도메인별로 분리합니다
@@ -27,6 +29,12 @@ public interface ErrorCode {
 ## 도메인 오류 코드 추가
 
 도메인 패키지(`com.ubot.<도메인>.exception`) 아래에 `<도메인>ErrorCode`를 추가합니다. 코드 문자열은 도메인을 나타내는 대문자 접두사와 일련번호를 `-`로 연결한 `PREFIX-번호` 형식을 사용합니다(예: `USER-001`, `FAQ-001`, `STORE-001`).
+
+사용 중인 접두사와 전체 코드 목록은 [오류 코드 Reference](../../../../../../../docs/reference/error-codes.md)에 있습니다. 새 도메인은 겹치지 않는 접두사를 고르고, 코드를 추가하면 그 문서도 함께 고칩니다.
+
+채팅 답변 시도 기록(`answer_attempts_history.error_code`)에는 `CHAT`, `EM`, `LLM` 코드만 저장할 수 있습니다(`AnswerAttemptErrorCodeConverter`). 답변 생성 중 다른 도메인의 예외가 저장 단계까지 전달되면 컨버터가 변환하지 못해 `CHAT-008`(기록 저장 실패)로 응답합니다. 채팅 흐름에서 새 오류를 추가할 때는 컨버터도 함께 확인하세요.
+
+`PromptException`은 `GlobalException`이 아닌 일반 `RuntimeException`이며, `ChatService`가 `CHAT-014`로 변환합니다.
 
 ```java
 package com.ubot.user.exception;

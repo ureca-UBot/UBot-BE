@@ -1,6 +1,6 @@
 # 로컬에서 UBot-BE 실행하기
 
-> 문서 기준 시점: 2026-09-22 (`develop` = `1ac3bf2`)
+> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
 
 ## 완료 기준
 
@@ -75,8 +75,8 @@ openssl rand -base64 32
 
 | 변수 | 비워 두면 | 채우면 |
 |---|---|---|
-| `KAKAO_REST_API_KEY` | 기동은 되지만 위치 검색 API 호출이 실패합니다 | 카카오 개발자 사이트의 REST API 키 |
-| `OLLAMA_CHAT_MODEL` | 기동은 되지만 LLM 채팅 모델을 사용할 수 없습니다 | Ollama에 받아 둔 채팅 모델 이름 |
+| `KAKAO_REST_API_KEY` | 기동은 되지만 위치 검색·길찾기 API 호출이 실패합니다 | 카카오 개발자 사이트의 REST API 키 |
+| `OLLAMA_CHAT_MODEL` | 기동은 되지만 채팅 답변 생성이 `LLM-002`로 실패합니다 | Ollama에 받아 둔 채팅 모델 이름 |
 
 `ollama-init`은 임베딩 모델만 내려받습니다. 채팅 모델은 [4단계](#4-embedding-모델-준비-확인)의 `ollama pull` 명령으로 직접 받아야 합니다. 두 키를 지우지는 마세요. 키 자체가 없으면 기동 시점에 `Could not resolve placeholder` 오류가 납니다.
 
@@ -121,7 +121,7 @@ docker compose exec ollama ollama pull <채팅모델이름>
 
 Eclipse에서 `UbotBeApplication`을 실행해도 됩니다. 이 경우 Run Configuration의 작업 디렉터리가 프로젝트 루트여야 `.env`를 읽을 수 있습니다(기본값이 프로젝트 루트입니다).
 
-별도 설정이 없으면 `local` 프로필로 실행됩니다. 기동 중 Flyway가 `V1`~`V11` 마이그레이션을 순서대로 적용해 extension과 테이블을 준비합니다. 적용 이력은 `flyway_schema_history` 테이블에 남습니다.
+별도 설정이 없으면 `local` 프로필로 실행됩니다. 기동 중 Flyway가 `V1`~`V14` 마이그레이션을 순서대로 적용해 extension과 테이블을 준비합니다. 적용 이력은 `flyway_schema_history` 테이블에 남습니다.
 
 ## 6. 동작 확인
 
@@ -150,7 +150,13 @@ curl.exe http://localhost:8080/actuator/health
 
 ## 7. API 호출해 보기
 
-`/actuator/health`와 `/auth/login`, `/auth/signup`, `/auth/refresh`를 제외한 모든 요청은 JWT 인증이 필요합니다. 회원가입 후 로그인해서 받은 access token을 `Authorization: Bearer <token>` 헤더에 넣어 호출하세요. 엔드포인트 구성은 [architecture.md](architecture.md)를 참고하세요.
+Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 전체 API를 보고 직접 호출할 수 있습니다. 오른쪽 위 `Authorize`에 access token을 넣으면 인증이 필요한 API도 호출됩니다.
+
+인증 없이 호출할 수 있는 경로([architecture.md#인증](architecture.md#인증))를 제외한 요청은 회원가입 후 로그인해서 받은 access token을 `Authorization: Bearer <token>` 헤더에 넣어 호출하세요. 엔드포인트 구성은 [architecture.md](architecture.md#api-개요)를 참고하세요.
+
+## 8. 챗봇까지 확인하려면 (선택)
+
+`POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, FAQ를 등록할 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 질문하면 `CHAT-012`(검색 결과 없음)가, 채팅 모델이 비어 있으면 `LLM-002`가 반환됩니다. 준비 방법은 [local-data.md](how-to/local-data.md)를 따르세요.
 
 ## 테스트만 실행하려면
 
@@ -160,7 +166,9 @@ JDK 17 이상과 실행 중인 Docker만 준비한 뒤 실행합니다.
 .\gradlew.bat test
 ```
 
-Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB를 만들고 Flyway와 두 extension을 검증한 뒤 종료 시 정리합니다. 위의 `.env` 작성·Compose 기동·Ollama 모델 다운로드 단계는 테스트에 필요하지 않습니다.
+Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB를 만들고 Flyway와 두 extension을 검증한 뒤 종료 시 정리합니다. 위의 `.env` 작성·Compose 기동 단계는 테스트에 필요하지 않습니다.
+
+> 단, 실제 Ollama가 필요한 분석 테스트 하나가 로컬에서 함께 실행됩니다. Ollama 없이 돌리는 방법은 [troubleshooting](troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)을 참고하세요.
 
 ## 실패했다면
 
@@ -170,6 +178,9 @@ Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB를 만들�
 
 - 코드 구조와 흐름 → [architecture.md](architecture.md)
 - DB를 직접 조회하려면 → [how-to/db-access.md](how-to/db-access.md)
+- 채팅 테스트용 FAQ를 넣으려면 → [how-to/local-data.md](how-to/local-data.md)
+- 프론트와 연동하려면 → [how-to/frontend-integration.md](how-to/frontend-integration.md)
+- LLM·프롬프트 연결 방식 → [how-to/llm-module.md](how-to/llm-module.md)
 - 설정값의 의미 → [reference/configuration.md](reference/configuration.md)
 - 코드를 수정하고 PR을 올리려면 → [../CONTRIBUTING.md](../CONTRIBUTING.md)
 

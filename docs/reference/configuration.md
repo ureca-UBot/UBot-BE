@@ -1,6 +1,6 @@
 # 설정 Reference
 
-> 문서 기준 시점: 2026-09-22 (`develop` = `04c5a6c`, LLM 채팅 연결 반영)
+> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
 
 ## 설정 파일
 
@@ -37,17 +37,35 @@ src/main/resources/
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatService`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
-| `CHAT_CONFIDENCE_THRESHOLD` | `ChatService`: 답변 생성에 필요한 최상위 FAQ 유사도 기준 | `0.75` | `0.75` |
+| `CHAT_CONFIDENCE_THRESHOLD` | `ChatService`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
 | `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingService` | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingService` | `10s` | `10s` |
-| `KAKAO_REST_API_KEY` | `KakaoLocalClient` | 빈 값 | 없음 |
+| `KAKAO_REST_API_KEY` | `KakaoLocalClient`(주소 검색), `KakaoDirectionsClient`(길찾기) | 빈 값 | 없음 |
 | `JWT_SECRET` | `JwtUtil` | 안내 문구 (**변경 필수**) | 없음 |
 | `JWT_ACCESS_TOKEN_EXPIRATION_MILLIS` | `JwtUtil` | `600000` (10분) | `3600000` (1시간) |
 | `JWT_REFRESH_TOKEN_EXPIRATION_DAYS` | `RefreshTokenService` | `14` | `14` |
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.
+
+`CHAT_CONFIDENCE_THRESHOLD`의 기본값 `0.75`는 threshold 보고서의 채택값 `0.73`과 다릅니다. 배경은 [architecture.md](../architecture.md#현재-상태와-남은-작업)를 참고하세요. 보고서 값을 쓰려면 `.env`에서 `CHAT_CONFIDENCE_THRESHOLD=0.73`으로 지정합니다.
+
+열린 PR #105가 merge되면 미응답 질문 묶음 기준 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`)가 추가됩니다.
+
+`CHAT_MAX_ATTEMPTS`를 바꿔도 한도 초과 오류(`CHAT-006`)의 안내 문구는 "최대 3회"로 고정되어 있습니다.
+
+### 환경변수 없이 코드 기본값만 있는 설정
+
+아래 값은 YAML과 `.env.example`에 없고 코드의 기본값을 사용합니다. 바꾸려면 설정 키로 지정합니다.
+
+| 설정 키 | 기본값 | 사용처 |
+|---|---|---|
+| `kakao.directions.connect-timeout` | `3s` | `KakaoDirectionsClient` |
+| `kakao.directions.read-timeout` | `5s` | `KakaoDirectionsClient` |
+| `prompt.faq.system-location` | `classpath:prompts/faq-system.txt` | `PromptService` |
+| `prompt.faq.user-location` | `classpath:prompts/faq-user.txt` | `PromptService` |
+| `spring.ai.ollama.chat.options.model` | 없음 (`OLLAMA_CHAT_MODEL`로 대체) | `LlmConfig`, `ChatAttemptsService`(시도 기록의 `llm_model`) |
 
 ### 키가 있지만 값이 비어 있을 때
 
@@ -88,12 +106,30 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 | 설정 | 값 | 위치 |
 |---|---|---|
-| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V11`) | — |
+| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V14`) | — |
 | `baseline-on-migrate` | `true` | `application.yml` |
 | `baseline-version` | `0` | `application.yml` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
 
-애플리케이션을 기동하면 Flyway가 마이그레이션을 적용합니다. `V1`이 `vector`, `V2`가 `postgis` extension을 생성하고 이후 파일들이 FAQ·매장·사용자·토큰 테이블을 만듭니다. 적용 이력은 `flyway_schema_history` 테이블에 남습니다. 작성 규칙은 [CONTRIBUTING.md](../../CONTRIBUTING.md#db-마이그레이션-flyway)를 참고하세요.
+애플리케이션을 기동하면 Flyway가 마이그레이션을 적용합니다. 적용 이력은 `flyway_schema_history` 테이블에 남습니다. 작성 규칙은 [CONTRIBUTING.md](../../CONTRIBUTING.md#db-마이그레이션-flyway)를 참고하세요.
+
+| 버전 | 내용 |
+|---|---|
+| `V1`, `V2` | `vector`, `postgis` extension 생성 |
+| `V3` | `faq_category`, `faq`(1024차원 벡터, HNSW cosine 인덱스), `faq_old`, `question_log`, `faq_log` |
+| `V4` | `stores`(PostGIS `geography` 자동 생성 컬럼, GIST 인덱스), `service_types`, `store_services` |
+| `V5` | 임시 매장·서비스 유형 데이터 |
+| `V6` | DB 타임존 `Asia/Seoul` |
+| `V7` | `faq_old` → `old_faq`, 작성자 컬럼명 `created_by`/`updated_by` |
+| `V8` | `faq_log.rank`를 INTEGER로, `faq_log`·`faq_category`에 `created_at` |
+| `V9` | `users`(활성 사용자 이메일 부분 UNIQUE), 기존 테이블의 사용자 FK |
+| `V10` | `refresh_tokens`, `faq_category.updated_at` |
+| `V11` | `faq_category`, `service_types` soft delete와 활성 행 기준 UNIQUE |
+| `V12` | `question_log.llm_question`(생성 답변), `answer_attempts_history` |
+| `V13` | `faq`, `old_faq`에 `intent` (`GENERAL`/`STORE_DATA`/`USER_DATA`, 기본 `GENERAL`) |
+| `V14` | `forbidden_words` (`ACTIVE`/`INACTIVE`) |
+
+FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다.
 
 ## Ollama 관련 설정 두 곳
 
@@ -128,16 +164,24 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 |---|---|---|
 | Actuator 노출 endpoint | `health`만 | `application.yml` |
 | Health 상세 표시 | `always` | `application-local.yml` |
-| 인증 없이 호출 가능한 경로 | `/auth/login`, `/auth/signup`, `/auth/refresh`, `/actuator/health` | `SecurityConfig` |
+| 인증 없이 호출 가능한 경로, `ADMIN` 경로 | [architecture.md#인증](../architecture.md#인증) | `SecurityConfig` |
+| 채팅 질문 최대 길이 | 4000자 | `ChatRequestDto`, `ChatService` |
+| 채팅 답변 생성 Executor | 가상 스레드, 동시 처리 수 제한 없음, 종료 대기 150초 | `AsyncConfig` |
+| 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `EmbeddingService` |
+| Nginx 프록시 응답 제한 시간 | `180s` | `infra/nginx/nginx.conf` |
 | 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
 | DB 타임존 | `V6__set_database_timezone.sql` | 마이그레이션 |
+
+`CHAT_RESPONSE_TIMEOUT_MILLIS`를 바꿀 때는 Nginx 제한 시간과의 관계를 [deploy.md](../deploy.md#주의할-점)에서 확인하세요.
 
 ## 자동 테스트 구성
 
 - 이미지: `infra/postgres/Dockerfile`(PostgreSQL 18 + pgvector 0.8.6 + PostGIS 3.6.4). Compose와 Testcontainers가 같은 Dockerfile을 사용합니다. `build.gradle`이 `infra/postgres`를 테스트 리소스로 등록합니다.
 - 테스트 DB: `ubot_test`. 사용자 `ubot_test`, 비밀번호는 실행마다 임의 생성. 호스트 포트는 Testcontainers가 할당하고 `@ServiceConnection`으로 Spring에 연결합니다.
 - 개발 DB와 볼륨을 공유하지 않고 컨테이너를 재사용하지 않습니다. 테스트 클래스가 끝나면 컨텍스트와 컨테이너를 정리합니다.
-- 사전 요구사항은 JDK 17 이상과 실행 중인 Docker입니다. Java 21 toolchain은 없으면 Gradle이 자동으로 내려받습니다. `.env`, 개발 Compose, Ollama 모델은 필요하지 않습니다.
+- 사전 요구사항은 JDK 17 이상과 실행 중인 Docker입니다. Java 21 toolchain은 없으면 Gradle이 자동으로 내려받습니다. `.env`와 개발 Compose는 필요하지 않습니다.
+- `application-test.yml`은 JWT 비밀 키, `kakao.local.api-key: test-key`, 임베딩 설정(`ollama.base-url: http://localhost:11434` 등)을 테스트 전용 값으로 고정합니다.
+- 예외적으로 `IntentClassificationAnalysis`는 `@TestPropertySource`로 Ollama 주소를 `http://localhost:11435`로 바꿔 실제 Ollama를 호출합니다([troubleshooting](../troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)).
 
 ## LLM 호출 모듈 설정
 
@@ -153,7 +197,7 @@ Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한
 
 현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
 전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,
-`prompts/faq-user.txt`는 담당자의 최종 본문을 기다리며 비워 두었습니다. 파일이 준비되지 않으면
-모델을 호출하지 않고 채팅 실패 응답을 반환합니다. 외부 프롬프트 파일을 사용하려면
+`prompts/faq-user.txt`에는 본문이 들어 있습니다. 파일이 없거나 비어 있거나 자리표시자가 빠지면
+모델을 호출하지 않고 `CHAT-014`로 실패합니다. 외부 프롬프트 파일을 사용하려면
 `prompt.faq.system-location`, `prompt.faq.user-location`에 Spring `file:` 리소스 경로를 지정합니다.
 호출 계약과 테스트 방법은 [LLM 모듈 연결 안내](../how-to/llm-module.md)를 참고하세요.

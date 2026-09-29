@@ -1,5 +1,7 @@
 # ApiResponse 사용 안내
 
+> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+
 모든 API는 `ApiResponse<T>`로 같은 JSON 구조를 반환합니다. 오류 응답의 코드와 예외 처리 방법은 [exception.md](exception.md)를 참고하세요.
 
 ## 응답 형식
@@ -18,9 +20,9 @@
 | `success` | 요청 처리 성공 여부입니다. |
 | `code` | 클라이언트가 응답 종류를 구분하는 애플리케이션 코드입니다. |
 | `message` | 사용자 또는 개발자에게 보여줄 수 있는 설명입니다. |
-| `data` | 성공 데이터입니다. 없으면 `null`입니다. |
+| `data` | 성공 데이터입니다. 없으면 `null`입니다. 일부 실패 응답은 상세 정보를 담습니다. |
 
-`code`는 HTTP 상태 코드와 구분합니다. 예를 들어 입력값 오류는 HTTP `400`과 `INVALID_INPUT`을 함께 반환합니다.
+`code`는 HTTP 상태 코드와 구분합니다. 성공은 항상 `SUCCESS`이고, 실패는 `ErrorCode`의 코드 문자열(`PREFIX-번호`)입니다. 예를 들어 입력값 오류는 HTTP `400`과 `G-001`을 함께 반환합니다.
 
 ## 기본 성공 응답
 
@@ -75,22 +77,39 @@ return ResponseEntity.ok(ApiResponse.success("사용자 정보를 조회했습�
 ```json
 {
   "success": false,
-  "code": "USER_NOT_FOUND",
+  "code": "USER-001",
   "message": "사용자를 찾을 수 없습니다.",
   "data": null
 }
 ```
 
-입력값 검증에 실패하면 `data`에 필드별 오류 메시지가 포함됩니다.
+`@Valid` 요청 DTO 검증에 실패하면 `G-001`과 함께 `data`에 필드별 오류 메시지가 포함됩니다. 필드마다 첫 번째 메시지 하나만 담습니다.
 
 ```json
 {
   "success": false,
-  "code": "INVALID_INPUT",
+  "code": "G-001",
   "message": "요청 값이 올바르지 않습니다.",
   "data": {
     "email": "이메일 형식이 아닙니다.",
     "password": "비밀번호는 8자 이상이어야 합니다."
+  }
+}
+```
+
+채팅 API(`ChatException`)는 실패해도 `data`에 시도 정보(`ChatResponseDto`)를 담아, 클라이언트가 재시도 여부를 판단할 수 있게 합니다.
+
+```json
+{
+  "success": false,
+  "code": "CHAT-013",
+  "message": "정확한 답변을 찾지 못했습니다.",
+  "data": {
+    "answer": "정확한 답변을 찾지 못했습니다.",
+    "status": "FAIL",
+    "idempotencyKey": "3f2a...(64자리)",
+    "attemptCount": 1,
+    "retryable": true
   }
 }
 ```
