@@ -12,6 +12,7 @@ import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
+import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import org.junit.jupiter.api.DisplayName;
@@ -24,7 +25,7 @@ class ChatServiceForbiddenWordTest {
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
 	private final Deque<Runnable> jobs = new ArrayDeque<>();
-	private final ChatService service = new ChatService(vector, ai, attempts, filter, jobs::add);
+	private final ChatService service = new ChatService(vector, ai, attempts, filter, mock(UnansweredQuestionService.class), jobs::add);
 
 	@Test
 	@DisplayName("금지어가 포함된 질문은 기록·임베딩·검색·LLM 호출 없이 차단한다")
