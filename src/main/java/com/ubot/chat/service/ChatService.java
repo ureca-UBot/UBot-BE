@@ -14,6 +14,8 @@ import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.prompt.exception.PromptException;
+import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -41,6 +43,7 @@ public class ChatService {
 	private final AiService aiService;
 	private final ChatAttemptsService chatAttemptsService;
 	private final ForbiddenWordFilterService forbiddenWordFilterService;
+	private final UnansweredQuestionService unansweredQuestionService;
 	private final Executor chatExecutor;
 
 	public ChatService(
@@ -48,12 +51,14 @@ public class ChatService {
 			AiService aiService,
 			ChatAttemptsService chatAttemptsService,
 			ForbiddenWordFilterService forbiddenWordFilterService,
+			UnansweredQuestionService unansweredQuestionService,
 			@Qualifier("chatExecutor") Executor chatExecutor
 	) {
 		this.faqVectorService = faqVectorService;
 		this.aiService = aiService;
 		this.chatAttemptsService = chatAttemptsService;
 		this.forbiddenWordFilterService = forbiddenWordFilterService;
+		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatExecutor = chatExecutor;
 	}
 
@@ -112,6 +117,7 @@ public class ChatService {
 			}
 			checkCancellation(generation);
 			if (results == null || results.isEmpty()) {
+				createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 				return handleAnswerFailure(attempt, ChatErrorCode.NO_FAQ, generation);
 			}
 			List<FaqSearchResponseDto> filteredResults = results.stream()
@@ -119,6 +125,7 @@ public class ChatService {
 							&& result.similarityScore() >= confidenceThreshold)
 					.toList();
 			if (filteredResults.isEmpty()) {
+				createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, results.get(0));
 				return handleAnswerFailure(attempt, ChatErrorCode.INSUFFICIENT_FAQ, generation);
 			}
 			checkCancellation(generation);
@@ -149,6 +156,22 @@ public class ChatService {
 			}
 			log.error("답변 생성 실패: attemptId={}", attempt.getId(), exception);
 			return handleAnswerFailure(attempt, ChatErrorCode.INTERNAL_ERROR, generation);
+		}
+	}
+
+	private void createUnansweredQuestion(
+			AnswerAttemptsHistory attempt, UnansweredReason reason, FaqSearchResponseDto bestResult
+	) {
+		try {
+			unansweredQuestionService.createUnansweredQuestion(
+					attempt.getId(),
+					attempt.getQuestion(),
+					reason,
+					bestResult == null ? null : bestResult.faqId(),
+					bestResult == null ? null : bestResult.similarityScore()
+			);
+		} catch (RuntimeException exception) {
+			log.warn("미응답 질문 저장 실패: attemptId={}", attempt.getId(), exception);
 		}
 	}
 
