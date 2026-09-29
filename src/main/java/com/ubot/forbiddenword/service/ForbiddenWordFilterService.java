@@ -34,7 +34,8 @@ public class ForbiddenWordFilterService {
 		refreshForbiddenWordCache();
 	}
 
-	public void refreshForbiddenWordCache() {
+	// 동시에 커밋된 변경의 갱신이 겹치면 먼저 읽은 옛 목록이 나중에 덮어쓸 수 있어 한 번에 하나씩 갱신합니다.
+	public synchronized void refreshForbiddenWordCache() {
 		activeForbiddenWords = forbiddenWordRepository.findAllByStatus(ForbiddenWordStatus.ACTIVE).stream()
 				.map(ForbiddenWord::getWord)
 				.collect(Collectors.toUnmodifiableSet());

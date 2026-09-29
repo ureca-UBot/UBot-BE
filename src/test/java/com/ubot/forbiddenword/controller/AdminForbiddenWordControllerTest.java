@@ -16,6 +16,7 @@ import com.ubot.common.PageResponseDto;
 import com.ubot.common.GlobalException;
 import com.ubot.common.exception.CommonErrorCode;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordCreateRequestDto;
+import com.ubot.forbiddenword.dto.request.ForbiddenWordStatusUpdateRequestDto;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordUpdateRequestDto;
 import com.ubot.forbiddenword.dto.response.ForbiddenWordResponseDto;
 import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
@@ -143,25 +144,64 @@ class AdminForbiddenWordControllerTest {
 	}
 
 	@Test
-	@DisplayName("금지어를 수정하면 수정된 금지어를 반환한다")
+	@DisplayName("금지어 단어를 수정하면 수정된 금지어를 반환한다")
 	void updatesForbiddenWord() throws Exception {
 		when(forbiddenWordService.updateForbiddenWord(eq(1L), any(ForbiddenWordUpdateRequestDto.class)))
-				.thenReturn(response(1L, "멍청이", ForbiddenWordStatus.INACTIVE));
+				.thenReturn(response(1L, "멍청이", ForbiddenWordStatus.ACTIVE));
 
 		mockMvc.perform(patch("/admin/forbidden-words/1")
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("{\"word\": \"멍청이\", \"status\": \"INACTIVE\"}"))
+						.content("{\"word\": \"멍청이\"}"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.word").value("멍청이"))
-				.andExpect(jsonPath("$.data.status").value("INACTIVE"));
+				.andExpect(jsonPath("$.data.word").value("멍청이"));
+		verify(forbiddenWordService).updateForbiddenWord(1L, new ForbiddenWordUpdateRequestDto("멍청이"));
 	}
 
 	@Test
-	@DisplayName("수정 시 알 수 없는 status 값은 400을 반환한다")
-	void rejectsUnknownStatus() throws Exception {
-		mockMvc.perform(patch("/admin/forbidden-words/1")
+	@DisplayName("금지어 상태만 수정하면 word 없이 상태가 바뀐다")
+	void updatesForbiddenWordStatus() throws Exception {
+		when(forbiddenWordService.updateForbiddenWordStatus(eq(1L), any(ForbiddenWordStatusUpdateRequestDto.class)))
+				.thenReturn(response(1L, "바보", ForbiddenWordStatus.INACTIVE));
+
+		mockMvc.perform(patch("/admin/forbidden-words/1/status")
 						.contentType(MediaType.APPLICATION_JSON)
-						.content("{\"word\": \"멍청이\", \"status\": \"DELETED\"}"))
+						.content("{\"status\": \"INACTIVE\"}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.word").value("바보"))
+				.andExpect(jsonPath("$.data.status").value("INACTIVE"));
+		verify(forbiddenWordService).updateForbiddenWordStatus(1L,
+				new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.INACTIVE));
+	}
+
+	@Test
+	@DisplayName("상태 수정 시 status가 없으면 400(FW-005)을 반환한다")
+	void rejectsMissingStatus() throws Exception {
+		when(forbiddenWordService.updateForbiddenWordStatus(eq(1L), any(ForbiddenWordStatusUpdateRequestDto.class)))
+				.thenThrow(new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_STATUS_REQUIRED));
+
+		mockMvc.perform(patch("/admin/forbidden-words/1/status")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("FW-005"));
+	}
+
+	@Test
+	@DisplayName("상태 수정 시 알 수 없는 status 값은 400을 반환한다")
+	void rejectsUnknownStatus() throws Exception {
+		mockMvc.perform(patch("/admin/forbidden-words/1/status")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\": \"DELETED\"}"))
+				.andExpect(status().isBadRequest());
+		verifyNoInteractions(forbiddenWordService);
+	}
+
+	@Test
+	@DisplayName("상태 수정 시 id가 양수가 아니면 400을 반환한다")
+	void rejectsNonPositiveIdOnStatus() throws Exception {
+		mockMvc.perform(patch("/admin/forbidden-words/0/status")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\": \"ACTIVE\"}"))
 				.andExpect(status().isBadRequest());
 		verifyNoInteractions(forbiddenWordService);
 	}

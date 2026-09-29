@@ -4,6 +4,7 @@ import com.ubot.common.GlobalException;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.CommonErrorCode;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordCreateRequestDto;
+import com.ubot.forbiddenword.dto.request.ForbiddenWordStatusUpdateRequestDto;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordUpdateRequestDto;
 import com.ubot.forbiddenword.dto.response.ForbiddenWordResponseDto;
 import com.ubot.forbiddenword.entity.ForbiddenWord;
@@ -13,6 +14,7 @@ import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -38,12 +40,18 @@ public class ForbiddenWordService {
 		}
 
 		LocalDateTime now = LocalDateTime.now();
-		ForbiddenWord forbiddenWord = forbiddenWordRepository.save(ForbiddenWord.builder()
-				.word(word)
-				.status(ForbiddenWordStatus.ACTIVE)
-				.createdAt(now)
-				.updatedAt(now)
-				.build());
+		ForbiddenWord forbiddenWord;
+		try {
+			forbiddenWord = forbiddenWordRepository.saveAndFlush(ForbiddenWord.builder()
+					.word(word)
+					.status(ForbiddenWordStatus.ACTIVE)
+					.createdAt(now)
+					.updatedAt(now)
+					.build());
+		} catch (DataIntegrityViolationException exception) {
+			// 중복 확인 이후 다른 관리자가 같은 단어를 먼저 저장한 경우입니다.
+			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST);
+		}
 
 		eventPublisher.publishEvent(new ForbiddenWordChangedEvent());
 		return ForbiddenWordResponseDto.from(forbiddenWord);
@@ -62,20 +70,44 @@ public class ForbiddenWordService {
 
 	@Transactional
 	public ForbiddenWordResponseDto updateForbiddenWord(Long forbiddenWordId, ForbiddenWordUpdateRequestDto requestDto) {
-		ForbiddenWord forbiddenWord = forbiddenWordRepository.findById(forbiddenWordId)
-				.orElseThrow(() -> new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_NOT_FOUND));
+		ForbiddenWord forbiddenWord = getForbiddenWordForUpdate(forbiddenWordId);
 
 		String word = normalizeWord(requestDto.word());
 		if (forbiddenWordRepository.existsByWordAndIdNot(word, forbiddenWordId)) {
 			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST);
 		}
 
-		// INACTIVE를 명시하지 않으면 ACTIVE로 처리합니다.
-		ForbiddenWordStatus status = requestDto.status() == null ? ForbiddenWordStatus.ACTIVE : requestDto.status();
-		forbiddenWord.update(word, status);
+		// 단어만 바꾸고 상태는 유지합니다.
+		forbiddenWord.updateWord(word);
+		try {
+			forbiddenWordRepository.flush();
+		} catch (DataIntegrityViolationException exception) {
+			// 중복 확인 이후 다른 관리자가 같은 단어로 먼저 저장한 경우입니다.
+			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST);
+		}
 
 		eventPublisher.publishEvent(new ForbiddenWordChangedEvent());
 		return ForbiddenWordResponseDto.from(forbiddenWord);
+	}
+
+	@Transactional
+	public ForbiddenWordResponseDto updateForbiddenWordStatus(
+			Long forbiddenWordId, ForbiddenWordStatusUpdateRequestDto requestDto
+	) {
+		ForbiddenWord forbiddenWord = getForbiddenWordForUpdate(forbiddenWordId);
+
+		if (requestDto.status() == null) {
+			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_STATUS_REQUIRED);
+		}
+		forbiddenWord.updateStatus(requestDto.status());
+
+		eventPublisher.publishEvent(new ForbiddenWordChangedEvent());
+		return ForbiddenWordResponseDto.from(forbiddenWord);
+	}
+
+	private ForbiddenWord getForbiddenWordForUpdate(Long forbiddenWordId) {
+		return forbiddenWordRepository.findByIdForUpdate(forbiddenWordId)
+				.orElseThrow(() -> new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_NOT_FOUND));
 	}
 
 	private String normalizeWord(String word) {

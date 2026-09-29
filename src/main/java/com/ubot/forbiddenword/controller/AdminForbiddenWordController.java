@@ -3,6 +3,7 @@ package com.ubot.forbiddenword.controller;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordCreateRequestDto;
+import com.ubot.forbiddenword.dto.request.ForbiddenWordStatusUpdateRequestDto;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordUpdateRequestDto;
 import com.ubot.forbiddenword.dto.response.ForbiddenWordResponseDto;
 import com.ubot.forbiddenword.service.ForbiddenWordService;
@@ -42,5 +43,13 @@ public class AdminForbiddenWordController {
 			@Valid @RequestBody ForbiddenWordUpdateRequestDto requestDto
 	) {
 		return ApiResponse.success(forbiddenWordService.updateForbiddenWord(forbiddenWordId, requestDto));
+	}
+
+	@PatchMapping("/{forbiddenWordId}/status")
+	public ApiResponse<ForbiddenWordResponseDto> updateForbiddenWordStatus(
+			@Positive @PathVariable("forbiddenWordId") Long forbiddenWordId,
+			@Valid @RequestBody ForbiddenWordStatusUpdateRequestDto requestDto
+	) {
+		return ApiResponse.success(forbiddenWordService.updateForbiddenWordStatus(forbiddenWordId, requestDto));
 	}
 }

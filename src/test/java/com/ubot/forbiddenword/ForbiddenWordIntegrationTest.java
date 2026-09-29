@@ -8,6 +8,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.common.GlobalException;
 import com.ubot.common.PageResponseDto;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordCreateRequestDto;
+import com.ubot.forbiddenword.dto.request.ForbiddenWordStatusUpdateRequestDto;
 import com.ubot.forbiddenword.dto.request.ForbiddenWordUpdateRequestDto;
 import com.ubot.forbiddenword.dto.response.ForbiddenWordResponseDto;
 import com.ubot.forbiddenword.entity.ForbiddenWord;
@@ -17,8 +18,16 @@ import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.forbiddenword.service.ForbiddenWordService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,6 +61,9 @@ class ForbiddenWordIntegrationTest {
 
 	@Autowired
 	private PlatformTransactionManager transactionManager;
+
+	@Autowired
+	private EntityManagerFactory entityManagerFactory;
 
 	@BeforeEach
 	void cleanUp() {
@@ -126,12 +138,26 @@ class ForbiddenWordIntegrationTest {
 	void statusChangeRefreshesCache() {
 		Long id = service.createForbiddenWord(new ForbiddenWordCreateRequestDto("바보")).id();
 
-		service.updateForbiddenWord(id, new ForbiddenWordUpdateRequestDto("바보", ForbiddenWordStatus.INACTIVE));
+		service.updateForbiddenWordStatus(id, new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.INACTIVE));
 		assertThatCode(() -> filterService.validateForbiddenWord("너 바보야")).doesNotThrowAnyException();
+		assertThat(jdbcTemplate.queryForObject("SELECT status FROM forbidden_words WHERE id = ?", String.class, id))
+				.isEqualTo("INACTIVE");
 
-		service.updateForbiddenWord(id, new ForbiddenWordUpdateRequestDto("바보", null));
+		service.updateForbiddenWordStatus(id, new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.ACTIVE));
 		assertThatThrownBy(() -> filterService.validateForbiddenWord("너 바보야"))
 				.isInstanceOf(ForbiddenWordException.class);
+	}
+
+	@Test
+	@DisplayName("INACTIVE 금지어의 단어를 수정해도 상태는 INACTIVE로 유지되어 검사에 걸리지 않는다")
+	void wordChangeKeepsInactiveStatus() {
+		Long id = service.createForbiddenWord(new ForbiddenWordCreateRequestDto("바보")).id();
+		service.updateForbiddenWordStatus(id, new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.INACTIVE));
+
+		ForbiddenWordResponseDto updated = service.updateForbiddenWord(id, new ForbiddenWordUpdateRequestDto("멍청이"));
+
+		assertThat(updated.status()).isEqualTo(ForbiddenWordStatus.INACTIVE);
+		assertThatCode(() -> filterService.validateForbiddenWord("너 멍청이야")).doesNotThrowAnyException();
 	}
 
 	@Test
@@ -139,8 +165,7 @@ class ForbiddenWordIntegrationTest {
 	void wordChangeRefreshesCache() {
 		Long id = service.createForbiddenWord(new ForbiddenWordCreateRequestDto("바보")).id();
 
-		ForbiddenWordResponseDto updated = service.updateForbiddenWord(id,
-				new ForbiddenWordUpdateRequestDto("멍청이", ForbiddenWordStatus.ACTIVE));
+		ForbiddenWordResponseDto updated = service.updateForbiddenWord(id, new ForbiddenWordUpdateRequestDto("멍청이"));
 
 		assertThat(updated.word()).isEqualTo("멍청이");
 		assertThatCode(() -> filterService.validateForbiddenWord("너 바보야")).doesNotThrowAnyException();
@@ -148,6 +173,76 @@ class ForbiddenWordIntegrationTest {
 				.isInstanceOf(ForbiddenWordException.class);
 		assertThat(jdbcTemplate.queryForObject("SELECT word FROM forbidden_words WHERE id = ?", String.class, id))
 				.isEqualTo("멍청이");
+	}
+
+	@Test
+	@DisplayName("두 관리자가 같은 금지어의 단어와 상태를 동시에 바꾸면 두 변경이 모두 남는다")
+	void concurrentWordAndStatusUpdatesDoNotOverwriteEachOther() {
+		Long id = save("바보", ForbiddenWordStatus.ACTIVE).getId();
+
+		// 두 관리자가 같은 원본을 읽은 뒤 A(단어 수정)가 먼저, B(상태 변경)가 나중에 커밋합니다.
+		EntityManager adminA = entityManagerFactory.createEntityManager();
+		EntityManager adminB = entityManagerFactory.createEntityManager();
+		try {
+			adminA.getTransaction().begin();
+			adminB.getTransaction().begin();
+			ForbiddenWord seenByA = adminA.find(ForbiddenWord.class, id);
+			ForbiddenWord seenByB = adminB.find(ForbiddenWord.class, id);
+
+			seenByA.updateWord("멍청이");
+			adminA.getTransaction().commit();
+			seenByB.updateStatus(ForbiddenWordStatus.INACTIVE);
+			adminB.getTransaction().commit();
+		} finally {
+			adminA.close();
+			adminB.close();
+		}
+
+		assertThat(jdbcTemplate.queryForMap("SELECT word, status FROM forbidden_words WHERE id = ?", id))
+				.containsEntry("word", "멍청이")
+				.containsEntry("status", "INACTIVE");
+	}
+
+	@Test
+	@DisplayName("한 관리자가 금지어를 수정하는 동안 다른 관리자의 수정은 커밋될 때까지 기다린다")
+	void pessimisticLockMakesSecondUpdateWait() throws Exception {
+		Long id = save("바보", ForbiddenWordStatus.ACTIVE).getId();
+		CountDownLatch lockAcquired = new CountDownLatch(1);
+		CountDownLatch releaseLock = new CountDownLatch(1);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		try {
+			// 관리자 A: 행을 잠근 채 트랜잭션을 유지합니다.
+			Future<?> adminA = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+				repository.findByIdForUpdate(id).orElseThrow().updateWord("멍청이");
+				lockAcquired.countDown();
+				awaitQuietly(releaseLock);
+			}));
+			assertThat(lockAcquired.await(10, TimeUnit.SECONDS)).isTrue();
+
+			// 관리자 B: 같은 행의 상태를 바꾸려 하지만 A가 커밋할 때까지 대기합니다.
+			Future<ForbiddenWordResponseDto> adminB = executor.submit(() -> service.updateForbiddenWordStatus(id,
+					new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.INACTIVE)));
+			assertThatThrownBy(() -> adminB.get(1, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+
+			releaseLock.countDown();
+			adminA.get(10, TimeUnit.SECONDS);
+			ForbiddenWordResponseDto result = adminB.get(10, TimeUnit.SECONDS);
+
+			// B는 A가 커밋한 최신 단어를 읽은 뒤 상태만 바꿉니다.
+			assertThat(result.word()).isEqualTo("멍청이");
+			assertThat(result.status()).isEqualTo(ForbiddenWordStatus.INACTIVE);
+		} finally {
+			releaseLock.countDown();
+			executor.shutdownNow();
+		}
+	}
+
+	private static void awaitQuietly(CountDownLatch latch) {
+		try {
+			latch.await(10, TimeUnit.SECONDS);
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+		}
 	}
 
 	@Test
@@ -171,8 +266,7 @@ class ForbiddenWordIntegrationTest {
 		assertThatThrownBy(() -> service.createForbiddenWord(new ForbiddenWordCreateRequestDto("바보")))
 				.isInstanceOfSatisfying(ForbiddenWordException.class,
 						e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST));
-		assertThatThrownBy(() -> service.updateForbiddenWord(otherId,
-				new ForbiddenWordUpdateRequestDto("바보", ForbiddenWordStatus.ACTIVE)))
+		assertThatThrownBy(() -> service.updateForbiddenWord(otherId, new ForbiddenWordUpdateRequestDto("바보")))
 				.isInstanceOf(ForbiddenWordException.class);
 
 		assertThat(repository.count()).isEqualTo(2);
