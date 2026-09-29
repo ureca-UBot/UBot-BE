@@ -1,0 +1,327 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1051.5" height="1138" viewBox="0 0 1051.5 1138" role="img" aria-label="UBot-BE ERD (사용자·FAQ·채팅)">
+<title>UBot-BE ERD (사용자·FAQ·채팅)</title>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+  <marker id="arrowR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker>
+  <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d97706"/></marker>
+</defs>
+<rect x="0" y="0" width="1051.5" height="1138" rx="12" fill="#ffffff"/>
+<path d="M180.45000000000002,70 V44 H538.5500000000001 V70" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M44,117 H22 V339 H44" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M412.90000000000003,117 H364.90000000000003 V295 H316.90000000000003" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M412.90000000000003,471 H316.90000000000003" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M538.5500000000001,424 V354" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M664.2,471 H760.2" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M664.2,683 H760.2" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M538.5500000000001,708 V768" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M664.2,117 H712.2 V161 H760.2" fill="none" stroke="#475569" stroke-width="1.5" />
+<path d="M885.85,402 V244" fill="none" stroke="#475569" stroke-width="1.5" />
+<rect x="44" y="70" width="272.90000000000003" height="152" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M44,104 V80 a10,10 0 0 1 10,-10 H306.90000000000003 a10,10 0 0 1 10,10 V104 z" fill="#f5f3ff"/>
+<rect x="44" y="70" width="272.90000000000003" height="4" rx="2" fill="#7c3aed"/>
+<line x1="44" y1="104" x2="316.90000000000003" y2="104" stroke="#e5e7eb"/>
+<text x="56" y="89" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#7c3aed" text-anchor="start" dominant-baseline="middle">faq_category</text>
+<text x="56" y="117" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">id</text>
+<text x="139" y="117" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="282.90000000000003" y="109" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="117.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="45" y="128" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="139" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">name</text>
+<text x="139" y="139" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="276.90000000000003" y="131" width="32" height="16" rx="4" fill="#475569" fill-opacity="0.12"/>
+<text x="292.90000000000003" y="139.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#475569" text-anchor="middle" dominant-baseline="middle">UK*</text>
+<text x="56" y="161" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="139" y="161" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="45" y="172" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="183" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">updated_at</text>
+<text x="139" y="183" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<text x="56" y="205" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">deleted_at</text>
+<text x="139" y="205" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="412.90000000000003" y="70" width="251.3" height="284" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M412.90000000000003,104 V80 a10,10 0 0 1 10,-10 H654.2 a10,10 0 0 1 10,10 V104 z" fill="#f5f3ff"/>
+<rect x="412.90000000000003" y="70" width="251.3" height="4" rx="2" fill="#7c3aed"/>
+<line x1="412.90000000000003" y1="104" x2="664.2" y2="104" stroke="#e5e7eb"/>
+<text x="424.90000000000003" y="89" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#7c3aed" text-anchor="start" dominant-baseline="middle">faq</text>
+<text x="424.90000000000003" y="117" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">id</text>
+<text x="515.4000000000001" y="117" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="630.2" y="109" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="643.2" y="117.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="413.90000000000003" y="128" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="139" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">category_id</text>
+<text x="515.4000000000001" y="139" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="630.2" y="131" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="643.2" y="139.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<text x="424.90000000000003" y="161" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">question</text>
+<text x="515.4000000000001" y="161" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<rect x="413.90000000000003" y="172" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="183" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">answer</text>
+<text x="515.4000000000001" y="183" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<text x="424.90000000000003" y="205" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">vector</text>
+<text x="515.4000000000001" y="205" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">vector(1024)</text>
+<rect x="413.90000000000003" y="216" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="227" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">intent</text>
+<text x="515.4000000000001" y="227" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<text x="424.90000000000003" y="249" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">version</text>
+<text x="515.4000000000001" y="249" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">integer</text>
+<rect x="413.90000000000003" y="260" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="271" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">admin_id</text>
+<text x="515.4000000000001" y="271" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="630.2" y="263" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="643.2" y="271.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<text x="424.90000000000003" y="293" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="515.4000000000001" y="293" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="413.90000000000003" y="304" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="315" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">updated_at</text>
+<text x="515.4000000000001" y="315" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<text x="424.90000000000003" y="337" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">deleted_at</text>
+<text x="515.4000000000001" y="337" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="44" y="248" width="272.90000000000003" height="262" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M44,282 V258 a10,10 0 0 1 10,-10 H306.90000000000003 a10,10 0 0 1 10,10 V282 z" fill="#f5f3ff"/>
+<rect x="44" y="248" width="272.90000000000003" height="4" rx="2" fill="#7c3aed"/>
+<line x1="44" y1="282" x2="316.90000000000003" y2="282" stroke="#e5e7eb"/>
+<text x="56" y="267" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#7c3aed" text-anchor="start" dominant-baseline="middle">old_faq</text>
+<text x="56" y="295" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">faq_id</text>
+<text x="146.5" y="295" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="282.90000000000003" y="287" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="295.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<rect x="252.90000000000003" y="287" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="265.90000000000003" y="295.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="45" y="306" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="317" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">version</text>
+<text x="146.5" y="317" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">integer</text>
+<rect x="282.90000000000003" y="309" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="317.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<text x="56" y="339" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">category_id</text>
+<text x="146.5" y="339" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="282.90000000000003" y="331" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="339.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<rect x="45" y="350" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="361" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">question</text>
+<text x="146.5" y="361" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<text x="56" y="383" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">answer</text>
+<text x="146.5" y="383" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<rect x="45" y="394" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="405" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">vector</text>
+<text x="146.5" y="405" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">vector(1024)</text>
+<text x="56" y="427" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">intent</text>
+<text x="146.5" y="427" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="45" y="438" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="449" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">updated_at</text>
+<text x="146.5" y="449" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<text x="56" y="471" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_by</text>
+<text x="146.5" y="471" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="282.90000000000003" y="463" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="471.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<rect x="45" y="482" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="493" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">updated_by</text>
+<text x="146.5" y="493" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="282.90000000000003" y="485" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="493.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<rect x="412.90000000000003" y="424" width="251.3" height="284" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M412.90000000000003,458 V434 a10,10 0 0 1 10,-10 H654.2 a10,10 0 0 1 10,10 V458 z" fill="#eff6ff"/>
+<rect x="412.90000000000003" y="424" width="251.3" height="4" rx="2" fill="#2563eb"/>
+<line x1="412.90000000000003" y1="458" x2="664.2" y2="458" stroke="#e5e7eb"/>
+<text x="424.90000000000003" y="443" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#2563eb" text-anchor="start" dominant-baseline="middle">users</text>
+<text x="424.90000000000003" y="471" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">user_id</text>
+<text x="537.9000000000001" y="471" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="630.2" y="463" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="643.2" y="471.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="413.90000000000003" y="482" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="493" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">email</text>
+<text x="537.9000000000001" y="493" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="624.2" y="485" width="32" height="16" rx="4" fill="#475569" fill-opacity="0.12"/>
+<text x="640.2" y="493.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#475569" text-anchor="middle" dominant-baseline="middle">UK*</text>
+<text x="424.90000000000003" y="515" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">password_hash</text>
+<text x="537.9000000000001" y="515" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="413.90000000000003" y="526" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="537" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">name</text>
+<text x="537.9000000000001" y="537" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<text x="424.90000000000003" y="559" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">birth_date</text>
+<text x="537.9000000000001" y="559" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">date</text>
+<rect x="413.90000000000003" y="570" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="581" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">gender</text>
+<text x="537.9000000000001" y="581" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<text x="424.90000000000003" y="603" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">residence_area</text>
+<text x="537.9000000000001" y="603" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="413.90000000000003" y="614" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="625" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">role</text>
+<text x="537.9000000000001" y="625" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<text x="424.90000000000003" y="647" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="537.9000000000001" y="647" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="413.90000000000003" y="658" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="669" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">updated_at</text>
+<text x="537.9000000000001" y="669" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<text x="424.90000000000003" y="691" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">deleted_at</text>
+<text x="537.9000000000001" y="691" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="760.2" y="614" width="251.3" height="130" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M760.2,648 V624 a10,10 0 0 1 10,-10 H1001.5 a10,10 0 0 1 10,10 V648 z" fill="#eff6ff"/>
+<rect x="760.2" y="614" width="251.3" height="4" rx="2" fill="#2563eb"/>
+<line x1="760.2" y1="648" x2="1011.5" y2="648" stroke="#e5e7eb"/>
+<text x="772.2" y="633" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#2563eb" text-anchor="start" dominant-baseline="middle">refresh_tokens</text>
+<text x="772.2" y="661" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">id</text>
+<text x="855.2" y="661" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="653" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="990.5" y="661.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="761.2" y="672" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="683" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">user_id</text>
+<text x="855.2" y="683" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="675" width="26" height="16" rx="4" fill="#475569" fill-opacity="0.12"/>
+<text x="990.5" y="683.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#475569" text-anchor="middle" dominant-baseline="middle">UK</text>
+<rect x="947.5" y="675" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="960.5" y="683.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<text x="772.2" y="705" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">token</text>
+<text x="855.2" y="705" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="977.5" y="697" width="26" height="16" rx="4" fill="#475569" fill-opacity="0.12"/>
+<text x="990.5" y="705.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#475569" text-anchor="middle" dominant-baseline="middle">UK</text>
+<rect x="761.2" y="716" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="727" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">expired_at</text>
+<text x="855.2" y="727" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="760.2" y="402" width="251.3" height="152" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M760.2,436 V412 a10,10 0 0 1 10,-10 H1001.5 a10,10 0 0 1 10,10 V436 z" fill="#f0fdfa"/>
+<rect x="760.2" y="402" width="251.3" height="4" rx="2" fill="#0d9488"/>
+<line x1="760.2" y1="436" x2="1011.5" y2="436" stroke="#e5e7eb"/>
+<text x="772.2" y="421" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#0d9488" text-anchor="start" dominant-baseline="middle">question_log</text>
+<text x="772.2" y="449" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">id</text>
+<text x="877.7" y="449" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="441" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="990.5" y="449.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="761.2" y="460" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="471" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">user_id</text>
+<text x="877.7" y="471" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="463" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="990.5" y="471.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<text x="772.2" y="493" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">user_question</text>
+<text x="877.7" y="493" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<rect x="761.2" y="504" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="515" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">llm_question</text>
+<text x="877.7" y="515" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<text x="772.2" y="537" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="877.7" y="537" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="760.2" y="70" width="251.3" height="174" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M760.2,104 V80 a10,10 0 0 1 10,-10 H1001.5 a10,10 0 0 1 10,10 V104 z" fill="#f0fdfa"/>
+<rect x="760.2" y="70" width="251.3" height="4" rx="2" fill="#0d9488"/>
+<line x1="760.2" y1="104" x2="1011.5" y2="104" stroke="#e5e7eb"/>
+<text x="772.2" y="89" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#0d9488" text-anchor="start" dominant-baseline="middle">faq_log</text>
+<text x="772.2" y="117" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">id</text>
+<text x="892.7" y="117" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="109" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="990.5" y="117.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="761.2" y="128" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="139" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">question_log_id</text>
+<text x="892.7" y="139" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="131" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="990.5" y="139.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<text x="772.2" y="161" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">faq_id</text>
+<text x="892.7" y="161" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="977.5" y="153" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="990.5" y="161.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<rect x="761.2" y="172" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="183" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">rank</text>
+<text x="892.7" y="183" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">integer</text>
+<text x="772.2" y="205" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">similarity</text>
+<text x="892.7" y="205" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">double</text>
+<rect x="761.2" y="216" width="249.3" height="22" fill="#fafafa"/>
+<text x="772.2" y="227" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="892.7" y="227" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="412.90000000000003" y="768" width="251.3" height="284" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M412.90000000000003,802 V778 a10,10 0 0 1 10,-10 H654.2 a10,10 0 0 1 10,10 V802 z" fill="#f0fdfa"/>
+<rect x="412.90000000000003" y="768" width="251.3" height="4" rx="2" fill="#0d9488"/>
+<line x1="412.90000000000003" y1="802" x2="664.2" y2="802" stroke="#e5e7eb"/>
+<text x="424.90000000000003" y="787" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#0d9488" text-anchor="start" dominant-baseline="middle">answer_attempts_history</text>
+<text x="424.90000000000003" y="815" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">attempt_id</text>
+<text x="545.4000000000001" y="815" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="630.2" y="807" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="643.2" y="815.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="413.90000000000003" y="826" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="837" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">user_id</text>
+<text x="545.4000000000001" y="837" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="630.2" y="829" width="26" height="16" rx="4" fill="#2563eb" fill-opacity="0.12"/>
+<text x="643.2" y="837.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">FK</text>
+<text x="424.90000000000003" y="859" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">question</text>
+<text x="545.4000000000001" y="859" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<rect x="413.90000000000003" y="870" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="881" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">attempt_count</text>
+<text x="545.4000000000001" y="881" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">integer</text>
+<text x="424.90000000000003" y="903" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">status</text>
+<text x="545.4000000000001" y="903" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="413.90000000000003" y="914" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="925" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">idempotency_key</text>
+<text x="545.4000000000001" y="925" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<text x="424.90000000000003" y="947" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">llm_model</text>
+<text x="545.4000000000001" y="947" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="413.90000000000003" y="958" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="969" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">embedding_model</text>
+<text x="545.4000000000001" y="969" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<text x="424.90000000000003" y="991" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">error_code</text>
+<text x="545.4000000000001" y="991" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="413.90000000000003" y="1002" width="249.3" height="22" fill="#fafafa"/>
+<text x="424.90000000000003" y="1013" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">error_message</text>
+<text x="545.4000000000001" y="1013" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">text</text>
+<text x="424.90000000000003" y="1035" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="545.4000000000001" y="1035" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<rect x="44" y="580" width="272.90000000000003" height="152" rx="10" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M44,614 V590 a10,10 0 0 1 10,-10 H306.90000000000003 a10,10 0 0 1 10,10 V614 z" fill="#f8fafc"/>
+<rect x="44" y="580" width="272.90000000000003" height="4" rx="2" fill="#475569"/>
+<line x1="44" y1="614" x2="316.90000000000003" y2="614" stroke="#e5e7eb"/>
+<text x="56" y="599" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="13.5" font-weight="700" fill="#475569" text-anchor="start" dominant-baseline="middle">forbidden_words</text>
+<text x="56" y="627" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="700" fill="#1f2937" text-anchor="start" dominant-baseline="middle">id</text>
+<text x="139" y="627" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">bigint</text>
+<rect x="282.90000000000003" y="619" width="26" height="16" rx="4" fill="#d97706" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="627.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#d97706" text-anchor="middle" dominant-baseline="middle">PK</text>
+<rect x="45" y="638" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="649" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">word</text>
+<text x="139" y="649" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="282.90000000000003" y="641" width="26" height="16" rx="4" fill="#475569" fill-opacity="0.12"/>
+<text x="295.90000000000003" y="649.5" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="10" font-weight="700" fill="#475569" text-anchor="middle" dominant-baseline="middle">UK</text>
+<text x="56" y="671" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">status</text>
+<text x="139" y="671" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">varchar</text>
+<rect x="45" y="682" width="270.90000000000003" height="22" fill="#fafafa"/>
+<text x="56" y="693" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">created_at</text>
+<text x="139" y="693" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<text x="56" y="715" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12.5" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">updated_at</text>
+<text x="139" y="715" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">timestamp</text>
+<path d="M174.45000000000002,62 L186.45000000000002,62" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M174.45000000000002,57 L186.45000000000002,57" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M531.5500000000001,70 L538.5500000000001,58" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M545.5500000000001,70 L538.5500000000001,58" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M538.5500000000001,70 L538.5500000000001,58" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="538.5500000000001" cy="52" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="359.50000000000006" y="34" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">category_id</text>
+<path d="M36,123 L36,111" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M31,123 L31,111" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M44,346 L32,339" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M44,332 L32,339" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M44,339 L32,339" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="26" cy="339" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<path d="M404.90000000000003,123 L404.90000000000003,111" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M399.90000000000003,123 L399.90000000000003,111" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M316.90000000000003,288 L328.90000000000003,295" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M316.90000000000003,302 L328.90000000000003,295" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M316.90000000000003,295 L328.90000000000003,295" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="334.90000000000003" cy="295" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<path d="M404.90000000000003,477 L404.90000000000003,465" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="395.90000000000003" cy="471" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<path d="M316.90000000000003,464 L328.90000000000003,471" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M316.90000000000003,478 L328.90000000000003,471" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M316.90000000000003,471 L328.90000000000003,471" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="334.90000000000003" cy="471" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="364.90000000000003" y="443" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">created_by</text>
+<text x="364.90000000000003" y="458" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">updated_by</text>
+<path d="M532.5500000000001,416 L544.5500000000001,416" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="538.5500000000001" cy="407" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<path d="M545.5500000000001,354 L538.5500000000001,366" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M531.5500000000001,354 L538.5500000000001,366" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M538.5500000000001,354 L538.5500000000001,366" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="538.5500000000001" cy="372" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="548.5500000000001" y="389" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">admin_id</text>
+<path d="M672.2,465 L672.2,477" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="681.2" cy="471" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<path d="M760.2,478 L748.2,471" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M760.2,464 L748.2,471" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M760.2,471 L748.2,471" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="742.2" cy="471" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="712.2" y="459" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">user_id</text>
+<path d="M672.2,677 L672.2,689" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M677.2,677 L677.2,689" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M752.2,689 L752.2,677" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="743.2" cy="683" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="712.2" y="671" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">user_id</text>
+<path d="M544.5500000000001,716 L532.5500000000001,716" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M544.5500000000001,721 L532.5500000000001,721" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M531.5500000000001,768 L538.5500000000001,756" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M545.5500000000001,768 L538.5500000000001,756" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M538.5500000000001,768 L538.5500000000001,756" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="538.5500000000001" cy="750" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="548.5500000000001" y="738" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">user_id</text>
+<path d="M672.2,111 L672.2,123" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M677.2,111 L677.2,123" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M760.2,168 L748.2,161" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M760.2,154 L748.2,161" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M760.2,161 L748.2,161" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="742.2" cy="161" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<path d="M879.85,394 L891.85,394" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M879.85,389 L891.85,389" stroke="#475569" stroke-width="1.5" fill="none"/>
+<path d="M892.85,244 L885.85,256" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M878.85,244 L885.85,256" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M885.85,244 L885.85,256" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="885.85" cy="262" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="895.85" y="323" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">question_log_id</text>
+<rect x="44" y="1081" width="14" height="14" rx="3" fill="#eff6ff" stroke="#2563eb"/>
+<text x="64" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">사용자·인증</text>
+<rect x="151.6" y="1081" width="14" height="14" rx="3" fill="#f5f3ff" stroke="#7c3aed"/>
+<text x="171.6" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">FAQ</text>
+<rect x="218.64" y="1081" width="14" height="14" rx="3" fill="#f0fdfa" stroke="#0d9488"/>
+<text x="238.64" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">채팅 기록</text>
+<rect x="313.28" y="1081" width="14" height="14" rx="3" fill="#f8fafc" stroke="#475569"/>
+<text x="333.28" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">독립 (관계 없음)</text>
+<path d="M454.64,1088 H488.64" stroke="#475569" stroke-width="1.5"/><path d="M496.64,1082 L496.64,1094" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M501.64,1082 L501.64,1094" stroke="#475569" stroke-width="1.5" fill="none"/>
+<text x="526.64" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">정확히 1</text>
+<path d="M597.2,1088 H631.2" stroke="#475569" stroke-width="1.5"/><path d="M639.2,1082 L639.2,1094" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="648.2" cy="1088" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="669.2" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">0 또는 1</text>
+<path d="M739.28,1088 H773.28" stroke="#475569" stroke-width="1.5"/><path d="M773.28,1081 L785.28,1088" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M773.28,1095 L785.28,1088" stroke="#475569" stroke-width="1.5" fill="none"/><path d="M773.28,1088 L785.28,1088" stroke="#475569" stroke-width="1.5" fill="none"/><circle cx="791.28" cy="1088" r="4" fill="#fff" stroke="#475569" stroke-width="1.5"/>
+<text x="811.28" y="1088" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start" dominant-baseline="middle">0개 이상</text>
+<text x="44" y="1114" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">PK 기본 키 · FK 외래 키 · UK 유니크 (UK*는 삭제되지 않은 행 기준 부분 유니크). 매장 테이블은 다른 그림에 있습니다.</text>
+</svg>

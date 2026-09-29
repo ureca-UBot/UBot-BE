@@ -87,42 +87,7 @@ POST /chat/questions  { "question": "..." }   (JWT 필수, 1~4000자)
 
 같은 흐름을 답변 확정과 타임아웃이 경쟁하는 부분까지 포함해 그리면 아래와 같습니다.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as 클라이언트
-    participant CC as ChatController<br/>(DeferredResult)
-    participant CS as ChatService
-    participant AS as ChatAttemptsService<br/>(DB)
-    participant W as 답변 작업<br/>(가상 스레드)
-    participant O as Ollama
-    participant V as pgvector
-
-    C->>CC: POST /chat/questions
-    CC->>CS: createChat
-    CS->>CS: 금지어 검사 (포함 시 FW-003, 기록 없음)
-    CS->>AS: 시도 저장 (PENDING, 멱등키 발급)
-    CS->>W: 작업 제출
-    Note over C,CC: 응답을 보류하고 대기
-    W->>O: 질문 임베딩 (bge-m3)
-    W->>V: Top-K 유사도 검색
-    W->>W: 기준 미만 FAQ 제외 (없으면 CHAT-012, CHAT-013)
-    W->>O: 남은 FAQ로 답변 생성 (채팅 모델)
-    alt 제한 시간 안에 완료
-        W->>AS: 시도 행 잠금, PENDING이면 SUCCESS와 question_log, faq_log 저장
-        W-->>CC: 결과 확정
-        CC-->>C: 200 SUCCESS
-    else 답변 생성 중 오류
-        W->>AS: PENDING이면 FAIL과 오류 코드 저장
-        W-->>CC: 오류 확정
-        CC-->>C: 4xx/5xx, data에 시도 정보(retryable)
-    else CHAT_RESPONSE_TIMEOUT_MILLIS 초과
-        CC->>W: 작업 취소 (interrupt)
-        CC->>AS: PENDING이면 FAIL(CHAT-016) 저장
-        CC-->>C: 504 CHAT-016 (재시도 가능)
-        Note over W,AS: 늦게 끝난 작업은 시도가 이미 PENDING이 아니므로 저장하지 않음
-    end
-```
+![채팅 질문 처리 흐름: 답변 확정과 타임아웃이 경쟁하는 부분까지](images/chat-flow.svg)
 
 성공 응답의 `data`는 `ChatResponseDto`입니다.
 
@@ -142,22 +107,7 @@ sequenceDiagram
 - 본인의 가장 최근 시도가 `FAIL`이고 시도 횟수가 `CHAT_MAX_ATTEMPTS`(기본 3) 미만일 때만 새 시도를 만듭니다. 질문은 기존 기록에서 가져옵니다.
 - 같은 키로 동시에 재시도하면 최초 시도 행을 잠가 순서대로 처리합니다. `PENDING`이면 `CHAT-004`, 이미 성공했으면 `CHAT-005`, 횟수를 다 썼으면 `CHAT-006`이며, 이때 `data`는 `null`입니다.
 
-```mermaid
-sequenceDiagram
-    participant C as 클라이언트
-    participant CS as ChatService
-    participant AS as ChatAttemptsService<br/>(DB)
-    C->>CS: POST /chat/questions/retries (Idempotency-Key)
-    CS->>CS: 키 형식 검사 (64자리 16진수, 아니면 CHAT-011)
-    CS->>AS: 본인의 최초 시도 행 잠금 (없으면 CHAT-003)
-    AS->>AS: 가장 최근 시도 확인
-    alt FAIL이고 시도 횟수가 최대 미만
-        AS->>AS: 새 시도 저장 (시도 횟수 + 1, PENDING)
-        CS->>CS: 이후는 최초 요청과 같은 답변 생성 흐름
-    else PENDING, SUCCESS, 횟수 초과
-        CS-->>C: CHAT-004, CHAT-005, CHAT-006 (data 없음)
-    end
-```
+![채팅 재시도 흐름](images/chat-retry-flow.svg)
 
 ### 동시성·트랜잭션 원칙
 
