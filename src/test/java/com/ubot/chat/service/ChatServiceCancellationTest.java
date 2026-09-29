@@ -7,6 +7,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
@@ -41,7 +42,7 @@ class ChatServiceCancellationTest {
 
 	@BeforeEach
 	void setup() {
-		service = new ChatService(vector, ai, attempts, jobs::add);
+		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);

@@ -9,6 +9,7 @@ import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
@@ -39,17 +40,20 @@ public class ChatService {
 	private final FaqVectorService faqVectorService;
 	private final AiService aiService;
 	private final ChatAttemptsService chatAttemptsService;
+	private final ForbiddenWordFilterService forbiddenWordFilterService;
 	private final Executor chatExecutor;
 
 	public ChatService(
 			FaqVectorService faqVectorService,
 			AiService aiService,
 			ChatAttemptsService chatAttemptsService,
+			ForbiddenWordFilterService forbiddenWordFilterService,
 			@Qualifier("chatExecutor") Executor chatExecutor
 	) {
 		this.faqVectorService = faqVectorService;
 		this.aiService = aiService;
 		this.chatAttemptsService = chatAttemptsService;
+		this.forbiddenWordFilterService = forbiddenWordFilterService;
 		this.chatExecutor = chatExecutor;
 	}
 
@@ -57,6 +61,8 @@ public class ChatService {
 		if (!StringUtils.hasText(question) || question.length() > 4000) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
+		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
+		forbiddenWordFilterService.validateForbiddenWord(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
 		return startAnswerGeneration(attempt);
