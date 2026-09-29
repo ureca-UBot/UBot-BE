@@ -31,8 +31,8 @@ public class AdminForbiddenWordController {
 
 	@GetMapping
 	public ApiResponse<PageResponseDto<ForbiddenWordResponseDto>> getForbiddenWordList(
-			@RequestParam(defaultValue = "0") @Min(0) int page,
-			@RequestParam(defaultValue = "20") int size
+			@RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
+			@RequestParam(name = "size", defaultValue = "20") int size
 	) {
 		return ApiResponse.success(forbiddenWordService.getForbiddenWordList(page, size));
 	}
