@@ -18,6 +18,7 @@ import com.ubot.faq.entity.Faq;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.faq.service.FaqVectorService;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
@@ -87,7 +88,7 @@ class ChatServiceTest {
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
 		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
-		service = new ChatService(vector, ai, attemptsService, jobs::add);
+		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
 		var controller = new ChatController(service);
@@ -312,7 +313,7 @@ class ChatServiceTest {
 
 	@Test
 	void rejectedWorkerCompletesWithRecordedFailure() {
-		service = new ChatService(vector, ai, attemptsService, task -> {
+		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), task -> {
 			throw new java.util.concurrent.RejectedExecutionException("executor secret");
 		});
 		var task = service.createChat(1L, "질문");
