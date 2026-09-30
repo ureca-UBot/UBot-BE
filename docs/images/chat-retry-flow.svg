@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="857" viewBox="0 0 820 857" role="img" aria-label="채팅 재시도 흐름">
+<title>채팅 재시도 흐름</title>
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+  <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+  <marker id="arrowR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker>
+  <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d97706"/></marker>
+</defs>
+<rect x="0" y="0" width="820" height="857" rx="12" fill="#ffffff"/>
+<rect x="85" y="26" width="330" height="48" rx="24" fill="#ffffff" stroke="#475569" stroke-width="1.4"/>
+<text x="250" y="41" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">POST /chat/questions/retries</text>
+<text x="250" y="60" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">Idempotency-Key 헤더 · 본문 없음</text>
+<path d="M250,74 V102" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M250,103 L370,138 L250,173 L130,138 z" fill="#eff6ff" stroke="#2563eb" stroke-opacity="0.5" stroke-width="1.4"/>
+<text x="250" y="138" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">키가 64자리 16진수?</text>
+<path d="M370,138 H483" fill="none" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arrowR)"/>
+<text x="382" y="126" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#dc2626" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">아니오</text>
+<rect x="485" y="115" width="250" height="46" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.4"/>
+<text x="610" y="129" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#dc2626" text-anchor="middle" dominant-baseline="middle">400 CHAT-011</text>
+<text x="610" y="148" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">키 형식 오류</text>
+<text x="260" y="188" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">예</text>
+<path d="M250,173 V211" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="100" y="213" width="300" height="48" rx="10" fill="#f8fafc" stroke="#e5e7eb" stroke-width="1.4"/>
+<text x="250" y="228" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">본인의 최초 시도 행 잠금</text>
+<text x="250" y="247" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">같은 키의 동시 재시도를 순서대로 처리</text>
+<path d="M250,261 V289" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M250,290 L370,325 L250,360 L130,325 z" fill="#eff6ff" stroke="#2563eb" stroke-opacity="0.5" stroke-width="1.4"/>
+<text x="250" y="325" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">본인 기록이 있음?</text>
+<path d="M370,325 H483" fill="none" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arrowR)"/>
+<text x="382" y="313" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#dc2626" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">아니오</text>
+<rect x="485" y="302" width="250" height="46" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.4"/>
+<text x="610" y="316" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#dc2626" text-anchor="middle" dominant-baseline="middle">404 CHAT-003</text>
+<text x="610" y="335" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">다른 사용자 키이거나 없는 키</text>
+<text x="260" y="375" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">예</text>
+<path d="M250,360 V388" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M250,389 L370,424 L250,459 L130,424 z" fill="#eff6ff" stroke="#2563eb" stroke-opacity="0.5" stroke-width="1.4"/>
+<text x="250" y="424" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">최근 시도가 PENDING?</text>
+<path d="M370,424 H483" fill="none" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arrowR)"/>
+<text x="382" y="412" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#dc2626" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">예</text>
+<rect x="485" y="401" width="250" height="46" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.4"/>
+<text x="610" y="415" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#dc2626" text-anchor="middle" dominant-baseline="middle">409 CHAT-004</text>
+<text x="610" y="434" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">아직 답변 생성 중</text>
+<text x="260" y="474" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">아니오</text>
+<path d="M250,459 V487" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M250,488 L370,523 L250,558 L130,523 z" fill="#eff6ff" stroke="#2563eb" stroke-opacity="0.5" stroke-width="1.4"/>
+<text x="250" y="523" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">최근 시도가 SUCCESS?</text>
+<path d="M370,523 H483" fill="none" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arrowR)"/>
+<text x="382" y="511" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#dc2626" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">예</text>
+<rect x="485" y="500" width="250" height="46" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.4"/>
+<text x="610" y="514" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#dc2626" text-anchor="middle" dominant-baseline="middle">409 CHAT-005</text>
+<text x="610" y="533" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">이미 답변 완료</text>
+<text x="260" y="573" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">아니오</text>
+<path d="M250,558 V586" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M250,587 L370,622 L250,657 L130,622 z" fill="#eff6ff" stroke="#2563eb" stroke-opacity="0.5" stroke-width="1.4"/>
+<text x="250" y="622" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="600" fill="#1f2937" text-anchor="middle" dominant-baseline="middle">시도 횟수가 최대 이상?</text>
+<path d="M370,622 H483" fill="none" stroke="#dc2626" stroke-width="1.6" marker-end="url(#arrowR)"/>
+<text x="382" y="610" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#dc2626" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">예</text>
+<rect x="485" y="599" width="250" height="46" rx="10" fill="#fef2f2" stroke="#fecaca" stroke-width="1.4"/>
+<text x="610" y="613" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#dc2626" text-anchor="middle" dominant-baseline="middle">409 CHAT-006</text>
+<text x="610" y="632" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">CHAT_MAX_ATTEMPTS (기본 3)</text>
+<text x="260" y="672" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start" dominant-baseline="middle" stroke="#ffffff" stroke-width="5" stroke-linejoin="round" paint-order="stroke">아니오</text>
+<path d="M250,657 V695" fill="none" stroke="#16a34a" stroke-width="1.6" marker-end="url(#arrowG)"/>
+<rect x="100" y="697" width="300" height="48" rx="10" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.4"/>
+<text x="250" y="712" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="700" fill="#16a34a" text-anchor="middle" dominant-baseline="middle">새 시도 저장</text>
+<text x="250" y="731" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="middle" dominant-baseline="middle">시도 횟수 + 1, PENDING · 질문은 기존 기록에서</text>
+<path d="M250,745 V781" fill="none" stroke="#16a34a" stroke-width="1.6" marker-end="url(#arrowG)"/>
+<rect x="100" y="783" width="300" height="40" rx="20" fill="#ffffff" stroke="#16a34a" stroke-width="1.4"/>
+<text x="250" y="803" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13.5" font-weight="600" fill="#16a34a" text-anchor="middle" dominant-baseline="middle">최초 요청과 같은 답변 생성 흐름</text>
+<text x="485" y="817" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start" dominant-baseline="middle">※ 거절 응답(CHAT-003~006, 011)의 data는 null</text>
+</svg>
