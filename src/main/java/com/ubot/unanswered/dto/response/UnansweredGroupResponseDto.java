@@ -10,6 +10,7 @@ public record UnansweredGroupResponseDto(
 		String representativeQuestion,
 		Integer questionCount,
 		Long relatedFaqId,
+		Long resolvedFaqId,
 		UnansweredGroupStatus status,
 		LocalDateTime lastOccurredAt
 ) {
@@ -19,6 +20,7 @@ public record UnansweredGroupResponseDto(
 				group.getRepresentativeQuestion(),
 				group.getQuestionCount(),
 				group.getRelatedFaqId(),
+				group.getResolvedFaqId(),
 				group.getStatus(),
 				group.getLastOccurredAt()
 		);

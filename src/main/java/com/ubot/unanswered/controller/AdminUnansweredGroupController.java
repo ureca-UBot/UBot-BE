@@ -1,7 +1,9 @@
 package com.ubot.unanswered.controller;
 
+import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
+import com.ubot.unanswered.dto.request.UnansweredGroupFaqCreateRequestDto;
 import com.ubot.unanswered.dto.request.UnansweredGroupStatusUpdateRequestDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupDetailResponseDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupResponseDto;
@@ -11,6 +13,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,6 +40,17 @@ public class AdminUnansweredGroupController {
 			@Positive @PathVariable("groupId") Long groupId
 	){
 		return ApiResponse.success(unansweredGroupService.getUnansweredGroup(groupId));
+	}
+
+	@PostMapping("/{groupId}/faq")
+	public ApiResponse<UnansweredGroupResponseDto> createUnansweredGroupFaq(
+			@Positive @PathVariable("groupId") Long groupId,
+			@Valid @RequestBody UnansweredGroupFaqCreateRequestDto requestDto,
+			@AuthenticationPrincipal CustomUserDetails userDetails
+	){
+		return ApiResponse.success(
+				unansweredGroupService.createUnansweredGroupFaq(groupId, requestDto, userDetails.getUserId())
+		);
 	}
 
 	@PatchMapping("/{groupId}/status")
