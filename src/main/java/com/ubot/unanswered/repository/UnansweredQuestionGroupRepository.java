@@ -9,5 +9,11 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface UnansweredQuestionGroupRepository extends JpaRepository<UnansweredQuestionGroup, Long> {
-	Page<UnansweredQuestionGroup> findAllByStatus(UnansweredGroupStatus status, Pageable pageable);
+	Page<UnansweredQuestionGroup> findAllByQuestionCountGreaterThanEqual(Integer minCount, Pageable pageable);
+
+	Page<UnansweredQuestionGroup> findAllByStatusAndQuestionCountGreaterThanEqual(
+			UnansweredGroupStatus status,
+			Integer minCount,
+			Pageable pageable
+	);
 }

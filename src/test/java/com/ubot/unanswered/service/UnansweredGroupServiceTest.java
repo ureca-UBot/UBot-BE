@@ -56,7 +56,7 @@ class UnansweredGroupServiceTest {
 	@DisplayName("상태로 거르고 최근 발생순으로 정렬한다")
 	void listsByStatusRecentFirst() {
 		PageResponseDto<UnansweredGroupResponseDto> result =
-				service.getUnansweredGroupList(UnansweredGroupStatus.PENDING, "recent", 0, 20);
+				service.getUnansweredGroupList(UnansweredGroupStatus.PENDING, 1, "recent", 0, 20);
 
 		assertThat(result.content()).extracting(UnansweredGroupResponseDto::id)
 				.containsExactly(penaltyGroupId, roamingGroupId);
@@ -65,19 +65,29 @@ class UnansweredGroupServiceTest {
 	@Test
 	@DisplayName("상태를 지정하지 않으면 전체를 발생 횟수순으로 정렬한다")
 	void listsAllByCount() {
-		PageResponseDto<UnansweredGroupResponseDto> result = service.getUnansweredGroupList(null, "count", 0, 20);
+		PageResponseDto<UnansweredGroupResponseDto> result = service.getUnansweredGroupList(null, 1, "count", 0, 20);
 
 		assertThat(result.content()).extracting(UnansweredGroupResponseDto::questionCount)
 				.containsExactly(5, 3, 1);
 	}
 
 	@Test
+	@DisplayName("최소 발생 횟수보다 적은 묶음은 제외한다")
+	void excludesGroupsBelowMinCount() {
+		PageResponseDto<UnansweredGroupResponseDto> result =
+				service.getUnansweredGroupList(UnansweredGroupStatus.PENDING, 2, "recent", 0, 20);
+
+		assertThat(result.content()).extracting(UnansweredGroupResponseDto::id)
+				.containsExactly(roamingGroupId);
+	}
+
+	@Test
 	@DisplayName("허용하지 않은 정렬이나 페이지 크기는 거절한다")
 	void rejectsInvalidSortOrSize() {
-		assertThatThrownBy(() -> service.getUnansweredGroupList(null, "name", 0, 20))
+		assertThatThrownBy(() -> service.getUnansweredGroupList(null, 1, "name", 0, 20))
 				.isInstanceOfSatisfying(GlobalException.class,
 						e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_PARAMETER));
-		assertThatThrownBy(() -> service.getUnansweredGroupList(null, "recent", 0, 7))
+		assertThatThrownBy(() -> service.getUnansweredGroupList(null, 1, "recent", 0, 7))
 				.isInstanceOf(GlobalException.class);
 	}
 

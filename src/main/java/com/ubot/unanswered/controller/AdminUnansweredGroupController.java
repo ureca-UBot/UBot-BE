@@ -24,11 +24,12 @@ public class AdminUnansweredGroupController {
 	@GetMapping
 	public ApiResponse<PageResponseDto<UnansweredGroupResponseDto>> getUnansweredGroupList(
 			@RequestParam(name = "status", required = false) UnansweredGroupStatus status,
+			@RequestParam(name = "minCount", defaultValue = "1") @Min(1) int minCount,
 			@RequestParam(name = "sort", defaultValue = "recent") String sort,
 			@RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
 			@RequestParam(name = "size", defaultValue = "20") int size
 	){
-		return ApiResponse.success(unansweredGroupService.getUnansweredGroupList(status, sort, page, size));
+		return ApiResponse.success(unansweredGroupService.getUnansweredGroupList(status, minCount, sort, page, size));
 	}
 
 	@GetMapping("/{groupId}")

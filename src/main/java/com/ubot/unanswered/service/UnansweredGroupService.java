@@ -37,6 +37,7 @@ public class UnansweredGroupService {
 	@Transactional(readOnly = true)
 	public PageResponseDto<UnansweredGroupResponseDto> getUnansweredGroupList(
 			UnansweredGroupStatus status,
+			int minCount,
 			String sort,
 			int page,
 			int size
@@ -46,8 +47,8 @@ public class UnansweredGroupService {
 		}
 		PageRequest pageRequest = PageRequest.of(page, size, SORTS.get(sort));
 		Page<UnansweredQuestionGroup> groups = status == null
-				? unansweredQuestionGroupRepository.findAll(pageRequest)
-				: unansweredQuestionGroupRepository.findAllByStatus(status, pageRequest);
+				? unansweredQuestionGroupRepository.findAllByQuestionCountGreaterThanEqual(minCount, pageRequest)
+				: unansweredQuestionGroupRepository.findAllByStatusAndQuestionCountGreaterThanEqual(status, minCount, pageRequest);
 		return PageResponseDto.from(groups.map(UnansweredGroupResponseDto::from));
 	}
 
