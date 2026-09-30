@@ -39,4 +39,9 @@ public class UnansweredQuestionGroup {
 
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
+
+	public void updateStatus(UnansweredGroupStatus status){
+		this.status = status;
+		this.updatedAt = LocalDateTime.now();
+	}
 }
