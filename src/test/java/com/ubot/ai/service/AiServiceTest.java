@@ -8,11 +8,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
+import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
@@ -25,7 +28,6 @@ import com.ubot.prompt.exception.PromptException;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.store.service.StoreService;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -84,10 +86,40 @@ class AiServiceTest {
         assertThat(request.getValue().messages()).isEqualTo(prompt.messages());
         assertThat(request.getValue().toolCallbacks())
                 .extracting(callback -> callback.getToolDefinition().name()).containsExactly("findNearbyStores");
-        assertThat(request.getValue().toolContext()).isEqualTo(Map.of(
-                StoreTools.QUESTION, "근처 매장 알려줘",
-                StoreTools.LATITUDE, 37.5,
-                StoreTools.LONGITUDE, 127.0));
+        assertThat(request.getValue().toolContext())
+                .containsEntry(StoreTools.QUESTION, "근처 매장 알려줘")
+                .containsEntry(StoreTools.LATITUDE, 37.5)
+                .containsEntry(StoreTools.LONGITUDE, 127.0)
+                .hasEntrySatisfying(StoreTools.RECORDER,
+                        recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
+                .hasSize(4);
+    }
+
+    @Test
+    void 도구가_조회한_매장은_답변과_함께_반환한다() {
+        var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
+        var storeMap = new StoreMapResult(new Location(37.5, 127.0), null, 3.0, List.of());
+        when(promptService.createPrompt("근처 매장", List.of(), List.of())).thenReturn(prompt);
+        // 실제 도구 실행 대신, 도구가 요청의 recorder에 결과를 남기는 상황을 흉내 냅니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            ((StoreSearchRecorder) request.toolContext().get(StoreTools.RECORDER)).record(storeMap);
+            return new LlmResponseDto("근처 매장을 지도에 표시했어요.");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("근처 매장을 지도에 표시했어요.");
+        assertThat(answer.storeMap()).isSameAs(storeMap);
+    }
+
+    @Test
+    void 도구가_매장을_조회하지_않으면_지도_정보는_없다() {
+        var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
+        when(promptService.createPrompt("근처 매장", List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("어느 지역인지 알려 주세요."));
+
+        assertThat(aiService.generateAnswer(materials).storeMap()).isNull();
     }
 
     @Test
@@ -100,7 +132,10 @@ class AiServiceTest {
 
         ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
         verify(llmService).generateAnswer(request.capture());
-        assertThat(request.getValue().toolContext()).isEqualTo(Map.of(StoreTools.QUESTION, "근처 매장"));
+        assertThat(request.getValue().toolContext())
+                .containsEntry(StoreTools.QUESTION, "근처 매장")
+                .containsKey(StoreTools.RECORDER)
+                .doesNotContainKeys(StoreTools.LATITUDE, StoreTools.LONGITUDE);
     }
 
     @Test

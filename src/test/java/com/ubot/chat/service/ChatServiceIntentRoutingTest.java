@@ -6,16 +6,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
+import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.service.AiService;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -50,7 +52,7 @@ class ChatServiceIntentRoutingTest {
 		when(attempts.createAnswerAttempt(1L, "근처 매장 알려줘")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("근처 매장 알려줘", 3)).thenReturn(sources);
-		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", null));
 		when(attempts.saveAnswerSuccess(any(), any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
@@ -71,6 +73,20 @@ class ChatServiceIntentRoutingTest {
 		assertThat(materials.location()).isEqualTo(new Location(37.5, 127.0));
 		// faq_log는 intent와 관계없이 threshold를 넘은 검색 결과 전체로 남깁니다.
 		verify(attempts).saveAnswerSuccess(attempt, "답변", sources.subList(0, 2));
+	}
+
+	@Test
+	@DisplayName("도구가 조회한 매장 지도 정보를 성공 응답에 담는다")
+	void returnsStoreMapInResponse() {
+		var storeMap = new StoreMapResult(new Location(37.5, 127.0), null, 3.0, List.of());
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", storeMap));
+
+		var task = service.createChat(1L, "근처 매장 알려줘", 37.5, 127.0);
+		jobs.poll().run();
+
+		ChatResponseDto response = task.result().join();
+		assertThat(response.answer()).isEqualTo("답변");
+		assertThat(response.storeMap()).isSameAs(storeMap);
 	}
 
 	@Test

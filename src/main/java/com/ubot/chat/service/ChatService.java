@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.service.AiService;
@@ -14,7 +15,6 @@ import com.ubot.common.GlobalException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.prompt.exception.PromptException;
@@ -148,7 +148,7 @@ public class ChatService {
 			// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
 			AnswerMaterials materials = chatContextCollector.collect(
 					new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
-			LlmResponseDto answer = aiService.generateAnswer(materials);
+			AiAnswer answer = aiService.generateAnswer(materials);
 			checkCancellation(generation);
 			if (answer == null || !StringUtils.hasText(answer.answer())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
@@ -161,7 +161,7 @@ public class ChatService {
 					throw createAnswerFailure(savedAttempt);
 				}
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
-				return ChatResponseDto.from(savedAttempt, answer.answer(), false);
+				return ChatResponseDto.from(savedAttempt, answer.answer(), false, answer.storeMap());
 			});
 		} catch (GlobalException exception) {
 			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);

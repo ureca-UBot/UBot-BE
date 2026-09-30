@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -41,13 +42,16 @@ class OllamaClientToolCallingTest {
     private final AiToolRegistry registry =
             new AiToolRegistry(new StoreTools(storeService, mock(LocationService.class)));
 
+    private final StoreSearchRecorder recorder = new StoreSearchRecorder();
+
     private final LlmRequestDto request = new LlmRequestDto(List.of(
             new LlmMessageRequestDto(LlmMessageRole.SYSTEM, "시스템"),
             new LlmMessageRequestDto(LlmMessageRole.USER, "근처 매장 알려줘")))
             .withTools(registry.resolve(Set.of(AiTool.STORE_SEARCH)), Map.of(
                     StoreTools.QUESTION, "근처 매장 알려줘",
                     StoreTools.LATITUDE, 37.5,
-                    StoreTools.LONGITUDE, 127.0));
+                    StoreTools.LONGITUDE, 127.0,
+                    StoreTools.RECORDER, recorder));
 
     @BeforeEach
     void setUp() {
@@ -67,6 +71,9 @@ class OllamaClientToolCallingTest {
         assertThat(answer.answer()).isEqualTo("강남점이 가까워요.");
         // toolContext의 좌표가 도구로 전달되어 매장을 조회합니다.
         verify(storeService).getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5);
+        // Spring AI를 거쳐도 요청이 넣은 같은 recorder에 조회 결과가 남아 화면에 전달할 수 있습니다.
+        assertThat(recorder.result()).hasValueSatisfying(result -> assertThat(result.stores())
+                .extracting(NearbyStoreResponseDto::storeId).containsExactly(12L));
 
         ArgumentCaptor<Prompt> prompts = ArgumentCaptor.forClass(Prompt.class);
         verify(chatModel, times(2)).call(prompts.capture());

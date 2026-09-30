@@ -10,6 +10,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.Location;
+import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.location.dto.LocationSearchResponse;
 import com.ubot.location.service.LocationService;
 import com.ubot.store.dto.NearbyStoreResponseDto;
@@ -51,7 +53,85 @@ class StoreToolsTest {
                 StoreTools.LONGITUDE, 129.0)));
 
         assertThat(result).isEqualTo(
-                "[매장 ID: 12] 강남점 | 서울 강남구 테헤란로 1 | 02-123-4567 | 영업시간 10:00~21:00 | 0.4km");
+                "[매장 ID: 12] 강남점 | 서울 강남구 테헤란로 1 | 02-123-4567 | 영업시간 10:00~21:00 | 0.4km"
+                        + "\n\n" + StoreTools.MAP_NOTICE);
+    }
+
+    @Test
+    void recordsPlaceBasedResultForMap() {
+        when(locationService.search("강남역")).thenReturn(List.of(
+                new LocationSearchResponse("강남역", "서울 강남구", "서울 강남구 강남대로", 37.4979, 127.0276)));
+        when(storeService.getNearbyStoreList(37.4979, 127.0276, 3.0, List.of(), 5)).thenReturn(List.of(store));
+        var recorder = new StoreSearchRecorder();
+
+        storeTools.findNearbyStores(" 강남역 ", context(Map.of(
+                StoreTools.QUESTION, "강남역 근처 매장",
+                StoreTools.RECORDER, recorder)));
+
+        assertThat(recorder.result()).contains(
+                new StoreMapResult(new Location(37.4979, 127.0276), "강남역", 3.0, List.of(store)));
+    }
+
+    @Test
+    void recordsRequestLocationResultWithoutPlaceName() {
+        when(storeService.getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5)).thenReturn(List.of(store));
+        var recorder = new StoreSearchRecorder();
+
+        storeTools.findNearbyStores(null, context(Map.of(
+                StoreTools.QUESTION, "근처 매장",
+                StoreTools.LATITUDE, 37.5,
+                StoreTools.LONGITUDE, 127.0,
+                StoreTools.RECORDER, recorder)));
+
+        assertThat(recorder.result()).hasValueSatisfying(result -> {
+            assertThat(result.center()).isEqualTo(new Location(37.5, 127.0));
+            assertThat(result.placeName()).isNull();
+            assertThat(result.stores()).containsExactly(store);
+        });
+    }
+
+    @Test
+    void recordsEmptyResultSoScreenCanShowNoStore() {
+        when(storeService.getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5)).thenReturn(List.of());
+        var recorder = new StoreSearchRecorder();
+
+        String result = storeTools.findNearbyStores(null, context(Map.of(
+                StoreTools.QUESTION, "근처 매장",
+                StoreTools.LATITUDE, 37.5,
+                StoreTools.LONGITUDE, 127.0,
+                StoreTools.RECORDER, recorder)));
+
+        assertThat(result).isEqualTo(StoreTools.NO_STORE_MESSAGE);
+        assertThat(recorder.result()).hasValueSatisfying(value -> assertThat(value.stores()).isEmpty());
+    }
+
+    @Test
+    void doesNotRecordWhenLocationIsUnknownOrLookupFails() {
+        when(storeService.getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5))
+                .thenThrow(new IllegalStateException("db down"));
+        var recorder = new StoreSearchRecorder();
+
+        storeTools.findNearbyStores(null, context(Map.of(StoreTools.QUESTION, "근처 매장", StoreTools.RECORDER, recorder)));
+        storeTools.findNearbyStores(null, context(Map.of(
+                StoreTools.QUESTION, "근처 매장",
+                StoreTools.LATITUDE, 37.5,
+                StoreTools.LONGITUDE, 127.0,
+                StoreTools.RECORDER, recorder)));
+
+        assertThat(recorder.result()).isEmpty();
+    }
+
+    @Test
+    void comparesPlaceIgnoringTabsAndLineBreaks() {
+        when(locationService.search("강남역")).thenReturn(List.of());
+        when(storeService.getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5)).thenReturn(List.of(store));
+
+        storeTools.findNearbyStores("강남역", context(Map.of(
+                StoreTools.QUESTION, "강남\t역\n근처",
+                StoreTools.LATITUDE, 37.5,
+                StoreTools.LONGITUDE, 127.0)));
+
+        verify(locationService).search("강남역");
     }
 
     @Test

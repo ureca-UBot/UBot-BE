@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -9,7 +10,6 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import java.util.ArrayDeque;
@@ -49,7 +49,7 @@ class ChatServiceCancellationTest {
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null));
 		when(attempts.saveAnswerSuccess(any(), anyString(), anyList())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
@@ -97,7 +97,7 @@ class ChatServiceCancellationTest {
 			if (failAfterInterrupt) {
 				throw new LlmException(LlmErrorCode.LLM_TIMEOUT);
 			}
-			return new LlmResponseDto("취소 후 늦게 도착한 답변");
+			return new AiAnswer("취소 후 늦게 도착한 답변", null);
 		});
 
 		runAndCancel(service.createChat(1L, "질문").result(), call);

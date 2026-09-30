@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.controller.ChatController;
@@ -21,7 +22,6 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.prompt.exception.PromptException;
@@ -126,7 +126,7 @@ class ChatServiceTest {
 		var sources = List.of(new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9),
 				new FaqSearchResponseDto(2L, "준비물", "준비물 원문", 0.8));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new LlmResponseDto("생성된 답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("생성된 답변", null));
 		String body = completeRequest();
 		assertThat(body).contains("\"status\":\"SUCCESS\"", "\"success\":true", "생성된 답변")
 				.doesNotContain("event:", "data:");
@@ -152,7 +152,7 @@ class ChatServiceTest {
 		var third = new FaqSearchResponseDto(3L, "준비물", "준비물 안내", 0.75);
 		var accepted = List.of(first, third);
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(first, excluded, third));
-		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", accepted))).thenReturn(new LlmResponseDto("생성된 답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", accepted))).thenReturn(new AiAnswer("생성된 답변", null));
 
 		assertThat(completeRequest()).contains("\"status\":\"SUCCESS\"", "생성된 답변");
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", accepted));
@@ -189,7 +189,7 @@ class ChatServiceTest {
 	@Test void thresholdEqualityStillCallsLlm() throws Exception {
 		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.75));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null));
 		assertThat(completeRequest()).contains("\"status\":\"SUCCESS\"");
 	}
 
