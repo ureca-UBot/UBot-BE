@@ -43,13 +43,13 @@ class ChatServiceCancellationTest {
 
 	@BeforeEach
 	void setup() {
-		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), jobs::add);
+		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new LlmResponseDto("답변"));
 		when(attempts.saveAnswerSuccess(any(), anyString(), anyList())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
@@ -92,7 +92,7 @@ class ChatServiceCancellationTest {
 	@ValueSource(booleans = {false, true})
 	void cancellationDuringLlmInterruptsWorkerAndDiscardsLateOutcome(boolean failAfterInterrupt) throws Exception {
 		var call = new BlockingCall();
-		when(ai.generateAnswer("질문", sources)).thenAnswer(invocation -> {
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenAnswer(invocation -> {
 			call.awaitRelease();
 			if (failAfterInterrupt) {
 				throw new LlmException(LlmErrorCode.LLM_TIMEOUT);
@@ -102,7 +102,7 @@ class ChatServiceCancellationTest {
 
 		runAndCancel(service.createChat(1L, "질문").result(), call);
 
-		verify(ai).generateAnswer("질문", sources);
+		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
 		verifyNoResultSaved();
 	}
 
@@ -123,7 +123,7 @@ class ChatServiceCancellationTest {
 		assertThat(other.join().status()).isEqualTo("SUCCESS");
 		assertThat(other.cancel(true)).isFalse();
 		verify(vector).getSimilarList("질문", 3);
-		verify(ai).generateAnswer("질문", sources);
+		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
 		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", sources);
 		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList());
 		verify(attempts, never()).saveAnswerFailure(any(), any());

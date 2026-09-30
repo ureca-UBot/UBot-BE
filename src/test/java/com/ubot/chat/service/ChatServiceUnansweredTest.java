@@ -38,7 +38,7 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), unanswered, jobs::add);
+		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), unanswered, ChatTestFixtures.collector(), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
@@ -90,7 +90,7 @@ class ChatServiceUnansweredTest {
 	void doesNotRecordOnSuccess() {
 		List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new LlmResponseDto("답변"));
 		when(attempts.saveAnswerSuccess(any(), any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();

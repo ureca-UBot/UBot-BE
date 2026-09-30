@@ -1,7 +1,10 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.service.AiService;
+import com.ubot.chat.context.ChatContext;
+import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
@@ -45,6 +48,7 @@ public class ChatService {
 	private final ChatAttemptsService chatAttemptsService;
 	private final ForbiddenWordFilterService forbiddenWordFilterService;
 	private final UnansweredQuestionService unansweredQuestionService;
+	private final ChatContextCollector chatContextCollector;
 	private final Executor chatExecutor;
 
 	public ChatService(
@@ -53,6 +57,7 @@ public class ChatService {
 			ChatAttemptsService chatAttemptsService,
 			ForbiddenWordFilterService forbiddenWordFilterService,
 			UnansweredQuestionService unansweredQuestionService,
+			ChatContextCollector chatContextCollector,
 			@Qualifier("chatExecutor") Executor chatExecutor
 	) {
 		this.faqVectorService = faqVectorService;
@@ -60,6 +65,7 @@ public class ChatService {
 		this.chatAttemptsService = chatAttemptsService;
 		this.forbiddenWordFilterService = forbiddenWordFilterService;
 		this.unansweredQuestionService = unansweredQuestionService;
+		this.chatContextCollector = chatContextCollector;
 		this.chatExecutor = chatExecutor;
 	}
 
@@ -139,7 +145,10 @@ public class ChatService {
 				return handleAnswerFailure(attempt, ChatErrorCode.INSUFFICIENT_FAQ, generation);
 			}
 			checkCancellation(generation);
-			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), filteredResults);
+			// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
+			AnswerMaterials materials = chatContextCollector.collect(
+					new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
+			LlmResponseDto answer = aiService.generateAnswer(materials);
 			checkCancellation(generation);
 			if (answer == null || !StringUtils.hasText(answer.answer())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
