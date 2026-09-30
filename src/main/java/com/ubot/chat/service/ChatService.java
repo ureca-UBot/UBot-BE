@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.Location;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -63,14 +64,20 @@ public class ChatService {
 	}
 
 	public ChatAnswerTask createChat(Long userId, String question) {
+		return createChat(userId, question, null, null);
+	}
+
+	public ChatAnswerTask createChat(Long userId, String question, Double latitude, Double longitude) {
 		if (!StringUtils.hasText(question) || question.length() > 4000) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
 		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
 		forbiddenWordFilterService.validateForbiddenWord(question);
 
+		Location location = latitude != null && longitude != null ? new Location(latitude, longitude) : null;
+
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
-		return startAnswerGeneration(attempt);
+		return startAnswerGeneration(attempt, location);
 	}
 
 	public ChatAnswerTask retryChat(Long userId, String idempotencyKey) {
@@ -79,10 +86,11 @@ public class ChatService {
 		}
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
-		return startAnswerGeneration(attempt);
+		// 시도 이력에 위치를 저장하지 않으므로 재시도는 위치 없이 진행합니다.
+		return startAnswerGeneration(attempt, null);
 	}
 
-	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt) {
+	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, Location location) {
 		ChatAnswerTask generation = new ChatAnswerTask(new CompletableFuture<>(), () -> {
 			AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerTimeout(attempt);
 			return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
@@ -90,7 +98,7 @@ public class ChatService {
 		});
 		FutureTask<Void> task = new FutureTask<>(() -> {
 			try {
-				generateAnswer(attempt, generation);
+				generateAnswer(attempt, location, generation);
 			} catch (Throwable exception) {
 				generation.completeExceptionally(exception);
 			}
@@ -105,7 +113,9 @@ public class ChatService {
 		return generation;
 	}
 
-	private ChatResponseDto generateAnswer(AnswerAttemptsHistory attempt, ChatAnswerTask generation) {
+	private ChatResponseDto generateAnswer(
+			AnswerAttemptsHistory attempt, Location location, ChatAnswerTask generation
+	) {
 		try {
 			checkCancellation(generation);
 			// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
