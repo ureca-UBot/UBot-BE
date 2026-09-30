@@ -44,39 +44,36 @@ class GuestSessionIntegrationTest {
 	private int port;
 
 	@Test
-	@DisplayName("단순 조회는 세션을 만들지 않고, 첫 채팅에서만 JSESSIONID를 발급한다")
-	void issuesSessionCookieOnlyOnFirstChat() throws Exception {
-		var peek = send(get(BASE_PATH + "/count"), null);
-		assertThat(peek.body()).isEqualTo("0");
+	@DisplayName("단순 조회는 세션을 만들지 않고, 게스트 기능을 처음 쓸 때만 JSESSIONID를 발급한다")
+	void issuesSessionCookieOnlyOnFirstUse() throws Exception {
+		var peek = send(get(BASE_PATH + "/exists"), null);
+		assertThat(peek.body()).isEqualTo("false");
 		assertThat(sessionCookie(peek)).isEmpty();
 
-		var first = send(post(BASE_PATH + "/chat"), null);
-		assertThat(first.body()).isEqualTo("1");
+		var first = send(post(BASE_PATH + "/start"), null);
 		String setCookie = first.headers().allValues("Set-Cookie").stream()
 				.filter(value -> value.startsWith("JSESSIONID=")).findFirst().orElseThrow();
 		assertThat(setCookie).containsIgnoringCase("HttpOnly");
 		String cookie = sessionCookie(first).orElseThrow();
 
-		var second = send(post(BASE_PATH + "/chat"), cookie);
-		assertThat(second.body()).isEqualTo("2");
+		var second = send(post(BASE_PATH + "/start"), cookie);
 		assertThat(sessionCookie(second)).as("기존 세션 재사용 시 새 쿠키를 발급하지 않음").isEmpty();
-		assertThat(send(get(BASE_PATH + "/count"), cookie).body()).isEqualTo("2");
+		assertThat(send(get(BASE_PATH + "/exists"), cookie).body()).isEqualTo("true");
 
-		// 쿠키가 없는 다른 게스트는 별도 상태로 시작합니다.
-		var other = send(post(BASE_PATH + "/chat"), null);
-		assertThat(other.body()).isEqualTo("1");
+		// 쿠키가 없는 다른 게스트는 별도 세션으로 시작합니다.
+		var other = send(post(BASE_PATH + "/start"), null);
 		assertThat(sessionCookie(other)).isPresent().isNotEqualTo(Optional.of(cookie));
 	}
 
 	@Test
 	@DisplayName("세션을 종료하면 같은 쿠키로도 이전 상태에 접근할 수 없다")
 	void invalidatedSessionLosesState() throws Exception {
-		String cookie = sessionCookie(send(post(BASE_PATH + "/chat"), null)).orElseThrow();
+		String cookie = sessionCookie(send(post(BASE_PATH + "/start"), null)).orElseThrow();
 
 		send(post(BASE_PATH + "/clear"), cookie);
 
-		var afterClear = send(get(BASE_PATH + "/count"), cookie);
-		assertThat(afterClear.body()).isEqualTo("0");
+		var afterClear = send(get(BASE_PATH + "/exists"), cookie);
+		assertThat(afterClear.body()).isEqualTo("false");
 		assertThat(sessionCookie(afterClear)).isEmpty();
 	}
 
@@ -105,7 +102,7 @@ class GuestSessionIntegrationTest {
 		assertThat(me.body()).contains(email);
 		assertThat(sessionCookie(me)).isEmpty();
 
-		String guestCookie = sessionCookie(send(post(BASE_PATH + "/chat"), null)).orElseThrow();
+		String guestCookie = sessionCookie(send(post(BASE_PATH + "/start"), null)).orElseThrow();
 		var meWithBoth = send(get("/auth/me").header("Authorization", bearer), guestCookie);
 		assertThat(meWithBoth.statusCode()).isEqualTo(200);
 		assertThat(meWithBoth.body()).contains(email);
@@ -156,14 +153,14 @@ class GuestSessionIntegrationTest {
 			this.guestSessionService = guestSessionService;
 		}
 
-		@PostMapping("/chat")
-		int chat(HttpServletRequest request) {
-			return guestSessionService.increaseChatCount(request);
+		@PostMapping("/start")
+		void start(HttpServletRequest request) {
+			guestSessionService.getOrCreateGuestSession(request);
 		}
 
-		@GetMapping("/count")
-		int count(HttpServletRequest request) {
-			return guestSessionService.getChatCount(request);
+		@GetMapping("/exists")
+		boolean exists(HttpServletRequest request) {
+			return guestSessionService.getGuestSessionState(request).isPresent();
 		}
 
 		@PostMapping("/clear")
