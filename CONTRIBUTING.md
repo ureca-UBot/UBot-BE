@@ -2,7 +2,7 @@
 
 팀의 Git / GitHub 협업 규칙입니다. 코딩 컨벤션(팀 Notion)과 Notion 규칙이 현재 코드·CI와 다른 점은 맨 아래 [팀 Notion 규칙](#팀-notion-규칙)의 접힌 부분에 있습니다.
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 ## 작업 흐름 한눈에 보기
 
@@ -186,7 +186,7 @@ DB extension과 테이블·인덱스의 생성·변경은 Flyway 마이그레이
 |---|---|
 | 위치 | `src/main/resources/db/migration/` |
 | 파일명 | `V{순번}__{설명}.sql` (예: `V2__create_faq_tables.sql`) |
-| 순번 | `develop`에 있는 마지막 번호 + 1 (문서 기준 시점의 마지막 번호는 `V14`) |
+| 순번 | `develop`에 있는 마지막 번호 + 1 (문서 기준 시점의 마지막 번호는 `V15`) |
 | 구분자 | `V{순번}`과 설명 사이는 밑줄 **두 개** (`__`). 하나면 Flyway가 파일을 인식하지 않습니다 |
 
 - 이미 `develop`에 들어간 마이그레이션 파일은 **수정하지 않습니다.** 변경이 필요하면 새 번호의 파일을 추가합니다.

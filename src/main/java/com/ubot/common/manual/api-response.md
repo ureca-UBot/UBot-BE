@@ -1,6 +1,6 @@
 # ApiResponse 사용 안내
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 모든 API는 `ApiResponse<T>`로 같은 JSON 구조를 반환합니다. 오류 응답의 코드와 예외 처리 방법은 [exception.md](exception.md)를 참고하세요.
 

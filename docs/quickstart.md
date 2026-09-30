@@ -1,6 +1,6 @@
 # 로컬에서 UBot-BE 실행하기
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 ## 완료 기준
 
@@ -75,7 +75,7 @@ openssl rand -base64 32
 
 | 변수 | 비워 두면 | 채우면 |
 |---|---|---|
-| `KAKAO_REST_API_KEY` | 기동은 되지만 위치 검색·길찾기 API 호출이 실패합니다 | 카카오 개발자 사이트의 REST API 키 |
+| `KAKAO_REST_API_KEY` | 기동은 되지만 위치 검색·길찾기 API 호출이 실패합니다 (위치 검색은 `500 G-005`) | 카카오 개발자 사이트의 REST API 키 |
 | `OLLAMA_CHAT_MODEL` | 기동은 되지만 채팅 답변 생성이 `LLM-002`로 실패합니다 | Ollama에 받아 둔 채팅 모델 이름 |
 
 `ollama-init`은 임베딩 모델만 내려받습니다. 채팅 모델은 [4단계](#4-embedding-모델-준비-확인)의 `ollama pull` 명령으로 직접 받아야 합니다. 두 키를 지우지는 마세요. 키 자체가 없으면 기동 시점에 `Could not resolve placeholder` 오류가 납니다.
@@ -121,7 +121,7 @@ docker compose exec ollama ollama pull <채팅모델이름>
 
 Eclipse에서 `UbotBeApplication`을 실행해도 됩니다. 이 경우 Run Configuration의 작업 디렉터리가 프로젝트 루트여야 `.env`를 읽을 수 있습니다(기본값이 프로젝트 루트입니다).
 
-별도 설정이 없으면 `local` 프로필로 실행됩니다. 기동 중 Flyway가 `V1`~`V14` 마이그레이션을 순서대로 적용해 extension과 테이블을 준비합니다. 적용 이력은 `flyway_schema_history` 테이블에 남습니다.
+별도 설정이 없으면 `local` 프로필로 실행됩니다. 기동 중 Flyway가 `V1`~`V15` 마이그레이션을 순서대로 적용해 extension과 테이블을 준비합니다. 적용 이력은 `flyway_schema_history` 테이블에 남습니다.
 
 ## 6. 동작 확인
 

@@ -1,6 +1,6 @@
 # 오류 코드 Reference
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 모든 오류 응답은 `ApiResponse` 형식(`success: false`, `code`, `message`, `data`)입니다. 클라이언트는 HTTP 상태보다 `code`로 오류를 구분하세요. 표의 메시지는 기본값이며, 일부 오류(예: 회원가입 검증)는 더 구체적인 메시지로 바뀌어 나갑니다.
 
@@ -20,6 +20,7 @@
   - 필수 쿼리 파라미터 누락 (예: `GET /stores/nearby`에 `latitude` 없음)
   - 존재하지 않는 경로를 **토큰을 붙여** 호출 (토큰이 없으면 인증 단계에서 `AUTH-001`)
   - 지원하지 않는 HTTP 메서드, 지원하지 않는 Content-Type
+  - 위치 검색(`/locations/search`)의 카카오 API 호출 실패 (예: `KAKAO_REST_API_KEY`가 비어 있을 때). 길찾기는 카카오 호출이 실패하면 `DIRECTIONS-002`·`DIRECTIONS-003`으로 응답합니다
 - 쿼리·경로 파라미터 타입 오류와 `@Validated` 제약 위반은 `G-002`, 본문 JSON을 읽을 수 없으면 `G-003`입니다.
 - 정의만 있고 현재 코드에서 던지지 않는 코드: `G-004`, `CHAT-002`. 채팅 질문 길이 오류는 `CHAT-001`보다 DTO 검증(`G-001`)이 먼저 걸립니다.
 
@@ -139,6 +140,7 @@
 - `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다.
 - `CHAT-006`의 메시지는 `CHAT_MAX_ATTEMPTS` 설정과 관계없이 "최대 3회"로 고정되어 있습니다.
 - `CHAT-016`은 `CHAT_RESPONSE_TIMEOUT_MILLIS`(기본 180초) 초과입니다. 재시도할 수 있습니다.
+- `CHAT-012`·`CHAT-013`으로 끝난 질문은 미응답 질문으로 저장됩니다([architecture.md](../architecture.md#미응답-질문-저장-105)).
 - 증상별 확인 방법은 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 참고하세요.
 
 ## 임베딩

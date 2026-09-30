@@ -1,6 +1,6 @@
 # 프론트엔드 연동 가이드
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 >
 > 프론트 기준: UBot-FE `develop` [`900af60`](https://github.com/ureca-UBot/UBot-FE/commit/900af60fce5bbdc0c935309953774741f44563c5) (2026-09-29 14:44 KST 커밋)
 
@@ -153,7 +153,7 @@ Idempotency-Key: <실패 응답의 idempotencyKey>
 
 ### 알아 둘 점
 
-- **답변 문자열이 JSON일 수 있습니다.** 모델이 출력한 JSON 문자열이 그대로 `answer`에 들어옵니다([LLM 모듈 안내](llm-module.md#출력-형식과-서버-처리-json-분리는-후속-작업)). 지금은 UBot-FE의 `ChatMessages.tsx`(`getAnswerText`)가 이를 JSON으로 파싱해 안쪽 `answer`만 표시하고, 파싱에 실패하면 원문을 표시합니다. 백엔드가 JSON 분리(#81)를 구현하면 응답 형식이 바뀔 수 있으므로 양쪽이 함께 맞춰야 합니다.
+- **답변 문자열이 JSON일 수 있습니다.** 모델이 출력한 JSON 문자열이 그대로 `answer`에 들어옵니다([LLM 모듈 안내](llm-module.md#출력-형식과-서버-처리-json-분리는-후속-작업)). 지금은 UBot-FE의 `ChatMessages.tsx`(`getAnswerText`)가 이를 JSON으로 파싱해 안쪽 `answer`만 표시하고, 파싱에 실패하면 원문을 표시합니다. 그런데 모델이 JSON을 마크다운 코드 블록(```` ```json … ``` ````)으로 감싸 반환하는 경우가 있고(`exaone3.5:7.8b`로 확인), 이때는 파싱에 실패해 코드 블록이 화면에 그대로 보입니다. 백엔드가 JSON 분리(#81)를 구현하면 응답 형식이 바뀔 수 있으므로 양쪽이 함께 맞춰야 합니다.
 - **대화 이력 API가 없습니다.** 새로고침하면 화면의 대화는 사라집니다. 이전 대화 기억은 2차 MVP 범위입니다(#81).
 - **요청을 중간에 끊어도 서버 작업은 계속됩니다.** 브라우저가 요청을 끊어도 서버는 답변을 끝까지 만들어 저장하거나 제한 시간에 실패로 기록합니다. 끊긴 요청의 결과를 다시 받을 방법은 없습니다. 성공으로 끝났다면 재시도는 `CHAT-005`로 거절됩니다.
 - 같은 사용자가 여러 질문을 동시에 보내는 것을 서버가 막지는 않습니다. UBot-FE는 한 번에 한 요청만 보내도록 막고 있습니다.

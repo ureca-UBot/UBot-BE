@@ -1,6 +1,6 @@
 # 설정 Reference
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 ## 설정 파일
 
@@ -39,6 +39,7 @@ src/main/resources/
 | `CHAT_TOP_K` | `ChatService`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatService`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
 | `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
+| `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingService` | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingService` | `10s` | `10s` |
 | `KAKAO_REST_API_KEY` | `KakaoLocalClient`(주소 검색), `KakaoDirectionsClient`(길찾기) | 빈 값 | 없음 |
@@ -51,7 +52,6 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 
 `CHAT_CONFIDENCE_THRESHOLD`의 기본값 `0.75`는 threshold 보고서의 채택값 `0.73`과 다릅니다. 배경은 [architecture.md](../architecture.md#현재-상태와-남은-작업)를 참고하세요. 보고서 값을 쓰려면 `.env`에서 `CHAT_CONFIDENCE_THRESHOLD=0.73`으로 지정합니다.
 
-열린 PR #105가 merge되면 미응답 질문 묶음 기준 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`)가 추가됩니다.
 
 `CHAT_MAX_ATTEMPTS`를 바꿔도 한도 초과 오류(`CHAT-006`)의 안내 문구는 "최대 3회"로 고정되어 있습니다.
 
@@ -106,7 +106,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 | 설정 | 값 | 위치 |
 |---|---|---|
-| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V14`) | — |
+| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V15`) | — |
 | `baseline-on-migrate` | `true` | `application.yml` |
 | `baseline-version` | `0` | `application.yml` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
@@ -128,6 +128,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V12` | `question_log.llm_question`(생성 답변), `answer_attempts_history` |
 | `V13` | `faq`, `old_faq`에 `intent` (`GENERAL`/`STORE_DATA`/`USER_DATA`, 기본 `GENERAL`) |
 | `V14` | `forbidden_words` (`ACTIVE`/`INACTIVE`) |
+| `V15` | `unanswered_question_groups`(대표 질문, 중심 벡터, 질문 수, 처리 상태 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED`), `unanswered_questions`(질문 벡터, 원인 `NO_FAQ`/`INSUFFICIENT_FAQ`, 가장 가까운 FAQ) |
 
 FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다.
 

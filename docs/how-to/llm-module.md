@@ -1,6 +1,6 @@
 # LLM 모듈 연결 안내
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 ## 구현 범위
 
@@ -49,7 +49,10 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 따라서 클라이언트에는 JSON 문자열이 그대로 전달되고, 모델이 `ABSTAIN`·`OUT_OF_SCOPE` 등으로 판단해도
 서버 기준 상태는 `SUCCESS`입니다. `evidence_ids`와 관계없이 `faq_log`에는 모델에 전달한 FAQ 전체가 기록됩니다.
 Ollama의 `format`(JSON 모드) 옵션도 지정하지 않으므로 모델이 JSON 형식을 지키는지는 보장되지 않습니다.
-현재는 UBot-FE가 화면에 표시할 때 이 문자열을 JSON으로 파싱해 안쪽 `answer`만 보여 줍니다.
+실제로 `exaone3.5:7.8b`로 확인했을 때(2026-09-30) 모델이 JSON을 마크다운 코드 블록(```` ```json … ``` ````)으로 감싸 반환했고,
+서버는 이 문자열을 그대로 `answer`에 넣었습니다.
+현재는 UBot-FE가 화면에 표시할 때 이 문자열을 JSON으로 파싱해 안쪽 `answer`만 보여 주지만,
+코드 블록으로 감싸져 있으면 파싱에 실패해 코드 블록이 그대로 보입니다.
 #81을 구현해 응답 형식을 바꿀 때는 프론트와 함께 맞춰야 합니다([프론트엔드 연동 가이드](frontend-integration.md#알아-둘-점)).
 
 ## 입력과 출력

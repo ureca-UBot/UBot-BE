@@ -1,8 +1,8 @@
 # 코드 구조와 요청 흐름
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 >
-> GitHub PR·이슈 상태: 2026-09-29 18:33 KST 조회 기준
+> GitHub PR·이슈 상태: 2026-09-30 09:23 KST 조회 기준
 
 ## 패키지 구조
 
@@ -17,6 +17,7 @@ com.ubot
 ├── embedding      Ollama /api/embed 직접 호출 (EmbeddingService)
 ├── faq            FAQ·카테고리 CRUD, 수정 이력(old_faq)·참고 로그(faq_log), FAQ 벡터 검색
 ├── forbiddenword  금지어 관리 API, 채팅 입력 금지어 필터 (메모리 캐시)
+├── unanswered     답을 찾지 못한 질문 저장과 유사 질문 묶기
 ├── location       카카오 로컬 API 연동 (주소·좌표 검색)
 ├── store          매장 조회 (목록·상세·근처·지도·클러스터, PostGIS), 관리자 매장 관리
 ├── direction      매장 길찾기 (카카오 도보·대중교통, 카카오모빌리티 자동차)
@@ -26,7 +27,7 @@ com.ubot
 
 | 종류 | 위치 |
 |---|---|
-| DB 마이그레이션 | `src/main/resources/db/migration/V1`~`V14` |
+| DB 마이그레이션 | `src/main/resources/db/migration/V1`~`V15` |
 | 매장 조회 SQL | `src/main/resources/sql/store/*.sql` |
 | FAQ 프롬프트 | `src/main/resources/prompts/faq-system.txt`, `faq-user.txt` |
 | DB 이미지 | `infra/postgres/Dockerfile` |
@@ -76,9 +77,9 @@ POST /chat/questions  { "question": "..." }   (JWT 필수, 1~4000자)
           → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
               → EmbeddingService    : Ollama /api/embed로 1024차원 벡터 생성
               → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색
-          → 결과 없음 → CHAT-012 (NO_FAQ)
+          → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
           → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
-             → 남은 결과 없음 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
+             → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
           → AiService → PromptService → LlmService → OllamaClient (남은 FAQ만 전달)
           → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
           → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
@@ -109,9 +110,26 @@ POST /chat/questions  { "question": "..." }   (JWT 필수, 1~4000자)
 
 ![채팅 재시도 흐름](images/chat-retry-flow.svg)
 
+### 미응답 질문 저장 (#105)
+
+`CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
+
+1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
+2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 Ollama를 한 번 더 호출합니다.
+3. 상태가 `PENDING`·`ON_HOLD`인 묶음 중 중심 벡터와의 코사인 유사도가 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`) 이상인 가장 가까운 묶음에 넣습니다. 없으면 이 질문을 대표 질문으로 새 묶음을 만듭니다. `APPROVED`·`REJECTED` 묶음에는 합류하지 않습니다.
+4. 묶음의 중심 벡터(소속 질문 벡터의 평균)와 질문 수를 DB에서 다시 계산합니다.
+
+- 기준 미달(`INSUFFICIENT_FAQ`)이면 가장 가까웠던 FAQ와 그 유사도를 함께 남깁니다.
+- 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
+- 저장에 실패해도 경고 로그만 남기고 채팅 응답(`CHAT-012`·`CHAT-013`)은 그대로 나갑니다.
+- 재시도도 새 답변 시도이므로, 같은 질문을 재시도해 또 실패하면 한 건씩 더 쌓여 묶음의 질문 수가 늘어납니다.
+- 묶음을 찾고 만드는 과정에 잠금이 없어, 동시에 들어온 비슷한 질문이 서로 다른 묶음으로 나뉠 수 있습니다.
+- 묶음을 조회하고 처리 상태를 바꾸는 관리자 API는 아직 없습니다(#109).
+
 ### 동시성·트랜잭션 원칙
 
-- 기록 저장은 `ChatAttemptsService`의 `REQUIRES_NEW` 트랜잭션으로만 짧게 수행합니다. 임베딩·LLM 호출 중에는 DB 연결이나 행 잠금을 잡지 않습니다.
+- 시도 기록 저장은 `ChatAttemptsService`의 `REQUIRES_NEW` 트랜잭션으로만 짧게 수행합니다. FAQ 검색용 임베딩과 LLM 호출 중에는 DB 연결이나 행 잠금을 잡지 않습니다.
+- 예외: 미응답 질문 저장(`UnansweredQuestionService`)은 한 트랜잭션 안에서 질문을 다시 임베딩하므로, 그 Ollama 호출 동안 DB 연결을 사용합니다.
 - `ChatAnswerTask`는 lock으로 "저장 커밋 → 응답 확정"을 한 단위로 묶어, 답변 저장과 타임아웃이 겹쳐도 둘 중 먼저 확정된 결과 하나만 응답합니다.
 - 결과 저장은 시도 행을 잠근 뒤 아직 `PENDING`일 때만 상태를 바꿉니다. 타임아웃이 먼저 `FAIL`로 바꾸면 늦게 도착한 답변은 저장하지 않습니다.
 - `chatExecutor`는 동시 처리 수 제한이 없는 가상 스레드 Executor입니다(`global/config/AsyncConfig`). 종료 시 최대 150초까지 작업 완료를 기다립니다.
@@ -123,7 +141,7 @@ POST /chat/questions  { "question": "..." }   (JWT 필수, 1~4000자)
 - **LLM JSON 응답 분리 (#81)**: 프롬프트는 모델에게 `status`·`answer`·`evidence_ids` JSON을 출력하게 하지만, 서버는 이를 분리하지 않고 문자열 그대로 `answer`로 저장·반환합니다. 모델이 답을 보류해도 서버 기준으로는 `SUCCESS`입니다. 자세한 내용은 [LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리-json-분리는-후속-작업)를 참고하세요.
 - **대화 이력 (#81)**: 상담 세션 없이 현재 질문에만 답합니다. 요청마다 시스템 지침과 이번 질문·FAQ만 전달하며, 이전 대화 기억은 2차 MVP 범위입니다.
 - **금지어 검사 고도화 (#98)**: 초기 구현 범위로 단순 부분 문자열 포함 여부만 봅니다(대소문자·공백 정규화 없음). 띄어쓰기 우회·유사 표현 탐지는 추후 고도화 범위입니다. 캐시는 애플리케이션 메모리에 두며 변경 후 갱신은 변경이 커밋된 인스턴스 안에서만 일어납니다. 서버를 다중화하면 Redis 등 분산 캐시로 바꾸는 것이 전제입니다.
-- **미응답 질문 저장**: 지금은 `question_log`·`faq_log`에 성공한 답변만 남고, 답을 찾지 못한 질문은 `answer_attempts_history`에만 `FAIL`과 오류 코드로 남습니다. 열린 PR #105가 이를 별도 테이블에 저장합니다([진행 중인 작업](#진행-중인-작업)).
+- **미응답 질문 관리 (#109)**: `question_log`·`faq_log`에는 성공한 답변만 남고, 답을 찾지 못한 질문은 [미응답 질문 테이블](#미응답-질문-저장-105)에 쌓입니다. 이를 조회하고 처리하는 관리자 API는 이슈 #109에서 진행합니다.
 
 **팀 결정이 필요한 것** (PR·이슈에 논의 기록 없음)
 
@@ -163,7 +181,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 ## 테스트 구성
 
 - `UbotBeApplicationTests`: 테스트 전용 DB 연결, Flyway로 만든 `vector`·`postgis` extension 버전, pgvector 스키마(1024·HNSW·cosine), Ollama 없는 벡터 저장·검색
-- 도메인 테스트: `auth`·`user`(통합), `chat`(컨트롤러·서비스·취소·금지어·LLM 연결 통합·오류 코드 컨버터), `ai`, `prompt`, `llm`, `embedding`, `faq`(서비스·벡터 저장소), `forbiddenword`(단위·통합·E2E), `store`(컨트롤러·보안·서비스·저장소), `direction`, `location`
+- 도메인 테스트: `auth`·`user`(통합), `chat`(컨트롤러·서비스·취소·금지어·LLM 연결 통합·오류 코드 컨버터), `ai`, `prompt`, `llm`, `embedding`, `faq`(서비스·벡터 저장소), `forbiddenword`(단위·통합·E2E), `unanswered`(서비스, 채팅 연결), `store`(컨트롤러·보안·서비스·저장소), `direction`, `location`
 - LLM 관련 테스트는 모의 모델과 로컬 HTTP 서버로 호출 흐름·요청 검증·오류 처리를 확인합니다. 실제 Ollama 모델의 답변 품질을 검증하지는 않습니다.
 - 테스트 프로필에서는 Ollama 자동 구성을 끄고 결정적인 테스트용 임베딩 구현을 사용합니다. 실제 BGE-M3 품질이나 Ollama 연결은 검증하지 않습니다.
 - 예외: `embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, `localhost:11435`의 실제 Ollama를 호출합니다. `CI=true`이면 건너뛰므로 GitHub Actions에서는 실행되지 않습니다. 결과는 [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)에 정리되어 있습니다.
@@ -174,7 +192,8 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 
 | 번호 | 상태 | 내용 | merge 시 문서에 반영할 것 |
 |---|---|---|---|
-| PR [#105](https://github.com/ureca-UBot/UBot-BE/pull/105) (이슈 #102) | 열림, 리뷰 전 | 미응답 질문 저장 및 유사 질문 묶기. `NO_FAQ`·`INSUFFICIENT_FAQ`로 실패한 질문을 임베딩해 `unanswered_questions`에 저장하고, 묶음 중심 벡터와 유사도가 기준 이상이면 기존 묶음(`unanswered_question_groups`)에 합류시킴. 저장 실패는 채팅 응답에 영향 없음 | `unanswered` 패키지, 마이그레이션 `V15`, 환경변수 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`), 채팅 흐름의 미응답 저장 단계 |
+| 이슈 [#109](https://github.com/ureca-UBot/UBot-BE/issues/109) | 열림 | 관리자 미응답 질문 묶음 목록·상세 조회, 처리 상태 변경(승인·보류·반려) | API 개요, 미응답 질문 저장 |
+| 이슈 [#108](https://github.com/ureca-UBot/UBot-BE/issues/108) | 열림 | 비로그인 게스트 상태를 `HttpSession`(`JSESSIONID`, 30분)으로 관리. 로그인 사용자의 JWT·STATELESS 방식은 유지 | 인증, 프론트엔드 연동 가이드 |
 | 이슈 [#103](https://github.com/ureca-UBot/UBot-BE/issues/103) | 열림 | 반복 채팅 응답 캐시. 개인화·위치·시간에 따라 달라지는 응답은 제외, FAQ 수정 시 무효화 전략 검토 | 캐시 설정과 채팅 흐름 |
 | 이슈 [#96](https://github.com/ureca-UBot/UBot-BE/issues/96) | 열림 | 채팅 내 실시간 검색어 추천 API | API 개요 |
 | 이슈 [#74](https://github.com/ureca-UBot/UBot-BE/issues/74) | 열림 | soft delete 후 3년 지난 `User`·`Faq`·`FaqCategory` 영구 삭제 스케줄러(매일 00:00 KST) | 스케줄러 설정, FAQ 관리 흐름 |

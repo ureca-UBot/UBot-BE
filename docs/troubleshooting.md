@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 해결 후에는 항상 [quickstart 6단계](quickstart.md#6-동작-확인)의 health check를 다시 통과하는지 확인하세요.
 
@@ -203,7 +203,7 @@ $env:CI = 'true'; .\gradlew.bat test
 | `EM-001`, `EM-003` | Ollama 실행 여부, `OLLAMA_BASE_URL`, [모델 준비](#ollama-모델이-준비되지-않음) |
 | `CHAT-010`, `CHAT-008` | PostgreSQL 상태, 애플리케이션 로그 |
 | `CHAT-012` | `faq`에 삭제되지 않은 FAQ가 있는지 ([FAQ 준비](how-to/local-data.md#2-faq-등록)) |
-| `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`, FAQ의 `vector`가 비어 있지 않은지 |
+| `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`, FAQ의 `vector`가 비어 있지 않은지. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
 | `CHAT-014` | `prompts/faq-*.txt`, `prompt.faq.*-location` |
 | `LLM-002` | `.env`의 `OLLAMA_CHAT_MODEL` |
 | `LLM-003` | `docker compose exec ollama ollama list`에 채팅 모델이 있는지 |

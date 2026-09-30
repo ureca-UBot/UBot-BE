@@ -5,7 +5,7 @@
 - 대상: 이 저장소를 개발하는 팀원
 - 저장소: https://github.com/ureca-UBot/UBot-BE
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 ## 스택
 
@@ -14,7 +14,7 @@
 | Java | 21 (Gradle toolchain) |
 | Spring Boot | 4.1.1 |
 | 인증 | Spring Security + JWT (jjwt 0.13.0) |
-| DB 스키마 | Flyway (`V1`~`V14`) |
+| DB 스키마 | Flyway (`V1`~`V15`) |
 | DB | PostgreSQL 18 + pgvector 0.8.6 + PostGIS 3.6.4 (`infra/postgres/Dockerfile`) |
 | 임베딩 | Ollama `bge-m3:567m` (1024차원), `EmbeddingService`가 REST로 직접 호출 |
 | LLM | Ollama 채팅 모델 (`OLLAMA_CHAT_MODEL`로 지정, 직접 `pull` 필요) |
@@ -79,11 +79,11 @@ Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB 컨테이�
 ## 현재 구현 범위
 
 - **인증·회원**: 회원가입, 로그인, refresh token 재발급, 로그아웃, 내 정보 조회·수정 (`/auth/**`, `/auth/me`)
-- **챗봇**: 금지어 검사 → 질문 임베딩 → FAQ 벡터 유사도 검색(Top-K, 임계값 필터) → 프롬프트 구성 → Ollama LLM 답변 생성. 시도별 상태(`PENDING`/`SUCCESS`/`FAIL`)를 기록하고 실패 시 최대 3회까지 재시도할 수 있습니다. ([LLM 모듈 안내](docs/how-to/llm-module.md))
+- **챗봇**: 금지어 검사 → 질문 임베딩 → FAQ 벡터 유사도 검색(Top-K, 임계값 필터) → 프롬프트 구성 → Ollama LLM 답변 생성. 시도별 상태(`PENDING`/`SUCCESS`/`FAIL`)를 기록하고 실패 시 최대 3회까지 재시도할 수 있습니다. 답을 찾지 못한 질문은 미응답 질문으로 저장해 비슷한 질문끼리 묶습니다. ([LLM 모듈 안내](docs/how-to/llm-module.md))
 - **관리자** (`/admin/**`, `ADMIN` 역할): FAQ·카테고리 CRUD, 삭제 FAQ 복구, FAQ 수정 이력, 답변 참고 로그 조회, 금지어 관리, 매장 등록·수정·삭제·복구
 - **매장**: 목록·상세·근처·지도·지도 클러스터·시도/시군구 목록 조회 (PostGIS), 매장까지 길찾기(도보·자동차·대중교통)
 - **위치**: 카카오 로컬 API 기반 주소·좌표 검색
 
 로그인·회원가입·토큰 재발급, 매장·위치 조회, health, Swagger를 제외한 요청은 JWT 인증이 필요합니다. 정확한 경로 목록은 [architecture.md#인증](docs/architecture.md#인증)에 있습니다.
 
-자세한 흐름, 후속 작업, 진행 중인 PR·이슈(미응답 질문 저장 #105, 응답 캐시 #103 등)는 [docs/architecture.md](docs/architecture.md)에 있습니다.
+자세한 흐름, 후속 작업, 진행 중인 이슈(미응답 질문 관리 API #109, 게스트 세션 #108, 응답 캐시 #103 등)는 [docs/architecture.md](docs/architecture.md)에 있습니다.

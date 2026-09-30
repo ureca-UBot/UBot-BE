@@ -1,6 +1,6 @@
 # DB 직접 조회하기
 
-> 문서 기준: UBot-BE `develop` [`37bc033`](https://github.com/ureca-UBot/UBot-BE/commit/37bc033a1439c23cf5c586d8acb4455fb0130be2) (2026-09-29 15:01 KST 커밋, #104 병합 시점) · 작성일 2026-09-29
+> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
 
 로컬 PostgreSQL에 접속해 데이터나 pgvector·PostGIS 상태를 확인하는 방법입니다.
 애플리케이션 실행에는 필요하지 않은 선택 단계입니다.
@@ -57,20 +57,23 @@ ORDER BY extname;
 | `answer_attempts_history` | 채팅 답변 시도 1회당 1행. `status`(`PENDING`/`SUCCESS`/`FAIL`), `error_code`, `idempotency_key` |
 | `question_log` | 성공한 질문과 생성 답변(`llm_question` 컬럼) |
 | `faq_log` | 성공한 답변에 사용한 FAQ와 순위·유사도 |
+| `unanswered_questions`, `unanswered_question_groups` | 답을 찾지 못한 질문(`NO_FAQ`/`INSUFFICIENT_FAQ`)과 비슷한 질문 묶음. 묶음 처리 상태는 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED` |
 | `forbidden_words` | 금지어 (`ACTIVE`/`INACTIVE`) |
 | `stores`, `service_types`, `store_services` | 매장과 제공 서비스 |
 
 ### ERD
 
-`V1`~`V14` 적용 후의 스키마입니다. 관계선은 실제 FK 제약만 그렸고, 매장 테이블은 두 번째 그림에 나눠 그렸습니다. `flyway_schema_history`는 생략했습니다.
+`V1`~`V15` 적용 후의 스키마입니다. 관계선은 실제 FK 제약만 그렸고, 매장과 미응답 질문 테이블은 따로 나눠 그렸습니다. `flyway_schema_history`는 생략했습니다.
 
 ![ERD: 사용자·FAQ·채팅](../images/erd.svg)
 
 ![ERD: 매장](../images/erd-store.svg)
 
+![ERD: 미응답 질문](../images/erd-unanswered.svg)
+
 - `answer_attempts_history`와 `question_log`·`faq_log` 사이에는 FK가 없습니다. 성공한 시도와 그 로그는 같은 트랜잭션에서 저장되지만 서로를 가리키는 컬럼은 없습니다.
 - `forbidden_words`는 다른 테이블과 관계가 없습니다.
-- 열린 PR #105가 merge되면 `unanswered_questions`, `unanswered_question_groups`(V15)가 추가됩니다.
+- 미응답 질문 테이블은 `answer_attempts_history`(시도당 최대 1건)와 `faq`(가장 가까웠던 FAQ)를 참조합니다. 저장 방식은 [architecture.md](../architecture.md#미응답-질문-저장-105)를 참고하세요.
 
 예를 들어 최근 채팅 실패 사유는 아래처럼 확인합니다.
 
@@ -78,6 +81,15 @@ ORDER BY extname;
 SELECT attempt_id, user_id, question, attempt_count, status, error_code, created_at
 FROM answer_attempts_history
 ORDER BY attempt_id DESC
+LIMIT 20;
+```
+
+미응답 질문이 많이 쌓인 묶음은 아래처럼 확인합니다.
+
+```sql
+SELECT id, representative_question, question_count, status, last_occurred_at
+FROM unanswered_question_groups
+ORDER BY question_count DESC, last_occurred_at DESC
 LIMIT 20;
 ```
 
