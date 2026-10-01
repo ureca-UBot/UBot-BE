@@ -22,6 +22,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.enums.Intent;
 import com.ubot.unanswered.dto.request.UnansweredGroupFaqCreateRequestDto;
+import com.ubot.unanswered.dto.request.UnansweredGroupStatusUpdateRequestDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupResponseDto;
 import com.ubot.unanswered.enums.UnansweredGroupStatus;
 import com.ubot.unanswered.exception.UnansweredErrorCode;
@@ -98,6 +99,20 @@ class UnansweredGroupFaqTest {
 				.isInstanceOfSatisfying(UnansweredException.class,
 						e -> assertThat(e.getErrorCode()).isEqualTo(UnansweredErrorCode.UNANSWERED_GROUP_ALREADY_RESOLVED));
 		assertThat(countFaqs()).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("FAQ가 등록된 묶음은 상태를 바꿀 수 없다")
+	void rejectsStatusUpdateOfResolvedGroup() {
+		service.createUnansweredGroupFaq(groupId, request(null), adminId);
+
+		assertThatThrownBy(() -> service.updateUnansweredGroupStatus(
+				groupId, new UnansweredGroupStatusUpdateRequestDto(UnansweredGroupStatus.PENDING)))
+				.isInstanceOfSatisfying(UnansweredException.class,
+						e -> assertThat(e.getErrorCode()).isEqualTo(UnansweredErrorCode.UNANSWERED_GROUP_ALREADY_RESOLVED));
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT status FROM unanswered_question_groups WHERE id = ?", String.class, groupId))
+				.isEqualTo("APPROVED");
 	}
 
 	@Test

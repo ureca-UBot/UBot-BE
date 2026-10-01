@@ -73,6 +73,9 @@ public class UnansweredGroupService {
 			UnansweredGroupStatusUpdateRequestDto requestDto
 	){
 		UnansweredQuestionGroup group = findGroup(groupId);
+		if(group.getResolvedFaqId() != null){
+			throw new UnansweredException(UnansweredErrorCode.UNANSWERED_GROUP_ALREADY_RESOLVED);
+		}
 		group.updateStatus(requestDto.status());
 		return UnansweredGroupResponseDto.from(group);
 	}
