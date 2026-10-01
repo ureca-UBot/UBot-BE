@@ -3,6 +3,10 @@ package com.ubot.unanswered.service;
 import com.ubot.common.GlobalException;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.CommonErrorCode;
+import com.ubot.faq.dto.request.FaqCreateRequestDto;
+import com.ubot.faq.dto.response.FaqResponseDto;
+import com.ubot.faq.service.FaqService;
+import com.ubot.unanswered.dto.request.UnansweredGroupFaqCreateRequestDto;
 import com.ubot.unanswered.dto.request.UnansweredGroupStatusUpdateRequestDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupDetailResponseDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupResponseDto;
@@ -18,6 +22,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +38,7 @@ public class UnansweredGroupService {
 
 	private final UnansweredQuestionGroupRepository unansweredQuestionGroupRepository;
 	private final UnansweredQuestionRepository unansweredQuestionRepository;
+	private final FaqService faqService;
 
 	@Transactional(readOnly = true)
 	public PageResponseDto<UnansweredGroupResponseDto> getUnansweredGroupList(
@@ -67,7 +73,34 @@ public class UnansweredGroupService {
 			UnansweredGroupStatusUpdateRequestDto requestDto
 	){
 		UnansweredQuestionGroup group = findGroup(groupId);
+		if(group.getResolvedFaqId() != null){
+			throw new UnansweredException(UnansweredErrorCode.UNANSWERED_GROUP_ALREADY_RESOLVED);
+		}
 		group.updateStatus(requestDto.status());
+		return UnansweredGroupResponseDto.from(group);
+	}
+
+	@Transactional
+	public UnansweredGroupResponseDto createUnansweredGroupFaq(
+			Long groupId,
+			UnansweredGroupFaqCreateRequestDto requestDto,
+			Long adminId
+	){
+		UnansweredQuestionGroup group = unansweredQuestionGroupRepository.findByIdForUpdate(groupId)
+				.orElseThrow(() -> new UnansweredException(UnansweredErrorCode.UNANSWERED_GROUP_NOT_FOUND));
+		if(group.getResolvedFaqId() != null){
+			throw new UnansweredException(UnansweredErrorCode.UNANSWERED_GROUP_ALREADY_RESOLVED);
+		}
+
+		String question = StringUtils.hasText(requestDto.question())
+				? requestDto.question().strip()
+				: group.getRepresentativeQuestion();
+		FaqResponseDto faq = faqService.createFaq(
+				new FaqCreateRequestDto(requestDto.categoryId(), question, requestDto.answer(), requestDto.intent()),
+				adminId
+		);
+
+		group.resolve(faq.id());
 		return UnansweredGroupResponseDto.from(group);
 	}
 
