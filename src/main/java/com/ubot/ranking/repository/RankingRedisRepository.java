@@ -12,7 +12,7 @@ import java.util.Map;
 public class RankingRedisRepository {
 	private final RedisTemplate<String, Object> redisTemplate;
 
-	public <T> void saveSnapshots(Map<String, RankingSnapshot> snapshots) {
+	public void saveSnapshots(Map<String, RankingSnapshot> snapshots) {
 		redisTemplate.opsForValue().multiSet(snapshots);
 	}
 }
