@@ -4,5 +4,4 @@ public enum RegionSido {
 	SEOUL,
 	GYEONGGI,
 	BUSAN,
-
 }

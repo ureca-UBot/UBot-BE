@@ -13,7 +13,7 @@ public final class RankingRedisKey {
 		return PREFIX + "trending:global";
 	}
 	public static String trending(RegionSido region) {
-		return PREFIX + "trending" + region.toString().toLowerCase();
+		return PREFIX + "trending:" + region.toString().toLowerCase();
 	}
 
 	private RankingRedisKey() {
