@@ -250,7 +250,7 @@ class ChatLlmIntegrationTest {
 		try (var callers = Executors.newFixedThreadPool(2)) {
 			Callable<String> retry = () -> {
 				barrier.await(5, TimeUnit.SECONDS);
-				try { service.retryChat(user.getId(), key); return "ACCEPTED"; }
+				try { service.retryChat(user.getId(), key, null); return "ACCEPTED"; }
 				catch (ChatException exception) { return exception.getErrorCode().getCode(); }
 			};
 			var a = callers.submit(retry);

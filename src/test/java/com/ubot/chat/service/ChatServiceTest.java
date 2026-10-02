@@ -53,7 +53,7 @@ class ChatServiceTest {
 	FaqVectorService vector = mock(FaqVectorService.class);
 	AiService ai = mock(AiService.class);
 	AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
-	QuestionLogRepository questions = mock(QuestionLogRepository.class);
+	QuestionLogService questions = mock(QuestionLogService.class);
 	FaqLogRepository faqLogs = mock(FaqLogRepository.class);
 	FaqRepository faqs = mock(FaqRepository.class);
 	PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
@@ -107,12 +107,12 @@ class ChatServiceTest {
 	@NullAndEmptySource
 	@ValueSource(strings = {" ", "\t"})
 	void invalidQuestionsDoNotAccessDbOrLlm(String question) {
-		assertThatThrownBy(() -> service.createChat(1L, question)).isInstanceOf(ChatException.class);
+		assertThatThrownBy(() -> service.createChat(1L, question, null)).isInstanceOf(ChatException.class);
 		verifyNoInteractions(attempts, vector, ai);
 	}
 
 	@Test void keyUsesUserQuestionAndTheRecordedCreationTime() {
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		var attempt = saved.getFirst();
 		assertThat(attempt.getIdempotencyKey()).isEqualTo(
 				ChatAttemptsService.createIdempotencyKey(1L, "질문", attempt.getCreatedAt())).hasSize(64);
@@ -231,7 +231,7 @@ class ChatServiceTest {
 				ChatErrorCode.PROMPT_NOT_READY.getMessage());
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_NOT_READY);
 		assertThat(attemptsService.validateRetryAttempt(saved.getFirst())).isEmpty();
-		service.retryChat(1L, saved.getFirst().getIdempotencyKey());
+		service.retryChat(1L, saved.getFirst().getIdempotencyKey(), null);
 		assertThat(saved).hasSize(2);
 		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
 		assertThat(saved.getLast().getStatus()).isEqualTo("PENDING");
@@ -239,13 +239,13 @@ class ChatServiceTest {
 	}
 
 	@Test void pendingAndSucceededAttemptsCannotStartAnotherGeneration() {
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		String key = saved.getFirst().getIdempotencyKey();
 		assertThat(attemptsService.validateRetryAttempt(saved.getFirst())).contains(ChatErrorCode.PROCESSING);
-		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.PROCESSING);
+		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.PROCESSING);
 		saved.getFirst().succeed();
 		assertThat(attemptsService.validateRetryAttempt(saved.getFirst())).contains(ChatErrorCode.ALREADY_SUCCEEDED);
-		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.ALREADY_SUCCEEDED);
+		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.ALREADY_SUCCEEDED);
 		assertThat(saved).hasSize(1);
 		assertThat(jobs).hasSize(1);
 	}
@@ -254,22 +254,22 @@ class ChatServiceTest {
 	void configuredAttemptLimitKeepsKeyAndBlocksNextAttempt(int maxAttempts) {
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", maxAttempts);
 		when(vector.getSimilarList("질문", 3)).thenThrow(new EmbeddingException(EmbeddingErrorCode.EMBEDDING_TIMEOUT));
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		jobs.remove().run();
 		String key = saved.getFirst().getIdempotencyKey();
 		for (int count = 2; count <= maxAttempts; count++) {
-			service.retryChat(1L, key);
+			service.retryChat(1L, key, null);
 			jobs.remove().run();
 		}
 		assertThat(saved).extracting(AnswerAttemptsHistory::getAttemptCount)
 				.containsExactlyElementsOf(IntStream.rangeClosed(1, maxAttempts).boxed().toList());
 		assertThat(saved).allMatch(a -> a.getIdempotencyKey().equals(key) && a.getStatus().equals("FAIL"));
-		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.LIMIT_REACHED);
+		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.LIMIT_REACHED);
 		assertThat(saved).hasSize(maxAttempts);
 	}
 
 	@Test void retryRejectsUnknownKey() {
-		assertChatError(() -> service.retryChat(1L, "a".repeat(64)), ChatErrorCode.ATTEMPT_NOT_FOUND);
+		assertChatError(() -> service.retryChat(1L, "a".repeat(64), null), ChatErrorCode.ATTEMPT_NOT_FOUND);
 		assertThat(saved).isEmpty();
 		assertThat(jobs).isEmpty();
 		verifyNoInteractions(vector, ai);
@@ -317,7 +317,7 @@ class ChatServiceTest {
 		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), task -> {
 			throw new java.util.concurrent.RejectedExecutionException("executor secret");
 		});
-		var task = service.createChat(1L, "질문");
+		var task = service.createChat(1L, "질문", null);
 
 		assertThatThrownBy(() -> task.result().join()).hasCauseInstanceOf(ChatException.class)
 				.satisfies(exception -> {
@@ -332,7 +332,7 @@ class ChatServiceTest {
 
 	@ParameterizedTest @NullAndEmptySource @ValueSource(strings = {"not-a-key"})
 	void invalidRetryKeyDoesNotTouchDb(String key) {
-		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
+		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		verifyNoInteractions(attempts);
 	}
 
@@ -371,7 +371,7 @@ class ChatServiceTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"SUCCESS", "FAIL"})
 	void completedAttemptRejectsLateSuccessLogsAndFailure(String status) {
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		var stored = saved.getFirst();
 		if ("SUCCESS".equals(status)) {
 			stored.succeed();
@@ -384,7 +384,7 @@ class ChatServiceTest {
 				.question("질문").status("PENDING").build();
 
 		attemptsService.saveAnswerSuccess(staleAttempt, "늦게 도착한 답변",
-				List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
+				List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)), null);
 		attemptsService.saveAnswerFailure(staleAttempt, ChatErrorCode.INTERNAL_ERROR);
 
 		assertThat(stored.getStatus()).isEqualTo(status);
@@ -397,7 +397,7 @@ class ChatServiceTest {
 	@ValueSource(ints = {1, 3, 5})
 	void timeoutRetriesRespectConfiguredAttemptLimit(int maxAttempts) {
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", maxAttempts);
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		String key = saved.getFirst().getIdempotencyKey();
 
 		for (int count = 1; count <= maxAttempts; count++) {
@@ -407,22 +407,22 @@ class ChatServiceTest {
 			assertThat(attemptsService.validateRetryAttempt(attempt))
 					.isEqualTo(count < maxAttempts ? Optional.empty() : Optional.of(ChatErrorCode.LIMIT_REACHED));
 			if (count < maxAttempts) {
-				service.retryChat(1L, key);
+				service.retryChat(1L, key, null);
 			}
 		}
 
-		assertChatError(() -> service.retryChat(1L, key), ChatErrorCode.LIMIT_REACHED);
+		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.LIMIT_REACHED);
 		assertThat(saved).hasSize(maxAttempts).allSatisfy(attempt ->
 				assertThat(attempt.getIdempotencyKey()).isEqualTo(key));
 	}
 
 	@Test
 	void timeoutRetryStillRejectsAnotherUsersKey() {
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		var attempt = saved.getFirst();
 		attempt.fail(ChatErrorCode.RESPONSE_TIMEOUT);
 
-		assertChatError(() -> service.retryChat(2L, attempt.getIdempotencyKey()),
+		assertChatError(() -> service.retryChat(2L, attempt.getIdempotencyKey(), null),
 				ChatErrorCode.ATTEMPT_NOT_FOUND);
 		assertThat(saved).hasSize(1);
 		verifyNoInteractions(vector, ai);

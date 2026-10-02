@@ -33,8 +33,8 @@ public class ChatAttemptsService {
 	private int maxAttempts;
 
 	private final AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository;
-	private final QuestionLogRepository questionLogRepository;
 	private final FaqLogRepository faqLogRepository;
+	private final QuestionLogService questionLogService;
 	private final FaqRepository faqRepository;
 	private final TransactionTemplate transactionTemplate;
 
@@ -46,13 +46,13 @@ public class ChatAttemptsService {
 
 	public ChatAttemptsService(
 			AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
-			QuestionLogRepository questionLogRepository,
+			QuestionLogService questionLogService,
 			FaqLogRepository faqLogRepository,
 			FaqRepository faqRepository,
 			PlatformTransactionManager transactionManager
 	) {
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
-		this.questionLogRepository = questionLogRepository;
+		this.questionLogService = questionLogService;
 		this.faqLogRepository = faqLogRepository;
 		this.faqRepository = faqRepository;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -94,7 +94,8 @@ public class ChatAttemptsService {
 	public AnswerAttemptsHistory saveAnswerSuccess(
 			AnswerAttemptsHistory attempt,
 			String answer,
-			List<FaqSearchResponseDto> sources
+			List<FaqSearchResponseDto> sources,
+			String userIp
 	) {
 		return transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
@@ -102,9 +103,14 @@ public class ChatAttemptsService {
 			if (!"PENDING".equals(currentAttempt.getStatus())) {
 				return currentAttempt;
 			}
-			QuestionLog questionLog = questionLogRepository.saveAndFlush(new QuestionLog(
-					attempt.getUserId(), attempt.getQuestion(), answer
-			));
+
+			QuestionLog questionLog = questionLogService.saveAndFlush(
+					attempt.getUserId(),
+					attempt.getQuestion(),
+					answer,
+					userIp
+			);
+
 			List<FaqLog> faqLogs = new ArrayList<>();
 			LocalDateTime now = LocalDateTime.now();
 			for (int index = 0; index < sources.size(); index++) {

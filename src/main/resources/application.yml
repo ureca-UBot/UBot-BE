@@ -30,3 +30,6 @@ ranking:
   baseline-period-days: ${BASELINE_PERIOD_DAYS:7}
   baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:20}
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:20}
+
+geoip:
+  database-path: ${GEOIP_DATABASE_PATH:./chat/util/geoip/GeoLite2-City.mmdb}

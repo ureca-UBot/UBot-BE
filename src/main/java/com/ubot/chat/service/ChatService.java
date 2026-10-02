@@ -62,7 +62,7 @@ public class ChatService {
 		this.chatExecutor = chatExecutor;
 	}
 
-	public ChatAnswerTask createChat(Long userId, String question) {
+	public ChatAnswerTask createChat(Long userId, String question, String userIp) {
 		if (!StringUtils.hasText(question) || question.length() > 4000) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
@@ -70,19 +70,19 @@ public class ChatService {
 		forbiddenWordFilterService.validateForbiddenWord(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
-		return startAnswerGeneration(attempt);
+		return startAnswerGeneration(attempt, userIp);
 	}
 
-	public ChatAnswerTask retryChat(Long userId, String idempotencyKey) {
+	public ChatAnswerTask retryChat(Long userId, String idempotencyKey, String userIp) {
 		if (idempotencyKey == null || !idempotencyKey.matches("[0-9a-f]{64}")) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		}
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
-		return startAnswerGeneration(attempt);
+		return startAnswerGeneration(attempt, userIp);
 	}
 
-	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt) {
+	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, String userIp) {
 		ChatAnswerTask generation = new ChatAnswerTask(new CompletableFuture<>(), () -> {
 			AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerTimeout(attempt);
 			return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
@@ -90,7 +90,7 @@ public class ChatService {
 		});
 		FutureTask<Void> task = new FutureTask<>(() -> {
 			try {
-				generateAnswer(attempt, generation);
+				generateAnswer(attempt, generation, userIp);
 			} catch (Throwable exception) {
 				generation.completeExceptionally(exception);
 			}
@@ -105,7 +105,7 @@ public class ChatService {
 		return generation;
 	}
 
-	private ChatResponseDto generateAnswer(AnswerAttemptsHistory attempt, ChatAnswerTask generation) {
+	private ChatResponseDto generateAnswer(AnswerAttemptsHistory attempt, ChatAnswerTask generation, String userIp) {
 		try {
 			checkCancellation(generation);
 			// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
@@ -137,7 +137,7 @@ public class ChatService {
 
 			checkCancellation(generation);
 			return generation.complete(() -> {
-				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults);
+				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults, userIp);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
 					throw createAnswerFailure(savedAttempt);
 				}

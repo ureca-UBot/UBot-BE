@@ -54,7 +54,7 @@ class ChatServiceUnansweredTest {
 	void recordsNoFaq() {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
 
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
 		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.NO_FAQ, null, null);
@@ -67,7 +67,7 @@ class ChatServiceUnansweredTest {
 				new FaqSearchResponseDto(7L, "q1", "a1", 0.6),
 				new FaqSearchResponseDto(8L, "q2", "a2", 0.5)));
 
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
 		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
@@ -79,7 +79,7 @@ class ChatServiceUnansweredTest {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
 		doThrow(new RuntimeException("embedding down")).when(unanswered).createUnansweredQuestion(any(), any(), any(), any(), any());
 
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
 		verify(attempts).saveAnswerFailure(attempt, ChatErrorCode.NO_FAQ);
@@ -91,13 +91,13 @@ class ChatServiceUnansweredTest {
 		List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
 		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
-		when(attempts.saveAnswerSuccess(any(), any(), any())).thenAnswer(call -> {
+		when(attempts.saveAnswerSuccess(any(), any(), any(), null)).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
 			return saved;
 		});
 
-		service.createChat(1L, "질문");
+		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
 		verify(unanswered, never()).createUnansweredQuestion(any(), any(), any(), any(), any());
