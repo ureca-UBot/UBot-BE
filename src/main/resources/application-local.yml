@@ -7,6 +7,11 @@ spring:
     username: ${POSTGRES_USER:ubot}
     password: ${POSTGRES_PASSWORD}
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:16379}
+      
   jpa:
     hibernate:
       ddl-auto: none
