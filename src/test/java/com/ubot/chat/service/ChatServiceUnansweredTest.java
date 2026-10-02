@@ -7,13 +7,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.ArrayDeque;
@@ -38,7 +38,7 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), unanswered, jobs::add);
+		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), unanswered, ChatTestFixtures.collector(), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
@@ -90,7 +90,7 @@ class ChatServiceUnansweredTest {
 	void doesNotRecordOnSuccess() {
 		List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null));
 		when(attempts.saveAnswerSuccess(any(), any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();

@@ -1,5 +1,6 @@
 package com.ubot.prompt.service;
 
+import com.ubot.ai.dto.ContextSection;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -19,7 +20,8 @@ import org.springframework.util.StringUtils;
 public class PromptService {
 
     private static final String NOT_READY_MESSAGE = "답변 프롬프트가 아직 준비되지 않았습니다.";
-    private static final Pattern INPUT_PLACEHOLDER = Pattern.compile("\\{\\{(question|faqs)\\}\\}");
+    private static final Pattern INPUT_PLACEHOLDER = Pattern.compile("\\{\\{(question|faqs|context)\\}\\}");
+    private static final String EMPTY_VALUE = "(없음)";
 
     private final Resource systemPromptResource;
     private final Resource userPromptResource;
@@ -32,7 +34,48 @@ public class PromptService {
     }
 
     public LlmRequestDto createPrompt(String question, List<FaqSearchResponseDto> results) {
+        // FAQ만으로 답하는 호출은 FAQ가 반드시 있어야 합니다.
+        if (results == null || results.isEmpty()) {
+            throw new PromptException("답변 생성에 필요한 질문 또는 FAQ가 없습니다.");
+        }
+        return createPrompt(question, results, List.of());
+    }
+
+    public LlmRequestDto createPrompt(String question, List<FaqSearchResponseDto> faqs, List<ContextSection> sections) {
         // 답변 지침은 코드에 임의로 작성하지 않고, 담당자가 채울 파일에서 읽습니다.
+        String[] templates = readTemplates();
+        String systemPrompt = templates[0];
+        String userTemplate = templates[1];
+
+        // 사용자 정보 같은 추가 자료가 있는데 넣을 자리가 없으면 자료를 버리지 않고 호출을 막습니다.
+        List<ContextSection> contextSections = sections == null ? List.of() : sections;
+        if (!contextSections.isEmpty() && !userTemplate.contains("{{context}}")) {
+            throw new PromptException(NOT_READY_MESSAGE);
+        }
+        if (!StringUtils.hasText(question)) {
+            throw new PromptException("답변 생성에 필요한 질문 또는 FAQ가 없습니다.");
+        }
+
+        // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatService의 검색 판단용입니다.
+        // 매장만 묻는 질문처럼 FAQ 없이 도구·추가 자료만으로 답할 수도 있습니다.
+        String faqText = faqs == null || faqs.isEmpty() ? EMPTY_VALUE : formatFaqs(faqs);
+        String contextText = contextSections.isEmpty() ? EMPTY_VALUE : formatSections(contextSections);
+
+        // 템플릿의 자리표시자만 한 번 치환합니다.
+        // 사용자 질문이나 FAQ 안의 {{faqs}}, $, 역슬래시 등은 다시 해석하지 않습니다.
+        String userPrompt = INPUT_PLACEHOLDER.matcher(userTemplate).replaceAll(match ->
+                Matcher.quoteReplacement(switch (match.group(1)) {
+                    case "question" -> question;
+                    case "faqs" -> faqText;
+                    default -> contextText;
+                }));
+
+        return new LlmRequestDto(List.of(
+                new LlmMessageRequestDto(LlmMessageRole.SYSTEM, systemPrompt),
+                new LlmMessageRequestDto(LlmMessageRole.USER, userPrompt)));
+    }
+
+    private String[] readTemplates() {
         String systemPrompt = readPrompt(systemPromptResource);
         String userTemplate = readPrompt(userPromptResource);
 
@@ -41,21 +84,7 @@ public class PromptService {
                 || !userTemplate.contains("{{question}}") || !userTemplate.contains("{{faqs}}")) {
             throw new PromptException(NOT_READY_MESSAGE);
         }
-        if (!StringUtils.hasText(question) || results == null || results.isEmpty()) {
-            throw new PromptException("답변 생성에 필요한 질문 또는 FAQ가 없습니다.");
-        }
-
-        // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatService의 검색 판단용입니다.
-        String faqs = formatFaqs(results);
-
-        // 템플릿의 자리표시자만 한 번 치환합니다.
-        // 사용자 질문이나 FAQ 안의 {{faqs}}, $, 역슬래시 등은 다시 해석하지 않습니다.
-        String userPrompt = INPUT_PLACEHOLDER.matcher(userTemplate).replaceAll(match ->
-                Matcher.quoteReplacement("question".equals(match.group(1)) ? question : faqs));
-
-        return new LlmRequestDto(List.of(
-                new LlmMessageRequestDto(LlmMessageRole.SYSTEM, systemPrompt),
-                new LlmMessageRequestDto(LlmMessageRole.USER, userPrompt)));
+        return new String[] {systemPrompt, userTemplate};
     }
 
     private String readPrompt(Resource resource) {
@@ -77,6 +106,15 @@ public class PromptService {
             context.append("[FAQ ID: ").append(faq.faqId()).append("]\n")
                     .append("질문: ").append(faq.question()).append('\n')
                     .append("답변: ").append(faq.answer()).append("\n\n");
+        }
+        return context.toString();
+    }
+
+    private String formatSections(List<ContextSection> sections) {
+        StringBuilder context = new StringBuilder();
+        for (ContextSection section : sections) {
+            context.append("### ").append(section.title()).append('\n')
+                    .append(section.content()).append("\n\n");
         }
         return context.toString();
     }
