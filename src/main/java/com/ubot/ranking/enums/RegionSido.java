@@ -19,10 +19,10 @@ public enum RegionSido {
 	SEJONG("50"),
 
 	GYEONGGI("41"),
-	GANGWON("51"),
+	GANGWON("42"),
 	CHUNGBUK("43"),
 	CHUNGNAM("44"),
-	JEONBUK("52"),
+	JEONBUK("45"),
 	JEONNAM("46"),
 	GYEONGBUK("47"),
 	GYEONGNAM("48"),

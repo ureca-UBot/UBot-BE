@@ -7,9 +7,9 @@ import org.springframework.util.StringUtils;
 @Component
 public class ClientIpResolver {
 	public String resolve(HttpServletRequest request) {
-		String forwardedIp = request.getHeader("X-Forwarded-For");
-		if (StringUtils.hasText(forwardedIp)) {
-			return forwardedIp.split(",")[0].trim();
+		String realIp = request.getHeader("X-Real-IP");
+		if (StringUtils.hasText(realIp)) {
+			return realIp;
 		}
 
 		return request.getRemoteAddr();
