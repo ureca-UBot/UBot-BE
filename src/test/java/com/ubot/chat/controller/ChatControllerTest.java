@@ -7,6 +7,7 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
+import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.GlobalExceptionHandler;
 import com.ubot.user.entity.User;
 import jakarta.servlet.AsyncEvent;
@@ -33,11 +34,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ChatControllerTest {
 	ChatService service = mock(ChatService.class);
+	ClientIpResolver clientIpResolver = mock(ClientIpResolver.class);
 	CustomUserDetails principal = new CustomUserDetails(User.builder().id(1L).build());
 	MockMvc mvc;
 
 	@BeforeEach void setup() {
-		var controller = new ChatController(service);
+		var controller = new ChatController(service, clientIpResolver);
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
@@ -50,10 +52,10 @@ class ChatControllerTest {
 
 	@Test void existingQuestionRouteUsesAuthenticatedUserAndSingleJsonResponse() throws Exception {
 		var answer = new CompletableFuture<ChatResponseDto>();
-		when(service.createChat(1L, "질문")).thenReturn(task(answer));
+		when(service.createChat(1L, "질문", null)).thenReturn(task(answer));
 		var pending = mvc.perform(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\",\"userId\":999}")).andExpect(request().asyncStarted()).andReturn();
-		verify(service).createChat(1L, "질문");
+		verify(service).createChat(1L, "질문", null);
 		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
 		answer.complete(ChatResponseDto.createSuccessAnswer("완성된 답변"));
 		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
@@ -69,10 +71,10 @@ class ChatControllerTest {
 	@Test void retryUsesKeyWithoutSessionOrQuestionIds() throws Exception {
 		String key = "a".repeat(64);
 		var answer = new CompletableFuture<ChatResponseDto>();
-		when(service.retryChat(1L, key)).thenReturn(task(answer));
+		when(service.retryChat(1L, key, null)).thenReturn(task(answer));
 		var pending = mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", key))
 				.andExpect(request().asyncStarted()).andReturn();
-		verify(service).retryChat(1L, key);
+		verify(service).retryChat(1L, key, null);
 		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
 		answer.completeExceptionally(new ChatException(LlmErrorCode.LLM_TIMEOUT,
 				new ChatResponseDto(LlmErrorCode.LLM_TIMEOUT.getMessage(), "FAIL", key, 2, true)));
@@ -100,9 +102,9 @@ class ChatControllerTest {
 				: post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}");
 		var generation = new ChatAnswerTask(answer, () -> timeoutResponse(attemptCount, attemptCount < 3));
 		if (retry) {
-			when(service.retryChat(1L, key)).thenReturn(generation);
+			when(service.retryChat(1L, key, null)).thenReturn(generation);
 		} else {
-			when(service.createChat(1L, "질문")).thenReturn(generation);
+			when(service.createChat(1L, "질문", null)).thenReturn(generation);
 		}
 		var pending = mvc.perform(request).andExpect(request().asyncStarted()).andReturn();
 		var asyncContext = (MockAsyncContext) pending.getRequest().getAsyncContext();
@@ -132,7 +134,7 @@ class ChatControllerTest {
 		var saveStarted = new CountDownLatch(1);
 		var allowSaveToFinish = new CountDownLatch(1);
 		var storageFailure = new DataAccessResourceFailureException("database secret");
-		when(service.createChat(1L, "질문")).thenReturn(new ChatAnswerTask(answer, () -> {
+		when(service.createChat(1L, "질문", null)).thenReturn(new ChatAnswerTask(answer, () -> {
 			saveStarted.countDown();
 			try {
 				if (!allowSaveToFinish.await(5, TimeUnit.SECONDS)) {
@@ -190,7 +192,7 @@ class ChatControllerTest {
 	void completedResponseDoesNotRunTimeoutStorage() throws Exception {
 		var answer = new CompletableFuture<ChatResponseDto>();
 		Runnable timeoutAction = mock(Runnable.class);
-		when(service.createChat(1L, "질문")).thenReturn(new ChatAnswerTask(answer, () -> {
+		when(service.createChat(1L, "질문", null)).thenReturn(new ChatAnswerTask(answer, () -> {
 			timeoutAction.run();
 			return timeoutResponse(1, true);
 		}));
@@ -218,7 +220,7 @@ class ChatControllerTest {
 	}
 
 	@Test void invalidRetryRequestUsesCommonErrorResponse() throws Exception {
-		when(service.retryChat(1L, "invalid-key"))
+		when(service.retryChat(1L, "invalid-key", null))
 				.thenThrow(new ChatException(ChatErrorCode.INVALID_CHAT_RETRY_REQUEST));
 
 		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", "invalid-key"))
@@ -226,7 +228,7 @@ class ChatControllerTest {
 				.andExpect(jsonPath("$.success").value(false))
 				.andExpect(jsonPath("$.code").value("CHAT-011"))
 				.andExpect(jsonPath("$.data").doesNotExist());
-		verify(service).retryChat(1L, "invalid-key");
+		verify(service).retryChat(1L, "invalid-key", null);
 	}
 
 	@Test void blankQuestionIsRejectedBeforeService() throws Exception {
