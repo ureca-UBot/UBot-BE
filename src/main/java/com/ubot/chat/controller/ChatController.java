@@ -5,7 +5,9 @@ import com.ubot.chat.dto.request.ChatRequestDto;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
+import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,21 +28,26 @@ public class ChatController {
 	private long responseTimeoutMillis;
 
 	private final ChatService chatService;
+	private final ClientIpResolver clientIpResolver;
 
 	@PostMapping(value = "/questions", produces = MediaType.APPLICATION_JSON_VALUE)
 	public DeferredResult<ApiResponse<ChatResponseDto>> createChat(
 			@AuthenticationPrincipal CustomUserDetails user,
-			@Valid @RequestBody ChatRequestDto request
+			@Valid @RequestBody ChatRequestDto request,
+			HttpServletRequest httpRequest
 	) {
-		return createResponse(chatService.createChat(user.getUserId(), request.question()));
+		String userIp = clientIpResolver.resolve(httpRequest);
+		return createResponse(chatService.createChat(user.getUserId(), request.question(), userIp));
 	}
 
 	@PostMapping(value = "/questions/retries", produces = MediaType.APPLICATION_JSON_VALUE)
 	public DeferredResult<ApiResponse<ChatResponseDto>> retryChat(
 			@AuthenticationPrincipal CustomUserDetails user,
-			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
+			@RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+			HttpServletRequest httpRequest
 	) {
-		return createResponse(chatService.retryChat(user.getUserId(), idempotencyKey));
+		String userIp = clientIpResolver.resolve(httpRequest);
+		return createResponse(chatService.retryChat(user.getUserId(), idempotencyKey, userIp));
 	}
 
 	private DeferredResult<ApiResponse<ChatResponseDto>> createResponse(ChatAnswerTask answer) {
