@@ -31,7 +31,8 @@ public class QuestionLogService {
 				.toLowerCase(Locale.ROOT)
 				.replaceAll("\\s+", " ")
 				.replaceAll("[?!.,~]+", "")
-				.replaceAll("\\s+", " ");
+				.replaceAll("\\s+", " ")
+				.strip();
 
 
 		// Todo: Guest 정책이 확정되고 난후, guest 질문의 랭킹 산정 중복 처리를 구현한다.
