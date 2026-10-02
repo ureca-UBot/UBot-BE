@@ -18,6 +18,8 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.unanswered.repository.UnansweredQuestionGroupRepository;
+import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.repository.UserRepository;
@@ -73,6 +75,8 @@ class ChatLlmIntegrationTest {
 	@Autowired AnswerAttemptsHistoryRepository attempts;
 	@Autowired QuestionLogRepository questions;
 	@Autowired FaqLogRepository faqLogs;
+	@Autowired UnansweredQuestionRepository unansweredQuestions;
+	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@Autowired JdbcTemplate jdbc;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean LlmClient llm;
@@ -83,6 +87,8 @@ class ChatLlmIntegrationTest {
 	Long faqId;
 
 	@BeforeEach void setup() {
+		unansweredQuestions.deleteAllInBatch();
+		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
 		questions.deleteAllInBatch();
 		attempts.deleteAllInBatch();
