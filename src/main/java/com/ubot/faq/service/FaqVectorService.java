@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,11 @@ public class FaqVectorService {
         return faqVectorRepository.getSimilarList(queryVector, topK);
     }
 
+    public List<FaqSearchResponseDto> getSimilarListByIntent(String userQuestion, int topK, Intent intent) {
+        PGvector queryVector = embeddingService.embedText(userQuestion);
+        return faqVectorRepository.getSimilarListByIntent(queryVector, topK, intent);
+    }
+
     public void saveVectorForFaq(Long faqId, String question) {
         PGvector vector = embeddingService.embedText(question);
         faqVectorRepository.saveVectorForFaq(faqId, vector);
@@ -31,7 +37,7 @@ public class FaqVectorService {
 
     public void saveVectorForOldFaq(Long faqId, Integer version) {
         PGvector vector = faqVectorRepository.findVectorByFaqId(faqId);
-        if(vector == null) {
+        if (vector == null) {
             throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
         }
         faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
