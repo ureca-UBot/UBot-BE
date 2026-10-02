@@ -25,18 +25,9 @@ public interface QuestionLogRepository extends JpaRepository<QuestionLog, Long> 
 			@Param("endAt") LocalDateTime endAt
 	);
 
-	@Query ("""
-		select (count(ql) > 0)
-		from QuestionLog ql
-		where
-			ql.normalizedQuestion = :normalizedQuestion
-		and ql.createdAt >= :startAt
-		and ql.createdAt < :endAt
-		"""
+	@Query(
+			value = "SELECT pg_advisory_xact_lock(:lockKey)",
+			nativeQuery = true
 	)
-	boolean existsByNormalizedQuestionInRankingWindow(
-			@Param("normalizedQuestion") String normalizedQuestion,
-			@Param("startAt") LocalDateTime startAt,
-			@Param("endAt") LocalDateTime endAt
-	);
+	void acquireAdvisoryLock(@Param("lockKey") long lockKey);
 }

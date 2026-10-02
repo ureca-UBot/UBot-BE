@@ -7,6 +7,7 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
+import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.GlobalExceptionHandler;
 import com.ubot.user.entity.User;
 import jakarta.servlet.AsyncEvent;
@@ -33,11 +34,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ChatControllerTest {
 	ChatService service = mock(ChatService.class);
+	ClientIpResolver clientIpResolver = mock(ClientIpResolver.class);
 	CustomUserDetails principal = new CustomUserDetails(User.builder().id(1L).build());
 	MockMvc mvc;
 
 	@BeforeEach void setup() {
-		var controller = new ChatController(service);
+		var controller = new ChatController(service, clientIpResolver);
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())

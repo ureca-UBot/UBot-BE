@@ -50,7 +50,7 @@ class ChatServiceCancellationTest {
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
 		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
-		when(attempts.saveAnswerSuccess(any(), anyString(), anyList(), null)).thenAnswer(call -> {
+		when(attempts.saveAnswerSuccess(any(), anyString(), anyList(), isNull())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
 			return saved;
@@ -125,7 +125,7 @@ class ChatServiceCancellationTest {
 		verify(vector).getSimilarList("질문", 3);
 		verify(ai).generateAnswer("질문", sources);
 		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", sources, null);
-		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList(), null);
+		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList(), isNull());
 		verify(attempts, never()).saveAnswerFailure(any(), any());
 	}
 
@@ -188,7 +188,7 @@ class ChatServiceCancellationTest {
 	}
 
 	private void verifyNoResultSaved() {
-		verify(attempts, never()).saveAnswerSuccess(any(), anyString(), anyList(), null);
+		verify(attempts, never()).saveAnswerSuccess(any(), anyString(), anyList(), isNull());
 		verify(attempts, never()).saveAnswerFailure(any(), any());
 	}
 

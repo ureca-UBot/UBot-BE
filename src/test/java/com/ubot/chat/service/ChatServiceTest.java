@@ -9,6 +9,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.GlobalExceptionHandler;
 import com.ubot.common.ErrorCode;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
@@ -81,8 +82,12 @@ class ChatServiceTest {
 				.thenAnswer(call -> saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
 						&& a.getIdempotencyKey().equals(call.getArgument(1)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
-		when(questions.saveAndFlush(any())).thenAnswer(call -> {
-			QuestionLog result = call.getArgument(0);
+		when(questions.saveAndFlush(anyLong(), anyString(), anyString(), isNull())).thenAnswer(call -> {
+			QuestionLog result = QuestionLog.builder()
+					.userId(call.getArgument(0))
+					.userQuestion(call.getArgument(1))
+					.answer(call.getArgument(2))
+					.build();
 			ReflectionTestUtils.setField(result, "id", 10L);
 			return result;
 		});
@@ -92,7 +97,7 @@ class ChatServiceTest {
 		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
-		var controller = new ChatController(service);
+		var controller = new ChatController(service, mock(ClientIpResolver.class));
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
@@ -131,8 +136,7 @@ class ChatServiceTest {
 				.doesNotContain("event:", "data:");
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
 		verify(ai).generateAnswer("질문", sources);
-		verify(questions).saveAndFlush(argThat(q -> q.getUserId() == 1L
-				&& q.getUserQuestion().equals("질문") && q.getAnswer().equals("생성된 답변")));
+		verify(questions).saveAndFlush(1L, "질문", "생성된 답변", null);
 		verify(faqLogs).saveAll(argThat(items -> {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(list::add);

@@ -7,6 +7,7 @@ import com.ubot.ranking.enums.RegionSido;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
@@ -20,6 +21,7 @@ public class QuestionLogService {
 	@Value("${ranking.window-minutes}")
 	private int rankingWindowMinutes;
 
+	@Transactional
 	QuestionLog saveAndFlush(Long userId, String question,String answer, String userIp){
 
 		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
@@ -28,7 +30,16 @@ public class QuestionLogService {
 				.strip()
 				.toLowerCase(Locale.ROOT)
 				.replaceAll("\\s+", " ")
-				.replaceAll("[?!.,~]+", "");
+				.replaceAll("[?!.,~]+", "")
+				.replaceAll("\\s+", " ");
+
+
+		// Todo: Guest 정책이 확정되고 난후, guest 질문의 랭킹 산정 중복 처리를 구현한다.
+
+		String key = userId + ":" + normalizedQuestion;
+		long lockKey = key.hashCode();
+
+		questionLogRepository.acquireAdvisoryLock(lockKey);
 
 		LocalDateTime endAt = LocalDateTime.now();
 		LocalDateTime startAt = endAt.minusMinutes(rankingWindowMinutes);
@@ -40,13 +51,6 @@ public class QuestionLogService {
 					normalizedQuestion,
 					startAt,
 					endAt);
-		}
-		else {
-			rankingEligible = !questionLogRepository.existsByNormalizedQuestionInRankingWindow(
-					normalizedQuestion,
-					startAt,
-					endAt
-			);
 		}
 
 		QuestionLog questionLog = QuestionLog.builder()

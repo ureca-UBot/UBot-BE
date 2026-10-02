@@ -1,6 +1,7 @@
 package com.ubot.chat.service;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -91,7 +92,7 @@ class ChatServiceUnansweredTest {
 		List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
 		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
-		when(attempts.saveAnswerSuccess(any(), any(), any(), null)).thenAnswer(call -> {
+		when(attempts.saveAnswerSuccess(any(), any(), any(), isNull())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
 			return saved;
