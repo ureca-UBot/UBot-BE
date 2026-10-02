@@ -59,7 +59,36 @@ services:
     command:
       - pull
       - ${OLLAMA_EMBEDDING_MODEL}
+  redis:
+      image: redis:8-alpine
+      restart: unless-stopped
 
+      ports:
+        - "127.0.0.1:${REDIS_PORT}:6379"
+
+      volumes:
+        - redis-data:/data
+
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 10
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
+
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 volumes:
   postgres-data:
   ollama-data:
+  redis-data:
+  prometheus-data:
