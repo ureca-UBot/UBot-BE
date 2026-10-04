@@ -37,16 +37,17 @@ public class QuestionLogService {
 
 		// Todo: Guest 정책이 확정되고 난후, guest 질문의 랭킹 산정 중복 처리를 구현한다.
 
-		String key = userId + ":" + normalizedQuestion;
-		long lockKey = key.hashCode();
-
-		questionLogRepository.acquireAdvisoryLock(lockKey);
-
-		LocalDateTime endAt = LocalDateTime.now();
-		LocalDateTime startAt = endAt.minusMinutes(rankingWindowMinutes);
 		boolean rankingEligible = false;
 
 		if(userId != null) {
+			String key = userId + ":" + normalizedQuestion;
+			long lockKey = key.hashCode();
+
+			questionLogRepository.acquireAdvisoryLock(lockKey);
+
+			LocalDateTime endAt = LocalDateTime.now();
+			LocalDateTime startAt = endAt.minusMinutes(rankingWindowMinutes);
+
 			rankingEligible = !questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 					userId,
 					normalizedQuestion,
