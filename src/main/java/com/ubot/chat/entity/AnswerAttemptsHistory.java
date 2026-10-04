@@ -32,6 +32,9 @@ public class AnswerAttemptsHistory {
 	@Column(name = "user_id")
 	private Long userId;
 
+	@Column(name = "conversation_id")
+	private Long conversationId;
+
 	@Column(name = "question")
 	private String question;
 
@@ -69,7 +72,21 @@ public class AnswerAttemptsHistory {
 			String llmModel,
 			String embeddingModel
 	) {
+		this(userId, null, question, attemptCount, idempotencyKey, createdAt, llmModel, embeddingModel);
+	}
+
+	public AnswerAttemptsHistory(
+			Long userId,
+			Long conversationId,
+			String question,
+			int attemptCount,
+			String idempotencyKey,
+			LocalDateTime createdAt,
+			String llmModel,
+			String embeddingModel
+	) {
 		this.userId = userId;
+		this.conversationId = conversationId;
 		this.question = question;
 		this.attemptCount = attemptCount;
 		this.idempotencyKey = idempotencyKey;

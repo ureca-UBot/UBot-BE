@@ -42,7 +42,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, " 질문 ? ", "답변", ip);
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null," 질문 ? ", "답변", ip);
 
 		assertThat(saved.getUserId()).isEqualTo(1L);
 		assertThat(saved.getUserQuestion()).isEqualTo(" 질문 ? ");
@@ -59,7 +59,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, "질문", "답변", "127.0.0.1");
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null,"질문", "답변", "127.0.0.1");
 
 		assertThat(saved.getRegion()).isNull();
 		assertThat(saved.getRankingEligible()).isTrue();
@@ -72,7 +72,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(true);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, "질문", "답변", "region-ip");
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null,"질문", "답변", "region-ip");
 
 		assertThat(saved.getRankingEligible()).isFalse();
 		assertThat(saved.getRegion()).isEqualTo(RegionSido.SEOUL);

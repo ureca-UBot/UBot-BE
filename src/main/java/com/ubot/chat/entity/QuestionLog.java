@@ -23,6 +23,9 @@ public class QuestionLog {
 	@Column(name = "user_id")
 	private Long userId;
 
+	@Column(name = "conversation_id")
+	private Long conversationId;
+
 	@Column(name = "user_question")
 	private String userQuestion;
 
@@ -46,6 +49,7 @@ public class QuestionLog {
 	@Builder
 	private QuestionLog(
 			Long userId,
+			Long conversationId,
 			String userQuestion,
 			String normalizedQuestion,
 			String answer,
@@ -53,6 +57,7 @@ public class QuestionLog {
 			RegionSido region
 	){
 		this.userId = userId;
+		this.conversationId = conversationId;
 		this.userQuestion = userQuestion;
 		this.normalizedQuestion = normalizedQuestion;
 		this.answer = answer;

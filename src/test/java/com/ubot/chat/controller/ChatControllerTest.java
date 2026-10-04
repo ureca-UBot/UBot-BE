@@ -9,6 +9,7 @@ import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.GlobalExceptionHandler;
+import com.ubot.guest.session.GuestConversationService;
 import com.ubot.user.entity.User;
 import jakarta.servlet.AsyncEvent;
 import java.util.concurrent.CompletableFuture;
@@ -35,11 +36,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ChatControllerTest {
 	ChatService service = mock(ChatService.class);
 	ClientIpResolver clientIpResolver = mock(ClientIpResolver.class);
+	GuestConversationService guestConversationService = mock(GuestConversationService.class);
 	CustomUserDetails principal = new CustomUserDetails(User.builder().id(1L).build());
 	MockMvc mvc;
 
 	@BeforeEach void setup() {
-		var controller = new ChatController(service, clientIpResolver);
+		var controller = new ChatController(service, clientIpResolver, guestConversationService);
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
@@ -66,6 +68,46 @@ class ChatControllerTest {
 				.andExpect(jsonPath("$.data.answer").value("완성된 답변"))
 				.andExpect(jsonPath("$.data.status").value("SUCCESS"))
 				.andExpect(jsonPath("$.data.success").doesNotExist());
+	}
+
+	@Test void guestQuestionUsesSessionConversationInsteadOfUser() throws Exception {
+		principal = null;
+		var answer = new CompletableFuture<ChatResponseDto>();
+		when(guestConversationService.getOrCreateConversationId(any())).thenReturn(7L);
+		when(service.createGuestChat(7L, "질문", null)).thenReturn(task(answer));
+
+		var pending = mvc.perform(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}")).andExpect(request().asyncStarted()).andReturn();
+
+		verify(service).createGuestChat(7L, "질문", null);
+		verify(service, never()).createChat(any(), any(), any());
+		answer.complete(ChatResponseDto.createSuccessAnswer("완성된 답변"));
+		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.answer").value("완성된 답변"));
+	}
+
+	@Test void guestRetryUsesExistingConversationAndNeverCreatesOne() throws Exception {
+		principal = null;
+		String key = "a".repeat(64);
+		when(guestConversationService.findConversationId(any())).thenReturn(java.util.Optional.of(7L));
+		when(service.retryGuestChat(7L, key, null)).thenReturn(task(new CompletableFuture<>()));
+
+		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", key))
+				.andExpect(request().asyncStarted());
+
+		verify(service).retryGuestChat(7L, key, null);
+		verify(guestConversationService, never()).getOrCreateConversationId(any());
+	}
+
+	@Test void guestRetryWithoutConversationIsRejectedBeforeService() throws Exception {
+		principal = null;
+		when(guestConversationService.findConversationId(any())).thenReturn(java.util.Optional.empty());
+
+		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", "a".repeat(64)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("CHAT-003"));
+		verifyNoInteractions(service);
+		verify(guestConversationService, never()).getOrCreateConversationId(any());
 	}
 
 	@Test void retryUsesKeyWithoutSessionOrQuestionIds() throws Exception {

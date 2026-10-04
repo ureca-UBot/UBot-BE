@@ -170,7 +170,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | 채팅 답변 생성 Executor | 가상 스레드, 동시 처리 수 제한 없음, 종료 대기 150초 | `AsyncConfig` |
 | 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `EmbeddingService` |
 | Nginx 프록시 응답 제한 시간 | `180s` | `infra/nginx/nginx.conf` |
-| 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
+| Nginx `/chat/` 게스트 요청 속도 제한 (IP별) | `CHAT_GUEST_RATE_LIMIT_RATE`(기본 `30r/m`), `CHAT_GUEST_RATE_LIMIT_BURST`(기본 `10`) | `.env`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` || 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
 | DB 타임존 | `V6__set_database_timezone.sql` | 마이그레이션 |
 
 `CHAT_RESPONSE_TIMEOUT_MILLIS`를 바꿀 때는 Nginx 제한 시간과의 관계를 [deploy.md](../deploy.md#주의할-점)에서 확인하세요.

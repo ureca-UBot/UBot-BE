@@ -31,6 +31,42 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 	);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+			select a
+			from AnswerAttemptsHistory a
+			where a.userId is null
+			  and a.conversationId = :conversationId
+			  and a.idempotencyKey = :idempotencyKey
+			  and a.attemptCount = :attemptCount
+			""")
+	Optional<AnswerAttemptsHistory> findGuestInitialAttemptsForLock(
+			@Param("conversationId") Long conversationId,
+			@Param("idempotencyKey") String idempotencyKey,
+			@Param("attemptCount") int attemptCount
+	);
+
+	Optional<AnswerAttemptsHistory> findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
+			Long conversationId,
+			String idempotencyKey
+	);
+
+	@Query("""
+			select count(distinct a.idempotencyKey)
+			from AnswerAttemptsHistory a
+			where a.conversationId = :conversationId
+			  and a.idempotencyKey <> :excludedIdempotencyKey
+			  and (a.status in ('PENDING', 'SUCCESS')
+			    or a.errorCode = :noFaq
+			    or a.errorCode = :insufficientFaq)
+			""")
+	long countGuestQuestions(
+			@Param("conversationId") Long conversationId,
+			@Param("excludedIdempotencyKey") String excludedIdempotencyKey,
+			@Param("noFaq") ErrorCode noFaq,
+			@Param("insufficientFaq") ErrorCode insufficientFaq
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select a from AnswerAttemptsHistory a where a.id = :attemptId")
 	Optional<AnswerAttemptsHistory> findAttemptForLock(@Param("attemptId") Long attemptId);
 

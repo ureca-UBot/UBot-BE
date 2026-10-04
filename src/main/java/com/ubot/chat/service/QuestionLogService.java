@@ -22,7 +22,7 @@ public class QuestionLogService {
 	private int rankingWindowMinutes;
 
 	@Transactional
-	QuestionLog saveAndFlush(Long userId, String question,String answer, String userIp){
+	QuestionLog saveAndFlush(Long userId, Long conversationId, String question, String answer, String userIp){
 
 		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
 
@@ -56,6 +56,7 @@ public class QuestionLogService {
 
 		QuestionLog questionLog = QuestionLog.builder()
 				.userId(userId)
+				.conversationId(conversationId)
 				.userQuestion(question)
 				.normalizedQuestion(normalizedQuestion)
 				.answer(answer)
