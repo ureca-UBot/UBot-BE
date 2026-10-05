@@ -59,9 +59,7 @@ network    → VPC / Public Subnet / IGW / Route Table 생성 (유지)
 gpu-test   → Security Group / IAM+SSM / g6.xlarge GPU EC2 / optional EIP (수시 생성·삭제)
 ```
 
-`gpu-test`는 `network`의 VPC/Subnet을 remote state가 아니라 Name 태그(`ubot-vpc`, `ubot-public-subnet`)로 조회합니다.
-
-`network`의 `project_name`을 바꾸면 `gpu-test`의 `network_vpc_name`, `network_public_subnet_name`도 함께 바꿔야 합니다.
+`gpu-test`는 `network`의 VPC/Subnet을 remote state가 아니라 Name 태그(`ubot-vpc`, `ubot-public-subnet`)로 조회합니다. `network`의 `project_name`을 바꾸면 `gpu-test`의 `network_vpc_name`, `network_public_subnet_name`도 함께 바꿔야 합니다.
 
 ---
 
@@ -81,7 +79,7 @@ docker --version
 
 ## AWS CLI Docker Image 준비
 
-AWS CLI도 로컬에 직접 설치하지 않고 공식 Docker Image를 사용합니다.
+AWS CLI도 로컬에 직접 설치하지 않고 공식 Docker 이미지를 사용합니다.
 
 처음 한 번 이미지를 내려받습니다.
 
@@ -99,13 +97,13 @@ docker run --rm `
 
 `aws-cli/2.x.x` 형태의 버전이 출력되면 정상입니다.
 
-AWS Login 정보와 Profile을 저장할 로컬 디렉터리를 생성합니다.
+AWS 로그인 정보와 Profile을 저장할 로컬 디렉터리를 생성합니다.
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.aws"
 ```
 
-이 디렉터리는 AWS CLI Container와 Terraform Container가 공통으로 사용합니다.
+이 디렉터리는 AWS CLI 컨테이너와 Terraform 컨테이너가 공통으로 사용합니다.
 
 ```text
 Windows
@@ -118,17 +116,13 @@ Windows
              └─ Terraform Container
 ```
 
-장기 Access Key와 Secret Key를 직접 생성하거나 Repository에 저장하지 않습니다.
-
-`aws login`으로 발급되는 임시 Credential을 사용합니다.
+장기 Access Key와 Secret Key를 직접 생성하거나 Repository에 저장하지 않습니다. `aws login`으로 발급되는 임시 Credential을 사용합니다.
 
 ---
 
 ## Terraform 실행 Image 빌드
 
-`tf.ps1`은 Terraform과 AWS CLI가 함께 들어 있는 로컬 Image `ubot-terraform:1.16.4`를 사용합니다.
-
-Registry에 올라가 있지 않으므로 처음 한 번 직접 빌드합니다.
+`tf.ps1`은 Terraform과 AWS CLI가 함께 들어 있는 로컬 이미지 `ubot-terraform:1.16.4`를 사용합니다. Registry에 올라가 있지 않으므로 처음 한 번 직접 빌드합니다.
 
 Repository Root에서:
 
@@ -136,7 +130,7 @@ Repository Root에서:
 docker build -t ubot-terraform:1.16.4 .\tools\terraform
 ```
 
-빌드 후 Terraform과 AWS CLI가 모두 포함되었는지 확인합니다.
+빌드한 뒤 Terraform과 AWS CLI가 모두 포함되었는지 확인합니다.
 
 Terraform:
 
@@ -158,15 +152,13 @@ docker run --rm `
 
 현재 검증한 Terraform 버전은 `1.16.4`입니다.
 
-Image 안에 AWS CLI가 필요한 이유는 아래 `ureca-terraform` Profile의 `credential_process`가 Container 안에서 `aws` 명령을 실행하기 때문입니다.
+이미지 안에 AWS CLI가 필요한 이유는 아래 `ureca-terraform` Profile의 `credential_process`가 컨테이너 안에서 `aws` 명령을 실행하기 때문입니다.
 
 ---
 
 ## AWS Profile 설정
 
-Profile 두 개를 사용합니다.
-
-Region은 `ap-northeast-2`입니다.
+Profile 두 개를 사용하며 Region은 `ap-northeast-2`입니다.
 
 ```text
 ureca
@@ -189,7 +181,7 @@ docker run --rm -it `
   --remote
 ```
 
-로그인 후 `%USERPROFILE%\.aws\config`에 `ureca` Profile이 생성됩니다.
+로그인하면 `%USERPROFILE%\.aws\config`에 `ureca` Profile이 생성됩니다.
 
 예:
 
@@ -207,7 +199,7 @@ credential_process = aws configure export-credentials --profile ureca --format p
 region = ap-northeast-2
 ```
 
-`tf.ps1`은 `%USERPROFILE%\.aws`를 Terraform Container에 마운트하고 다음 환경변수로 실행합니다.
+`tf.ps1`은 `%USERPROFILE%\.aws`를 Terraform 컨테이너에 마운트하고 다음 환경변수로 실행합니다.
 
 ```text
 AWS_PROFILE=ureca-terraform
@@ -217,7 +209,7 @@ AWS_DEFAULT_REGION=ap-northeast-2
 
 Access Key/Secret/SessionToken을 `tf.ps1`에서 한 번 추출해 고정하지 않습니다.
 
-Terraform이 Credential을 요청할 때 `credential_process`가 Container 내부 AWS CLI를 통해 현재 `ureca` 로그인 세션에서 가져옵니다.
+Terraform이 Credential을 요청할 때 `credential_process`가 컨테이너 내부 AWS CLI를 통해 현재 `ureca` 로그인 세션에서 가져옵니다.
 
 ---
 
@@ -272,9 +264,7 @@ g6.xlarge   → 4 vCPU
 g6.2xlarge  → 8 vCPU
 ```
 
-`g6.xlarge` 1대만 띄우려면 최소 4, `g6.2xlarge`까지 테스트하려면 8 이상을 요청합니다.
-
-Spot이 안 잡힐 때 On-Demand로 전환할 수 있도록 두 항목을 함께 올려 두는 것을 권장합니다.
+`g6.xlarge` 1대만 띄우려면 최소 4, `g6.2xlarge`까지 테스트하려면 8 이상을 요청합니다. Spot이 안 잡힐 때 On-Demand로 전환할 수 있도록 두 항목을 함께 올려 두기를 권장합니다.
 
 요청 방법:
 
@@ -343,7 +333,7 @@ Repository Root에서 실행합니다.
 .\tools\terraform\tf.ps1 gpu-test destroy
 ```
 
-`plan` 결과를 확인하지 않고 바로 `apply` 또는 `destroy`하지 않는 것을 권장합니다.
+`apply` 또는 `destroy` 전에 `plan` 결과를 먼저 확인하기를 권장합니다.
 
 ---
 
@@ -384,9 +374,7 @@ S3 Lockfile(`use_lockfile`)을 사용하므로 Terraform 1.10 이상이 필요�
 
 # 변수 변경
 
-기본값으로 충분하면 `terraform.tfvars` 없이 실행할 수 있습니다.
-
-값을 바꿀 때만 각 Root에서 example을 복사해 수정합니다.
+기본값으로 충분하면 `terraform.tfvars` 없이 실행할 수 있습니다. 값을 바꿀 때만 각 Root에서 example을 복사해 수정합니다.
 
 ```powershell
 Copy-Item `
@@ -494,9 +482,7 @@ Route Table Association
 ap-northeast-2a
 ```
 
-해당 AZ에 G6 용량이 없으면 `availability_zone` 변수를 변경합니다.
-
-Subnet이 재생성되므로 GPU 서버를 먼저 삭제한 뒤 적용합니다.
+해당 AZ에 G6 용량이 없으면 `availability_zone` 변수를 변경합니다. Subnet이 재생성되므로 GPU 서버를 먼저 삭제한 뒤 적용합니다.
 
 ---
 
@@ -590,15 +576,13 @@ AWS Public SSM Parameter의 최신 Deep Learning Base OSS NVIDIA Driver GPU AMI(
 /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-24.04/latest/ami-id
 ```
 
-`latest`를 조회하므로 AWS가 AMI를 갱신하면 다음 `plan`에서 인스턴스 교체(replace)가 표시될 수 있습니다.
-
-항상 `apply` 전에 `plan` 결과를 확인합니다.
+`latest`를 조회하므로 AWS가 AMI를 갱신하면 다음 `plan`에서 인스턴스 교체(replace)가 표시될 수 있습니다. 항상 `apply` 전에 `plan` 결과를 확인합니다.
 
 ---
 
 # GPU Server Bootstrap
 
-EC2의 `user_data`는 다음 Template을 사용합니다.
+EC2의 `user_data`는 다음 템플릿을 사용합니다.
 
 ```text
 gpu-test/scripts/bootstrap.sh.tftpl
@@ -621,11 +605,9 @@ Docker 상태 확인
 Bootstrap 완료 Marker 생성
 ```
 
-AWS DLAMI에는 NVIDIA Driver, CUDA, NVIDIA Container Toolkit, Docker 관련 구성이 포함되어 있으므로 Ubuntu의 `docker.io`를 다시 설치하지 않습니다.
+AWS DLAMI에는 NVIDIA Driver, CUDA, NVIDIA Container Toolkit, Docker 관련 구성이 포함되어 있으므로 Ubuntu의 `docker.io`를 다시 설치하지 않습니다. `docker.io`를 추가 설치하면 DLAMI의 `containerd.io`와 충돌할 수 있습니다.
 
-`docker.io`를 추가 설치하면 DLAMI의 `containerd.io`와 충돌할 수 있습니다.
-
-첫 부팅 중 apt/dpkg lock 충돌을 줄이기 위해 패키지 설치 시 최대 300초 동안 lock을 기다립니다.
+첫 부팅 중 apt/dpkg lock 충돌을 줄이기 위해 패키지를 설치할 때 최대 300초 동안 lock을 기다립니다.
 
 `user_data`를 수정하면 인스턴스가 교체됩니다.
 
@@ -694,7 +676,7 @@ sudo docker run --rm --gpus all \
   nvidia-smi
 ```
 
-Container 내부에서도 NVIDIA L4가 출력되면 정상입니다.
+컨테이너 내부에서도 NVIDIA L4가 출력되면 정상입니다.
 
 ---
 
@@ -747,7 +729,7 @@ Outbound
 → 0.0.0.0/0
 ```
 
-추후 Backend 연결 시 `llm_allowed_cidrs`에 Backend의 Public IP만 `/32`로 추가합니다.
+추후 Backend를 연결할 때 `llm_allowed_cidrs`에 Backend의 Public IP만 `/32`로 추가합니다.
 
 허용 Port는 `llm_port`이며 기본값은 `8000`입니다.
 
@@ -779,13 +761,9 @@ Interruption Behavior
 → terminate
 ```
 
-Spot이 회수되면 인스턴스가 종료되고 Root Volume도 함께 삭제됩니다.
+Spot이 회수되면 인스턴스가 종료되고 Root Volume도 함께 삭제됩니다. 모델·벤치마크 결과 등 보존할 데이터는 서버에만 두지 않습니다. 회수 후에는 `apply`를 다시 실행하면 새 인스턴스가 생성됩니다.
 
-모델·벤치마크 결과 등 보존할 데이터는 서버에만 두지 않습니다.
-
-회수 후에는 `apply`를 다시 실행하면 새 인스턴스가 생성됩니다.
-
-장시간 테스트나 Spot Capacity 부족 시 On-Demand로 전환합니다.
+장시간 테스트를 하거나 Spot Capacity가 부족하면 On-Demand로 전환합니다.
 
 ```powershell
 .\tools\terraform\tf.ps1 `
@@ -845,7 +823,7 @@ Error acquiring the state lock
   -ExtraArgs "<LOCK_ID>"
 ```
 
-`-lock=false`로 Lock을 무시하고 실행하는 것은 권장하지 않습니다.
+Lock을 무시하는 `-lock=false` 실행은 권장하지 않습니다.
 
 ---
 
@@ -858,7 +836,7 @@ ExpiredToken
 RequestExpired
 ```
 
-현재 Terraform Container는 `credential_process`를 통해 Credential을 필요할 때 가져오도록 구성되어 있습니다.
+현재 Terraform 컨테이너는 `credential_process`를 통해 Credential을 필요할 때 가져오도록 구성되어 있습니다.
 
 그래도 `aws login` 세션 자체가 만료된 경우에는 다시 로그인합니다.
 
@@ -876,16 +854,14 @@ docker run --rm -it `
 
 # errored.tfstate 복구
 
-`apply` 또는 `destroy` 중 State 저장에 실패하면 해당 Terraform Root에 `errored.tfstate`가 생성될 수 있습니다.
-
-이 파일에는 Remote State에 반영되지 못한 상태가 들어 있을 수 있습니다.
+`apply` 또는 `destroy` 중 State 저장에 실패하면 해당 Terraform Root에 `errored.tfstate`가 생성될 수 있습니다. 이 파일에는 Remote State에 반영되지 못한 상태가 들어 있을 수 있습니다.
 
 `errored.tfstate`를 곧바로 Remote State에 `push`하지 않습니다.
 
 다음 순서로 확인합니다.
 
-1. AWS Login을 정상화합니다.
-2. Stale Lock이 있으면 다른 사용자가 Terraform을 실행 중이 아닌지 확인 후 해제합니다.
+1. AWS 로그인을 정상화합니다.
+2. Stale Lock이 있으면 다른 사용자가 Terraform을 실행 중이 아닌지 확인한 뒤 해제합니다.
 3. `plan`으로 현재 Remote State와 실제 AWS 리소스를 비교합니다.
 4. Remote State와 AWS 실제 상태가 정상적으로 일치한다면 `errored.tfstate`는 삭제합니다.
 5. Remote State가 실제 AWS 상태보다 뒤처진 것이 명확한 경우에만 `state push`를 검토합니다.
@@ -980,9 +956,7 @@ gpu-test
 network
 ```
 
-State Bucket(`bootstrap`)은 일반 테스트 과정에서는 삭제하지 않습니다.
-
-`prevent_destroy`가 걸려 있어 `bootstrap destroy`는 실패하며, 삭제하려면 `prevent_destroy`를 해제하고 Bucket의 모든 Object Version을 먼저 비워야 합니다.
+State Bucket(`bootstrap`)은 일반 테스트 과정에서는 삭제하지 않습니다. `prevent_destroy`가 걸려 있어 `bootstrap destroy`는 실패하며, 삭제하려면 `prevent_destroy`를 해제하고 Bucket의 모든 Object Version을 먼저 비워야 합니다.
 
 ---
 
