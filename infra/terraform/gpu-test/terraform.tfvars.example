@@ -1,0 +1,28 @@
+project_name = "ubot"
+aws_region   = "ap-northeast-2"
+
+network_vpc_name           = "ubot-vpc"
+network_public_subnet_name = "ubot-public-subnet"
+
+# Default GPU test server: NVIDIA L4
+# If you need more host CPU/RAM while keeping the same L4 class, use g6.2xlarge.
+gpu_instance_type = "g6.xlarge"
+
+# Cheap repeated benchmarks by default. Set false when Spot capacity/interruption is a problem.
+use_spot      = true
+spot_max_price = null
+
+root_volume_size       = 100
+root_volume_type       = "gp3"
+root_volume_iops       = 3000
+root_volume_throughput = 125
+
+# Test server generally does not need a stable IP. Enable only when a stable endpoint is required.
+create_eip = false
+
+llm_port = 8000
+
+# Keep empty when benchmarks run on the GPU box itself.
+# If Backend needs remote access, allow only the Backend public egress IP/CIDR.
+llm_allowed_cidrs = []
+# llm_allowed_cidrs = ["203.0.113.10/32"]

@@ -43,3 +43,15 @@ Thumbs.db
 
 # threshold 테스트 중 사용했던 GPU 설정 파일입니다.
 docker-compose.override.yml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.auto.tfvars
+backend.hcl
+errored.tfstate
+crash.log
+crash.*.log
