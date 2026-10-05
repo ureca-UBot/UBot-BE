@@ -1,11 +1,8 @@
 package com.ubot.chat.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import com.ubot.ranking.enums.RegionSido;
+import jakarta.persistence.*;
+
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -17,7 +14,6 @@ import lombok.NoArgsConstructor;
 @Getter
 @AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Builder
 @Table(name = "question_log")
 public class QuestionLog {
 	@Id
@@ -30,17 +26,38 @@ public class QuestionLog {
 	@Column(name = "user_question")
 	private String userQuestion;
 
+	@Column(name = "normalized_question")
+	private String normalizedQuestion;
+
 	// 팀 ERD의 기존 컬럼명이며, 내용은 LLM이 생성한 답변입니다.
 	@Column(name = "llm_question")
 	private String answer;
 
+	@Column(name = "ranking_eligible")
+	private Boolean rankingEligible;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "region")
+	private RegionSido region;
+
 	@Column(name = "created_at")
 	private LocalDateTime createdAt;
 
-	public QuestionLog(Long userId, String question, String answer) {
+	@Builder
+	private QuestionLog(
+			Long userId,
+			String userQuestion,
+			String normalizedQuestion,
+			String answer,
+			Boolean rankingEligible,
+			RegionSido region
+	){
 		this.userId = userId;
-		this.userQuestion = question;
+		this.userQuestion = userQuestion;
+		this.normalizedQuestion = normalizedQuestion;
 		this.answer = answer;
+		this.rankingEligible = rankingEligible;
+		this.region = region;
 		this.createdAt = LocalDateTime.now();
 	}
 }

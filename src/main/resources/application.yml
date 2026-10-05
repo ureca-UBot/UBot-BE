@@ -15,9 +15,18 @@ management:
       exposure:
         include:
           - health
-
+          - prometheus
 app:
   jwt:
     secret: ${JWT_SECRET}
     access-token-expiration-millis: ${JWT_ACCESS_TOKEN_EXPIRATION_MILLIS:3600000}
     refresh-token-expiration-days: ${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:14}
+
+ranking:
+  window-minutes: ${RANKING_WINDOW_MINUTES:60}
+  size: ${RANKING_SIZE:5}
+  refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:5}
+  min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:20}
+  baseline-period-days: ${BASELINE_PERIOD_DAYS:7}
+  baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:20}
+  trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:20}
