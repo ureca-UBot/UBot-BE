@@ -27,4 +27,10 @@ public class GuestChatSettings {
 
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
+
+	public void update(int maxQuestionCount, Long updatedBy) {
+		this.maxQuestionCount = maxQuestionCount;
+		this.updatedBy = updatedBy;
+		this.updatedAt = LocalDateTime.now();
+	}
 }

@@ -53,6 +53,16 @@ public class Conversation {
 		return new Conversation(null, ConversationType.GUEST);
 	}
 
+	public boolean isGuest() {
+		return type == ConversationType.GUEST;
+	}
+
+	public void assignToMember(Long userId) {
+		this.userId = userId;
+		this.type = ConversationType.MEMBER;
+		this.updatedAt = LocalDateTime.now();
+	}
+
 	public void touch() {
 		this.updatedAt = LocalDateTime.now();
 	}

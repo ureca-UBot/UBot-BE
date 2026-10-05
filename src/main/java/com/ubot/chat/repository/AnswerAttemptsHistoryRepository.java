@@ -66,6 +66,14 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 			@Param("insufficientFaq") ErrorCode insufficientFaq
 	);
 
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update AnswerAttemptsHistory a
+			set a.userId = :userId
+			where a.conversationId = :conversationId and a.userId is null
+			""")
+	int assignGuestAttemptsToUser(@Param("conversationId") Long conversationId, @Param("userId") Long userId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select a from AnswerAttemptsHistory a where a.id = :attemptId")
 	Optional<AnswerAttemptsHistory> findAttemptForLock(@Param("attemptId") Long attemptId);

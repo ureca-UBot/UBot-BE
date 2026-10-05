@@ -35,7 +35,8 @@ public class QuestionLogService {
 				.strip();
 
 
-		// Todo: Guest 정책이 확정되고 난후, guest 질문의 랭킹 산정 중복 처리를 구현한다.
+		// 게스트 질문은 세션을 새로 만들기 쉬워 랭킹 조작 비용이 낮으므로 실시간 검색어 집계에서 제외합니다.
+		// 로그인 이후 생성된 회원 질문부터 집계에 포함합니다.
 
 		boolean rankingEligible = false;
 

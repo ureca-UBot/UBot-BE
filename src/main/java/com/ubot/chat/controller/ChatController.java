@@ -42,6 +42,7 @@ public class ChatController {
 	) {
 		String userIp = clientIpResolver.resolve(httpRequest);
 		if (user != null) {
+			guestConversationService.claimConversation(httpRequest, user.getUserId());
 			return createResponse(chatService.createChat(user.getUserId(), request.question(), userIp));
 		}
 		Long conversationId = guestConversationService.getOrCreateConversationId(httpRequest);
@@ -56,6 +57,7 @@ public class ChatController {
 	) {
 		String userIp = clientIpResolver.resolve(httpRequest);
 		if (user != null) {
+			guestConversationService.claimConversation(httpRequest, user.getUserId());
 			return createResponse(chatService.retryChat(user.getUserId(), idempotencyKey, userIp));
 		}
 		Long conversationId = guestConversationService.findConversationId(httpRequest)

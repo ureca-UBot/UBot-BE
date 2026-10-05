@@ -58,6 +58,8 @@ class ChatControllerTest {
 		var pending = mvc.perform(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\",\"userId\":999}")).andExpect(request().asyncStarted()).andReturn();
 		verify(service).createChat(1L, "질문", null);
+		verify(guestConversationService).claimConversation(any(), eq(1L));
+		verify(guestConversationService, never()).getOrCreateConversationId(any());
 		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
 		answer.complete(ChatResponseDto.createSuccessAnswer("완성된 답변"));
 		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())

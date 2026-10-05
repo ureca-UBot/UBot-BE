@@ -472,12 +472,15 @@ class ChatServiceTest {
 		missingFaq.fail(ChatErrorCode.NO_FAQ);
 
 		assertChatError(() -> service.createGuestChat(7L, "넷째 질문", null), ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED);
-		assertChatError(() -> service.retryGuestChat(7L, systemFailure.getIdempotencyKey(), null),
-				ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED);
 		assertThat(saved).hasSize(3);
 
-		service.retryGuestChat(7L, missingFaq.getIdempotencyKey(), null);
+		service.retryGuestChat(7L, systemFailure.getIdempotencyKey(), null);
 		assertThat(saved).hasSize(4);
+		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
+		saved.getLast().succeed();
+
+		service.retryGuestChat(7L, missingFaq.getIdempotencyKey(), null);
+		assertThat(saved).hasSize(5);
 		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
 		assertThat(saved.getLast().getUserId()).isNull();
 		assertThat(saved.getLast().getConversationId()).isEqualTo(7L);

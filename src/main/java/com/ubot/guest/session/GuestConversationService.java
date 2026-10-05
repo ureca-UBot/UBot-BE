@@ -22,6 +22,15 @@ public class GuestConversationService {
 		}
 	}
 
+	public void claimConversation(HttpServletRequest request, Long userId) {
+		Optional<Long> conversationId = findConversationId(request);
+		if (conversationId.isEmpty()) {
+			return;
+		}
+		conversationService.claimGuestConversation(conversationId.get(), userId);
+		guestSessionService.clearGuestSession(request);
+	}
+
 	public Optional<Long> findConversationId(HttpServletRequest request) {
 		return guestSessionService.getGuestSessionState(request).map(GuestSessionState::getConversationId);
 	}

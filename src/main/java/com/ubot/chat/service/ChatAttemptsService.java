@@ -104,9 +104,6 @@ public class ChatAttemptsService {
 	private AnswerAttemptsHistory createRetryAttempt(Long userId, Long conversationId, String idempotencyKey) {
 		boolean guest = userId == null;
 		return transactionTemplate.execute(transactionStatus -> {
-			if (guest) {
-				validateGuestQuestionLimit(conversationId, idempotencyKey);
-			}
 			// 최초 행을 잠가서 같은 질문에 대한 동시 재시도를 직렬로 처리합니다.
 			(guest
 					? answerAttemptsHistoryRepository
@@ -161,9 +158,9 @@ public class ChatAttemptsService {
 			}
 
 			QuestionLog questionLog = questionLogService.saveAndFlush(
-					attempt.getUserId(),
-					attempt.getConversationId(),
-					attempt.getQuestion(),
+					currentAttempt.getUserId(),
+					currentAttempt.getConversationId(),
+					currentAttempt.getQuestion(),
 					answer,
 					userIp
 			);
