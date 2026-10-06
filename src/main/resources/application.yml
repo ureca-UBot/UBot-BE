@@ -16,6 +16,7 @@ management:
         include:
           - health
           - prometheus
+
 app:
   jwt:
     secret: ${JWT_SECRET}

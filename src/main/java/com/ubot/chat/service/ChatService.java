@@ -5,10 +5,12 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /** 회원·게스트의 질문과 재시도 요청을 검증하고 답변 시도를 만들어 실행을 요청합니다. */
+@Slf4j
 @Service
 public class ChatService {
 	private final ChatAttemptsService chatAttemptsService;
@@ -35,6 +37,7 @@ public class ChatService {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
+		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}", attempt.getId(), userId);
 		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
 	}
 
@@ -48,6 +51,7 @@ public class ChatService {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
+		log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}", attempt.getId(), conversationId);
 		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
 	}
 
@@ -56,6 +60,7 @@ public class ChatService {
 		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
+		log.info("회원 답변 재시도를 생성했습니다: 시도ID={}, 사용자ID={}, 재시도횟수={}", attempt.getId(), userId, attempt.getAttemptCount());
 		return chatAnswerExecutor.startAnswerGeneration(attempt, null, userIp);
 	}
 
@@ -63,6 +68,7 @@ public class ChatService {
 		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
+		log.info("비회원 답변 재시도를 생성했습니다: 시도ID={}, 대화ID={}, 재시도횟수={}", attempt.getId(), conversationId, attempt.getAttemptCount());
 		return chatAnswerExecutor.startAnswerGeneration(attempt, null, userIp);
 	}
 

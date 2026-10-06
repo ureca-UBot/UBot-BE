@@ -2,12 +2,10 @@ package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.*;
 
 import com.ubot.ai.service.AiService;
+import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
@@ -46,6 +44,9 @@ class ChatServiceForbiddenWordTest {
 	@Test
 	@DisplayName("금지어가 없으면 필터를 통과해 답변 생성을 시작한다")
 	void startsGenerationWhenPassed() {
+		AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
+		when(attempts.createAnswerAttempt(1L, "요금제 알려줘")).thenReturn(attempt);
+
 		service.createChat(1L, "요금제 알려줘", null);
 
 		verify(filter).validateForbiddenWord("요금제 알려줘");

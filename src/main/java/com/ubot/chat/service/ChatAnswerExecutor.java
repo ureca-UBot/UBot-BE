@@ -8,10 +8,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /** 답변 생성 작업을 별도 스레드에서 실행하고 타임아웃·취소·시작 실패를 처리합니다. */
+@Slf4j
 @Component
 public class ChatAnswerExecutor {
 	private final ChatAnswerProcessor chatAnswerProcessor;
@@ -45,7 +47,9 @@ public class ChatAnswerExecutor {
 		generation.setWorker(task);
 		try {
 			chatExecutor.execute(task);
+			log.debug("답변 생성 작업을 제출했습니다: 시도ID={}", attempt.getId());
 		} catch (RejectedExecutionException exception) {
+			log.error("답변 생성 작업 제출에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 			chatAnswerProcessor.handleAnswerFailure(attempt, ChatErrorCode.TASK_START_FAILED, generation);
 		}
 		return generation;

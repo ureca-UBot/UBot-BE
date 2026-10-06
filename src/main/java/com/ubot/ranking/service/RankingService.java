@@ -8,6 +8,7 @@ import com.ubot.ranking.repository.RankingQueryRepository;
 import com.ubot.ranking.repository.RankingRedisRepository;
 import com.ubot.ranking.repository.RegionalTrendRankingPolicyRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RankingService {
 	private final RankingQueryRepository rankingQueryRepository;
 	private final RankingRedisRepository rankingRedisRepository;
@@ -105,6 +107,8 @@ public class RankingService {
 			snapshots.put(RankingRedisKey.trend(region), regionTrendSnapshot);
 		}
 		rankingRedisRepository.saveSnapshots(snapshots);
+		log.info("랭킹 스냅샷을 저장했습니다: 인기순위수={}, 전체급상승순위수={}, 지역스냅샷수={}",
+				popular.size(), globalTrend.size(), RegionSido.values().length);
 	}
 
 	public RankingResponseDto getRanking() {
@@ -127,6 +131,9 @@ public class RankingService {
 			TrendRankingSnapshot regionRankingSnapshot = (TrendRankingSnapshot) snapshots.get(RankingRedisKey.trend(region));
 			regionalTrend.put(region, regionRankingSnapshot);
 		}
+		log.debug("랭킹 스냅샷을 조회했습니다: 인기순위수={}, 전체급상승순위수={}",
+				popular == null || popular.rankings() == null ? 0 : popular.rankings().size(),
+				trend == null || trend.rankings() == null ? 0 : trend.rankings().size());
 
 		return new RankingResponseDto(
 				popular,
