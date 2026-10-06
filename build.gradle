@@ -56,6 +56,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'com.maxmind.geoip2:geoip2:5.2.0'
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	implementation 'net.javacrumbs.shedlock:shedlock-spring:7.10.1'
+	implementation 'net.javacrumbs.shedlock:shedlock-provider-redis-spring:7.10.1'
 }
 
 dependencyManagement {
