@@ -69,38 +69,62 @@ public class ChatService {
 		this.chatExecutor = chatExecutor;
 	}
 
-	public ChatAnswerTask createChat(Long userId, String question) {
-		return createChat(userId, question, null, null, false);
+	/** 위치 없이 질문합니다. */
+	public ChatAnswerTask createChat(Long userId, String question, String userIp) {
+		return createChat(userId, question, null, userIp);
 	}
 
-	public ChatAnswerTask createChat(Long userId, String question, Double latitude, Double longitude, boolean useMyLocation) {
+	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
+	public ChatAnswerTask createChat(Long userId, String question, Location myLocation, String userIp) {
+		validateQuestion(question);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
+		return startAnswerGeneration(attempt, myLocation, userIp);
+	}
+
+	/** 위치 없이 질문합니다. */
+	public ChatAnswerTask createGuestChat(Long conversationId, String question, String userIp) {
+		return createGuestChat(conversationId, question, null, userIp);
+	}
+
+	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
+	public ChatAnswerTask createGuestChat(Long conversationId, String question, Location myLocation, String userIp) {
+		validateQuestion(question);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
+		return startAnswerGeneration(attempt, myLocation, userIp);
+	}
+
+	// 시도 이력에 위치를 저장하지 않으므로 재시도는 회원·게스트 모두 위치 없이 진행합니다.
+	public ChatAnswerTask retryChat(Long userId, String idempotencyKey, String userIp) {
+		validateIdempotencyKey(idempotencyKey);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
+		return startAnswerGeneration(attempt, null, userIp);
+	}
+
+	public ChatAnswerTask retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
+		validateIdempotencyKey(idempotencyKey);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
+		return startAnswerGeneration(attempt, null, userIp);
+	}
+
+	private void validateQuestion(String question) {
 		if (!StringUtils.hasText(question) || question.length() > 4000) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
 		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
 		forbiddenWordFilterService.validateForbiddenWord(question);
-
-		// 내 위치 정보를 사용하라는 플래그가 있을 때만 좌표 사용. 그 외에는 좌표를 받아도 null이다.
-		if (useMyLocation && (latitude == null || longitude == null)) {
-			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
-		}
-		Location location = useMyLocation ? new Location(latitude, longitude) : null;
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
-		return startAnswerGeneration(attempt, location);
 	}
 
-	public ChatAnswerTask retryChat(Long userId, String idempotencyKey) {
+	private void validateIdempotencyKey(String idempotencyKey) {
 		if (idempotencyKey == null || !idempotencyKey.matches("[0-9a-f]{64}")) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		}
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
-		// 시도 이력에 위치를 저장하지 않으므로 재시도는 위치 없이 진행합니다.
-		return startAnswerGeneration(attempt, null);
 	}
 
-	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, Location location) {
+	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, Location location, String userIp) {
 		ChatAnswerTask generation = new ChatAnswerTask(new CompletableFuture<>(), () -> {
 			AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerTimeout(attempt);
 			return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
@@ -108,7 +132,7 @@ public class ChatService {
 		});
 		FutureTask<Void> task = new FutureTask<>(() -> {
 			try {
-				generateAnswer(attempt, location, generation);
+				generateAnswer(attempt, location, generation, userIp);
 			} catch (Throwable exception) {
 				generation.completeExceptionally(exception);
 			}
@@ -124,7 +148,7 @@ public class ChatService {
 	}
 
 	private ChatResponseDto generateAnswer(
-			AnswerAttemptsHistory attempt, Location location, ChatAnswerTask generation
+			AnswerAttemptsHistory attempt, Location location, ChatAnswerTask generation, String userIp
 	) {
 		try {
 			checkCancellation(generation);
@@ -160,12 +184,14 @@ public class ChatService {
 
 			checkCancellation(generation);
 			return generation.complete(() -> {
-				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults);
+				AnswerAttemptsHistory savedAttempt =
+						chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults, userIp);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
 					throw createAnswerFailure(savedAttempt);
 				}
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
-				return ChatResponseDto.from(savedAttempt, answer.answer(), false, ChatStoreDto.of(answer.locationRequired(), answer.storeMap()));
+				return ChatResponseDto.from(savedAttempt, answer.answer(), false,
+						ChatStoreDto.of(answer.locationRequired(), answer.storeMap()));
 			});
 		} catch (GlobalException exception) {
 			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);

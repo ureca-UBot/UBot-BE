@@ -27,6 +27,9 @@ public class UnansweredQuestionGroup {
 	@Column(name = "related_faq_id")
 	private Long relatedFaqId;
 
+	@Column(name = "resolved_faq_id")
+	private Long resolvedFaqId;
+
 	@Enumerated(EnumType.STRING)
 	@Column(name = "status")
 	private UnansweredGroupStatus status;
@@ -39,4 +42,15 @@ public class UnansweredQuestionGroup {
 
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
+
+	public void updateStatus(UnansweredGroupStatus status){
+		this.status = status;
+		this.updatedAt = LocalDateTime.now();
+	}
+
+	public void resolve(Long faqId){
+		this.resolvedFaqId = faqId;
+		this.status = UnansweredGroupStatus.APPROVED;
+		this.updatedAt = LocalDateTime.now();
+	}
 }

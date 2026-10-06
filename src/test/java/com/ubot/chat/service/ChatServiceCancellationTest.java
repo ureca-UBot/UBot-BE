@@ -51,7 +51,7 @@ class ChatServiceCancellationTest {
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
 		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null, false));
-		when(attempts.saveAnswerSuccess(any(), anyString(), anyList())).thenAnswer(call -> {
+		when(attempts.saveAnswerSuccess(any(), anyString(), anyList(), isNull())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
 			return saved;
@@ -61,7 +61,7 @@ class ChatServiceCancellationTest {
 	@ParameterizedTest
 	@ValueSource(booleans = {false, true})
 	void cancellationBeforeExecutionSkipsQuestionAndRetryWork(boolean retry) {
-		var answer = (retry ? service.retryChat(1L, attempt.getIdempotencyKey()) : service.createChat(1L, "질문")).result();
+		var answer = (retry ? service.retryChat(1L, attempt.getIdempotencyKey(), null) : service.createChat(1L, "질문", null)).result();
 
 		assertThat(answer.cancel(true)).isTrue();
 		jobs.remove().run();
@@ -83,7 +83,7 @@ class ChatServiceCancellationTest {
 			return sources;
 		});
 
-		runAndCancel(service.createChat(1L, "질문").result(), call);
+		runAndCancel(service.createChat(1L, "질문", null).result(), call);
 
 		verifyNoInteractions(ai);
 		verifyNoResultSaved();
@@ -101,7 +101,7 @@ class ChatServiceCancellationTest {
 			return new AiAnswer("취소 후 늦게 도착한 답변", null, false);
 		});
 
-		runAndCancel(service.createChat(1L, "질문").result(), call);
+		runAndCancel(service.createChat(1L, "질문", null).result(), call);
 
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
 		verifyNoResultSaved();
@@ -113,8 +113,8 @@ class ChatServiceCancellationTest {
 				.id(2L).userId(2L).question("질문").idempotencyKey("b".repeat(64))
 				.attemptCount(1).status("PENDING").build();
 		when(attempts.createAnswerAttempt(2L, "질문")).thenReturn(otherAttempt);
-		var cancelled = service.createChat(1L, "질문").result();
-		var other = service.createChat(2L, "질문").result();
+		var cancelled = service.createChat(1L, "질문", null).result();
+		var other = service.createChat(2L, "질문", null).result();
 
 		cancelled.cancel(true);
 		jobs.remove().run();
@@ -125,14 +125,14 @@ class ChatServiceCancellationTest {
 		assertThat(other.cancel(true)).isFalse();
 		verify(vector).getSimilarList("질문", 3);
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
-		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", sources);
-		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList());
+		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", sources, null);
+		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList(), isNull());
 		verify(attempts, never()).saveAnswerFailure(any(), any());
 	}
 
 	@Test
 	void timeoutCancelsWorkBeforeSavingItsFailure() {
-		var task = service.createChat(1L, "질문");
+		var task = service.createChat(1L, "질문", null);
 		doAnswer(call -> {
 			assertThat(task.isCancellationRequested()).isTrue();
 			attempt.fail(ChatErrorCode.RESPONSE_TIMEOUT);
@@ -158,7 +158,7 @@ class ChatServiceCancellationTest {
 
 	@Test
 	void timeoutStorageFailureCompletesResultWithErrorAfterCancellingWork() {
-		var task = service.createChat(1L, "질문");
+		var task = service.createChat(1L, "질문", null);
 		var failure = new DataAccessResourceFailureException("database secret");
 		doThrow(failure).when(attempts).saveAnswerTimeout(attempt);
 
@@ -189,7 +189,7 @@ class ChatServiceCancellationTest {
 	}
 
 	private void verifyNoResultSaved() {
-		verify(attempts, never()).saveAnswerSuccess(any(), anyString(), anyList());
+		verify(attempts, never()).saveAnswerSuccess(any(), anyString(), anyList(), isNull());
 		verify(attempts, never()).saveAnswerFailure(any(), any());
 	}
 

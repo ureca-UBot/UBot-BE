@@ -1,5 +1,6 @@
 package com.ubot.chat.dto.request;
 
+import com.ubot.ai.dto.Location;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -39,5 +40,13 @@ public record ChatRequestDto(
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * 내 위치 기준 재요청일 때만 좌표를 Location으로 돌려줍니다. 그 외에는 좌표가 와도 null입니다.
+	 * 좌표 쌍과 범위는 위 검증을 통과한 뒤에 호출되므로 항상 올바른 Location이 만들어집니다.
+	 */
+	public Location myLocation() {
+		return useMyLocation ? new Location(latitude, longitude) : null;
 	}
 }

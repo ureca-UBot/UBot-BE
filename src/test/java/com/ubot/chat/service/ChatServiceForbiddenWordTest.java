@@ -33,7 +33,7 @@ class ChatServiceForbiddenWordTest {
 		doThrow(new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED))
 				.when(filter).validateForbiddenWord("너 바보야");
 
-		assertThatThrownBy(() -> service.createChat(1L, "너 바보야"))
+		assertThatThrownBy(() -> service.createChat(1L, "너 바보야", null))
 				.isInstanceOfSatisfying(ForbiddenWordException.class,
 						e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
 
@@ -44,7 +44,7 @@ class ChatServiceForbiddenWordTest {
 	@Test
 	@DisplayName("금지어가 없으면 필터를 통과해 답변 생성을 시작한다")
 	void startsGenerationWhenPassed() {
-		service.createChat(1L, "요금제 알려줘");
+		service.createChat(1L, "요금제 알려줘", null);
 
 		verify(filter).validateForbiddenWord("요금제 알려줘");
 		verify(attempts).createAnswerAttempt(1L, "요금제 알려줘");
@@ -53,7 +53,7 @@ class ChatServiceForbiddenWordTest {
 	@Test
 	@DisplayName("빈 질문은 금지어 검사 전에 기본 검증에서 거절한다")
 	void blankQuestionFailsBasicValidationFirst() {
-		assertThatThrownBy(() -> service.createChat(1L, " ")).isInstanceOf(com.ubot.chat.exception.ChatException.class);
+		assertThatThrownBy(() -> service.createChat(1L, " ", null)).isInstanceOf(com.ubot.chat.exception.ChatException.class);
 
 		verifyNoInteractions(filter);
 	}

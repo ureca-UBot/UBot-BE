@@ -19,6 +19,8 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.unanswered.repository.UnansweredQuestionGroupRepository;
+import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.repository.UserRepository;
@@ -42,6 +44,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockAsyncContext;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -74,6 +77,8 @@ class ChatLlmIntegrationTest {
 	@Autowired AnswerAttemptsHistoryRepository attempts;
 	@Autowired QuestionLogRepository questions;
 	@Autowired FaqLogRepository faqLogs;
+	@Autowired UnansweredQuestionRepository unansweredQuestions;
+	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@Autowired JdbcTemplate jdbc;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean LlmClient llm;
@@ -84,6 +89,8 @@ class ChatLlmIntegrationTest {
 	Long faqId;
 
 	@BeforeEach void setup() {
+		unansweredQuestions.deleteAllInBatch();
+		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
 		questions.deleteAllInBatch();
 		attempts.deleteAllInBatch();
@@ -181,15 +188,75 @@ class ChatLlmIntegrationTest {
 		assertThat(attempts.findAll().getFirst().getStatus()).isEqualTo("FAIL");
 	}
 
-	@Test void unauthenticatedRequestsAreRejectedByExistingSecurityFilter() throws Exception {
-		mvc.perform(post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}"))
-				.andExpect(status().isUnauthorized())
+	@Test void guestQuestionsReuseSessionConversationAndStopAtConfiguredLimit() throws Exception {
+		int maxQuestionCount = jdbc.queryForObject(
+				"select max_question_count from guest_chat_settings where id = 1", Integer.class);
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
+		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("게스트 답변"));
+		var session = new MockHttpSession();
+
+		for (int count = 1; count <= maxQuestionCount; count++) {
+			assertThat(completeGuest(post("/chat/questions").contentType("application/json")
+					.content("{\"question\":\"질문\"}"), session)).contains("게스트 답변", "\"status\":\"SUCCESS\"");
+		}
+		mvc.perform(post("/chat/questions").session(session).contentType("application/json")
+						.content("{\"question\":\"질문\"}"))
+				.andExpect(status().isTooManyRequests())
+				.andExpect(request().asyncNotStarted())
 				.andExpect(jsonPath("$.success").value(false))
-				.andExpect(jsonPath("$.code").value("AUTH-001"));
-		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", "b".repeat(64)))
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED.getCode()));
+
+		assertThat(attempts.findAll()).hasSize(maxQuestionCount).allSatisfy(attempt -> {
+			assertThat(attempt.getUserId()).isNull();
+			assertThat(attempt.getConversationId()).isNotNull();
+		});
+		Long conversationId = attempts.findAll().getFirst().getConversationId();
+		assertThat(questions.findAll()).hasSize(maxQuestionCount).allSatisfy(log -> {
+			assertThat(log.getUserId()).isNull();
+			assertThat(log.getConversationId()).isEqualTo(conversationId);
+		});
+		assertThat(jdbc.queryForObject("select type from conversations where conversation_id = ?",
+				String.class, conversationId)).isEqualTo("GUEST");
+
+		completeGuest(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}"), new MockHttpSession());
+		assertThat(attempts.findAll()).extracting(AnswerAttemptsHistory::getConversationId)
+				.filteredOn(id -> !id.equals(conversationId)).hasSize(1);
+	}
+
+	@Test void guestRetryIsLimitedToOwnSessionConversation() throws Exception {
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
+		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
+		var session = new MockHttpSession();
+		var pending = mvc.perform(post("/chat/questions").session(session).contentType("application/json")
+				.content("{\"question\":\"질문\"}")).andExpect(request().asyncStarted()).andReturn();
+		pending.getAsyncResult(10_000);
+		String key = keyFrom(mvc.perform(asyncDispatch(pending)).andExpect(status().isGatewayTimeout())
+				.andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+
+		var withoutSession = mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", key))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.ATTEMPT_NOT_FOUND.getCode())).andReturn();
+		assertThat(withoutSession.getRequest().getSession(false)).as("재시도는 세션을 만들지 않음").isNull();
+		var otherSession = new MockHttpSession();
+		completeGuest(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"질문\"}"), otherSession, LlmErrorCode.LLM_TIMEOUT);
+		mvc.perform(post("/chat/questions/retries").session(otherSession).header("Idempotency-Key", key))
+				.andExpect(status().isNotFound());
+		mvc.perform(post("/chat/questions/retries").header("Authorization", authorization)
+				.header("Idempotency-Key", key)).andExpect(status().isNotFound());
+
+		doReturn(new LlmResponseDto("재시도 답변")).when(llm).generateAnswer(any());
+		String retried = completeGuest(post("/chat/questions/retries").header("Idempotency-Key", key), session);
+		assertThat(retried).contains("재시도 답변", "\"attemptCount\":2", key);
+		assertThat(questions.findAll()).hasSize(1).first().satisfies(log -> assertThat(log.getUserId()).isNull());
+	}
+
+	@Test void invalidTokenIsNotTreatedAsGuest() throws Exception {
+		mvc.perform(post("/chat/questions").header("Authorization", "Bearer invalid")
+						.contentType("application/json").content("{\"question\":\"질문\"}"))
 				.andExpect(status().isUnauthorized())
-				.andExpect(jsonPath("$.success").value(false))
-				.andExpect(jsonPath("$.code").value("AUTH-001"));
+				.andExpect(jsonPath("$.success").value(false));
 		assertThat(attempts.count()).isZero();
 		verifyNoInteractions(vector, llm);
 	}
@@ -251,7 +318,7 @@ class ChatLlmIntegrationTest {
 		try (var callers = Executors.newFixedThreadPool(2)) {
 			Callable<String> retry = () -> {
 				barrier.await(5, TimeUnit.SECONDS);
-				try { service.retryChat(user.getId(), key); return "ACCEPTED"; }
+				try { service.retryChat(user.getId(), key, null); return "ACCEPTED"; }
 				catch (ChatException exception) { return exception.getErrorCode().getCode(); }
 			};
 			var a = callers.submit(retry);
@@ -402,7 +469,21 @@ class ChatLlmIntegrationTest {
 	}
 
 	private String complete(MockHttpServletRequestBuilder request, ErrorCode expectedError) throws Exception {
-		var pending = mvc.perform(request.header("Authorization", authorization))
+		return completeRequest(request.header("Authorization", authorization), expectedError);
+	}
+
+	private String completeGuest(MockHttpServletRequestBuilder request, MockHttpSession session) throws Exception {
+		return completeGuest(request, session, null);
+	}
+
+	private String completeGuest(
+			MockHttpServletRequestBuilder request, MockHttpSession session, ErrorCode expectedError
+	) throws Exception {
+		return completeRequest(request.session(session), expectedError);
+	}
+
+	private String completeRequest(MockHttpServletRequestBuilder request, ErrorCode expectedError) throws Exception {
+		var pending = mvc.perform(request)
 				.andExpect(request().asyncStarted()).andReturn();
 		pending.getAsyncResult(10_000);
 		return mvc.perform(asyncDispatch(pending))

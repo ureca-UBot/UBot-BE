@@ -1,10 +1,10 @@
 package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -20,8 +20,6 @@ import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
-import com.ubot.chat.exception.ChatErrorCode;
-import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.service.FaqVectorService;
@@ -50,6 +48,9 @@ class ChatServiceIntentRoutingTest {
 			new FaqSearchResponseDto(1L, "매장 찾기", "근처 매장을 안내합니다.", 0.9, Intent.STORE_DATA),
 			new FaqSearchResponseDto(2L, "영업시간", "매장마다 다릅니다.", 0.8, Intent.GENERAL),
 			new FaqSearchResponseDto(3L, "낮은 점수", "제외됩니다.", 0.5, Intent.GENERAL));
+	private final AnswerAttemptsHistory guestAttempt = AnswerAttemptsHistory.builder()
+			.id(2L).conversationId(7L).question("근처 매장 알려줘").idempotencyKey("b".repeat(64))
+			.attemptCount(1).status("PENDING").build();
 	private final Location myLocation = new Location(37.5, 127.0);
 	private final StoreMapResult myLocationStores = new StoreMapResult(myLocation, null, 3.0, List.of());
 	private ChatService service;
@@ -66,7 +67,8 @@ class ChatServiceIntentRoutingTest {
 		when(nearbyStoreSearcher.search(myLocation, null)).thenReturn(myLocationStores);
 		when(nearbyStoreSearcher.format(myLocationStores)).thenReturn("반경 3km 안에 매장이 없습니다.");
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", null, false));
-		when(attempts.saveAnswerSuccess(any(), any(), any())).thenAnswer(call -> {
+		when(attempts.createGuestAnswerAttempt(7L, "근처 매장 알려줘")).thenReturn(guestAttempt);
+		when(attempts.saveAnswerSuccess(any(), any(), any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
 			return saved;
@@ -76,7 +78,7 @@ class ChatServiceIntentRoutingTest {
 	@Test
 	@DisplayName("위치 없이 물으면 threshold를 넘은 FAQ의 intent별로 자료를 모으고 매장 조회 도구를 붙인다")
 	void collectsMaterialsByIntentWithStoreTool() {
-		service.createChat(1L, "근처 매장 알려줘", null, null, false);
+		service.createChat(1L, "근처 매장 알려줘", "127.0.0.1");
 		jobs.poll().run();
 
 		AnswerMaterials materials = captureMaterials();
@@ -86,13 +88,13 @@ class ChatServiceIntentRoutingTest {
 		assertThat(materials.storeMap()).isNull();
 		verifyNoInteractions(nearbyStoreSearcher);
 		// faq_log는 intent와 관계없이 threshold를 넘은 검색 결과 전체로 남깁니다.
-		verify(attempts).saveAnswerSuccess(attempt, "답변", sources.subList(0, 2));
+		verify(attempts).saveAnswerSuccess(attempt, "답변", sources.subList(0, 2), "127.0.0.1");
 	}
 
 	@Test
 	@DisplayName("내 위치 기준 재요청이면 도구 없이 좌표로 바로 조회한 매장을 자료에 담는다")
 	void searchesStoresDirectlyWithMyLocation() {
-		service.createChat(1L, "근처 매장 알려줘", 37.5, 127.0, true);
+		service.createChat(1L, "근처 매장 알려줘", myLocation, null);
 		jobs.poll().run();
 
 		AnswerMaterials materials = captureMaterials();
@@ -104,23 +106,15 @@ class ChatServiceIntentRoutingTest {
 	}
 
 	@Test
-	@DisplayName("내 위치 표시 없이 온 좌표는 쓰지 않고 도구 경로로 처리한다")
-	void ignoresCoordinatesWithoutMyLocationFlag() {
-		service.createChat(1L, "근처 매장 알려줘", 37.5, 127.0, false);
+	@DisplayName("비회원도 내 위치 기준 재요청이면 바로 조회한 매장을 자료에 담는다")
+	void guestSearchesStoresDirectlyWithMyLocation() {
+		service.createGuestChat(7L, "근처 매장 알려줘", myLocation, null);
 		jobs.poll().run();
 
-		assertThat(captureMaterials().tools()).containsExactly(AiTool.STORE_SEARCH);
-		verifyNoInteractions(nearbyStoreSearcher);
-	}
-
-	@Test
-	@DisplayName("내 위치 기준 요청인데 좌표가 없으면 기록 전에 거부한다")
-	void rejectsMyLocationWithoutCoordinates() {
-		assertThatThrownBy(() -> service.createChat(1L, "근처 매장 알려줘", null, null, true))
-				.isInstanceOfSatisfying(ChatException.class,
-						exception -> assertThat(exception.getErrorCode()).isEqualTo(ChatErrorCode.INVALID_CHAT_REQUEST));
-		verify(attempts, never()).createAnswerAttempt(any(), any());
-		assertThat(jobs).isEmpty();
+		AnswerMaterials materials = captureMaterials();
+		assertThat(materials.tools()).isEmpty();
+		assertThat(materials.storeMap()).isSameAs(myLocationStores);
+		verify(attempts).saveAnswerSuccess(eq(guestAttempt), eq("답변"), any(), isNull());
 	}
 
 	@Test
@@ -155,7 +149,7 @@ class ChatServiceIntentRoutingTest {
 	}
 
 	private ChatResponseDto completeChat() {
-		var task = service.createChat(1L, "근처 매장 알려줘", null, null, false);
+		var task = service.createChat(1L, "근처 매장 알려줘", null);
 		jobs.poll().run();
 		return task.result().join();
 	}
@@ -163,7 +157,7 @@ class ChatServiceIntentRoutingTest {
 	@Test
 	@DisplayName("재시도는 위치 없이 도구 경로로 처리한다")
 	void retryHasNoLocation() {
-		service.retryChat(1L, attempt.getIdempotencyKey());
+		service.retryChat(1L, attempt.getIdempotencyKey(), null);
 		jobs.poll().run();
 
 		assertThat(captureMaterials().tools()).containsExactly(AiTool.STORE_SEARCH);
