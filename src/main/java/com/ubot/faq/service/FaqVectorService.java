@@ -25,8 +25,6 @@ public class FaqVectorService {
 		long startedAt = System.nanoTime();
 		PGvector queryVector = embeddingService.embedText(userQuestion);
 		List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, topK);
-		log.debug("FAQ 벡터 검색을 완료했습니다: 처리시간={}ms, 검색결과=[{}]", elapsedMillis(startedAt),
-				formatSearchResults(results));
 		return results;
 	}
 

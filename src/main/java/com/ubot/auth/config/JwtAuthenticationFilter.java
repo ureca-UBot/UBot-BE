@@ -43,7 +43,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.userRepository = userRepository;
         this.handlerExceptionResolver = handlerExceptionResolver;
     }
-	
+
 	@Override
 	protected void doFilterInternal(
 			HttpServletRequest request,
@@ -62,7 +62,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		try {
 			userId = jwtUtil.getUserId(token);
 		}catch( ExpiredJwtException e ) {
-			log.warn("만료된 접근 토큰이 전달되었습니다: 경로={}", request.getRequestURI());
+			log.info("만료된 접근 토큰이 전달되었습니다: 경로={}", request.getRequestURI());
 			resolveException(request, response, new MyJwtException(JwtErrorCode.EXPIRED_ACCESS_TOKEN));
 			return;
 		} catch (JwtException | IllegalArgumentException e){

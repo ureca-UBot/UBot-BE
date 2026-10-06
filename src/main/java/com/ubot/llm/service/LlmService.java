@@ -26,6 +26,9 @@ public class LlmService {
 		long startedAt = System.nanoTime();
 		try {
 			LlmResponseDto response = llmClient.generateAnswer(request);
+			if(response == null)
+				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+
 			log.debug("LLM 요청을 완료했습니다: 처리시간={}ms, 응답길이={}", elapsedMillis(startedAt),
 					response.answer() == null ? 0 : response.answer().length());
 			return response;

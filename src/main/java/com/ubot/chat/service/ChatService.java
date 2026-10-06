@@ -66,7 +66,7 @@ public class ChatService {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
-		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 질문={}", attempt.getId(), userId, question);
+		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}", attempt.getId(), userId);
 		return startAnswerGeneration(attempt, userIp);
 	}
 
@@ -74,7 +74,7 @@ public class ChatService {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
-		log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}, 질문={}", attempt.getId(), conversationId, question);
+		log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}", attempt.getId(), conversationId);
 		return startAnswerGeneration(attempt, userIp);
 	}
 
@@ -167,8 +167,7 @@ public class ChatService {
 			checkCancellation(generation);
 			log.info("LLM 답변 생성을 시작합니다: 시도ID={}, 참고FAQ수={}", attempt.getId(), filteredResults.size());
 			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), filteredResults);
-			log.info("LLM 답변 생성을 완료했습니다: 시도ID={}, 응답={}", attempt.getId(),
-					answer == null || answer.answer() == null ? 0 : answer.answer());
+			log.info("LLM 답변 생성을 완료했습니다: 시도ID={}", attempt.getId());
 			checkCancellation(generation);
 			if (answer == null || !StringUtils.hasText(answer.answer())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
