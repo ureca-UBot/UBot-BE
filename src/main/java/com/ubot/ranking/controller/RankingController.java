@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/rankings")
-public class rankingController {
+public class RankingController {
 	private final RankingService rankingService;
 
 	//RankingResponseDto 내부의 각 RankingSnapshot들이

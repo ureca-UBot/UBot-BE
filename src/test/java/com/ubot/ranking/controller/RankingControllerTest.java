@@ -29,7 +29,7 @@ class RankingControllerTest {
                 new PopularRankingSnapshot(calculatedAt, List.of()),
                 null,
                 Map.of(RegionSido.SEOUL, new TrendRankingSnapshot(calculatedAt, List.of()))));
-        var mvc = MockMvcBuilders.standaloneSetup(new rankingController(service)).build();
+        var mvc = MockMvcBuilders.standaloneSetup(new RankingController(service)).build();
 
         mvc.perform(get("/rankings"))
                 .andExpect(status().isOk())
