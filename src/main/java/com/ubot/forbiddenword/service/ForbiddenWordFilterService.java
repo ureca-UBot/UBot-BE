@@ -11,6 +11,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 /** 활성 금지어를 로컬 메모리에 캐시하고 사용자 입력의 금지어 포함 여부를 검사합니다. */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ForbiddenWordFilterService {
 	private final ForbiddenWordRepository forbiddenWordRepository;
 
@@ -39,6 +41,7 @@ public class ForbiddenWordFilterService {
 		activeForbiddenWords = forbiddenWordRepository.findAllByStatus(ForbiddenWordStatus.ACTIVE).stream()
 				.map(ForbiddenWord::getWord)
 				.collect(Collectors.toUnmodifiableSet());
+		log.info("금칙어 캐시를 갱신했습니다: 활성금칙어수={}", activeForbiddenWords.size());
 	}
 
 	public void validateForbiddenWord(String content) {
@@ -47,6 +50,7 @@ public class ForbiddenWordFilterService {
 		}
 		for (String forbiddenWord : activeForbiddenWords) {
 			if (content.contains(forbiddenWord)) {
+				log.warn("금칙어가 포함된 입력을 차단했습니다: 입력길이={}", content.length());
 				// 탐지된 단어는 응답에 노출하지 않습니다.
 				throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED);
 			}

@@ -22,10 +22,12 @@ import com.ubot.store.repository.ServiceTypeJpaRepository;
 import com.ubot.store.repository.StoreJpaRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class AdminStoreService {
 
     private final StoreJpaRepository storeJpaRepository;
@@ -58,7 +60,9 @@ public class AdminStoreService {
         );
         store.replaceServiceTypes(serviceTypes);
 
-        return AdminStoreResponseDto.from(storeJpaRepository.save(store));
+		Store savedStore = storeJpaRepository.save(store);
+		log.info("상점을 등록했습니다: 상점ID={}, 서비스유형수={}", savedStore.getStoreId(), serviceTypes.size());
+		return AdminStoreResponseDto.from(savedStore);
     }
 
     public AdminStoreResponseDto updateStore(Long storeId, AdminStoreUpdateRequestDto request) {
@@ -117,21 +121,26 @@ public class AdminStoreService {
             updated = true;
         }
 
-        if (updated) {
-            store.markUpdated();
+		if (updated) {
+			store.markUpdated();
+			log.info("상점 정보를 수정했습니다: 상점ID={}", storeId);
+		} else {
+			log.debug("상점 정보 변경 요청에 실제 변경이 없습니다: 상점ID={}", storeId);
         }
 
         return AdminStoreResponseDto.from(store);
     }
 
-    public void deleteStore(Long storeId) {
-        getActiveStore(storeId).deactivate();
+	public void deleteStore(Long storeId) {
+		getActiveStore(storeId).deactivate();
+		log.info("상점을 삭제했습니다: 상점ID={}", storeId);
     }
 
     public AdminStoreResponseDto activateStore(Long storeId) {
         Store store = getDeletedStore(storeId);
 
-        store.activate();
+		store.activate();
+		log.info("상점을 활성화했습니다: 상점ID={}", storeId);
 
         return AdminStoreResponseDto.from(store);
     }

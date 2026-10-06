@@ -18,6 +18,7 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -30,6 +31,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FaqService {
 
 	private final FaqRepository faqRepository;
@@ -58,6 +60,7 @@ public class FaqService {
 
 		Faq savedFaq = faqRepository.save(faq);
 		faqVectorService.saveVectorForFaq(savedFaq.getId(), requestDto.question());
+		log.info("FAQ를 생성했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 
 		return FaqResponseDto.from(savedFaq);
 	}
@@ -124,7 +127,9 @@ public class FaqService {
 				requestDto.answer(),
 				requestDto.intent()
 		);
-		return FaqResponseDto.from(faqRepository.save(faq));
+		Faq savedFaq = faqRepository.save(faq);
+		log.info("FAQ를 수정했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
+		return FaqResponseDto.from(savedFaq);
 	}
 
 	@Transactional
@@ -132,6 +137,7 @@ public class FaqService {
 		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
 
 		faq.delete();
+		log.info("FAQ를 삭제했습니다: FAQID={}", faqId);
 	}
 
 	@Transactional
@@ -140,5 +146,6 @@ public class FaqService {
 		for(Faq faq : faqs){
 			faq.restore();
 		}
+		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
 	}
 }
