@@ -21,7 +21,7 @@
 | `Dockerfile` | 애플리케이션 이미지. `eclipse-temurin:21-jdk`에서 `bootJar`로 빌드하고 `21-jre`로 실행 |
 | `.dockerignore` | `.env`, `.git`, 빌드 산출물, IDE 설정, 키 파일을 이미지 빌드 컨텍스트에서 제외 |
 | `docker-compose.deploy.yml` | `backend`, `nginx` 서비스 정의. 기본 `docker-compose.yml`의 `postgres`·`ollama`와 함께 사용 |
-| `infra/nginx/nginx.conf` | 80 포트의 모든 요청을 `backend:8080`으로 프록시 |
+| `infra/nginx/nginx.conf` | 80 포트의 모든 요청을 `backend:8080`으로 프록시. `/api` 접두사 제거와 게스트 채팅 속도 제한 포함 |
 | `.github/workflows/cd-manual.yml` | 이미지 빌드 → EC2 전송 → Compose 재기동 → health check |
 
 ### 서비스 구성
@@ -36,6 +36,8 @@
 - `backend`는 `postgres`, `ollama`가 healthy가 된 뒤 시작합니다. 기동 시 Flyway가 마이그레이션을 적용합니다.
 - 이미지 이름은 `BACKEND_IMAGE` 환경변수로 지정합니다. 기본값은 `ubot-be:local`입니다.
 - `nginx`는 `proxy_read_timeout 180s`로 채팅 응답 대기 시간(`CHAT_RESPONSE_TIMEOUT_MILLIS` 기본 180초)과 같은 값을 씁니다. `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` 헤더를 넘깁니다.
+- `nginx`는 `/api/`로 시작하는 요청에서 `/api`를 떼고 `backend`로 넘깁니다(`/api/chat/questions` → `/chat/questions`). UBot-FE의 공용 API 클라이언트가 `/api` 접두사를 붙여 호출하기 때문입니다. 접두사 없는 경로도 그대로 프록시합니다.
+- `nginx`는 `/chat/`와 `/api/chat/` 경로의 게스트 요청(`Authorization: Bearer …` 형식의 헤더가 없는 요청)에만 IP별 요청 속도 제한을 겁니다. 회원 요청은 제한하지 않습니다. `.env`의 `CHAT_GUEST_RATE_LIMIT_RATE`(기본 `30r/m`)와 `CHAT_GUEST_RATE_LIMIT_BURST`(기본 `10`)로 조절하며, 넘으면 백엔드로 넘기지 않고 `429 RATE-001`을 반환합니다. `nginx.conf`는 컨테이너 시작 시 이 환경변수를 채워 넣는 템플릿으로 마운트되므로, 값을 바꾼 뒤에는 `nginx`를 다시 만들어야 합니다.
 
 ## 로컬에서 배포 형태 실행하기
 

@@ -3,6 +3,7 @@ package com.ubot.auth.config;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -30,6 +31,7 @@ public class SecurityConfig {
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 		return http
+				// Spring Security 인증은 STATELESS로 유지하며, HttpSession은 인증 상태가 아닌 게스트 Conversation 식별 용도로만 사용합니다.
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.formLogin(form -> form.disable())
 				.httpBasic(basic -> basic.disable())
@@ -55,6 +57,7 @@ public class SecurityConfig {
 								"/swagger-ui/**",
 								"/swagger-ui.html"
 						).permitAll()
+						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
 				)

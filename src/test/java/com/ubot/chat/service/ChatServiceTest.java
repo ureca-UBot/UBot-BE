@@ -12,6 +12,11 @@ import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.GlobalExceptionHandler;
 import com.ubot.common.ErrorCode;
+import com.ubot.conversation.entity.Conversation;
+import com.ubot.conversation.repository.ConversationRepository;
+import com.ubot.guest.entity.GuestChatSettings;
+import com.ubot.guest.repository.GuestChatSettingsRepository;
+import com.ubot.guest.session.GuestConversationService;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -57,6 +62,8 @@ class ChatServiceTest {
 	QuestionLogService questions = mock(QuestionLogService.class);
 	FaqLogRepository faqLogs = mock(FaqLogRepository.class);
 	FaqRepository faqs = mock(FaqRepository.class);
+	ConversationRepository conversations = mock(ConversationRepository.class);
+	GuestChatSettingsRepository guestSettings = mock(GuestChatSettingsRepository.class);
 	PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
 	List<AnswerAttemptsHistory> saved = new ArrayList<>();
 	Deque<Runnable> jobs = new ArrayDeque<>();
@@ -82,22 +89,23 @@ class ChatServiceTest {
 				.thenAnswer(call -> saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
 						&& a.getIdempotencyKey().equals(call.getArgument(1)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
-		when(questions.saveAndFlush(anyLong(), anyString(), anyString(), isNull())).thenAnswer(call -> {
+		when(questions.saveAndFlush(any(), any(), anyString(), anyString(), isNull())).thenAnswer(call -> {
 			QuestionLog result = QuestionLog.builder()
 					.userId(call.getArgument(0))
-					.userQuestion(call.getArgument(1))
-					.answer(call.getArgument(2))
+					.conversationId(call.getArgument(1))
+					.userQuestion(call.getArgument(2))
+					.answer(call.getArgument(3))
 					.build();
 			ReflectionTestUtils.setField(result, "id", 10L);
 			return result;
 		});
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
-		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, tx);
+		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, conversations, guestSettings, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), jobs::add);
 		ReflectionTestUtils.setField(service, "topK", 3);
 		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
-		var controller = new ChatController(service, mock(ClientIpResolver.class));
+		var controller = new ChatController(service, mock(ClientIpResolver.class), mock(GuestConversationService.class));
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
@@ -136,7 +144,7 @@ class ChatServiceTest {
 				.doesNotContain("event:", "data:");
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
 		verify(ai).generateAnswer("질문", sources);
-		verify(questions).saveAndFlush(1L, "질문", "생성된 답변", null);
+		verify(questions).saveAndFlush(1L, null, "질문", "생성된 답변", null);
 		verify(faqLogs).saveAll(argThat(items -> {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(list::add);
@@ -430,6 +438,86 @@ class ChatServiceTest {
 				ChatErrorCode.ATTEMPT_NOT_FOUND);
 		assertThat(saved).hasSize(1);
 		verifyNoInteractions(vector, ai);
+	}
+
+	@Test void guestAttemptIsStoredWithConversationOnlyAndSuccessLogKeepsIt() {
+		allowGuestQuestions(5);
+		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
+		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
+		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("생성된 답변"));
+
+		var task = service.createGuestChat(7L, "질문", null);
+		jobs.remove().run();
+
+		assertThat(task.result().join().status()).isEqualTo("SUCCESS");
+		var attempt = saved.getFirst();
+		assertThat(attempt.getUserId()).isNull();
+		assertThat(attempt.getConversationId()).isEqualTo(7L);
+		assertThat(attempt.getIdempotencyKey()).isEqualTo(
+				ChatAttemptsService.createGuestIdempotencyKey(7L, "질문", attempt.getCreatedAt())).hasSize(64);
+		assertThat(ChatAttemptsService.createGuestIdempotencyKey(8L, "질문", attempt.getCreatedAt()))
+				.isNotEqualTo(attempt.getIdempotencyKey());
+		verify(questions).saveAndFlush(null, 7L, "질문", "생성된 답변", null);
+	}
+
+	@Test void guestQuestionLimitCountsAnswersAndMissingFaqButNotSystemFailures() {
+		allowGuestQuestions(2);
+		service.createGuestChat(7L, "시스템 오류 질문", null);
+		var systemFailure = saved.getLast();
+		systemFailure.fail(ChatErrorCode.RESPONSE_TIMEOUT);
+		service.createGuestChat(7L, "답변된 질문", null);
+		saved.getLast().succeed();
+		service.createGuestChat(7L, "FAQ 없는 질문", null);
+		var missingFaq = saved.getLast();
+		missingFaq.fail(ChatErrorCode.NO_FAQ);
+
+		assertChatError(() -> service.createGuestChat(7L, "넷째 질문", null), ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED);
+		assertThat(saved).hasSize(3);
+
+		service.retryGuestChat(7L, systemFailure.getIdempotencyKey(), null);
+		assertThat(saved).hasSize(4);
+		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
+		saved.getLast().succeed();
+
+		service.retryGuestChat(7L, missingFaq.getIdempotencyKey(), null);
+		assertThat(saved).hasSize(5);
+		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
+		assertThat(saved.getLast().getUserId()).isNull();
+		assertThat(saved.getLast().getConversationId()).isEqualTo(7L);
+	}
+
+	@Test void guestRetryRejectsAnotherConversationsKey() {
+		allowGuestQuestions(5);
+		service.createGuestChat(7L, "질문", null);
+		var attempt = saved.getFirst();
+		attempt.fail(ChatErrorCode.RESPONSE_TIMEOUT);
+
+		assertChatError(() -> service.retryGuestChat(8L, attempt.getIdempotencyKey(), null),
+				ChatErrorCode.ATTEMPT_NOT_FOUND);
+		assertThat(saved).hasSize(1);
+	}
+
+	private void allowGuestQuestions(int maxQuestionCount) {
+		GuestChatSettings settings = mock(GuestChatSettings.class);
+		when(settings.getMaxQuestionCount()).thenReturn(maxQuestionCount);
+		when(guestSettings.findById(GuestChatSettings.SETTINGS_ID)).thenReturn(Optional.of(settings));
+		when(conversations.findConversationForLock(anyLong())).thenAnswer(call -> Optional.of(Conversation.createGuest()));
+		when(attempts.countGuestQuestions(anyLong(), anyString(), any(), any())).thenAnswer(call ->
+				saved.stream().filter(a -> call.getArgument(0).equals(a.getConversationId())
+						&& !a.getIdempotencyKey().equals(call.getArgument(1))
+						&& (!"FAIL".equals(a.getStatus()) || a.getErrorCode() == call.getArgument(2)
+								|| a.getErrorCode() == call.getArgument(3)))
+						.map(AnswerAttemptsHistory::getIdempotencyKey).distinct().count());
+		when(attempts.findGuestInitialAttemptsForLock(anyLong(), anyString(), eq(1))).thenAnswer(call ->
+				saved.stream().filter(a -> a.getUserId() == null
+						&& call.getArgument(0).equals(a.getConversationId())
+						&& a.getIdempotencyKey().equals(call.getArgument(1))
+						&& a.getAttemptCount() == 1).findFirst());
+		when(attempts.findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
+				anyLong(), anyString())).thenAnswer(call -> saved.stream().filter(a -> a.getUserId() == null
+						&& call.getArgument(0).equals(a.getConversationId())
+						&& a.getIdempotencyKey().equals(call.getArgument(1)))
+				.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
 	}
 
 	private String completeRequest() throws Exception {
