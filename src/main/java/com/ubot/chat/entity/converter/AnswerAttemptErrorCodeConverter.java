@@ -4,6 +4,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.common.ErrorCode;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.llm.exception.LlmErrorCode;
+import com.ubot.prompt.exception.PromptErrorCode;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
@@ -32,6 +33,11 @@ public class AnswerAttemptErrorCodeConverter implements AttributeConverter<Error
 			}
 		}
 		for (LlmErrorCode code : LlmErrorCode.values()) {
+			if (code.getCode().equals(value)) {
+				return code;
+			}
+		}
+		for (PromptErrorCode code : PromptErrorCode.values()) {
 			if (code.getCode().equals(value)) {
 				return code;
 			}

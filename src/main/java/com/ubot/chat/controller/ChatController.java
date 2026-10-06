@@ -1,5 +1,6 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.dto.Location;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.dto.request.ChatRequestDto;
 import com.ubot.chat.dto.response.ChatResponseDto;
@@ -41,12 +42,14 @@ public class ChatController {
 			HttpServletRequest httpRequest
 	) {
 		String userIp = clientIpResolver.resolve(httpRequest);
+		// 내 위치 기준 재요청일 때만 좌표를 씁니다. 회원·비회원 모두 같습니다.
+		Location myLocation = request.myLocation();
 		if (user != null) {
 			guestConversationService.claimConversation(httpRequest, user.getUserId());
-			return createResponse(chatService.createChat(user.getUserId(), request.question(), userIp));
+			return createResponse(chatService.createChat(user.getUserId(), request.question(), myLocation, userIp));
 		}
 		Long conversationId = guestConversationService.getOrCreateConversationId(httpRequest);
-		return createResponse(chatService.createGuestChat(conversationId, request.question(), userIp));
+		return createResponse(chatService.createGuestChat(conversationId, request.question(), myLocation, userIp));
 	}
 
 	@PostMapping(value = "/questions/retries", produces = MediaType.APPLICATION_JSON_VALUE)

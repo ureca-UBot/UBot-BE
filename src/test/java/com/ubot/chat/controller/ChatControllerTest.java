@@ -1,5 +1,6 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.dto.Location;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.exception.ChatErrorCode;
@@ -54,10 +55,10 @@ class ChatControllerTest {
 
 	@Test void existingQuestionRouteUsesAuthenticatedUserAndSingleJsonResponse() throws Exception {
 		var answer = new CompletableFuture<ChatResponseDto>();
-		when(service.createChat(1L, "질문", null)).thenReturn(task(answer));
+		when(service.createChat(1L, "질문", null, null)).thenReturn(task(answer));
 		var pending = mvc.perform(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\",\"userId\":999}")).andExpect(request().asyncStarted()).andReturn();
-		verify(service).createChat(1L, "질문", null);
+		verify(service).createChat(1L, "질문", null, null);
 		verify(guestConversationService).claimConversation(any(), eq(1L));
 		verify(guestConversationService, never()).getOrCreateConversationId(any());
 		org.assertj.core.api.Assertions.assertThat(pending.getResponse().getContentAsString()).isEmpty();
@@ -76,13 +77,13 @@ class ChatControllerTest {
 		principal = null;
 		var answer = new CompletableFuture<ChatResponseDto>();
 		when(guestConversationService.getOrCreateConversationId(any())).thenReturn(7L);
-		when(service.createGuestChat(7L, "질문", null)).thenReturn(task(answer));
+		when(service.createGuestChat(7L, "질문", null, null)).thenReturn(task(answer));
 
 		var pending = mvc.perform(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}")).andExpect(request().asyncStarted()).andReturn();
 
-		verify(service).createGuestChat(7L, "질문", null);
-		verify(service, never()).createChat(any(), any(), any());
+		verify(service).createGuestChat(7L, "질문", null, null);
+		verify(service, never()).createChat(any(), any(), any(), any());
 		answer.complete(ChatResponseDto.createSuccessAnswer("완성된 답변"));
 		mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.answer").value("완성된 답변"));
@@ -148,7 +149,7 @@ class ChatControllerTest {
 		if (retry) {
 			when(service.retryChat(1L, key, null)).thenReturn(generation);
 		} else {
-			when(service.createChat(1L, "질문", null)).thenReturn(generation);
+			when(service.createChat(1L, "질문", null, null)).thenReturn(generation);
 		}
 		var pending = mvc.perform(request).andExpect(request().asyncStarted()).andReturn();
 		var asyncContext = (MockAsyncContext) pending.getRequest().getAsyncContext();
@@ -178,7 +179,7 @@ class ChatControllerTest {
 		var saveStarted = new CountDownLatch(1);
 		var allowSaveToFinish = new CountDownLatch(1);
 		var storageFailure = new DataAccessResourceFailureException("database secret");
-		when(service.createChat(1L, "질문", null)).thenReturn(new ChatAnswerTask(answer, () -> {
+		when(service.createChat(1L, "질문", null, null)).thenReturn(new ChatAnswerTask(answer, () -> {
 			saveStarted.countDown();
 			try {
 				if (!allowSaveToFinish.await(5, TimeUnit.SECONDS)) {
@@ -236,7 +237,7 @@ class ChatControllerTest {
 	void completedResponseDoesNotRunTimeoutStorage() throws Exception {
 		var answer = new CompletableFuture<ChatResponseDto>();
 		Runnable timeoutAction = mock(Runnable.class);
-		when(service.createChat(1L, "질문", null)).thenReturn(new ChatAnswerTask(answer, () -> {
+		when(service.createChat(1L, "질문", null, null)).thenReturn(new ChatAnswerTask(answer, () -> {
 			timeoutAction.run();
 			return timeoutResponse(1, true);
 		}));
@@ -278,6 +279,29 @@ class ChatControllerTest {
 	@Test void blankQuestionIsRejectedBeforeService() throws Exception {
 		mvc.perform(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\" \"}")).andExpect(status().isBadRequest());
+		verifyNoInteractions(service);
+	}
+
+	@Test void locationIsPassedToService() throws Exception {
+		when(service.createChat(1L, "근처 매장", new Location(37.498, 127.028), null)).thenReturn(task(new CompletableFuture<>()));
+
+		mvc.perform(post("/chat/questions").contentType("application/json")
+				.content("{\"question\":\"근처 매장\",\"latitude\":37.498,\"longitude\":127.028,\"useMyLocation\":true}"))
+				.andExpect(request().asyncStarted());
+		verify(service).createChat(1L, "근처 매장", new Location(37.498, 127.028), null);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"{\"question\":\"질문\",\"latitude\":37.498}",
+			"{\"question\":\"질문\",\"longitude\":127.028}",
+			"{\"question\":\"질문\",\"latitude\":91,\"longitude\":127.028}",
+			"{\"question\":\"질문\",\"latitude\":37.498,\"longitude\":181}",
+			"{\"question\":\"질문\",\"useMyLocation\":true}"
+	})
+	void invalidLocationIsRejectedBeforeService(String body) throws Exception {
+		mvc.perform(post("/chat/questions").contentType("application/json").content(body))
+				.andExpect(status().isBadRequest());
 		verifyNoInteractions(service);
 	}
 

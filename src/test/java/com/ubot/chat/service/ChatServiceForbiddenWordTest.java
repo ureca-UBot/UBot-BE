@@ -23,7 +23,7 @@ class ChatServiceForbiddenWordTest {
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
 	private final Deque<Runnable> jobs = new ArrayDeque<>();
-	private final ChatService service = new ChatService(vector, ai, attempts, filter, mock(UnansweredQuestionService.class), jobs::add);
+	private final ChatService service = new ChatService(vector, ai, attempts, filter, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), jobs::add);
 
 	@Test
 	@DisplayName("금지어가 포함된 질문은 기록·임베딩·검색·LLM 호출 없이 차단한다")

@@ -53,6 +53,11 @@ public class LlmService {
         if (request.messages().getLast().role() != LlmMessageRole.USER) {
             throw new LlmException(LlmErrorCode.LLM_REQUEST_INVALID);
         }
+
+        // 도구 메서드가 ToolContext를 받으면 Spring AI는 빈 문맥으로 도구를 실행하지 않고 예외를 던집니다.
+        if (request.hasTools() && request.toolContext().isEmpty()) {
+            throw new LlmException(LlmErrorCode.LLM_REQUEST_INVALID);
+        }
     }
 
 	private long elapsedMillis(long startedAt) {
