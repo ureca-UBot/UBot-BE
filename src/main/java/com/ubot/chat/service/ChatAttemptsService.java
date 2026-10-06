@@ -234,6 +234,9 @@ public class ChatAttemptsService {
 
 	/** 재시도가 불가능한 사유를 반환하고, 가능하면 빈 결과를 반환합니다. */
 	public Optional<ChatErrorCode> validateRetryAttempt(AnswerAttemptsHistory attempt) {
+		if (attempt.getSourceAttemptId() != null) {
+			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
+		}
 		if ("PENDING".equals(attempt.getStatus())) {
 			return Optional.of(ChatErrorCode.PROCESSING);
 		}
