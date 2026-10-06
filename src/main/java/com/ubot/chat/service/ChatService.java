@@ -1,7 +1,13 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.Location;
 import com.ubot.ai.service.AiService;
+import com.ubot.chat.context.ChatContext;
+import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
@@ -10,10 +16,8 @@ import com.ubot.common.GlobalException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
-import com.ubot.prompt.exception.PromptException;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.List;
@@ -44,6 +48,7 @@ public class ChatService {
 	private final ChatAttemptsService chatAttemptsService;
 	private final ForbiddenWordFilterService forbiddenWordFilterService;
 	private final UnansweredQuestionService unansweredQuestionService;
+	private final ChatContextCollector chatContextCollector;
 	private final Executor chatExecutor;
 
 	public ChatService(
@@ -52,6 +57,7 @@ public class ChatService {
 			ChatAttemptsService chatAttemptsService,
 			ForbiddenWordFilterService forbiddenWordFilterService,
 			UnansweredQuestionService unansweredQuestionService,
+			ChatContextCollector chatContextCollector,
 			@Qualifier("chatExecutor") Executor chatExecutor
 	) {
 		this.faqVectorService = faqVectorService;
@@ -59,35 +65,49 @@ public class ChatService {
 		this.chatAttemptsService = chatAttemptsService;
 		this.forbiddenWordFilterService = forbiddenWordFilterService;
 		this.unansweredQuestionService = unansweredQuestionService;
+		this.chatContextCollector = chatContextCollector;
 		this.chatExecutor = chatExecutor;
 	}
 
+	/** 위치 없이 질문합니다. */
 	public ChatAnswerTask createChat(Long userId, String question, String userIp) {
+		return createChat(userId, question, null, userIp);
+	}
+
+	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
+	public ChatAnswerTask createChat(Long userId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
-		return startAnswerGeneration(attempt, userIp);
+		return startAnswerGeneration(attempt, myLocation, userIp);
 	}
 
+	/** 위치 없이 질문합니다. */
 	public ChatAnswerTask createGuestChat(Long conversationId, String question, String userIp) {
+		return createGuestChat(conversationId, question, null, userIp);
+	}
+
+	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
+	public ChatAnswerTask createGuestChat(Long conversationId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
-		return startAnswerGeneration(attempt, userIp);
+		return startAnswerGeneration(attempt, myLocation, userIp);
 	}
 
+	// 시도 이력에 위치를 저장하지 않으므로 재시도는 회원·게스트 모두 위치 없이 진행합니다.
 	public ChatAnswerTask retryChat(Long userId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
-		return startAnswerGeneration(attempt, userIp);
+		return startAnswerGeneration(attempt, null, userIp);
 	}
 
 	public ChatAnswerTask retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
-		return startAnswerGeneration(attempt, userIp);
+		return startAnswerGeneration(attempt, null, userIp);
 	}
 
 	private void validateQuestion(String question) {
@@ -104,7 +124,7 @@ public class ChatService {
 		}
 	}
 
-	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, String userIp) {
+	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, Location location, String userIp) {
 		ChatAnswerTask generation = new ChatAnswerTask(new CompletableFuture<>(), () -> {
 			AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerTimeout(attempt);
 			return ChatResponseDto.from(savedAttempt, savedAttempt.getErrorMessage(),
@@ -112,7 +132,7 @@ public class ChatService {
 		});
 		FutureTask<Void> task = new FutureTask<>(() -> {
 			try {
-				generateAnswer(attempt, generation, userIp);
+				generateAnswer(attempt, location, generation, userIp);
 			} catch (Throwable exception) {
 				generation.completeExceptionally(exception);
 			}
@@ -127,7 +147,9 @@ public class ChatService {
 		return generation;
 	}
 
-	private ChatResponseDto generateAnswer(AnswerAttemptsHistory attempt, ChatAnswerTask generation, String userIp) {
+	private ChatResponseDto generateAnswer(
+			AnswerAttemptsHistory attempt, Location location, ChatAnswerTask generation, String userIp
+	) {
 		try {
 			checkCancellation(generation);
 			// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
@@ -151,7 +173,10 @@ public class ChatService {
 				return handleAnswerFailure(attempt, ChatErrorCode.INSUFFICIENT_FAQ, generation);
 			}
 			checkCancellation(generation);
-			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), filteredResults);
+			// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
+			AnswerMaterials materials = chatContextCollector.collect(
+					new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
+			AiAnswer answer = aiService.generateAnswer(materials);
 			checkCancellation(generation);
 			if (answer == null || !StringUtils.hasText(answer.answer())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
@@ -159,20 +184,19 @@ public class ChatService {
 
 			checkCancellation(generation);
 			return generation.complete(() -> {
-				AnswerAttemptsHistory savedAttempt = chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults, userIp);
+				AnswerAttemptsHistory savedAttempt =
+						chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults, userIp);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
 					throw createAnswerFailure(savedAttempt);
 				}
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
-				return ChatResponseDto.from(savedAttempt, answer.answer(), false);
+				return ChatResponseDto.from(savedAttempt, answer.answer(), false,
+						ChatStoreDto.of(answer.locationRequired(), answer.storeMap()));
 			});
 		} catch (GlobalException exception) {
 			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);
 		} catch (Exception exception) {
 			checkCancellation(generation);
-			if (exception instanceof PromptException) {
-				return handleAnswerFailure(attempt, ChatErrorCode.PROMPT_NOT_READY, generation);
-			}
 			if (exception instanceof DataAccessException) {
 				return handleAnswerFailure(attempt, ChatErrorCode.STORAGE_UNAVAILABLE, generation);
 			}

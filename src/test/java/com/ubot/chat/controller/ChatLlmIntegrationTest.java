@@ -11,6 +11,7 @@ import com.ubot.chat.service.ChatAttemptsService;
 import com.ubot.chat.service.ChatService;
 import com.ubot.common.ErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.client.LlmClient;
@@ -105,7 +106,7 @@ class ChatLlmIntegrationTest {
 
 	@Test void successfulNewQuestionReturnsFinalJsonAfterRealJpaWrites() throws Exception {
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(
-				new FaqSearchResponseDto(faqId, "재발급 방법", "매장 방문", 0.9)));
+				new FaqSearchResponseDto(faqId, "재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("모의 LLM이 생성한 답변"));
 
 		String body = complete(post("/chat/questions").contentType("application/json")
@@ -126,7 +127,7 @@ class ChatLlmIntegrationTest {
 	}
 
 	@Test void configuredAttemptLimitAllowsMoreThanThreeAttemptsAndBlocksNext() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}"), LlmErrorCode.LLM_TIMEOUT);
@@ -152,7 +153,7 @@ class ChatLlmIntegrationTest {
 	@EnumSource(value = ChatErrorCode.class, names = {"NO_FAQ", "INSUFFICIENT_FAQ"})
 	void evidenceFailureAllowsRetryUntilConfiguredLimitWithoutCallingLlm(ChatErrorCode code) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(code == ChatErrorCode.NO_FAQ
-				? List.of() : List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74)));
+				? List.of() : List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74, Intent.GENERAL)));
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}"), code);
 		assertThat(body).contains("\"status\":\"FAIL\"", "\"retryable\":true", code.getMessage());
@@ -176,7 +177,7 @@ class ChatLlmIntegrationTest {
 	}
 
 	@Test void failedFaqInsertRollsBackSuccessLogsButCommitsFailureRecordSeparately() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(-999L, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(-999L, "q", "a", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("저장되지 않아야 하는 답변"));
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}"), ChatErrorCode.STORAGE_UNAVAILABLE);
@@ -190,7 +191,7 @@ class ChatLlmIntegrationTest {
 	@Test void guestQuestionsReuseSessionConversationAndStopAtConfiguredLimit() throws Exception {
 		int maxQuestionCount = jdbc.queryForObject(
 				"select max_question_count from guest_chat_settings where id = 1", Integer.class);
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("게스트 답변"));
 		var session = new MockHttpSession();
 
@@ -224,7 +225,7 @@ class ChatLlmIntegrationTest {
 	}
 
 	@Test void guestRetryIsLimitedToOwnSessionConversation() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 		var session = new MockHttpSession();
 		var pending = mvc.perform(post("/chat/questions").session(session).contentType("application/json")
@@ -271,7 +272,7 @@ class ChatLlmIntegrationTest {
 	}
 
 	@Test void anotherUsersRetryKeyIsRejectedWithoutStartingGeneration() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}"), LlmErrorCode.LLM_TIMEOUT);
@@ -305,7 +306,7 @@ class ChatLlmIntegrationTest {
 		var first = new AnswerAttemptsHistory(user.getId(), "질문", 1, key, LocalDateTime.now(), "", "");
 		first.fail(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		attempts.saveAndFlush(first);
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		CountDownLatch release = new CountDownLatch(1);
 		CountDownLatch generated = new CountDownLatch(1);
 		when(llm.generateAnswer(any())).thenAnswer(call -> {
@@ -349,7 +350,7 @@ class ChatLlmIntegrationTest {
 			initialAttempt.fail(ChatErrorCode.VECTOR_SEARCH_FAILED);
 			initialAttempt = attempts.saveAndFlush(initialAttempt);
 		}
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		var entered = new CountDownLatch(1);
 		var interrupted = new CountDownLatch(1);
 		var release = new CountDownLatch(1);
@@ -450,7 +451,7 @@ class ChatLlmIntegrationTest {
 		assertThat(jdbc.queryForObject("select error_code from answer_attempts_history where attempt_id = ?",
 				String.class, first.getId())).isEqualTo("LLM-004");
 		assertThat(attempts.findById(first.getId()).orElseThrow().getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT);
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		when(llm.generateAnswer(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 
 		String body = complete(post("/chat/questions/retries").header("Idempotency-Key", key), LlmErrorCode.LLM_TIMEOUT);
