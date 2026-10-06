@@ -66,6 +66,7 @@ public class ChatService {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
+		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 질문={}", attempt.getId(), userId, question);
 		return startAnswerGeneration(attempt, userIp);
 	}
 
@@ -73,6 +74,7 @@ public class ChatService {
 		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
+		log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}, 질문={}", attempt.getId(), conversationId, question);
 		return startAnswerGeneration(attempt, userIp);
 	}
 
@@ -80,6 +82,7 @@ public class ChatService {
 		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
+		log.info("회원 답변 재시도를 생성했습니다: 시도ID={}, 사용자ID={}, 재시도횟수={}", attempt.getId(), userId, attempt.getAttemptCount());
 		return startAnswerGeneration(attempt, userIp);
 	}
 
@@ -87,6 +90,7 @@ public class ChatService {
 		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
+		log.info("비회원 답변 재시도를 생성했습니다: 시도ID={}, 대화ID={}, 재시도횟수={}", attempt.getId(), conversationId, attempt.getAttemptCount());
 		return startAnswerGeneration(attempt, userIp);
 	}
 
@@ -121,14 +125,18 @@ public class ChatService {
 		generation.setWorker(task);
 		try {
 			chatExecutor.execute(task);
+			log.debug("답변 생성 작업을 제출했습니다: 시도ID={}", attempt.getId());
 		} catch (RejectedExecutionException exception) {
+			log.error("답변 생성 작업 제출에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 			handleAnswerFailure(attempt, ChatErrorCode.TASK_START_FAILED, generation);
 		}
 		return generation;
 	}
 
 	private ChatResponseDto generateAnswer(AnswerAttemptsHistory attempt, ChatAnswerTask generation, String userIp) {
+		long startedAt = System.nanoTime();
 		try {
+			log.info("답변 생성 작업을 시작했습니다: 시도ID={}, 재시도횟수={}", attempt.getId(), attempt.getAttemptCount());
 			checkCancellation(generation);
 			// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
 			List<FaqSearchResponseDto> results;
@@ -138,7 +146,11 @@ public class ChatService {
 				return handleAnswerFailure(attempt, ChatErrorCode.VECTOR_SEARCH_FAILED, generation);
 			}
 			checkCancellation(generation);
+			log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 결과수={}, 최고유사도={}, 검색결과=[{}]",
+					attempt.getId(), results == null ? 0 : results.size(), highestSimilarity(results),
+					formatSearchResults(results));
 			if (results == null || results.isEmpty()) {
+				log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 				createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 				return handleAnswerFailure(attempt, ChatErrorCode.NO_FAQ, generation);
 			}
@@ -147,11 +159,16 @@ public class ChatService {
 							&& result.similarityScore() >= confidenceThreshold)
 					.toList();
 			if (filteredResults.isEmpty()) {
+				log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 최고유사도={}, 기준값={}",
+						attempt.getId(), highestSimilarity(results), confidenceThreshold);
 				createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, results.get(0));
 				return handleAnswerFailure(attempt, ChatErrorCode.INSUFFICIENT_FAQ, generation);
 			}
 			checkCancellation(generation);
+			log.info("LLM 답변 생성을 시작합니다: 시도ID={}, 참고FAQ수={}", attempt.getId(), filteredResults.size());
 			LlmResponseDto answer = aiService.generateAnswer(attempt.getQuestion(), filteredResults);
+			log.info("LLM 답변 생성을 완료했습니다: 시도ID={}, 응답={}", attempt.getId(),
+					answer == null || answer.answer() == null ? 0 : answer.answer());
 			checkCancellation(generation);
 			if (answer == null || !StringUtils.hasText(answer.answer())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
@@ -163,20 +180,25 @@ public class ChatService {
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
 					throw createAnswerFailure(savedAttempt);
 				}
+				log.info("답변 생성에 성공했습니다: 시도ID={}, 처리시간={}ms", attempt.getId(), elapsedMillis(startedAt));
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
 				return ChatResponseDto.from(savedAttempt, answer.answer(), false);
 			});
 		} catch (GlobalException exception) {
+			log.warn("답변 생성이 업무 예외로 종료되었습니다: 시도ID={}, 오류코드={}, 오류메시지={}",
+					attempt.getId(), exception.getErrorCode().getCode(), exception.getErrorCode().getMessage());
 			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);
 		} catch (Exception exception) {
 			checkCancellation(generation);
 			if (exception instanceof PromptException) {
+				log.warn("답변 프롬프트를 준비하지 못했습니다: 시도ID={}", attempt.getId());
 				return handleAnswerFailure(attempt, ChatErrorCode.PROMPT_NOT_READY, generation);
 			}
 			if (exception instanceof DataAccessException) {
+				log.warn("답변 저장소 접근에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 				return handleAnswerFailure(attempt, ChatErrorCode.STORAGE_UNAVAILABLE, generation);
 			}
-			log.error("답변 생성 실패: attemptId={}", attempt.getId(), exception);
+			log.error("답변 생성에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 			return handleAnswerFailure(attempt, ChatErrorCode.INTERNAL_ERROR, generation);
 		}
 	}
@@ -193,13 +215,14 @@ public class ChatService {
 					bestResult == null ? null : bestResult.similarityScore()
 			);
 		} catch (RuntimeException exception) {
-			log.warn("미응답 질문 저장 실패: attemptId={}", attempt.getId(), exception);
+			log.warn("미응답 질문 저장에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 		}
 	}
 
 	private void checkCancellation(ChatAnswerTask generation) {
 		// 외부 호출이 인터럽트를 소비해도 취소 상태는 유지됩니다.
 		if (generation.isCancellationRequested() || Thread.currentThread().isInterrupted()) {
+			log.info("답변 생성 작업이 취소되었습니다.");
 			throw new CancellationException("답변 생성 작업이 취소되었습니다.");
 		}
 	}
@@ -215,7 +238,7 @@ public class ChatService {
 			} catch (RuntimeException exception) {
 				checkCancellation(generation);
 				// 실패 기록 자체를 저장하지 못했으면 정상 저장으로 알리지 않습니다.
-				log.error("실패 기록 저장 실패: attemptId={}", attempt.getId(), exception);
+				log.error("실패 이력 저장에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 				throw new ChatException(ChatErrorCode.STORAGE_UNAVAILABLE, new ChatResponseDto(
 						ChatErrorCode.STORAGE_UNAVAILABLE.getMessage(), "FAIL",
 						attempt.getIdempotencyKey(), attempt.getAttemptCount(), false
@@ -230,5 +253,35 @@ public class ChatService {
 		ChatResponseDto response = ChatResponseDto.from(attempt, errorCode.getMessage(),
 				chatAttemptsService.validateRetryAttempt(attempt).isEmpty());
 		return new ChatException(errorCode, response);
+	}
+
+	private Double highestSimilarity(List<FaqSearchResponseDto> results) {
+		if (results == null) {
+			return null;
+		}
+		return results.stream()
+				.map(FaqSearchResponseDto::similarityScore)
+				.filter(score -> score != null && Double.isFinite(score))
+				.max(Double::compareTo)
+				.orElse(null);
+	}
+
+	private String formatSearchResults(List<FaqSearchResponseDto> results) {
+		if (results == null || results.isEmpty()) {
+			return "없음";
+		}
+		return results.stream()
+				.map(result -> "FAQ ID=" + result.faqId()
+						+ ", FAQ 질문=" + normalizeForLog(result.question())
+						+ ", 유사도=" + result.similarityScore())
+				.collect(java.util.stream.Collectors.joining(" | "));
+	}
+
+	private String normalizeForLog(String value) {
+		return value == null ? "없음" : value.replaceAll("[\\r\\n\\t]+", " ");
+	}
+
+	private long elapsedMillis(long startedAt) {
+		return (System.nanoTime() - startedAt) / 1_000_000;
 	}
 }

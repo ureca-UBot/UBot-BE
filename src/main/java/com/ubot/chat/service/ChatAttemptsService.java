@@ -29,9 +29,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import lombok.extern.slf4j.Slf4j;
 
 /** 시도 횟수·멱등키와 JPA 기록 저장을 담당합니다. */
 @Service
+@Slf4j
 public class ChatAttemptsService {
 	@Value("${CHAT_MAX_ATTEMPTS:3}")
 	private int maxAttempts;
@@ -150,7 +152,7 @@ public class ChatAttemptsService {
 			List<FaqSearchResponseDto> sources,
 			String userIp
 	) {
-		return transactionTemplate.execute(transactionStatus -> {
+		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findAttemptForLock(attempt.getId()).orElseThrow();
 			if (!"PENDING".equals(currentAttempt.getStatus())) {
@@ -181,10 +183,13 @@ public class ChatAttemptsService {
 			currentAttempt.succeed();
 			return currentAttempt;
 		});
+		log.info("답변 성공 이력을 저장했습니다: 시도ID={}, 상태={}, 참고FAQ수={}",
+				attempt.getId(), savedAttempt.getStatus(), sources.size());
+		return savedAttempt;
 	}
 
 	public AnswerAttemptsHistory saveAnswerFailure(AnswerAttemptsHistory attempt, ErrorCode errorCode) {
-		return transactionTemplate.execute(transactionStatus -> {
+		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findAttemptForLock(attempt.getId()).orElseThrow();
 			if (!"PENDING".equals(currentAttempt.getStatus())) {
@@ -193,16 +198,21 @@ public class ChatAttemptsService {
 			currentAttempt.fail(errorCode);
 			return currentAttempt;
 		});
+		log.info("답변 실패 이력을 저장했습니다: 시도ID={}, 상태={}, 오류코드={}, 오류메시지={}",
+				attempt.getId(), savedAttempt.getStatus(), errorCode.getCode(), errorCode.getMessage());
+		return savedAttempt;
 	}
 
 	public AnswerAttemptsHistory saveAnswerTimeout(AnswerAttemptsHistory attempt) {
 		// 트랜잭션 커밋이 끝난 기록으로 재시도 응답을 구성합니다.
-		return transactionTemplate.execute(transactionStatus -> {
+		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			answerAttemptsHistoryRepository.updatePendingAttemptToFail(
 					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage()
 			);
 			return answerAttemptsHistoryRepository.findById(attempt.getId()).orElseThrow();
 		});
+		log.warn("답변 생성 시간을 초과했습니다: 시도ID={}, 상태={}", attempt.getId(), savedAttempt.getStatus());
+		return savedAttempt;
 	}
 
 	/** 재시도가 불가능한 사유를 반환하고, 가능하면 빈 결과를 반환합니다. */
