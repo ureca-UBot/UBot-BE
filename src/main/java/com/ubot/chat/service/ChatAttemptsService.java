@@ -11,6 +11,7 @@ import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.FaqLog;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.guest.entity.GuestChatSettings;
@@ -25,10 +26,12 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /** 시도 횟수·멱등키와 JPA 기록 저장을 담당합니다. */
 @Service
@@ -57,8 +60,7 @@ public class ChatAttemptsService {
 			FaqRepository faqRepository,
 			ConversationRepository conversationRepository,
 			GuestChatSettingsRepository guestChatSettingsRepository,
-			PlatformTransactionManager transactionManager
-	) {
+			PlatformTransactionManager transactionManager) {
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
 		this.questionLogService = questionLogService;
 		this.faqLogRepository = faqLogRepository;
@@ -74,11 +76,9 @@ public class ChatAttemptsService {
 		String input = question.strip();
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createIdempotencyKey(userId, input, createdAt);
-		return transactionTemplate.execute(transactionStatus ->
-				answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-						userId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel
-				))
-		);
+		return transactionTemplate
+				.execute(transactionStatus -> answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
+						userId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel)));
 	}
 
 	public AnswerAttemptsHistory createGuestAnswerAttempt(Long conversationId, String question) {
@@ -88,8 +88,7 @@ public class ChatAttemptsService {
 		return transactionTemplate.execute(transactionStatus -> {
 			validateGuestQuestionLimit(conversationId, idempotencyKey);
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-					null, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel
-			));
+					null, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel));
 		});
 	}
 
@@ -99,6 +98,38 @@ public class ChatAttemptsService {
 
 	public AnswerAttemptsHistory createGuestRetryAttempt(Long conversationId, String idempotencyKey) {
 		return createRetryAttempt(null, conversationId, idempotencyKey);
+	}
+
+	/** 성공한 답변(idempotencyKey)에 대해, 로그인 사용자가 고른 intent로 재검색하는 새 attempt를 만듭니다. */
+	public AnswerAttemptsHistory createResearchAttempt(Long userId, String idempotencyKey, Intent intent) {
+		return transactionTemplate.execute(transactionStatus -> {
+			// userId 조건이 포함된 조회라 다른 사용자의 키나 게스트 attempt는 찾을 수 없습니다.
+			AnswerAttemptsHistory latest = answerAttemptsHistoryRepository
+					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
+					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+
+			// 같은 원본에 대한 동시 재검색 요청을 직렬로 처리하기 위해 원본 행을 잠급니다.
+			AnswerAttemptsHistory source = answerAttemptsHistoryRepository
+					.findAttemptForLock(latest.getId())
+					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+
+			// 답변이 온전히 성공한 원본만 가능하고, 재검색 attempt 자체는 다시 재검색할 수 없습니다.
+			if (!"SUCCESS".equals(source.getStatus()) || source.getSourceAttemptId() != null) {
+				throw new ChatException(ChatErrorCode.RESEARCH_NOT_ALLOWED);
+			}
+			if (answerAttemptsHistoryRepository.existsBySourceAttemptIdAndIntent(source.getId(), intent)) {
+				throw new ChatException(ChatErrorCode.ALREADY_RESEARCHED);
+			}
+
+			try {
+				LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+				String researchKey = createIdempotencyKey(userId, source.getQuestion(), createdAt);
+				return answerAttemptsHistoryRepository.saveAndFlush(
+						AnswerAttemptsHistory.createResearchAttempt(source, intent, researchKey, createdAt));
+			} catch (DataIntegrityViolationException exception) {
+				throw new ChatException(ChatErrorCode.ALREADY_RESEARCHED);
+			}
+		});
 	}
 
 	private AnswerAttemptsHistory createRetryAttempt(Long userId, Long conversationId, String idempotencyKey) {
@@ -125,8 +156,7 @@ public class ChatAttemptsService {
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
 					userId, latestAttempt.getConversationId(), latestAttempt.getQuestion(),
 					latestAttempt.getAttemptCount() + 1, idempotencyKey,
-					LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel
-			));
+					LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel));
 		});
 	}
 
@@ -148,8 +178,7 @@ public class ChatAttemptsService {
 			AnswerAttemptsHistory attempt,
 			String answer,
 			List<FaqSearchResponseDto> sources,
-			String userIp
-	) {
+			String userIp) {
 		return transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findAttemptForLock(attempt.getId()).orElseThrow();
@@ -162,8 +191,7 @@ public class ChatAttemptsService {
 					currentAttempt.getConversationId(),
 					currentAttempt.getQuestion(),
 					answer,
-					userIp
-			);
+					userIp);
 
 			List<FaqLog> faqLogs = new ArrayList<>();
 			LocalDateTime now = LocalDateTime.now();
@@ -199,8 +227,7 @@ public class ChatAttemptsService {
 		// 트랜잭션 커밋이 끝난 기록으로 재시도 응답을 구성합니다.
 		return transactionTemplate.execute(transactionStatus -> {
 			answerAttemptsHistoryRepository.updatePendingAttemptToFail(
-					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage()
-			);
+					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage());
 			return answerAttemptsHistoryRepository.findById(attempt.getId()).orElseThrow();
 		});
 	}

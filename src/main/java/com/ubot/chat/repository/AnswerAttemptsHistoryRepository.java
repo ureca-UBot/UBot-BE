@@ -2,6 +2,8 @@ package com.ubot.chat.repository;
 
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.common.ErrorCode;
+import com.ubot.faq.enums.Intent;
+
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,13 +24,11 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 	Optional<AnswerAttemptsHistory> findInitialAttemptsForLock(
 			@Param("userId") Long userId,
 			@Param("idempotencyKey") String idempotencyKey,
-			@Param("attemptCount") int attemptCount
-	);
+			@Param("attemptCount") int attemptCount);
 
 	Optional<AnswerAttemptsHistory> findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(
 			Long userId,
-			String idempotencyKey
-	);
+			String idempotencyKey);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
@@ -42,13 +42,11 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 	Optional<AnswerAttemptsHistory> findGuestInitialAttemptsForLock(
 			@Param("conversationId") Long conversationId,
 			@Param("idempotencyKey") String idempotencyKey,
-			@Param("attemptCount") int attemptCount
-	);
+			@Param("attemptCount") int attemptCount);
 
 	Optional<AnswerAttemptsHistory> findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
 			Long conversationId,
-			String idempotencyKey
-	);
+			String idempotencyKey);
 
 	@Query("""
 			select count(distinct a.idempotencyKey)
@@ -63,8 +61,7 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 			@Param("conversationId") Long conversationId,
 			@Param("excludedIdempotencyKey") String excludedIdempotencyKey,
 			@Param("noFaq") ErrorCode noFaq,
-			@Param("insufficientFaq") ErrorCode insufficientFaq
-	);
+			@Param("insufficientFaq") ErrorCode insufficientFaq);
 
 	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("""
@@ -87,6 +84,7 @@ public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAtt
 	int updatePendingAttemptToFail(
 			@Param("attemptId") Long attemptId,
 			@Param("errorCode") ErrorCode errorCode,
-			@Param("errorMessage") String errorMessage
-	);
+			@Param("errorMessage") String errorMessage);
+
+	boolean existsBySourceAttemptIdAndIntent(Long sourceAttemptId, Intent intent);
 }
