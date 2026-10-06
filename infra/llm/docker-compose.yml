@@ -1,0 +1,80 @@
+services:
+  vllm:
+    profiles: ["vllm"]
+
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+
+    ports:
+      - "${LLM_PORT:-8000}:8000"
+
+    ipc: host
+
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      - --model
+      - ${LLM_MODEL:-Qwen/Qwen3-0.6B}
+      - --served-model-name
+      - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
+      - --max-model-len
+      - ${LLM_MAX_MODEL_LEN:-2048}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
+
+
+  sglang:
+    profiles: ["sglang"]
+
+    image: ${SGLANG_IMAGE:-lmsysorg/sglang:latest-runtime}
+
+    ports:
+      - "${LLM_PORT:-8000}:8000"
+
+    ipc: host
+
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - ${LLM_MODEL:-Qwen/Qwen3-0.6B}
+      - --served-model-name
+      - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --context-length
+      - ${LLM_MAX_MODEL_LEN:-2048}
+      - --mem-fraction-static
+      - ${SGLANG_MEM_FRACTION_STATIC:-0.6}
+
+
+volumes:
+  hf-cache:
