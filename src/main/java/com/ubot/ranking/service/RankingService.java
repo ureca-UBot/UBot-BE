@@ -1,6 +1,7 @@
 package com.ubot.ranking.service;
 
 import com.ubot.ranking.dto.model.*;
+import com.ubot.ranking.dto.response.RankingResponseDto;
 import com.ubot.ranking.entity.RegionalTrendRankingPolicy;
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.ranking.repository.RankingQueryRepository;
@@ -11,9 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -72,7 +71,7 @@ public class RankingService {
 				null
 				);
 		TrendRankingSnapshot globalTrendSnapshot = new TrendRankingSnapshot(calculatedAt, globalTrend);
-		snapshots.put(RankingRedisKey.trending(), globalTrendSnapshot);
+		snapshots.put(RankingRedisKey.trend(), globalTrendSnapshot);
 
 		List<RegionalTrendRankingPolicy> regionalPolicies = regionalTrendRankingPolicyRepository.findAll();
 		Map<RegionSido, RegionalTrendRankingPolicy> regionPoliciesMap =
@@ -103,8 +102,36 @@ public class RankingService {
 					region
 			);
 			TrendRankingSnapshot regionTrendSnapshot = new TrendRankingSnapshot(calculatedAt, regionalTrend);
-			snapshots.put(RankingRedisKey.trending(region), regionTrendSnapshot);
+			snapshots.put(RankingRedisKey.trend(region), regionTrendSnapshot);
 		}
 		rankingRedisRepository.saveSnapshots(snapshots);
+	}
+
+	public RankingResponseDto getRanking() {
+		Map<String, RankingSnapshot> snapshots =
+				rankingRedisRepository.findSnapshots();
+
+		PopularRankingSnapshot popular =
+				(PopularRankingSnapshot) snapshots.get(
+						RankingRedisKey.popular()
+				);
+
+		TrendRankingSnapshot trend =
+				(TrendRankingSnapshot) snapshots.get(
+						RankingRedisKey.trend()
+				);
+
+		Map<RegionSido, TrendRankingSnapshot> regionalTrend = new EnumMap<>(RegionSido.class);
+
+		for (RegionSido region : RegionSido.values()) {
+			TrendRankingSnapshot regionRankingSnapshot = (TrendRankingSnapshot) snapshots.get(RankingRedisKey.trend(region));
+			regionalTrend.put(region, regionRankingSnapshot);
+		}
+
+		return new RankingResponseDto(
+				popular,
+				trend,
+				regionalTrend
+		);
 	}
 }

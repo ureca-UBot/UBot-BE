@@ -9,11 +9,11 @@ public final class RankingRedisKey {
 		return PREFIX + "popular";
 	}
 
-	public static String trending() {
-		return PREFIX + "trending:global";
+	public static String trend() {
+		return PREFIX + "trend:global";
 	}
-	public static String trending(RegionSido region) {
-		return PREFIX + "trending:" + region.toString().toLowerCase();
+	public static String trend(RegionSido region) {
+		return PREFIX + "trend:" + region.toString().toLowerCase();
 	}
 
 	private RankingRedisKey() {
