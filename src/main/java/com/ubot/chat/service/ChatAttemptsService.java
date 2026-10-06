@@ -7,10 +7,14 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.common.ErrorCode;
+import com.ubot.conversation.entity.Conversation;
+import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.FaqLog;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
+import com.ubot.guest.entity.GuestChatSettings;
+import com.ubot.guest.repository.GuestChatSettingsRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -36,6 +40,8 @@ public class ChatAttemptsService {
 	private final FaqLogRepository faqLogRepository;
 	private final QuestionLogService questionLogService;
 	private final FaqRepository faqRepository;
+	private final ConversationRepository conversationRepository;
+	private final GuestChatSettingsRepository guestChatSettingsRepository;
 	private final TransactionTemplate transactionTemplate;
 
 	@Value("${spring.ai.ollama.chat.options.model:${OLLAMA_CHAT_MODEL:}}")
@@ -49,12 +55,16 @@ public class ChatAttemptsService {
 			QuestionLogService questionLogService,
 			FaqLogRepository faqLogRepository,
 			FaqRepository faqRepository,
+			ConversationRepository conversationRepository,
+			GuestChatSettingsRepository guestChatSettingsRepository,
 			PlatformTransactionManager transactionManager
 	) {
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
 		this.questionLogService = questionLogService;
 		this.faqLogRepository = faqLogRepository;
 		this.faqRepository = faqRepository;
+		this.conversationRepository = conversationRepository;
+		this.guestChatSettingsRepository = guestChatSettingsRepository;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 		// 기록 저장 트랜잭션만 열고, 모델 호출 중에는 DB 연결이나 행 잠금을 유지하지 않습니다.
 		this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -71,24 +81,67 @@ public class ChatAttemptsService {
 		);
 	}
 
+	public AnswerAttemptsHistory createGuestAnswerAttempt(Long conversationId, String question) {
+		String input = question.strip();
+		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+		String idempotencyKey = createGuestIdempotencyKey(conversationId, input, createdAt);
+		return transactionTemplate.execute(transactionStatus -> {
+			validateGuestQuestionLimit(conversationId, idempotencyKey);
+			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
+					null, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel
+			));
+		});
+	}
+
 	public AnswerAttemptsHistory createRetryAttempt(Long userId, String idempotencyKey) {
+		return createRetryAttempt(userId, null, idempotencyKey);
+	}
+
+	public AnswerAttemptsHistory createGuestRetryAttempt(Long conversationId, String idempotencyKey) {
+		return createRetryAttempt(null, conversationId, idempotencyKey);
+	}
+
+	private AnswerAttemptsHistory createRetryAttempt(Long userId, Long conversationId, String idempotencyKey) {
+		boolean guest = userId == null;
 		return transactionTemplate.execute(transactionStatus -> {
 			// 최초 행을 잠가서 같은 질문에 대한 동시 재시도를 직렬로 처리합니다.
-			answerAttemptsHistoryRepository
-					.findInitialAttemptsForLock(userId, idempotencyKey, 1)
+			(guest
+					? answerAttemptsHistoryRepository
+							.findGuestInitialAttemptsForLock(conversationId, idempotencyKey, 1)
+					: answerAttemptsHistoryRepository
+							.findInitialAttemptsForLock(userId, idempotencyKey, 1))
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
-			AnswerAttemptsHistory latestAttempt = answerAttemptsHistoryRepository
-					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
+			AnswerAttemptsHistory latestAttempt = (guest
+					? answerAttemptsHistoryRepository
+							.findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
+									conversationId, idempotencyKey)
+					: answerAttemptsHistoryRepository
+							.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey))
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
 			validateRetryAttempt(latestAttempt).ifPresent(errorCode -> {
 				throw new ChatException(errorCode);
 			});
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-					userId, latestAttempt.getQuestion(), latestAttempt.getAttemptCount() + 1,
-					idempotencyKey, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel
+					userId, latestAttempt.getConversationId(), latestAttempt.getQuestion(),
+					latestAttempt.getAttemptCount() + 1, idempotencyKey,
+					LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel
 			));
 		});
+	}
+
+	private void validateGuestQuestionLimit(Long conversationId, String idempotencyKey) {
+		Conversation conversation = conversationRepository
+				.findConversationForLock(conversationId)
+				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+		int maxQuestionCount = guestChatSettingsRepository
+				.findById(GuestChatSettings.SETTINGS_ID).orElseThrow().getMaxQuestionCount();
+		long usedQuestionCount = answerAttemptsHistoryRepository.countGuestQuestions(
+				conversationId, idempotencyKey, ChatErrorCode.NO_FAQ, ChatErrorCode.INSUFFICIENT_FAQ);
+		if (usedQuestionCount >= maxQuestionCount) {
+			throw new ChatException(ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED);
+		}
+		conversation.touch();
 	}
 
 	public AnswerAttemptsHistory saveAnswerSuccess(
@@ -105,8 +158,9 @@ public class ChatAttemptsService {
 			}
 
 			QuestionLog questionLog = questionLogService.saveAndFlush(
-					attempt.getUserId(),
-					attempt.getQuestion(),
+					currentAttempt.getUserId(),
+					currentAttempt.getConversationId(),
+					currentAttempt.getQuestion(),
 					answer,
 					userIp
 			);
@@ -169,7 +223,15 @@ public class ChatAttemptsService {
 	}
 
 	static String createIdempotencyKey(Long userId, String question, LocalDateTime createdAt) {
-		String source = userId + ":" + question.length() + ":" + question + ":" + createdAt;
+		return createIdempotencyKey(String.valueOf(userId), question, createdAt);
+	}
+
+	static String createGuestIdempotencyKey(Long conversationId, String question, LocalDateTime createdAt) {
+		return createIdempotencyKey("guest:" + conversationId, question, createdAt);
+	}
+
+	private static String createIdempotencyKey(String owner, String question, LocalDateTime createdAt) {
+		String source = owner + ":" + question.length() + ":" + question + ":" + createdAt;
 		try {
 			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
 					.digest(source.getBytes(StandardCharsets.UTF_8)));

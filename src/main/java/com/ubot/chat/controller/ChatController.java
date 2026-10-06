@@ -3,10 +3,13 @@ package com.ubot.chat.controller;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.dto.request.ChatRequestDto;
 import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.ApiResponse;
+import com.ubot.guest.session.GuestConversationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ public class ChatController {
 
 	private final ChatService chatService;
 	private final ClientIpResolver clientIpResolver;
+	private final GuestConversationService guestConversationService;
 
 	@PostMapping(value = "/questions", produces = MediaType.APPLICATION_JSON_VALUE)
 	public DeferredResult<ApiResponse<ChatResponseDto>> createChat(
@@ -37,7 +41,12 @@ public class ChatController {
 			HttpServletRequest httpRequest
 	) {
 		String userIp = clientIpResolver.resolve(httpRequest);
-		return createResponse(chatService.createChat(user.getUserId(), request.question(), userIp));
+		if (user != null) {
+			guestConversationService.claimConversation(httpRequest, user.getUserId());
+			return createResponse(chatService.createChat(user.getUserId(), request.question(), userIp));
+		}
+		Long conversationId = guestConversationService.getOrCreateConversationId(httpRequest);
+		return createResponse(chatService.createGuestChat(conversationId, request.question(), userIp));
 	}
 
 	@PostMapping(value = "/questions/retries", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -47,7 +56,13 @@ public class ChatController {
 			HttpServletRequest httpRequest
 	) {
 		String userIp = clientIpResolver.resolve(httpRequest);
-		return createResponse(chatService.retryChat(user.getUserId(), idempotencyKey, userIp));
+		if (user != null) {
+			guestConversationService.claimConversation(httpRequest, user.getUserId());
+			return createResponse(chatService.retryChat(user.getUserId(), idempotencyKey, userIp));
+		}
+		Long conversationId = guestConversationService.findConversationId(httpRequest)
+				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+		return createResponse(chatService.retryGuestChat(conversationId, idempotencyKey, userIp));
 	}
 
 	private DeferredResult<ApiResponse<ChatResponseDto>> createResponse(ChatAnswerTask answer) {

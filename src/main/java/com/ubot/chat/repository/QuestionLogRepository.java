@@ -2,6 +2,7 @@ package com.ubot.chat.repository;
 
 import com.ubot.chat.entity.QuestionLog;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -24,6 +25,14 @@ public interface QuestionLogRepository extends JpaRepository<QuestionLog, Long> 
 			@Param("startAt") LocalDateTime startAt,
 			@Param("endAt") LocalDateTime endAt
 	);
+
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("""
+			update QuestionLog ql
+			set ql.userId = :userId
+			where ql.conversationId = :conversationId and ql.userId is null
+			""")
+	int assignGuestQuestionLogsToUser(@Param("conversationId") Long conversationId, @Param("userId") Long userId);
 
 	@Query(
 			value = "SELECT pg_advisory_xact_lock(:lockKey)",

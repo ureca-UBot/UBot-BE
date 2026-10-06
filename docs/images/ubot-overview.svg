@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 380" width="1000" height="380" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">UBot 질문 처리 흐름</title>
+  <desc id="desc">고객 질문은 금지어 검사와 FAQ 벡터 검색을 거친다. 유사도가 기준 이상이면 LLM이 FAQ를 근거로 답변을 만들고, 기준에 못 미치면 미응답 질문으로 모여 관리자가 FAQ로 보강한다.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#be123c"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1d4ed8"/>
+    </marker>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="999" height="379" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <text x="24" y="36" font-size="13" font-weight="700" fill="#64748b">고객 질문이 답변이 되기까지</text>
+
+  <g font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle">
+    <rect x="20" y="70" width="140" height="68" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+    <text x="90" y="99">고객 질문</text>
+
+    <rect x="184" y="70" width="140" height="68" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+    <text x="254" y="99">금지어 검사</text>
+
+    <rect x="348" y="70" width="140" height="68" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+    <text x="418" y="99">FAQ 벡터 검색</text>
+
+    <rect x="512" y="70" width="140" height="68" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+    <text x="582" y="99">유사도 판정</text>
+
+    <rect x="676" y="70" width="140" height="68" rx="10" fill="#fdf2f8" stroke="#be185d" stroke-width="1.5"/>
+    <text x="746" y="99">LLM 답변 생성</text>
+
+    <rect x="840" y="70" width="140" height="68" rx="10" fill="#fdf2f8" stroke="#be185d" stroke-width="1.5"/>
+    <text x="910" y="99">답변</text>
+
+    <rect x="184" y="250" width="140" height="68" rx="10" fill="#fff1f2" stroke="#be123c" stroke-width="1.5"/>
+    <text x="254" y="279">질문 차단</text>
+
+    <rect x="512" y="250" width="140" height="68" rx="10" fill="#fff1f2" stroke="#be123c" stroke-width="1.5"/>
+    <text x="582" y="279">미응답 질문 묶음</text>
+
+    <rect x="348" y="250" width="140" height="68" rx="10" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="418" y="279">관리자 FAQ 등록</text>
+  </g>
+
+  <g font-size="12" fill="#475569" text-anchor="middle">
+    <text x="90" y="120">게스트 · 회원</text>
+    <text x="254" y="120">활성 금지어 포함 여부</text>
+    <text x="418" y="120">가장 비슷한 3건</text>
+    <text x="582" y="120">기준 0.75 이상인가</text>
+    <text x="746" y="120">통과한 FAQ만 근거</text>
+    <text x="910" y="120">근거 FAQ ID 포함</text>
+    <text x="254" y="300">검색·생성 전에 중단</text>
+    <text x="582" y="300">비슷한 질문끼리 모음</text>
+    <text x="418" y="300">묶음에서 바로 등록</text>
+  </g>
+
+  <g fill="none" stroke="#475569" stroke-width="1.5">
+    <path d="M160 104 H182" marker-end="url(#arrow)"/>
+    <path d="M324 104 H346" marker-end="url(#arrow)"/>
+    <path d="M488 104 H510" marker-end="url(#arrow)"/>
+    <path d="M652 104 H674" marker-end="url(#arrow)"/>
+    <path d="M816 104 H838" marker-end="url(#arrow)"/>
+  </g>
+
+  <g fill="none" stroke-width="1.5">
+    <path d="M254 138 V248" stroke="#be123c" marker-end="url(#arrow-red)"/>
+    <path d="M582 138 V248" stroke="#be123c" marker-end="url(#arrow-red)"/>
+    <path d="M512 284 H490" stroke="#1d4ed8" marker-end="url(#arrow-blue)"/>
+    <path d="M418 250 V140" stroke="#1d4ed8" stroke-dasharray="5 4" marker-end="url(#arrow-blue)"/>
+  </g>
+
+  <g font-size="12" font-weight="700">
+    <text x="663" y="86" fill="#be185d" text-anchor="middle">예</text>
+    <text x="264" y="198" fill="#be123c">금지어 포함</text>
+    <text x="592" y="198" fill="#be123c">아니오</text>
+    <text x="428" y="198" fill="#1d4ed8">FAQ 보강</text>
+  </g>
+
+  <text x="24" y="356" font-size="12" fill="#64748b">답하지 못한 질문은 버려지지 않고 FAQ를 보강하는 재료가 됩니다.</text>
+</svg>

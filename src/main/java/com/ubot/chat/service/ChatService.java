@@ -63,23 +63,45 @@ public class ChatService {
 	}
 
 	public ChatAnswerTask createChat(Long userId, String question, String userIp) {
-		if (!StringUtils.hasText(question) || question.length() > 4000) {
-			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
-		}
-		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
-		forbiddenWordFilterService.validateForbiddenWord(question);
+		validateQuestion(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
 		return startAnswerGeneration(attempt, userIp);
 	}
 
+	public ChatAnswerTask createGuestChat(Long conversationId, String question, String userIp) {
+		validateQuestion(question);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
+		return startAnswerGeneration(attempt, userIp);
+	}
+
 	public ChatAnswerTask retryChat(Long userId, String idempotencyKey, String userIp) {
-		if (idempotencyKey == null || !idempotencyKey.matches("[0-9a-f]{64}")) {
-			throw new ChatException(ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
-		}
+		validateIdempotencyKey(idempotencyKey);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
 		return startAnswerGeneration(attempt, userIp);
+	}
+
+	public ChatAnswerTask retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
+		validateIdempotencyKey(idempotencyKey);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
+		return startAnswerGeneration(attempt, userIp);
+	}
+
+	private void validateQuestion(String question) {
+		if (!StringUtils.hasText(question) || question.length() > 4000) {
+			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
+		}
+		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
+		forbiddenWordFilterService.validateForbiddenWord(question);
+	}
+
+	private void validateIdempotencyKey(String idempotencyKey) {
+		if (idempotencyKey == null || !idempotencyKey.matches("[0-9a-f]{64}")) {
+			throw new ChatException(ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
+		}
 	}
 
 	private ChatAnswerTask startAnswerGeneration(AnswerAttemptsHistory attempt, String userIp) {

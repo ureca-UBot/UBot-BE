@@ -45,12 +45,13 @@ com.ubot
 | 인증 | `POST /auth/signup`, `/auth/login`, `/auth/refresh` | 불필요 |
 | 인증 | `POST /auth/logout` | JWT |
 | 내 정보 | `GET`, `PATCH /auth/me` | JWT |
-| 챗봇 | `POST /chat/questions`, `POST /chat/questions/retries` (`Idempotency-Key` 헤더) | JWT |
+| 챗봇 | `POST /chat/questions`, `POST /chat/questions/retries` (`Idempotency-Key` 헤더) | JWT 또는 게스트 세션(`JSESSIONID`) |
 | 매장 | `GET /stores`, `/stores/{storeId}`, `/stores/nearby`, `/stores/map`, `/stores/map/clusters`, `/stores/regions/sidos`, `/stores/regions/sigungus` | 불필요 |
 | 길찾기 | `GET /stores/{storeId}/directions?mode=WALK\|CAR\|TRANSIT`, `POST /stores/{storeId}/directions/transit-detail` | 불필요 |
 | 위치 | `GET /locations/search?query=` | 불필요 |
 | 관리자 FAQ | `/admin/faqs`, `/admin/deleted-faqs`, `/admin/faqs/restore`, `/admin/faq-categories/**`, `/admin/faq-logs/**`, `/admin/old-faqs/faq` | JWT + `ADMIN` |
 | 관리자 금지어 | `/admin/forbidden-words/**` | JWT + `ADMIN` |
+| 관리자 게스트 설정 | `GET`, `PATCH /admin/guest-chat-settings` (게스트 최대 질문 횟수) | JWT + `ADMIN` |
 | 관리자 매장 | `/admin/stores/**` (등록·수정·삭제·활성화·목록·삭제 목록) | JWT + `ADMIN` |
 | 상태 확인 | `GET /actuator/health` | 불필요 |
 
@@ -60,7 +61,11 @@ com.ubot
 - 인증 없이 호출할 수 있는 경로는 `/auth/login`, `/auth/signup`, `/auth/refresh`, `/stores/**`, `/locations/**`, `/actuator/health`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`)입니다. `/admin/**`은 `ADMIN` 역할이 필요하고, 나머지는 모두 JWT가 필요합니다.
 - `JwtAuthenticationFilter`가 `Authorization: Bearer <token>`을 검증한 뒤, 토큰의 사용자 ID로 **매 요청마다 DB에서 탈퇴하지 않은 사용자를 조회**합니다. 권한은 토큰의 `role` claim이 아니라 DB의 `users.role`에서 가져옵니다.
 - 인증이 필요 없는 경로라도 잘못되거나 만료된 Bearer 토큰을 보내면 필터에서 오류 응답이 나갑니다.
-- 채팅 응답은 비동기(`DeferredResult`)로 완료되므로, `/chat/` 경로의 내부 `ASYNC` 재디스패치는 인증 검사 없이 허용합니다. 최초 요청은 JWT 인증을 거칩니다.
+- 채팅 응답은 비동기(`DeferredResult`)로 완료되므로, `/chat/` 경로의 내부 `ASYNC` 재디스패치는 인증 검사 없이 허용합니다.
+- `POST /chat/questions`, `POST /chat/questions/retries`는 JWT 없이도 호출할 수 있습니다. Bearer 토큰이 있으면 회원으로, 없으면 게스트로 처리합니다. 게스트는 `HttpSession`(`JSESSIONID`, 30분)에 연결된 `conversations` 행으로 식별하고, 시도와 질문 로그를 `user_id = null`, `conversation_id`로 저장합니다. 한 세션의 질문 수는 `guest_chat_settings.max_question_count`까지이며 넘으면 `CHAT-017`입니다.
+- 게스트가 로그인한 뒤 같은 세션으로 처음 채팅을 요청하면, 세션에 연결된 게스트 Conversation을 회원에게 승계합니다. `conversations`의 `type`을 `MEMBER`로 바꾸고 `user_id`를 채우며, 그 Conversation의 `answer_attempts_history`·`question_log`에도 `user_id`를 채운 뒤 게스트 세션을 종료합니다. 이미 회원에게 연결된 Conversation은 다시 승계하지 않습니다.
+- Spring Security 인증은 `STATELESS`로 유지합니다. `HttpSession`은 인증 상태가 아니라 게스트 Conversation 식별에만 씁니다.
+- 게스트 질문은 실시간 검색어 랭킹 집계에서 제외합니다(`ranking_eligible = false`). 승계된 과거 게스트 질문도 그대로 제외하고, 로그인 이후 생성된 질문부터 집계합니다.
 - Access token 서명 키는 `JWT_SECRET`(Base64, 32바이트 이상)이며 기동 시점에 디코딩합니다. 값이 올바르지 않으면 애플리케이션이 뜨지 않습니다.
 - Refresh token은 사용자당 1개(`refresh_tokens.user_id` UNIQUE)입니다. 로그인과 재발급 때마다 새 값으로 교체하므로, 다른 기기에서 로그인하면 이전 refresh token은 쓸 수 없습니다. 로그아웃은 refresh token을 삭제합니다.
 - 회원가입은 항상 `USER` 역할로 생성합니다. `ADMIN` 계정을 만드는 API는 없습니다([db-access.md](how-to/db-access.md#로컬에서-관리자-계정-만들기)).
@@ -69,7 +74,7 @@ com.ubot
 ## 챗봇 질문 처리 흐름
 
 ```text
-POST /chat/questions  { "question": "..." }   (JWT 필수, 1~4000자)
+POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~4000자)
   → ChatService.createChat
       → ForbiddenWordFilterService : 활성 금지어 포함 시 FW-003 (시도 기록을 남기지 않음)
       → ChatAttemptsService        : answer_attempts_history에 PENDING 행 저장, 멱등키 발급
