@@ -58,7 +58,7 @@ class ChatServiceIntentRoutingTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				vector, ai, attempts, mock(UnansweredQuestionService.class),
+				vector, ai, mock(UnansweredQuestionService.class),
 				ChatTestFixtures.collector(nearbyStoreSearcher));
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));

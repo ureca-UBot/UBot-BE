@@ -109,7 +109,7 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 `llm/exception/LlmErrorCode`(`LLM-001`~`LLM-005`)는 공통 `ErrorCode`를 구현합니다.
 코드별 HTTP 상태와 발생 조건은 [오류 코드 Reference](../reference/error-codes.md#llm)에 있습니다.
 
-`ChatAnswerProcessor`는 LLM 호출 전후의 모든 실패(임베딩 `EM-*`, 벡터 검색, 유사도 미달, 프롬프트, LLM)를
+`ChatAnswerExecutor`는 LLM 호출 전후의 모든 실패(임베딩 `EM-*`, 벡터 검색, 유사도 미달, 프롬프트, LLM)를
 시도 기록에 `FAIL`과 오류 코드로 저장한 뒤, 그 코드와 재시도 정보(`ChatResponseDto`)를 담은 `ChatException`을 전달합니다.
 모델 오류의 내부 원인이나 원문은 반환하지 않으며, FAQ 원문을 성공 답변으로 대신 반환하지 않습니다.
 재시도 조건은 [architecture.md](../architecture.md#재시도)를 참고하세요.

@@ -107,7 +107,7 @@ class ChatServiceTest {
 		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, conversations, guestSettings, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
-				vector, ai, attemptsService, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
 		service = new ChatService(attemptsService, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attemptsService, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);

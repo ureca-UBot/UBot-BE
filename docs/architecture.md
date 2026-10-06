@@ -79,7 +79,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
       → ForbiddenWordFilterService : 활성 금지어 포함 시 FW-003 (시도 기록을 남기지 않음)
       → ChatAttemptsService        : answer_attempts_history에 PENDING 행 저장, 멱등키 발급
       → ChatAnswerExecutor         : chatExecutor(가상 스레드)에 답변 생성 작업 제출 (컨트롤러는 DeferredResult로 응답 보류)
-          → ChatAnswerProcessor.generateAnswer (가상 스레드에서 실행)
+          → ChatAnswerProcessor.generateAnswer (가상 스레드에서 실행, 답변 또는 실패 코드를 돌려줌)
               → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
                   → EmbeddingService    : Ollama /api/embed로 1024차원 벡터 생성
                   → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색
@@ -88,8 +88,8 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
                  → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
               → ChatContextCollector : 남은 FAQ의 intent별로 답변 자료 수집
               → AiService → PromptService → LlmService → OllamaClient (모은 자료 전달)
-              → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
-              → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
+          → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
+          → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
   → CHAT_RESPONSE_TIMEOUT_MILLIS 초과 시 시도를 FAIL(CHAT-016)로 저장하고 작업을 취소
 ```
 
@@ -98,8 +98,8 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 | 클래스 | 맡은 일 |
 |---|---|
 | `ChatService` | 회원·게스트의 질문과 재시도 요청을 받습니다. 입력값과 금지어를 검증하고, 답변 시도를 만든 뒤 실행을 요청합니다. |
-| `ChatAnswerExecutor` | 답변 생성 작업을 `chatExecutor`에 제출합니다. 제한 시간을 넘으면 시도를 실패로 저장하고 작업을 취소하도록 `ChatAnswerTask`를 구성하며, 작업을 시작하지 못하면 `CHAT-009`로 실패 처리합니다. |
-| `ChatAnswerProcessor` | 답변을 만듭니다. FAQ 검색, 유사도 판정, 미응답 질문 저장, intent별 답변 자료 수집, AI 호출을 차례로 수행하고 성공·실패 결과를 저장해 응답을 확정합니다. |
+| `ChatAnswerExecutor` | 답변 생성 작업을 `chatExecutor`에 제출하고, 작업 결과를 시도 기록에 저장해 응답을 확정합니다(성공이면 답변, 실패면 오류 코드). 제한 시간을 넘으면 시도를 실패로 저장하고 작업을 취소하도록 `ChatAnswerTask`를 구성하며, 작업을 시작하지 못하면 `CHAT-009`로 실패 처리합니다. |
+| `ChatAnswerProcessor` | 답변을 계산합니다. FAQ 검색, 유사도 판정, 미응답 질문 저장, intent별 답변 자료 수집, AI 호출을 차례로 수행하고 답변 또는 실패 코드를 돌려줍니다. 시도 기록은 저장하지 않습니다. |
 | `ChatAttemptsService` | 답변 시도를 만들고 재시도 조건을 검사하며, 시도 상태와 질문·FAQ 로그를 DB에 저장합니다. |
 | `ChatAnswerTask` | 요청 하나의 답변 결과입니다. 답변 저장과 타임아웃 중 먼저 확정된 결과 하나만 남깁니다. |
 
