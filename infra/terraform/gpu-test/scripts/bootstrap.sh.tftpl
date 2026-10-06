@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -Eeuxo pipefail
+
+exec > >(tee /var/log/ubot-bootstrap.log | logger -t ubot-bootstrap -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get -o DPkg::Lock::Timeout=300 update
+
+apt-get -o DPkg::Lock::Timeout=300 install -y \
+  git \
+  curl \
+  jq \
+  unzip \
+  ca-certificates
+
+# DLAMI에는 Docker가 기본 포함되어 있으므로 docker.io를 다시 설치하지 않는다.
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is not installed."
+  exit 1
+fi
+
+systemctl enable --now docker
+
+# DLAMI에 포함된 NVIDIA Container Toolkit을 Docker Runtime에 등록한다.
+if command -v nvidia-ctk >/dev/null 2>&1; then
+  nvidia-ctk runtime configure --runtime=docker
+  systemctl restart docker
+else
+  echo "nvidia-ctk is not installed."
+  exit 1
+fi
+
+# Session Manager 접속에 사용할 SSM Agent를 활성화한다.
+if systemctl cat amazon-ssm-agent.service >/dev/null 2>&1; then
+  systemctl enable --now amazon-ssm-agent
+elif systemctl cat snap.amazon-ssm-agent.amazon-ssm-agent.service >/dev/null 2>&1; then
+  systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service
+else
+  echo "SSM Agent service not found."
+  exit 1
+fi
+
+if id ubuntu >/dev/null 2>&1; then
+  usermod -aG docker ubuntu
+fi
+
+install -d -o ubuntu -g ubuntu /opt/ubot
+install -d -o ubuntu -g ubuntu /opt/ubot/llm
+install -d -o ubuntu -g ubuntu /opt/ubot/benchmarks
+
+# 최종 환경 검증
+nvidia-smi
+docker info
+
+touch /opt/ubot/.bootstrap-complete
+chown ubuntu:ubuntu /opt/ubot/.bootstrap-complete
+
+echo "UBot GPU bootstrap completed successfully."

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +43,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, " 질문 ? ", "답변", ip);
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null," 질문 ? ", "답변", ip);
 
 		assertThat(saved.getUserId()).isEqualTo(1L);
 		assertThat(saved.getUserQuestion()).isEqualTo(" 질문 ? ");
@@ -59,10 +60,25 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, "질문", "답변", "127.0.0.1");
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null,"질문", "답변", "127.0.0.1");
 
 		assertThat(saved.getRegion()).isNull();
 		assertThat(saved.getRankingEligible()).isTrue();
+	}
+
+	@Test
+	@DisplayName("게스트 질문은 잠금과 중복 검사 없이 랭킹 대상에서 제외해 저장한다")
+	void savesGuestQuestionWithoutLockOrRankingCheck() {
+		when(ipRegionResolver.resolve("region-ip")).thenReturn(Optional.of(RegionSido.SEOUL));
+
+		QuestionLog saved = questionLogService.saveAndFlush(null, 7L, "질문", "답변", "region-ip");
+
+		assertThat(saved.getUserId()).isNull();
+		assertThat(saved.getConversationId()).isEqualTo(7L);
+		assertThat(saved.getRankingEligible()).isFalse();
+		verify(questionLogRepository, never()).acquireAdvisoryLock(anyLong());
+		verify(questionLogRepository, never()).existsByUserIdAndNormalizedQuestionInRankingWindow(
+				any(), anyString(), any(), any());
 	}
 
 	@Test
@@ -72,7 +88,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(true);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, "질문", "답변", "region-ip");
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null,"질문", "답변", "region-ip");
 
 		assertThat(saved.getRankingEligible()).isFalse();
 		assertThat(saved.getRegion()).isEqualTo(RegionSido.SEOUL);

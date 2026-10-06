@@ -41,17 +41,17 @@ UBot-FE는 GitHub Pages(`https://ureca-ubot.github.io/UBot-FE/`)에 배포되고
 |---|---|
 | CORS | 백엔드에 CORS 설정이 없습니다(`SecurityConfig`, `@CrossOrigin`, `WebMvcConfigurer` 모두 없음). 다른 origin에서의 브라우저 요청은 차단됩니다. |
 | HTTPS | GitHub Pages는 HTTPS, 백엔드 Nginx는 HTTP만 엽니다. 브라우저가 HTTPS 페이지의 HTTP 요청(mixed content)을 차단합니다. HTTPS 적용은 후속 작업입니다([deploy.md](../deploy.md#배포-범위-이슈-60-pr-7788에서-정한-것)). |
-| `/api` 접두사 | Nginx는 경로를 그대로 넘기고 `/api`를 떼지 않습니다. 게다가 UBot-FE의 두 API 클라이언트는 `/api`를 붙이는 방식이 다릅니다(아래 표). |
+
+`/api` 접두사는 Nginx가 처리합니다. `/api/`로 시작하는 요청은 `/api`를 떼어 백엔드로 넘기고, 접두사 없는 경로도 그대로 넘깁니다. 그래서 UBot-FE의 두 API 클라이언트가 `/api`를 붙이는 방식이 달라도(아래 표) 둘 다 Nginx를 거치면 동작합니다.
 
 | UBot-FE 클라이언트 | 사용하는 곳 | 요청 URL 조합 | 인증 헤더 |
 |---|---|---|---|
 | `src/shared/api/client.ts` (`apiClient`) | 인증, 내 정보, 채팅, 관리자 FAQ·매장·금지어 | `VITE_API_BASE_URL`(기본 빈 값) + `/api/...` 경로 | 붙임 |
 | `src/user/store-locator/api/client.ts` (`storeRequest`) | 매장 찾기, 길찾기 | `VITE_API_BASE_URL`(기본 `/api`) + `/stores/...` 경로 | 붙이지 않음 |
 
-예를 들어 `VITE_API_BASE_URL`을 백엔드 주소로 지정하면 `apiClient`는 `…/api/auth/login`을 호출해 백엔드에서 실패하고, `storeRequest`는 `…/stores`를 호출해 성공합니다. 배포 구성을 정할 때 아래 중 하나를 팀이 결정해야 합니다.
+예를 들어 `VITE_API_BASE_URL`을 Nginx 주소로 지정하면 `apiClient`는 `…/api/auth/login`을, `storeRequest`는 `…/stores`를 호출하고 둘 다 백엔드에 도달합니다. Nginx를 거치지 않고 백엔드(8080)를 직접 호출하면 `/api`가 붙은 경로는 실패합니다.
 
-- 프론트를 백엔드와 같은 origin에서 제공하고 Nginx에서 `/api/`를 떼어 넘기기
-- 백엔드에 CORS·HTTPS를 적용하고 두 클라이언트의 경로 규칙을 맞추기
+남은 문제는 CORS와 HTTPS입니다. 프론트를 백엔드와 같은 origin(같은 Nginx)에서 제공하면 둘 다 필요 없고, GitHub Pages에서 호출하려면 둘 다 적용해야 합니다. 게스트 채팅은 `JSESSIONID` 쿠키로 식별하므로, 다른 origin에서 호출할 때는 쿠키 전달 설정(`credentials`, `SameSite=None; Secure`)도 필요합니다.
 
 ## 인증
 
