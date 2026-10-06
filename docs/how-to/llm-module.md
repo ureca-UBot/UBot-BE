@@ -5,14 +5,15 @@
 ## 구현 범위
 
 채팅에서 검색한 FAQ를 프롬프트에 넣어 Ollama를 호출하고, 생성된 최종 답변을 채팅으로 반환합니다.
-검색은 기존 `ChatService`가 담당하고, `AiService`가 프롬프트 구성과 LLM 호출을 연결합니다.
+검색은 `ChatAnswerProcessor`가 담당하고, `AiService`가 프롬프트 구성과 LLM 호출을 연결합니다.
 
 ```text
 POST /chat/questions
   → ChatService: 금지어 검사, 답변 시도 기록 생성
-  → (가상 스레드) FAQ 검색 및 각 결과의 유사도 필터링
-  → AiService.generateAnswer(question, results)
-  → PromptService.createPrompt(question, results)
+  → ChatAnswerExecutor: 가상 스레드에 답변 생성 작업 제출
+  → ChatAnswerProcessor: FAQ 검색 및 각 결과의 유사도 필터링, intent별 답변 자료 수집
+  → AiService.generateAnswer(AnswerMaterials)
+  → PromptService.createPrompt(question, faqs, sections)
   → LlmService.generateAnswer(LlmRequestDto)
   → LlmClient / OllamaClient
   → Spring AI OllamaChatModel
@@ -44,7 +45,7 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 | `answer` | 한국어 답변 문자열 |
 | `evidence_ids` | 실제로 사용한 FAQ ID 문자열 배열 |
 
-그러나 서버(`OllamaClient` → `ChatService`)는 이 JSON을 파싱하지 않습니다. 모델이 반환한 문자열 전체를
+그러나 서버(`OllamaClient` → `ChatAnswerProcessor`)는 이 JSON을 파싱하지 않습니다. 모델이 반환한 문자열 전체를
 `LlmResponseDto.answer`로 받아 `question_log.llm_question`에 저장하고, 채팅 응답의 `answer`로 그대로 반환합니다.
 따라서 클라이언트에는 JSON 문자열이 그대로 전달되고, 모델이 `ABSTAIN`·`OUT_OF_SCOPE` 등으로 판단해도
 서버 기준 상태는 `SUCCESS`입니다. `evidence_ids`와 관계없이 `faq_log`에는 모델에 전달한 FAQ 전체가 기록됩니다.
@@ -108,7 +109,7 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 `llm/exception/LlmErrorCode`(`LLM-001`~`LLM-005`)는 공통 `ErrorCode`를 구현합니다.
 코드별 HTTP 상태와 발생 조건은 [오류 코드 Reference](../reference/error-codes.md#llm)에 있습니다.
 
-`ChatService`는 LLM 호출 전후의 모든 실패(임베딩 `EM-*`, 벡터 검색, 유사도 미달, 프롬프트, LLM)를
+`ChatAnswerProcessor`는 LLM 호출 전후의 모든 실패(임베딩 `EM-*`, 벡터 검색, 유사도 미달, 프롬프트, LLM)를
 시도 기록에 `FAIL`과 오류 코드로 저장한 뒤, 그 코드와 재시도 정보(`ChatResponseDto`)를 담은 `ChatException`을 전달합니다.
 모델 오류의 내부 원인이나 원문은 반환하지 않으며, FAQ 원문을 성공 답변으로 대신 반환하지 않습니다.
 재시도 조건은 [architecture.md](../architecture.md#재시도)를 참고하세요.

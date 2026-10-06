@@ -32,9 +32,9 @@ public interface ErrorCode {
 
 사용 중인 접두사와 전체 코드 목록은 [오류 코드 Reference](../../../../../../../docs/reference/error-codes.md)에 있습니다. 새 도메인은 겹치지 않는 접두사를 고르고, 코드를 추가하면 그 문서도 함께 고칩니다.
 
-채팅 답변 시도 기록(`answer_attempts_history.error_code`)에는 `CHAT`, `EM`, `LLM` 코드만 저장할 수 있습니다(`AnswerAttemptErrorCodeConverter`). 답변 생성 중 다른 도메인의 예외가 저장 단계까지 전달되면 컨버터가 변환하지 못해 `CHAT-008`(기록 저장 실패)로 응답합니다. 채팅 흐름에서 새 오류를 추가할 때는 컨버터도 함께 확인하세요.
+채팅 답변 시도 기록(`answer_attempts_history.error_code`)에는 `CHAT`, `EM`, `LLM`, `PROMPT` 코드만 저장할 수 있습니다(`AnswerAttemptErrorCodeConverter`). 답변 생성 중 다른 도메인의 예외가 저장 단계까지 전달되면 컨버터가 변환하지 못해 `CHAT-008`(기록 저장 실패)로 응답합니다. 채팅 흐름에서 새 오류를 추가할 때는 컨버터도 함께 확인하세요.
 
-`PromptException`은 `GlobalException`이 아닌 일반 `RuntimeException`이며, `ChatService`가 `CHAT-014`로 변환합니다.
+`PromptException`은 `GlobalException`을 상속하고 `PromptErrorCode`(`PROMPT-001`~`PROMPT-003`)를 가집니다. `ChatAnswerProcessor`는 다른 `GlobalException`과 마찬가지로 그 코드 그대로 실패를 기록합니다(#114).
 
 ```java
 package com.ubot.user.exception;
