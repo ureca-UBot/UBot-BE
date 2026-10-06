@@ -7,7 +7,10 @@ import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.Location;
+import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.user.dto.response.UserResponseDto;
@@ -37,15 +40,52 @@ class IntentHandlerTest {
 	}
 
 	@Test
-	void STORE_DATA는_조회하지_않고_매장_도구만_켠다() {
+	void STORE_DATA는_위치가_없으면_조회하지_않고_매장_도구만_켠다() {
+		NearbyStoreSearcher searcher = mock(NearbyStoreSearcher.class);
 		var materials = AnswerMaterials.builder("질문");
 
-		new StoreIntentHandler().contribute(context, results, materials);
+		new StoreIntentHandler(searcher).contribute(context, results, materials);
 
 		AnswerMaterials built = materials.build();
 		assertThat(built.tools()).containsExactly(AiTool.STORE_SEARCH);
 		assertThat(built.faqs()).isEmpty();
 		assertThat(built.sections()).isEmpty();
+		assertThat(built.storeMap()).isNull();
+		verifyNoInteractions(searcher);
+	}
+
+	@Test
+	void STORE_DATA는_내_위치_기준이면_도구_없이_바로_조회한다() {
+		NearbyStoreSearcher searcher = mock(NearbyStoreSearcher.class);
+		Location myLocation = new Location(37.5, 127.0);
+		StoreMapResult result = new StoreMapResult(myLocation, null, 3.0, List.of());
+		when(searcher.search(myLocation, null)).thenReturn(result);
+		when(searcher.format(result)).thenReturn("반경 3km 안에 매장이 없습니다.");
+		var materials = AnswerMaterials.builder("질문");
+
+		new StoreIntentHandler(searcher).contribute(new ChatContext(1L, "질문", myLocation), results, materials);
+
+		AnswerMaterials built = materials.build();
+		assertThat(built.tools()).isEmpty();
+		assertThat(built.sections()).containsExactly(
+				new ContextSection(StoreIntentHandler.SECTION_TITLE, "반경 3km 안에 매장이 없습니다."));
+		assertThat(built.storeMap()).isSameAs(result);
+	}
+
+	@Test
+	void STORE_DATA는_내_위치_조회가_실패하면_예외_대신_안내_섹션을_넣는다() {
+		NearbyStoreSearcher searcher = mock(NearbyStoreSearcher.class);
+		Location myLocation = new Location(37.5, 127.0);
+		when(searcher.search(myLocation, null)).thenThrow(new IllegalStateException("db down"));
+		var materials = AnswerMaterials.builder("질문");
+
+		new StoreIntentHandler(searcher).contribute(new ChatContext(1L, "질문", myLocation), results, materials);
+
+		AnswerMaterials built = materials.build();
+		assertThat(built.sections()).containsExactly(
+				new ContextSection(StoreIntentHandler.SECTION_TITLE, StoreIntentHandler.LOOKUP_FAILED_CONTENT));
+		assertThat(built.storeMap()).isNull();
+		assertThat(built.tools()).isEmpty();
 	}
 
 	@Test

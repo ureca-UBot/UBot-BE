@@ -2,11 +2,12 @@ package com.ubot.chat.context;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
-import com.ubot.ai.dto.Location;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import java.util.ArrayList;
@@ -14,7 +15,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ChatContextCollectorTest {
-	private final ChatContext context = new ChatContext(1L, "질문", new Location(37.5, 127.0));
+	private final ChatContext context = new ChatContext(1L, "질문", null);
 	private final FaqSearchResponseDto general1 = faq(1L, Intent.GENERAL);
 	private final FaqSearchResponseDto store = faq(2L, Intent.STORE_DATA);
 	private final FaqSearchResponseDto general2 = faq(3L, Intent.GENERAL);
@@ -33,14 +34,13 @@ class ChatContextCollectorTest {
 		assertThat(storeHandler.calls).containsExactly(List.of(store));
 		assertThat(user.calls).isEmpty();
 		assertThat(materials.question()).isEqualTo("질문");
-		assertThat(materials.location()).isEqualTo(new Location(37.5, 127.0));
 		assertThat(materials.sections()).extracting(ContextSection::title).containsExactly("GENERAL", "STORE_DATA");
 	}
 
 	@Test
 	void 실제_핸들러로_FAQ와_도구를_모은다() {
 		var collector = new ChatContextCollector(List.of(
-				new GeneralIntentHandler(), new StoreIntentHandler(), new UserIntentHandler(null)));
+				new GeneralIntentHandler(), new StoreIntentHandler(mock(NearbyStoreSearcher.class)), new UserIntentHandler(null)));
 
 		AnswerMaterials materials = collector.collect(context, List.of(general1, store));
 

@@ -7,6 +7,7 @@ import com.ubot.ai.service.AiService;
 import com.ubot.chat.context.ChatContext;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.dto.response.ChatResponseDto;
+import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
@@ -17,7 +18,6 @@ import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
-import com.ubot.prompt.exception.PromptException;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.List;
@@ -70,17 +70,21 @@ public class ChatService {
 	}
 
 	public ChatAnswerTask createChat(Long userId, String question) {
-		return createChat(userId, question, null, null);
+		return createChat(userId, question, null, null, false);
 	}
 
-	public ChatAnswerTask createChat(Long userId, String question, Double latitude, Double longitude) {
+	public ChatAnswerTask createChat(Long userId, String question, Double latitude, Double longitude, boolean useMyLocation) {
 		if (!StringUtils.hasText(question) || question.length() > 4000) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
 		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
 		forbiddenWordFilterService.validateForbiddenWord(question);
 
-		Location location = latitude != null && longitude != null ? new Location(latitude, longitude) : null;
+		// 내 위치 정보를 사용하라는 플래그가 있을 때만 좌표 사용. 그 외에는 좌표를 받아도 null이다.
+		if (useMyLocation && (latitude == null || longitude == null)) {
+			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
+		}
+		Location location = useMyLocation ? new Location(latitude, longitude) : null;
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
 		return startAnswerGeneration(attempt, location);
@@ -161,15 +165,12 @@ public class ChatService {
 					throw createAnswerFailure(savedAttempt);
 				}
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
-				return ChatResponseDto.from(savedAttempt, answer.answer(), false, answer.storeMap());
+				return ChatResponseDto.from(savedAttempt, answer.answer(), false, ChatStoreDto.of(answer.locationRequired(), answer.storeMap()));
 			});
 		} catch (GlobalException exception) {
 			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);
 		} catch (Exception exception) {
 			checkCancellation(generation);
-			if (exception instanceof PromptException) {
-				return handleAnswerFailure(attempt, ChatErrorCode.PROMPT_NOT_READY, generation);
-			}
 			if (exception instanceof DataAccessException) {
 				return handleAnswerFailure(attempt, ChatErrorCode.STORAGE_UNAVAILABLE, generation);
 			}

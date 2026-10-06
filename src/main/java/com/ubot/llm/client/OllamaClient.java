@@ -5,10 +5,14 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+
+import io.micrometer.observation.ObservationRegistry;
+
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.util.Set;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -16,19 +20,34 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallLimitBehavior;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.util.StringUtils;
 
 public class OllamaClient implements LlmClient {
 
-    private final ChatModel chatModel;
+	private final ChatModel chatModel;
     private final ChatClient chatClient;
     private final String modelName;
+    
+    // LlmConfig는 수정하지 않기로 했으므로, 한도 횟수를 설정값으로 빼지는 않는다.
+    private static final int MAX_CALLS_PER_TOOL = 3;
 
     public OllamaClient(ChatModel chatModel, String modelName) {
         this.chatModel = chatModel;
+        
+        // LLM이 같은 도구를 계속 다시 부르는 경우를 제한. Spring AI 기본값(도구당 40번)은 응답 시간에 비해 너무 크다.
+        // 한도를 넘으면 도구를 실행하지 않고 "한도 초과"를 도구 결과로 알려, LLM이 그걸 보고 답변을 마무리하게 합니다.
+        ToolCallingManager toolCallingManager = DefaultToolCallingManager.builder()
+                .maxCallsPerTool(MAX_CALLS_PER_TOOL)
+                .onLimitExceeded(ToolCallLimitBehavior.RETURN_ERROR_RESPONSE)
+                .build();
         // 같은 chatModel을 감싸므로 LlmConfig의 타임아웃·재시도 설정이 그대로 적용됩니다.
-        this.chatClient = ChatClient.create(chatModel);
+        this.chatClient = ChatClient.builder(chatModel, ObservationRegistry.NOOP, null, null,
+                ToolCallingAdvisor.builder().toolCallingManager(toolCallingManager))
+        		.build();
         this.modelName = modelName;
     }
 

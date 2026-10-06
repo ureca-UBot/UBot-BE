@@ -5,10 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.llm.enums.LlmMessageRole;
+import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.assertj.core.api.ThrowingConsumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -22,14 +25,14 @@ class PromptServiceTest {
     private static final String TEST_TEMPLATE = "질문:\n{{question}}\n참고자료:\n{{faqs}}";
     private static final String CONTEXT_TEMPLATE = TEST_TEMPLATE + "\n추가자료:\n{{context}}";
     private final List<FaqSearchResponseDto> results = List.of(
-            new FaqSearchResponseDto(12L, "유심 재발급", "매장에서 재발급 가능합니다.", 0.9),
-            new FaqSearchResponseDto(13L, "유심 재발급 준비물", "준비물 안내 원문", 0.6));
+            new FaqSearchResponseDto(12L, "유심 재발급", "매장에서 재발급 가능합니다.", 0.9, Intent.GENERAL),
+            new FaqSearchResponseDto(13L, "유심 재발급 준비물", "준비물 안내 원문", 0.6, Intent.GENERAL));
 
     @Test
     void 원래_질문과_FAQ_전체_원문을_사용자_메시지에_넣는다() {
         var service = service(TEST_SYSTEM, TEST_TEMPLATE);
 
-        var request = service.createPrompt("유심 재발급 방법과 준비물을 알려주세요.", results);
+        var request = service.createPrompt("유심 재발급 방법과 준비물을 알려주세요.", results, List.of());
 
         assertThat(request.messages()).hasSize(2);
         assertThat(request.messages().getFirst().role()).isEqualTo(LlmMessageRole.SYSTEM);
@@ -48,7 +51,7 @@ class PromptServiceTest {
         String faqAnswer = "FAQ 안의 {{question}}, {{faqs}}와 $2, \\ 를 보존";
 
         var request = service.createPrompt(question,
-                List.of(new FaqSearchResponseDto(1L, "FAQ 질문", faqAnswer, 0.9)));
+                List.of(new FaqSearchResponseDto(1L, "FAQ 질문", faqAnswer, 0.9, Intent.GENERAL)), List.of());
 
         assertThat(request.messages().getLast().content()).contains(question, faqAnswer);
     }
@@ -56,39 +59,35 @@ class PromptServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"", " \n ", "{{question}}만 존재", "{{faqs}}만 존재"})
     void 미완성_사용자_템플릿은_호출_전에_거부한다(String template) {
-        assertThatThrownBy(() -> service(TEST_SYSTEM, template).createPrompt("질문", results))
-                .isInstanceOf(PromptException.class)
-                .hasMessage("답변 프롬프트가 아직 준비되지 않았습니다.");
+        assertThatThrownBy(() -> service(TEST_SYSTEM, template).createPrompt("질문", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
     }
 
     @Test
     void 시스템_지침이_비어_있으면_거부한다() {
-        assertThatThrownBy(() -> service(" \n ", TEST_TEMPLATE).createPrompt("질문", results))
-                .isInstanceOf(PromptException.class);
+        assertThatThrownBy(() -> service(" \n ", TEST_TEMPLATE).createPrompt("질문", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
     }
 
     @Test
     void 프롬프트_파일이_없으면_준비중_오류를_반환한다() {
         var service = new PromptService(new ClassPathResource("missing-faq-prompt.txt"), resource(TEST_TEMPLATE));
 
-        assertThatThrownBy(() -> service.createPrompt("질문", results))
-                .isInstanceOf(PromptException.class)
-                .hasMessage("답변 프롬프트가 아직 준비되지 않았습니다.");
+        assertThatThrownBy(() -> service.createPrompt("질문", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
     }
 
     @Test
-    void 질문이나_FAQ가_없으면_요청을_구성하지_않는다() {
-        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
-
-        assertThatThrownBy(() -> service.createPrompt(" ", results)).isInstanceOf(PromptException.class);
-        assertThatThrownBy(() -> service.createPrompt("질문", List.of())).isInstanceOf(PromptException.class);
+    void 질문이_없으면_요청을_구성하지_않는다() {
+        assertThatThrownBy(() -> service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt(" ", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_INPUT_MISSING));
     }
 
     @Test
     void FAQ_답변이_누락되면_거부한다() {
         assertThatThrownBy(() -> service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt("질문",
-                List.of(new FaqSearchResponseDto(1L, "FAQ 질문", null, 0.9))))
-                .isInstanceOf(PromptException.class);
+                List.of(new FaqSearchResponseDto(1L, "FAQ 질문", null, 0.9, Intent.GENERAL)), List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_FAQ_INVALID));
     }
 
     @Test
@@ -124,8 +123,7 @@ class PromptServiceTest {
     void 추가_자료가_있는데_context_자리가_없으면_거부한다() {
         assertThatThrownBy(() -> service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt("질문", results,
                 List.of(new ContextSection("사용자 정보", "이름: 홍길동"))))
-                .isInstanceOf(PromptException.class)
-                .hasMessage("답변 프롬프트가 아직 준비되지 않았습니다.");
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
     }
 
     @Test
@@ -141,10 +139,9 @@ class PromptServiceTest {
                 .contains("참고자료:\n(없음)");
     }
 
-    @Test
-    void 추가_자료_호출도_질문이_없으면_거부한다() {
-        assertThatThrownBy(() -> service(TEST_SYSTEM, CONTEXT_TEMPLATE).createPrompt(" ", results, List.of()))
-                .isInstanceOf(PromptException.class);
+    private static ThrowingConsumer<Throwable> hasErrorCode(PromptErrorCode expected) {
+        return exception -> assertThat(exception).isInstanceOfSatisfying(PromptException.class,
+                promptException -> assertThat(promptException.getErrorCode()).isEqualTo(expected));
     }
 
     private PromptService service(String system, String user) {

@@ -5,6 +5,7 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
+import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,7 +20,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class PromptService {
 
-    private static final String NOT_READY_MESSAGE = "답변 프롬프트가 아직 준비되지 않았습니다.";
     private static final Pattern INPUT_PLACEHOLDER = Pattern.compile("\\{\\{(question|faqs|context)\\}\\}");
     private static final String EMPTY_VALUE = "(없음)";
 
@@ -33,27 +33,20 @@ public class PromptService {
         this.userPromptResource = userPromptResource;
     }
 
-    public LlmRequestDto createPrompt(String question, List<FaqSearchResponseDto> results) {
-        // FAQ만으로 답하는 호출은 FAQ가 반드시 있어야 합니다.
-        if (results == null || results.isEmpty()) {
-            throw new PromptException("답변 생성에 필요한 질문 또는 FAQ가 없습니다.");
-        }
-        return createPrompt(question, results, List.of());
-    }
-
     public LlmRequestDto createPrompt(String question, List<FaqSearchResponseDto> faqs, List<ContextSection> sections) {
         // 답변 지침은 코드에 임의로 작성하지 않고, 담당자가 채울 파일에서 읽습니다.
         String[] templates = readTemplates();
         String systemPrompt = templates[0];
         String userTemplate = templates[1];
 
-        // 사용자 정보 같은 추가 자료가 있는데 넣을 자리가 없으면 자료를 버리지 않고 호출을 막습니다.
+        // 사용자 정보 같은 추가 자료가 있는데 템플릿에 {{context}} 자리가 없으면, 자료가 빠진 채로 LLM을 호출하지 않도록 막습니다.
         List<ContextSection> contextSections = sections == null ? List.of() : sections;
         if (!contextSections.isEmpty() && !userTemplate.contains("{{context}}")) {
-            throw new PromptException(NOT_READY_MESSAGE);
+            throw new PromptException(PromptErrorCode.PROMPT_NOT_READY);
         }
+        // 질문은 ChatService가 먼저 검증하므로 여기서 비어 있으면 호출 쪽 버그입니다.
         if (!StringUtils.hasText(question)) {
-            throw new PromptException("답변 생성에 필요한 질문 또는 FAQ가 없습니다.");
+            throw new PromptException(PromptErrorCode.PROMPT_INPUT_MISSING);
         }
 
         // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatService의 검색 판단용입니다.
@@ -82,7 +75,7 @@ public class PromptService {
         // 빈 프롬프트나 질문/FAQ 삽입 위치가 없는 템플릿으로는 모델을 호출하지 않습니다.
         if (!StringUtils.hasText(systemPrompt) || !StringUtils.hasText(userTemplate)
                 || !userTemplate.contains("{{question}}") || !userTemplate.contains("{{faqs}}")) {
-            throw new PromptException(NOT_READY_MESSAGE);
+            throw new PromptException(PromptErrorCode.PROMPT_NOT_READY);
         }
         return new String[] {systemPrompt, userTemplate};
     }
@@ -92,7 +85,7 @@ public class PromptService {
         try (var input = resource.getInputStream()) {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
-            throw new PromptException(NOT_READY_MESSAGE, exception);
+            throw new PromptException(PromptErrorCode.PROMPT_NOT_READY, exception);
         }
     }
 
@@ -101,7 +94,7 @@ public class PromptService {
         for (FaqSearchResponseDto faq : results) {
             if (faq == null || faq.faqId() == null || !StringUtils.hasText(faq.question())
                     || !StringUtils.hasText(faq.answer())) {
-                throw new PromptException("검색된 FAQ 정보를 확인할 수 없습니다.");
+                throw new PromptException(PromptErrorCode.PROMPT_FAQ_INVALID);
             }
             context.append("[FAQ ID: ").append(faq.faqId()).append("]\n")
                     .append("질문: ").append(faq.question()).append('\n')

@@ -33,7 +33,8 @@ public class ChatController {
 			@Valid @RequestBody ChatRequestDto request
 	) {
 		return createResponse(chatService.createChat(
-				user.getUserId(), request.question(), request.latitude(), request.longitude()));
+				user.getUserId(), request.question(), request.latitude(), request.longitude(),
+				request.useMyLocation()));
 	}
 
 	@PostMapping(value = "/questions/retries", produces = MediaType.APPLICATION_JSON_VALUE)

@@ -15,15 +15,18 @@ import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.service.LlmService;
 import com.ubot.location.service.LocationService;
+import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.store.service.StoreService;
@@ -46,13 +49,14 @@ class AiServiceTest {
 
     private AiService aiService;
 
-    private final List<FaqSearchResponseDto> faqs = List.of(new FaqSearchResponseDto(1L, "FAQ 질문", "FAQ 답변", 0.9));
+    private final List<FaqSearchResponseDto> faqs = List.of(new FaqSearchResponseDto(1L, "FAQ 질문", "FAQ 답변", 0.9, Intent.GENERAL));
     private final LlmRequestDto prompt = new LlmRequestDto(List.of(
             new LlmMessageRequestDto(LlmMessageRole.USER, "구성된 입력")));
 
     @BeforeEach
     void setUp() {
-        var registry = new AiToolRegistry(new StoreTools(mock(StoreService.class), mock(LocationService.class)));
+        var registry = new AiToolRegistry(
+                new StoreTools(new NearbyStoreSearcher(mock(StoreService.class), 3.0, 5), mock(LocationService.class)));
         aiService = new AiService(promptService, llmService, registry);
     }
 
@@ -71,11 +75,8 @@ class AiServiceTest {
     }
 
     @Test
-    void 매장_도구가_켜지면_도구와_질문_위치를_toolContext로_전달한다() {
-        var materials = AnswerMaterials.builder("근처 매장 알려줘")
-                .enableTool(AiTool.STORE_SEARCH)
-                .location(new Location(37.5, 127.0))
-                .build();
+    void 매장_도구가_켜지면_도구와_질문_recorder를_toolContext로_전달한다() {
+        var materials = AnswerMaterials.builder("근처 매장 알려줘").enableTool(AiTool.STORE_SEARCH).build();
         when(promptService.createPrompt("근처 매장 알려줘", List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
@@ -88,11 +89,9 @@ class AiServiceTest {
                 .extracting(callback -> callback.getToolDefinition().name()).containsExactly("findNearbyStores");
         assertThat(request.getValue().toolContext())
                 .containsEntry(StoreTools.QUESTION, "근처 매장 알려줘")
-                .containsEntry(StoreTools.LATITUDE, 37.5)
-                .containsEntry(StoreTools.LONGITUDE, 127.0)
                 .hasEntrySatisfying(StoreTools.RECORDER,
                         recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
-                .hasSize(4);
+                .hasSize(2);
     }
 
     @Test
@@ -123,31 +122,47 @@ class AiServiceTest {
     }
 
     @Test
-    void 위치가_없어도_질문은_toolContext에_넣는다() {
+    void 도구가_위치_필요를_표시하면_locationRequired를_반환한다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
         when(promptService.createPrompt("근처 매장", List.of(), List.of())).thenReturn(prompt);
-        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+        // 도구가 기준 장소를 얻지 못해 recorder에 "위치 필요"를 남기는 상황을 흉내 냅니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            ((StoreSearchRecorder) request.toolContext().get(StoreTools.RECORDER)).markLocationRequired();
+            return new LlmResponseDto("위치를 알려 주세요.");
+        });
 
-        aiService.generateAnswer(materials);
+        AiAnswer answer = aiService.generateAnswer(materials);
 
-        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
-        verify(llmService).generateAnswer(request.capture());
-        assertThat(request.getValue().toolContext())
-                .containsEntry(StoreTools.QUESTION, "근처 매장")
-                .containsKey(StoreTools.RECORDER)
-                .doesNotContainKeys(StoreTools.LATITUDE, StoreTools.LONGITUDE);
+        assertThat(answer.locationRequired()).isTrue();
+        assertThat(answer.storeMap()).isNull();
+    }
+
+    @Test
+    void 핸들러가_내_위치로_조회한_지도_정보를_도구_없이_반환한다() {
+        var section = new ContextSection("현재 위치 근처 매장", "반경 3km 안에 매장이 없습니다.");
+        var storeMap = new StoreMapResult(new Location(37.5, 127.0), null, 3.0, List.of());
+        var materials = AnswerMaterials.builder("근처 매장").addSection(section).storeMap(storeMap).build();
+        when(promptService.createPrompt("근처 매장", List.of(), List.of(section))).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("근처에 매장이 없어요."));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.storeMap()).isSameAs(storeMap);
+        assertThat(answer.locationRequired()).isFalse();
     }
 
     @Test
     void 자료가_하나도_없으면_프롬프트와_LLM을_호출하지_않는다() {
         assertThatThrownBy(() -> aiService.generateAnswer(AnswerMaterials.builder("질문").build()))
-                .isInstanceOf(PromptException.class);
+                .isInstanceOfSatisfying(PromptException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(PromptErrorCode.PROMPT_INPUT_MISSING));
         verifyNoInteractions(promptService, llmService);
     }
 
     @Test
     void 프롬프트_준비가_안_되면_LLM은_호출하지_않는다() {
-        var failure = new PromptException("프롬프트 준비 중");
+        var failure = new PromptException(PromptErrorCode.PROMPT_NOT_READY);
         when(promptService.createPrompt("질문", faqs, List.of())).thenThrow(failure);
 
         assertThatThrownBy(() -> aiService.generateAnswer(AnswerMaterials.builder("질문").addFaqs(faqs).build()))

@@ -37,8 +37,7 @@ public class ChatContextCollector {
 		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = filteredResults.stream()
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
 
-		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question())
-				.location(context.location());
+		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question());
 		resultsByIntent.forEach((intent, results) -> handlers.get(intent).contribute(context, results, materials));
 		return materials.build();
 	}

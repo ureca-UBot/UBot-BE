@@ -4,7 +4,8 @@ package com.ubot.ai.dto;
 public record Location(double latitude, double longitude) {
 
     public Location {
-        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        if (!Double.isFinite(latitude) || !Double.isFinite(longitude)
+                || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
             throw new IllegalArgumentException("위치 범위가 올바르지 않습니다.");
         }
     }

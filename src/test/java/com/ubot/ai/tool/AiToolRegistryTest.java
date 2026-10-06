@@ -12,7 +12,7 @@ import org.springframework.ai.tool.ToolCallback;
 class AiToolRegistryTest {
 
     private final AiToolRegistry registry = new AiToolRegistry(
-            new StoreTools(mock(StoreService.class), mock(LocationService.class)));
+            new StoreTools(new NearbyStoreSearcher(mock(StoreService.class), 3.0, 5), mock(LocationService.class)));
 
     @Test
     void resolvesStoreSearchToolWithoutExposingToolContextToModel() {

@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
@@ -19,8 +20,14 @@ final class ChatTestFixtures {
 
 	/** 실제 핸들러로 만든 수집기입니다. 기존 테스트의 FAQ는 모두 GENERAL이라 FAQ가 그대로 전달됩니다. */
 	static ChatContextCollector collector() {
+		return collector(mock(NearbyStoreSearcher.class));
+	}
+
+	/** 내 위치 기준 매장 조회 결과를 직접 정할 때 씁니다. */
+	static ChatContextCollector collector(NearbyStoreSearcher nearbyStoreSearcher) {
 		return new ChatContextCollector(List.of(
-				new GeneralIntentHandler(), new StoreIntentHandler(), new UserIntentHandler(mock(UserService.class))));
+				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
+				new UserIntentHandler(mock(UserService.class))));
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
@@ -17,6 +18,7 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.location.dto.LocationSearchResponse;
 import com.ubot.location.service.LocationService;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.service.StoreService;
@@ -39,24 +41,25 @@ class OllamaClientToolCallingTest {
 
     private final ChatModel chatModel = mock(ChatModel.class);
     private final StoreService storeService = mock(StoreService.class);
+    private final LocationService locationService = mock(LocationService.class);
     private final AiToolRegistry registry =
-            new AiToolRegistry(new StoreTools(storeService, mock(LocationService.class)));
+            new AiToolRegistry(new StoreTools(new NearbyStoreSearcher(storeService, 3.0, 5), locationService));
 
     private final StoreSearchRecorder recorder = new StoreSearchRecorder();
 
     private final LlmRequestDto request = new LlmRequestDto(List.of(
             new LlmMessageRequestDto(LlmMessageRole.SYSTEM, "시스템"),
-            new LlmMessageRequestDto(LlmMessageRole.USER, "근처 매장 알려줘")))
+            new LlmMessageRequestDto(LlmMessageRole.USER, "강남역 근처 매장 알려줘")))
             .withTools(registry.resolve(Set.of(AiTool.STORE_SEARCH)), Map.of(
-                    StoreTools.QUESTION, "근처 매장 알려줘",
-                    StoreTools.LATITUDE, 37.5,
-                    StoreTools.LONGITUDE, 127.0,
+                    StoreTools.QUESTION, "강남역 근처 매장 알려줘",
                     StoreTools.RECORDER, recorder));
 
     @BeforeEach
     void setUp() {
         // ChatClient는 모델의 기본 옵션을 복사해 도구 목록을 얹습니다.
         when(chatModel.getOptions()).thenReturn(OllamaChatOptions.builder().model("test-model").build());
+        when(locationService.search("강남역")).thenReturn(List.of(
+                new LocationSearchResponse("강남역", "서울 강남구", "서울 강남구 강남대로", 37.5, 127.0)));
         when(storeService.getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5)).thenReturn(List.of(
                 new NearbyStoreResponseDto(12L, "강남점", "서울", "강남구", "서울 강남구 테헤란로 1",
                         "02-123-4567", "10:00~21:00", 37.49, 127.02, 0.42)));
@@ -69,7 +72,7 @@ class OllamaClientToolCallingTest {
         var answer = new OllamaClient(chatModel, "test-model").generateAnswer(request);
 
         assertThat(answer.answer()).isEqualTo("강남점이 가까워요.");
-        // toolContext의 좌표가 도구로 전달되어 매장을 조회합니다.
+        // LLM이 넘긴 장소명을 질문과 대조한 뒤, 카카오 좌표로 매장을 조회합니다. toolContext의 질문이 도구까지 전달됩니다.
         verify(storeService).getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5);
         // Spring AI를 거쳐도 요청이 넣은 같은 recorder에 조회 결과가 남아 화면에 전달할 수 있습니다.
         assertThat(recorder.result()).hasValueSatisfying(result -> assertThat(result.stores())
@@ -105,6 +108,20 @@ class OllamaClientToolCallingTest {
     }
 
     @Test
+    void stopsExecutingToolAfterCallLimitAndLetsModelFinish() {
+        // LLM이 같은 도구를 계속 부르는 경우입니다. 도구당 3번까지만 실행하고,
+        // 4번째 요청에는 실행 대신 한도 초과를 도구 결과로 돌려준 뒤 LLM이 답변을 마무리합니다.
+        when(chatModel.call(any(Prompt.class))).thenReturn(toolCallResponse(), toolCallResponse(),
+                toolCallResponse(), toolCallResponse(), textResponse("매장 정보를 정리했어요."));
+
+        var answer = new OllamaClient(chatModel, "test-model").generateAnswer(request);
+
+        assertThat(answer.answer()).isEqualTo("매장 정보를 정리했어요.");
+        verify(locationService, times(3)).search("강남역");
+        verify(chatModel, times(5)).call(any(Prompt.class));
+    }
+
+    @Test
     void mapsModelFailureInToolPath() {
         when(chatModel.call(any(Prompt.class))).thenThrow(new IllegalStateException("down"));
 
@@ -116,7 +133,7 @@ class OllamaClientToolCallingTest {
     private ChatResponse toolCallResponse() {
         AssistantMessage message = AssistantMessage.builder()
                 .content("")
-                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "findNearbyStores", "{}")))
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call-1", "function", "findNearbyStores", "{\"place\":\"강남역\"}")))
                 .build();
         return new ChatResponse(List.of(new Generation(message)));
     }

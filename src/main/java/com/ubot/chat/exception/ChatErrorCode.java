@@ -23,6 +23,7 @@ public enum ChatErrorCode implements ErrorCode {
 	INVALID_CHAT_RETRY_REQUEST(HttpStatus.BAD_REQUEST, "CHAT-011", "요청 값이 올바르지 않습니다."),
 	NO_FAQ(HttpStatus.NOT_FOUND, "CHAT-012", "검색 결과가 없습니다."),
 	INSUFFICIENT_FAQ(HttpStatus.NOT_FOUND, "CHAT-013", "정확한 답변을 찾지 못했습니다."),
+	// 새 실패는 PromptErrorCode(PROMPT-001)로 저장합니다. 이전에 저장된 실패 기록을 읽기 위해 남겨 둡니다.
 	PROMPT_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-014", "답변 프롬프트가 준비되지 않았습니다."),
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CHAT-015", "답변 생성 중 오류가 발생했습니다."),
 	RESPONSE_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "CHAT-016", "답변 생성 시간이 초과되었습니다.");

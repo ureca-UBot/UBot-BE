@@ -1,16 +1,15 @@
 package com.ubot.chat.dto.response;
 
-import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 
-// storeMap은 매장 조회 도구가 실행된 성공 답변에만 담기며, 화면이 지도에 매장을 그릴 때 씁니다.
+// store는 매장 질문의 성공 답변에만 담기며(위치 필요 또는 지도 결과), 그 외 답변과 실패 응답에서는 null입니다.
 public record ChatResponseDto(
 		String answer,
 		String status,
 		String idempotencyKey,
 		int attemptCount,
 		boolean retryable,
-		StoreMapResult storeMap
+		ChatStoreDto store
 ) {
 	public ChatResponseDto(String answer, String status, String idempotencyKey, int attemptCount, boolean retryable) {
 		this(answer, status, idempotencyKey, attemptCount, retryable, null);
@@ -21,7 +20,7 @@ public record ChatResponseDto(
 	}
 
 	public static ChatResponseDto from(
-			AnswerAttemptsHistory attempt, String answer, boolean retryable, StoreMapResult storeMap
+			AnswerAttemptsHistory attempt, String answer, boolean retryable, ChatStoreDto store
 	) {
 		return new ChatResponseDto(
 				answer,
@@ -29,7 +28,7 @@ public record ChatResponseDto(
 				attempt.getIdempotencyKey(),
 				attempt.getAttemptCount(),
 				retryable,
-				storeMap
+				store
 		);
 	}
 

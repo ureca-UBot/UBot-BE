@@ -7,6 +7,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
@@ -35,7 +36,7 @@ class ChatServiceCancellationTest {
 	private final AiService ai = mock(AiService.class);
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final Deque<Runnable> jobs = new ArrayDeque<>();
-	private final List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
+	private final List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL));
 	private final AnswerAttemptsHistory attempt = AnswerAttemptsHistory.builder()
 			.id(1L).userId(1L).question("질문").idempotencyKey("a".repeat(64))
 			.attemptCount(1).status("PENDING").build();
@@ -49,7 +50,7 @@ class ChatServiceCancellationTest {
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null, false));
 		when(attempts.saveAnswerSuccess(any(), anyString(), anyList())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
@@ -97,7 +98,7 @@ class ChatServiceCancellationTest {
 			if (failAfterInterrupt) {
 				throw new LlmException(LlmErrorCode.LLM_TIMEOUT);
 			}
-			return new AiAnswer("취소 후 늦게 도착한 답변", null);
+			return new AiAnswer("취소 후 늦게 도착한 답변", null, false);
 		});
 
 		runAndCancel(service.createChat(1L, "질문").result(), call);
