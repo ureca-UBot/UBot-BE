@@ -4,7 +4,7 @@
 
 ## 구현 범위
 
-채팅에서 검색한 FAQ를 프롬프트에 넣어 Ollama를 호출하고, 생성된 최종 답변을 채팅으로 반환합니다.
+채팅에서 검색한 FAQ를 프롬프트에 넣어 LLM(Ollama 또는 vLLM)을 호출하고, 생성된 최종 답변을 채팅으로 반환합니다.
 검색은 `ChatAnswerProcessor`가 담당하고, `AiService`가 프롬프트 구성과 LLM 호출을 연결합니다.
 
 ```text
@@ -15,9 +15,9 @@ POST /chat/questions
   → AiService.generateAnswer(AnswerMaterials)
   → PromptService.createPrompt(question, faqs, sections)
   → LlmService.generateAnswer(LlmRequestDto)
-  → LlmClient / OllamaClient
-  → Spring AI OllamaChatModel
-  → Ollama
+  → LlmClient: OllamaClient(기본) 또는 VllmClient (LLM_PROVIDER로 선택)
+  → Spring AI OllamaChatModel 또는 vLLM의 OpenAI 호환 API
+  → Ollama 또는 vLLM
   → LlmResponseDto(answer)
   → ChatResponseDto: 채팅 응답
 ```
@@ -80,8 +80,8 @@ String answer = response.answer();
 ```
 
 `LlmClient`는 통신 교체를 위한 인터페이스이며, 호출 담당자는 `LlmService`를 사용합니다.
-현재 구현체는 Ollama 한 가지입니다. vLLM, 스트리밍/SSE, 관리자 설정 DB,
-도구 실행과 모델 라우팅은 이 모듈에 구현하지 않았습니다.
+구현체는 `OllamaClient`와 `VllmClient` 두 가지이고, `LLM_PROVIDER` 값에 따라 하나만 빈으로 등록됩니다.
+스트리밍/SSE, 관리자 설정 DB, 요청별 모델 라우팅은 이 모듈에 구현하지 않았습니다.
 
 ## 설정
 
@@ -102,6 +102,27 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 `LlmClient` 내부에서 사용합니다. 새 `ChatModel` 빈을 등록하지 않아 기존 빈 선택을 바꾸지 않습니다.
 모델 다운로드와 자동 재시도는 비활성화했습니다. 생성 옵션(temperature, seed, thinking 등)을
 이번 모듈에서 임의로 덮어쓰지 않으며, 지정하지 않은 옵션은 Ollama/모델 기본 설정을 따릅니다.
+
+### vLLM으로 호출하기
+
+`LLM_PROVIDER=vllm`으로 두면 `OllamaClient` 대신 `VllmClient`가 등록되어 vLLM의 OpenAI 호환 API
+(`POST {VLLM_BASE_URL}/chat/completions`)를 호출합니다. 구현체는 빈 구성 단계(`LlmConfig`)에서 정해지므로
+`ChatService`, `AiService`, `LlmService`에는 provider별 분기가 없습니다.
+
+```properties
+LLM_PROVIDER=vllm
+VLLM_BASE_URL=http://localhost:8000/v1
+VLLM_MODEL=ubot-chat
+```
+
+- `VLLM_BASE_URL`은 `/v1`까지 적고, `VLLM_MODEL`은 vLLM의 `--served-model-name`과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에 있습니다.
+- 제한 시간은 Ollama와 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
+- 임베딩은 `LLM_PROVIDER`와 관계없이 Ollama를 호출하므로(`EmbeddingService`), vLLM을 쓸 때도 Ollama는 떠 있어야 합니다.
+- 도구가 붙은 요청(매장 FAQ)은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회)는 `OllamaClient`와 같습니다. vLLM 서버가 `--enable-auto-tool-choice`와 `--tool-call-parser`(Qwen은 `hermes`)로 실행되어 있어야 하며, 그렇지 않으면 vLLM이 도구가 붙은 요청을 거절합니다.
+- 요청마다 `chat_template_kwargs.enable_thinking=false`를 보내 Qwen3의 Thinking Mode를 끕니다. 그래도 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다. 그 밖의 생성 옵션은 지정하지 않습니다.
+- 실패는 Ollama와 같은 `LlmErrorCode`로 바꿉니다. vLLM이 4xx·5xx로 응답하면 `LLM-003`으로 처리하고, 상태 코드와 응답 본문 앞부분을 경고 로그에 남깁니다.
+- `LLM_PROVIDER`가 `ollama`나 `vllm`이 아니면 `LlmClient` 빈이 없어 애플리케이션이 뜨지 않습니다.
+- 스트리밍(SSE)과 SGLang 연동은 지원하지 않습니다.
 
 ## 오류 연결
 

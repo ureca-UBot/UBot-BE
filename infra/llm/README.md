@@ -397,7 +397,7 @@ OpenAI Compatible 요청 예:
 }
 ```
 
-Backend에서 Thinking Mode 사용 여부는 추후 LLM Client 정책에서 결정합니다.
+Backend의 `VllmClient`는 요청마다 `enable_thinking: false`를 보내 Thinking Mode를 끕니다(#145).
 
 ---
 

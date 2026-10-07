@@ -64,7 +64,7 @@ public class ChatAnswerExecutor {
 		return generation;
 	}
 
-	private ChatResponseDto generateAnswer(
+	private void generateAnswer(
 			AnswerAttemptsHistory attempt, Location location, ChatAnswerTask generation, String userIp
 	) {
 		long startedAt = System.nanoTime();
@@ -74,13 +74,14 @@ public class ChatAnswerExecutor {
 			ChatAnswerResult result = chatAnswerProcessor.generateAnswer(
 					attempt, location, () -> checkCancellation(generation));
 			if (result.isFailed()) {
-				return handleAnswerFailure(attempt, result.errorCode(), generation);
+				handleAnswerFailure(attempt, result.errorCode(), generation);
+				return;
 			}
 			AiAnswer answer = result.answer();
 			List<FaqSearchResponseDto> filteredResults = result.faqs();
 
 			checkCancellation(generation);
-			return generation.complete(() -> {
+			generation.complete(() -> {
 				AnswerAttemptsHistory savedAttempt =
 						chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults, userIp);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
@@ -94,15 +95,16 @@ public class ChatAnswerExecutor {
 		} catch (GlobalException exception) {
 			log.warn("답변 생성이 업무 예외로 종료되었습니다: 시도ID={}, 오류코드={}, 오류메시지={}",
 					attempt.getId(), exception.getErrorCode().getCode(), exception.getErrorCode().getMessage());
-			return handleAnswerFailure(attempt, exception.getErrorCode(), generation);
+			handleAnswerFailure(attempt, exception.getErrorCode(), generation);
 		} catch (Exception exception) {
 			checkCancellation(generation);
 			if (exception instanceof DataAccessException) {
 				log.warn("답변 저장소 접근에 실패했습니다: 시도ID={}", attempt.getId(), exception);
-				return handleAnswerFailure(attempt, ChatErrorCode.STORAGE_UNAVAILABLE, generation);
+				handleAnswerFailure(attempt, ChatErrorCode.STORAGE_UNAVAILABLE, generation);
+				return;
 			}
 			log.error("답변 생성에 실패했습니다: 시도ID={}", attempt.getId(), exception);
-			return handleAnswerFailure(attempt, ChatErrorCode.INTERNAL_ERROR, generation);
+			handleAnswerFailure(attempt, ChatErrorCode.INTERNAL_ERROR, generation);
 		}
 	}
 
@@ -114,11 +116,11 @@ public class ChatAnswerExecutor {
 		}
 	}
 
-	private ChatResponseDto handleAnswerFailure(
+	private void handleAnswerFailure(
 			AnswerAttemptsHistory attempt, ErrorCode errorCode, ChatAnswerTask generation
 	) {
 		checkCancellation(generation);
-		return generation.complete(() -> {
+		generation.complete(() -> {
 			AnswerAttemptsHistory savedAttempt;
 			try {
 				savedAttempt = chatAttemptsService.saveAnswerFailure(attempt, errorCode);

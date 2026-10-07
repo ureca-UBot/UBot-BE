@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
+import com.ubot.llm.client.LlmClient;
+import com.ubot.llm.client.OllamaClient;
+import com.ubot.llm.client.VllmClient;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -82,6 +85,54 @@ class LlmConfigTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void selectsOllamaClientWhenProviderIsMissingOrOllama() {
+        contextRunner.run(context -> assertThat(context).hasSingleBean(LlmClient.class)
+                .getBean(LlmClient.class).isInstanceOf(OllamaClient.class));
+        contextRunner.withPropertyValues("LLM_PROVIDER=ollama")
+                .run(context -> assertThat(context).hasSingleBean(LlmClient.class)
+                        .getBean(LlmClient.class).isInstanceOf(OllamaClient.class));
+    }
+
+    @Test
+    void selectsVllmClientAndReadsItsAddressAndModelFromEnvironment() throws IOException {
+        var requestBody = new AtomicReference<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = """
+                    {"choices":[{"index":0,"message":{"role":"assistant","content":"답변"},
+                     "finish_reason":"stop"}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            // 주소 끝에 /가 붙어 있어도 같은 경로로 호출합니다.
+            contextRunner.withPropertyValues("LLM_PROVIDER=vllm", "VLLM_MODEL=environment-vllm-model",
+                    "VLLM_BASE_URL=http://127.0.0.1:" + server.getAddress().getPort() + "/v1/")
+                    .run(context -> {
+                        assertThat(context).hasNotFailed().hasSingleBean(LlmClient.class)
+                                .getBean(LlmClient.class).isInstanceOf(VllmClient.class);
+                        assertThat(context.getBean(LlmService.class).generateAnswer(question()).answer())
+                                .isEqualTo("답변");
+                        var body = JsonMapper.builder().build().readTree(requestBody.get());
+                        assertThat(body.get("model").asString()).isEqualTo("environment-vllm-model");
+                    });
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void failsToStartWithUnknownProvider() {
+        contextRunner.withPropertyValues("LLM_PROVIDER=unknown")
+                .run(context -> assertThat(context).hasFailed());
     }
 
     private LlmRequestDto question() {
