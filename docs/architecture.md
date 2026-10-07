@@ -31,7 +31,7 @@ com.ubot
 | 매장 조회 SQL | `src/main/resources/sql/store/*.sql` |
 | FAQ 프롬프트 | `src/main/resources/prompts/faq-system.txt`, `faq-user.txt` |
 | DB 이미지 | `infra/postgres/Dockerfile` |
-| 개발용 컨테이너 | `docker-compose.yml` |
+| 개발용 컨테이너 | `docker-compose.yml`(공통), `docker-compose.ollama.yml`, `docker-compose.vllm.yml` ([실행 환경](reference/configuration.md#실행-환경-docker-compose)) |
 | 배포용 | `Dockerfile`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` ([deploy.md](deploy.md)) |
 | GitHub Actions | `.github/workflows/ci.yml`, `commit-message.yml`, `cd-manual.yml` |
 | 응답·예외 작성 규칙 | `src/main/java/com/ubot/common/manual/*.md` |

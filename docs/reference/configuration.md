@@ -18,12 +18,37 @@ src/main/resources/
 
 자동 테스트는 별도 DB 컨테이너의 임의 호스트 포트와 접속 정보를 사용합니다. 개발 `.env`, 고정 포트, 개발 DB·볼륨을 공유하지 않습니다. `test` 프로필만 지정해 `bootRun`을 실행하는 것은 Testcontainers 기반 테스트 실행과 다릅니다.
 
+## 실행 환경 (Docker Compose)
+
+개발용 컨테이너는 공통 파일에 환경별 모델 서버 파일 하나를 더해서 띄웁니다. 어느 파일을 쓸지는 `.env`의 `COMPOSE_FILE`이 정하므로, 두 환경 모두 명령은 `docker compose up -d`입니다. 실행 순서는 [quickstart](../quickstart.md#실행-환경-선택)에 있습니다.
+
+| 파일 | 서비스 | 쓰는 환경 |
+|---|---|---|
+| `docker-compose.yml` | `postgres`, `redis`, `prometheus` | 공통 |
+| `docker-compose.ollama.yml` | `ollama`, `ollama-init` | Ollama 환경 (기본) |
+| `docker-compose.vllm.yml` | `vllm`(답변 생성), `vllm-embedding`(임베딩) | vLLM 환경. NVIDIA GPU 필요 |
+
+| 변수 | Ollama 환경 | vLLM 환경 |
+|---|---|---|
+| `COMPOSE_FILE` | `docker-compose.yml:docker-compose.ollama.yml` | `docker-compose.yml:docker-compose.vllm.yml` |
+| `COMPOSE_PROJECT_NAME` | 지정하지 않음 (폴더 이름을 따름. 보통 `ubot-be`) | `ubot-be-vllm` |
+| `LLM_PROVIDER`, `EMBEDDING_PROVIDER` | `ollama` | `openai-compatible` |
+
+- `COMPOSE_PATH_SEPARATOR=:`는 `COMPOSE_FILE`의 구분자를 OS와 관계없이 `:`로 고정합니다. 이 줄이 없으면 Windows는 `;`를 구분자로 써서 파일을 찾지 못합니다.
+- `COMPOSE_FILE`이 없으면 `docker compose`는 `docker-compose.yml`만 읽어 공통 서비스만 띄웁니다. 모델 서버는 뜨지 않습니다.
+- 프로젝트 이름이 다르면 볼륨도 따로 만들어집니다. 그래서 두 환경은 PostgreSQL 데이터를 공유하지 않고, Ollama로 만든 벡터와 vLLM으로 만든 벡터가 한 DB에 섞이지 않습니다.
+- 명령에 `-f`나 `-p`를 직접 주면 `.env`의 `COMPOSE_FILE`, `COMPOSE_PROJECT_NAME`보다 우선합니다. 배포는 이 방식으로 파일을 지정합니다([deploy.md](../deploy.md)).
+- `docker-compose.vllm.yml`은 `infra/llm/docker-compose.yml`의 서비스 정의를 `extends`로 가져옵니다. 이때 값은 `infra/llm/.env`가 아니라 루트 `.env`에서 읽습니다. 루트 `.env`에 없는 값은 `infra/llm/docker-compose.yml`의 기본값을 쓰며, `infra/llm/.env.example`의 변수(`LLM_HF_MODEL`, `LLM_PORT` 등)를 루트 `.env`에 적으면 그 값이 적용됩니다.
+
 ## 개발 환경변수
 
 `.env.example`을 복사했을 때의 값과 Spring YAML의 fallback을 구분합니다. fallback이 "없음"인 값은 `.env` 또는 OS 환경변수로 반드시 제공해야 하며, 없으면 기동 시점에 `Could not resolve placeholder` 오류가 납니다.
 
 | 변수 | 사용처 | `.env.example` 값 | Spring fallback |
 |---|---|---|---|
+| `COMPOSE_PATH_SEPARATOR` | Docker Compose: `COMPOSE_FILE`의 구분자 | `:` | Spring에서 읽지 않음 |
+| `COMPOSE_FILE` | Docker Compose: 함께 읽을 Compose 파일 목록 | `docker-compose.yml:docker-compose.ollama.yml` | Spring에서 읽지 않음 |
+| `COMPOSE_PROJECT_NAME` | Docker Compose: 프로젝트 이름(컨테이너·볼륨 이름의 접두사) | 주석 처리됨 (vLLM 환경에서 `ubot-be-vllm`) | Spring에서 읽지 않음 |
 | `POSTGRES_HOST` | Spring | `localhost` | `localhost` |
 | `POSTGRES_PORT` | Docker, Spring | `15432` | `15432` |
 | `POSTGRES_DB` | Docker, Spring | `ubot` | `ubot` |
@@ -32,12 +57,15 @@ src/main/resources/
 | `OLLAMA_PORT` | Docker의 호스트 포트 | `11435` | Spring에서 읽지 않음 |
 | `OLLAMA_BASE_URL` | Spring (`spring.ai.ollama`, `ollama`) | `http://localhost:11435` | `http://localhost:11435` |
 | `OLLAMA_EMBEDDING_MODEL` | Spring, `ollama-init` | `bge-m3:567m` | `bge-m3:567m` |
-| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig` | 빈 값 (사용할 모델 지정) | YAML에는 없음. `LlmConfig`는 빈 값 허용 |
+| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig`, `ollama-init`(값이 있으면 채팅 모델도 내려받음) | 빈 값 (사용할 모델 지정) | 빈 값. 줄이 없어도 기동되며 `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
-| `LLM_PROVIDER` | `LlmConfig`: 채팅 답변을 만들 LLM 서버. `ollama`(개발) 또는 `openai-compatible`(운영 vLLM) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
+| `LLM_PROVIDER` | `LlmConfig`: 채팅 답변을 만들 LLM 서버. `ollama`(Ollama 환경) 또는 `openai-compatible`(vLLM 환경) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
 | `LLM_BASE_URL` | `LlmConfig`: `LLM_PROVIDER=openai-compatible`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
 | `LLM_MODEL` | `LlmConfig`: `LLM_PROVIDER=openai-compatible`일 때 요청에 넣는 모델 이름. vLLM의 served model name과 같아야 함 | `ubot-chat` | `ubot-chat` |
+| `LLM_MAX_MODEL_LEN` | Docker Compose: vLLM 환경의 답변 생성 서버가 받는 최대 토큰 길이(`--max-model-len`) | `4096` | Spring에서 읽지 않음 |
+| `VLLM_GPU_MEMORY_UTILIZATION` | Docker Compose: vLLM 환경의 답변 생성 서버가 쓸 GPU 메모리 비율 | `0.6` | Spring에서 읽지 않음 |
+| `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION` | Docker Compose: vLLM 환경의 임베딩 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
@@ -45,7 +73,7 @@ src/main/resources/
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 응답 제한 시간 | `10s` | `10s` |
-| `EMBEDDING_PROVIDER` | `EmbeddingConfig`: 임베딩 서버. `ollama`(개발) 또는 `openai-compatible`(운영 vLLM) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
+| `EMBEDDING_PROVIDER` | `EmbeddingConfig`: 임베딩 서버. `ollama`(Ollama 환경) 또는 `openai-compatible`(vLLM 환경) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
 | `EMBEDDING_BASE_URL` | `EmbeddingConfig`: `EMBEDDING_PROVIDER=openai-compatible`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8001/v1` | `http://localhost:8001/v1` |
 | `EMBEDDING_MODEL` | `EmbeddingConfig`: `EMBEDDING_PROVIDER=openai-compatible`일 때 요청에 넣는 모델 이름. 서버의 served model name과 같아야 함 | `ubot-embedding` | `ubot-embedding` |
 | `EMBEDDING_CONNECT_TIMEOUT` | `EmbeddingConfig`: `openai-compatible` 임베딩 연결 제한 시간 | `3s` | `3s` |
@@ -57,6 +85,8 @@ src/main/resources/
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.
+
+vLLM 환경에서는 Ollama 대신 답변 생성 서버를 `127.0.0.1:8000`, 임베딩 서버를 `127.0.0.1:8001`로 노출합니다. 루트 `.env`에 `LLM_PORT`, `EMBEDDING_PORT`를 적어 포트를 바꾸면 `LLM_BASE_URL`, `EMBEDDING_BASE_URL`의 포트도 함께 바꿔야 합니다.
 
 `CHAT_CONFIDENCE_THRESHOLD`의 기본값 `0.75`는 threshold 보고서의 채택값 `0.73`과 다릅니다. 배경은 [architecture.md](../architecture.md#현재-상태와-남은-작업)를 참고하세요. 보고서 값을 쓰려면 `.env`에서 `CHAT_CONFIDENCE_THRESHOLD=0.73`으로 지정합니다.
 
@@ -77,7 +107,10 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 
 ### 키가 있지만 값이 비어 있을 때
 
-`OLLAMA_CHAT_MODEL`과 `KAKAO_REST_API_KEY`는 `.env.example`에서 빈 값입니다. 빈 값이면 기동은 되지만 해당 기능이 실패합니다(채팅 모델 미지정, 카카오 API 인증 실패). 키 줄 자체를 지우면 기동이 실패합니다.
+`OLLAMA_CHAT_MODEL`과 `KAKAO_REST_API_KEY`는 `.env.example`에서 빈 값입니다. 빈 값이면 기동은 되지만 해당 기능이 실패합니다(채팅 모델 미지정, 카카오 API 인증 실패).
+
+- `KAKAO_REST_API_KEY`는 키 줄 자체를 지우면 기동이 실패합니다.
+- `OLLAMA_CHAT_MODEL`은 줄이 없어도 빈 값으로 처리되어 기동됩니다. vLLM 환경(`LLM_PROVIDER=openai-compatible`)에서는 이 값을 쓰지 않으므로 비워 둬도 됩니다.
 
 ### `JWT_SECRET`은 반드시 교체해야 합니다
 
@@ -210,8 +243,10 @@ Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한
 `LLM_BASE_URL`의 OpenAI 호환 API를 `LLM_MODEL`로 호출합니다. 제한 시간은 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
 임베딩 서버는 이 값과 관계없이 `EMBEDDING_PROVIDER`로 따로 고릅니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#llm-provider-선택)에 있습니다.
 
-`infra/llm/.env`에도 `LLM_MODEL`이 있지만 뜻이 다릅니다. 그쪽은 vLLM이 불러올 Hugging Face 모델(`Qwen/Qwen3-4B-AWQ`)이고,
-백엔드의 `LLM_MODEL`은 그 서버가 API에 내보이는 이름(`LLM_SERVED_MODEL_NAME`, 기본 `ubot-chat`)입니다.
+백엔드의 `LLM_MODEL`은 vLLM 서버가 API에 내보이는 이름(`LLM_SERVED_MODEL_NAME`, 기본 `ubot-chat`)입니다.
+서버가 불러올 Hugging Face 모델(`Qwen/Qwen3-4B-AWQ`)은 `infra/llm`의 `LLM_HF_MODEL`로 따로 정합니다.
+임베딩도 같아서 백엔드의 `EMBEDDING_MODEL`은 내보이는 이름(`EMBEDDING_SERVED_MODEL_NAME`, 기본 `ubot-embedding`)이고,
+불러올 모델은 `EMBEDDING_HF_MODEL`입니다. 이름이 겹치지 않으므로 vLLM 환경에서는 이 변수들을 루트 `.env` 하나에 함께 둘 수 있습니다.
 
 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 provider의 모델 이름이 남습니다.
 `ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.

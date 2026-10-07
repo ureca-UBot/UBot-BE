@@ -2,6 +2,14 @@ name: Backend Manual CD
 
 on:
   workflow_dispatch:
+    inputs:
+      runtime:
+        description: "모델 서버 환경 (ollama: 같은 서버의 Ollama 컨테이너, vllm: 별도 GPU 서버의 vLLM)"
+        type: choice
+        options:
+          - ollama
+          - vllm
+        default: ollama
 
 permissions:
   contents: read
@@ -21,12 +29,28 @@ jobs:
 
     env:
       IMAGE_NAME: ubot-be
+      RUNTIME: ${{ inputs.runtime }}
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+
+      # --------------------------------------------------
+      # 0. Compose files for the selected runtime
+      # --------------------------------------------------
+      # ollama: 같은 서버에 Ollama 컨테이너를 함께 띄웁니다(기본, 기존과 같은 구성).
+      # vllm:   모델 서버는 별도 GPU 서버에 있으므로 공통 서비스와 backend만 띄웁니다.
+      - name: Select compose files
+        run: |
+          if [ "$RUNTIME" = "vllm" ]; then
+            echo "COMPOSE_ARGS=-p ubot -f docker-compose.yml -f docker-compose.deploy.yml" >> "$GITHUB_ENV"
+            echo "MODEL_SERVICES=" >> "$GITHUB_ENV"
+          else
+            echo "COMPOSE_ARGS=-p ubot -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml" >> "$GITHUB_ENV"
+            echo "MODEL_SERVICES=ollama" >> "$GITHUB_ENV"
+          fi
 
       # --------------------------------------------------
       # 1. Backend image build
@@ -49,6 +73,7 @@ jobs:
         run: |
           tar -czf ubot-deploy.tar.gz \
             docker-compose.yml \
+            docker-compose.ollama.yml \
             docker-compose.deploy.yml \
             infra/postgres/Dockerfile \
             infra/nginx/nginx.conf
@@ -163,22 +188,29 @@ jobs:
 
             cd ~/ubot
 
+            echo '== Runtime: ${RUNTIME} =='
+
+            # backend는 모델 서버를 기다리지 않으므로, 같은 서버에 띄우는 모델 서버는 먼저 준비시킵니다.
+            if [ -n '${MODEL_SERVICES}' ]; then
+              echo '== Start model server =='
+
+              docker compose \
+                ${COMPOSE_ARGS} \
+                up -d --wait ${MODEL_SERVICES}
+            fi
+
             echo '== Start backend stack =='
 
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
-                -p ubot \
-                -f docker-compose.yml \
-                -f docker-compose.deploy.yml \
+                ${COMPOSE_ARGS} \
                 up -d backend
 
             echo '== Recreate nginx =='
 
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
-                -p ubot \
-                -f docker-compose.yml \
-                -f docker-compose.deploy.yml \
+                ${COMPOSE_ARGS} \
                 up -d \
                 --no-deps \
                 --force-recreate \
@@ -188,9 +220,7 @@ jobs:
 
             BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
               docker compose \
-                -p ubot \
-                -f docker-compose.yml \
-                -f docker-compose.deploy.yml \
+                ${COMPOSE_ARGS} \
                 ps
           "
 
@@ -199,7 +229,7 @@ jobs:
       # --------------------------------------------------
       - name: Health check
         run: |
-          ssh ubot-staging '
+          ssh ubot-staging "COMPOSE_ARGS='${COMPOSE_ARGS}'"'
             echo "Waiting for backend..."
 
             for i in $(seq 1 30); do
@@ -223,17 +253,13 @@ jobs:
             echo "== Container status =="
 
             docker compose \
-              -p ubot \
-              -f docker-compose.yml \
-              -f docker-compose.deploy.yml \
+              $COMPOSE_ARGS \
               ps -a
 
             echo "== Backend / nginx logs =="
 
             docker compose \
-              -p ubot \
-              -f docker-compose.yml \
-              -f docker-compose.deploy.yml \
+              $COMPOSE_ARGS \
               logs \
                 --tail=200 \
                 backend nginx

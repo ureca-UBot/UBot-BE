@@ -112,6 +112,8 @@ docker compose up -d
 
 애플리케이션도 새 설정으로 다시 시작합니다. 컨테이너 내부 포트 `5432`, `11434`를 바꾸는 작업은 아닙니다.
 
+vLLM 환경에서 `8000`(답변 생성), `8001`(임베딩)이 겹치면 `.env`에 `LLM_PORT`, `EMBEDDING_PORT`를 적어 바꾸고 `LLM_BASE_URL`, `EMBEDDING_BASE_URL`의 포트도 함께 맞춥니다.
+
 ## 컨테이너가 healthy가 되지 않음
 
 ```powershell
@@ -120,6 +122,32 @@ docker compose logs --tail=100 postgres ollama
 
 - `Cannot connect to the Docker daemon` → Docker Desktop이 실행 중인지 확인
 - `.env` 관련 경고(`variable is not set`) → 프로젝트 루트에 `.env`가 있는지 확인
+- vLLM 환경에서는 `ollama` 대신 `vllm vllm-embedding`의 로그를 봅니다([vLLM 서버가 준비되지 않음](#vllm-서버가-준비되지-않음))
+
+## Ollama 컨테이너가 뜨지 않음
+
+**증상**
+
+`docker compose up -d` 뒤에 `docker compose ps`에 `ollama`가 없거나, `docker compose exec ollama ...`가 `service "ollama" is not running`으로 실패합니다. 임베딩 호출은 `EM-003`으로 실패합니다.
+
+**원인**
+
+모델 서버는 환경별 Compose 파일로 나뉘어 있고, 어느 파일을 함께 읽을지는 `.env`의 `COMPOSE_FILE`이 정합니다. 파일을 나누기 전에 만든 `.env`에는 이 줄이 없어서 공통 서비스(PostgreSQL·Redis·Prometheus)만 뜹니다.
+
+**해결**
+
+`.env`에 아래 두 줄을 추가하고 다시 띄웁니다. 볼륨은 그대로 쓰므로 DB 데이터와 받아 둔 모델은 유지됩니다.
+
+```dotenv
+COMPOSE_PATH_SEPARATOR=:
+COMPOSE_FILE=docker-compose.yml:docker-compose.ollama.yml
+```
+
+```powershell
+docker compose up -d
+```
+
+vLLM 환경을 쓰는 중이라면 `ollama`가 없는 것이 정상입니다([실행 환경](reference/configuration.md#실행-환경-docker-compose)).
 
 ## vector 또는 postgis extension이 없음
 
@@ -164,6 +192,23 @@ docker compose run --rm ollama-init
 
 Spring의 `OLLAMA_BASE_URL`이 `OLLAMA_PORT`와 맞는지도 확인하세요. 기본은 `http://localhost:11435`입니다.
 
+채팅 모델은 `.env`의 `OLLAMA_CHAT_MODEL`에 값이 있을 때만 `ollama-init`이 받습니다. 값을 나중에 채웠다면 위의 `docker compose run --rm ollama-init`을 다시 실행합니다.
+
+## vLLM 서버가 준비되지 않음
+
+vLLM 환경에서 `http://localhost:8000/v1/models`나 `http://localhost:8001/v1/models`가 응답하지 않을 때 확인합니다.
+
+```powershell
+docker compose ps -a vllm vllm-embedding
+docker compose logs --tail=100 vllm
+docker compose logs --tail=100 vllm-embedding
+```
+
+- 처음 실행하면 모델을 내려받느라 준비까지 오래 걸립니다. 받은 뒤에는 RTX 3060 기준으로 임베딩 서버 약 70초, 답변 생성 서버 약 130초가 걸렸습니다.
+- `could not select device driver "nvidia"` → Docker가 GPU를 쓰지 못하는 상태입니다. [infra/llm/README.md](../infra/llm/README.md#2-nvidia-gpu-확인)의 GPU 확인 명령부터 실행합니다.
+- 컨테이너가 GPU 메모리 부족으로 종료되면 `.env`의 `VLLM_GPU_MEMORY_UTILIZATION`, `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`을 조정합니다. 두 값은 GPU 전체 메모리에 대한 비율이며, 기본값(0.6 + 0.2)은 12GB GPU에서 약 10.9GB를 썼습니다. 다른 프로그램이 GPU 메모리를 쓰고 있는지도 확인합니다.
+- `docker compose` 명령이 `docker-compose.vllm.yml`을 읽는 단계에서 실패하면 `docker compose version`을 확인합니다. 이 파일의 `!override` 문법은 Docker Compose 2.24.4 이상이 필요합니다.
+
 ## 테스트에서 Docker를 찾지 못함
 
 자동 테스트는 Testcontainers가 전용 PostgreSQL + pgvector + PostGIS 환경을 빌드하고 컨테이너를 생성하므로 Docker 엔진에 접근할 수 있어야 합니다.
@@ -207,7 +252,7 @@ $env:CI = 'true'; .\gradlew.bat test
 | `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`, FAQ의 `vector`가 비어 있지 않은지. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
 | `CHAT-014` | `prompts/faq-*.txt`, `prompt.faq.*-location` |
 | `LLM-002` | `.env`의 `OLLAMA_CHAT_MODEL` |
-| `LLM-003` | `docker compose exec ollama ollama list`에 채팅 모델이 있는지 |
+| `LLM-003` | `docker compose exec ollama ollama list`에 채팅 모델이 있는지. 없으면 `docker compose run --rm ollama-init`으로 받습니다. vLLM 환경이면 [vLLM 서버 준비](#vllm-서버가-준비되지-않음) |
 | `LLM-004`, `CHAT-016` | `LLM_READ_TIMEOUT`, `CHAT_RESPONSE_TIMEOUT_MILLIS`, 모델 크기·GPU 사용 여부 |
 | `LLM-005` | 모델 설정, 애플리케이션 로그 |
 
@@ -228,3 +273,5 @@ docker compose ps
 docker compose logs --tail=100 postgres ollama ollama-init
 .\gradlew.bat bootRun --stacktrace
 ```
+
+vLLM 환경에서는 두 번째 명령의 서비스 이름을 `postgres vllm vllm-embedding`으로 바꿉니다.

@@ -86,7 +86,8 @@ String answer = response.answer();
 ## 설정
 
 프로젝트 `.env` 또는 실행 환경에 설치된 모델의 정확한 태그를 지정합니다.
-채팅 모델은 `ollama-init`이 받지 않으므로 `docker compose exec ollama ollama pull <모델>`로 직접 받아야 합니다.
+`OLLAMA_CHAT_MODEL`에 값이 있으면 `docker compose up -d` 때 `ollama-init`이 임베딩 모델과 함께 채팅 모델도 받습니다.
+값을 나중에 채웠다면 `docker compose run --rm ollama-init`을 다시 실행하거나 `docker compose exec ollama ollama pull <모델>`로 직접 받습니다.
 
 ```properties
 OLLAMA_CHAT_MODEL=사용할_모델_태그
@@ -110,8 +111,8 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 
 | `LLM_PROVIDER` | 구현체 | 호출 대상 |
 |---|---|---|
-| `ollama` (기본) | `OllamaClient` | Ollama `/api/chat` (개발 환경) |
-| `openai-compatible` | `OpenAiCompatibleLlmClient` | OpenAI 호환 `POST {LLM_BASE_URL}/chat/completions` (운영 환경의 vLLM) |
+| `ollama` (기본) | `OllamaClient` | Ollama `/api/chat` (Ollama 환경) |
+| `openai-compatible` | `OpenAiCompatibleLlmClient` | OpenAI 호환 `POST {LLM_BASE_URL}/chat/completions` (vLLM 환경) |
 
 ```properties
 LLM_PROVIDER=openai-compatible
@@ -146,8 +147,8 @@ $env:LLM_LIVE_BASE_URL = "http://localhost:8000/v1"
 
 | `EMBEDDING_PROVIDER` | 구현체 | 호출 대상 |
 |---|---|---|
-| `ollama` (기본) | `OllamaEmbeddingClient` | Ollama `/api/embed` (개발 환경) |
-| `openai-compatible` | `OpenAiCompatibleEmbeddingClient` | OpenAI 호환 `POST {EMBEDDING_BASE_URL}/embeddings` (운영 환경의 vLLM) |
+| `ollama` (기본) | `OllamaEmbeddingClient` | Ollama `/api/embed` (Ollama 환경) |
+| `openai-compatible` | `OpenAiCompatibleEmbeddingClient` | OpenAI 호환 `POST {EMBEDDING_BASE_URL}/embeddings` (vLLM 환경) |
 
 ```properties
 EMBEDDING_PROVIDER=openai-compatible
@@ -173,10 +174,20 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 .\gradlew.bat test --tests 'com.ubot.embedding.client.OpenAiCompatibleEmbeddingClientLiveTest'
 ```
 
+답변 생성과 임베딩의 실서버 확인 테스트를 한 번에 실행하려면 두 서버를 띄운 뒤 아래 스크립트를 씁니다.
+두 서버가 준비될 때까지 기다렸다가 테스트를 실행하고, 이전 결과를 재사용하지 않도록 `cleanTest`를 함께 실행합니다.
+
+```powershell
+.\infra\llm\run-live-tests.ps1
+```
+
 #### 지금은 Provider를 전환하지 않습니다
 
 저장된 벡터(FAQ, 미응답 질문, 미응답 묶음 중심)는 Ollama로 만든 값입니다. 같은 `bge-m3`여도 서버가 다르면 벡터가 호환된다고 가정하지 않으므로, 기존 DB에서 `EMBEDDING_PROVIDER`를 바꾸면 다른 서버로 만든 질문 벡터와 섞입니다.
 실제 전환은 아래 벡터 관리 작업이 끝난 뒤에 합니다.
+
+로컬의 [vLLM 환경](../quickstart.md#vllm-환경으로-실행하기)은 Compose 프로젝트 이름을 다르게 써서 DB를 따로 둡니다.
+그 DB에는 vLLM으로 만든 벡터만 들어가므로 `EMBEDDING_PROVIDER=openai-compatible`로 실행해도 벡터가 섞이지 않습니다.
 
 #### 벡터 관리 계획 (예정)
 

@@ -53,6 +53,7 @@ infra/llm/
 ├─ .env.example
 ├─ .env
 ├─ llm-runtime.ps1
+├─ run-live-tests.ps1
 └─ README.md
 ```
 
@@ -71,6 +72,9 @@ docker-compose.yml
 
 llm-runtime.ps1
 → vLLM / SGLang 시작·종료·전환 Wrapper
+
+run-live-tests.ps1
+→ 떠 있는 서버로 Backend 연결 테스트(답변 생성·임베딩)를 한 번에 실행
 ```
 
 ---
@@ -119,7 +123,7 @@ Copy-Item `
 예:
 
 ```dotenv
-LLM_MODEL=Qwen/Qwen3-4B-AWQ
+LLM_HF_MODEL=Qwen/Qwen3-4B-AWQ
 LLM_SERVED_MODEL_NAME=ubot-chat
 LLM_PORT=8000
 LLM_MAX_MODEL_LEN=4096
@@ -146,13 +150,15 @@ infra/llm/.env
 
 ## 주요 환경 변수
 
-### LLM_MODEL
+### LLM_HF_MODEL
 
 실제로 Hugging Face에서 로딩할 모델입니다.
 
 ```dotenv
-LLM_MODEL=Qwen/Qwen3-4B-AWQ
+LLM_HF_MODEL=Qwen/Qwen3-4B-AWQ
 ```
+
+예전 이름은 `LLM_MODEL`이었습니다. Backend `.env`의 `LLM_MODEL`(요청에 넣는 served model name)과 뜻이 달라서 이름을 나눴습니다. 임베딩 서버의 `EMBEDDING_HF_MODEL`(예전 `EMBEDDING_MODEL`)도 같습니다. 이미 만들어 둔 `infra/llm/.env`가 있으면 변수 이름을 바꿔야 값이 적용됩니다.
 
 ---
 
@@ -315,6 +321,62 @@ docker compose `
   --profile vllm `
   --profile sglang `
   down
+```
+
+---
+
+# Backend와 함께 실행 (vLLM 환경)
+
+Repository 루트의 `docker-compose.vllm.yml`은 이 폴더의 `vllm`, `vllm-embedding` 서비스 정의를 그대로 가져와(`extends`) PostgreSQL 같은 공통 서비스와 함께 띄웁니다.
+
+루트 `.env`에서 vLLM 환경을 고른 뒤 Repository 루트에서 실행합니다.
+
+```powershell
+docker compose up -d
+```
+
+이 방식에서 달라지는 점:
+
+```text
+설정 파일
+→ infra/llm/.env가 아니라 루트 .env를 읽음
+→ 루트 .env에 없는 값은 docker-compose.yml의 기본값 사용
+
+Port
+→ 127.0.0.1에만 열림 (같은 PC의 Backend 전용)
+
+Compose Profile
+→ 쓰지 않음 (vllm, vllm-embedding을 항상 실행)
+
+Model Cache
+→ 같은 볼륨(llm_hf-cache)을 써서 받아 둔 모델을 다시 받지 않음
+```
+
+같은 Port를 쓰므로 이 폴더의 Compose로 띄운 서버와 동시에 실행하지 않습니다.
+
+실행 순서는 [로컬 실행 안내](../../docs/quickstart.md#vllm-환경으로-실행하기)에 있습니다.
+
+---
+
+# Backend 연결 테스트 한 번에 실행
+
+답변 생성 서버(`:8000`)와 임베딩 서버(`:8001`)가 떠 있을 때 Repository 루트에서 실행합니다.
+
+```powershell
+.\infra\llm\run-live-tests.ps1
+```
+
+두 서버의 `/v1/models`가 응답할 때까지 기다린 뒤 `OpenAiCompatibleLlmClientLiveTest`와 `OpenAiCompatibleEmbeddingClientLiveTest`를 실행합니다.
+
+이전 결과를 재사용하지 않도록 `cleanTest`를 함께 실행합니다.
+
+주소나 대기 시간을 바꿀 때:
+
+```powershell
+.\infra\llm\run-live-tests.ps1 `
+  -LlmBaseUrl http://<GPU_HOST>:8000/v1 `
+  -EmbeddingBaseUrl http://<GPU_HOST>:8001/v1 `
+  -WaitSeconds 1800
 ```
 
 ---
@@ -763,14 +825,17 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 → 8192 토큰을 넘는 입력은 잘라서 처리하지 않고 400으로 거절
 ```
 
-주의:
+변수:
 
 ```text
-EMBEDDING_MODEL (infra/llm/.env)
-→ vLLM이 불러올 Hugging Face 모델
+EMBEDDING_HF_MODEL (infra/llm/.env)
+→ vLLM이 불러올 Hugging Face 모델 (BAAI/bge-m3)
+
+EMBEDDING_SERVED_MODEL_NAME (infra/llm/.env)
+→ 서버가 내보이는 이름 (ubot-embedding)
 
 EMBEDDING_MODEL (Backend .env)
-→ 요청에 넣는 Served Model Name (ubot-embedding)
+→ 요청에 넣는 이름. EMBEDDING_SERVED_MODEL_NAME과 같아야 함
 ```
 
 답변 생성 서버와 같은 GPU에 띄울 때는 `VLLM_GPU_MEMORY_UTILIZATION`과 `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`의 합이 GPU 여유 메모리를 넘지 않게 조정합니다.

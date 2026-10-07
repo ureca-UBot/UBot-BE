@@ -1,0 +1,27 @@
+# vLLM 환경의 모델 서버입니다. docker-compose.yml과 함께 씁니다.
+# 서비스 정의는 GPU 서버에서 단독으로 쓰는 infra/llm/docker-compose.yml을 그대로 가져옵니다.
+services:
+  # 답변 생성 (LLM_PROVIDER=openai-compatible, LLM_BASE_URL=http://localhost:8000/v1)
+  vllm:
+    extends:
+      file: infra/llm/docker-compose.yml
+      service: vllm
+    # infra/llm에서는 엔진을 고르려고 프로필을 쓰지만, 여기서는 항상 띄웁니다.
+    profiles: !reset []
+    # 같은 PC의 백엔드만 접근하므로 다른 서비스처럼 localhost에만 엽니다.
+    ports: !override
+      - "127.0.0.1:${LLM_PORT:-8000}:8000"
+
+  # 임베딩 (EMBEDDING_PROVIDER=openai-compatible, EMBEDDING_BASE_URL=http://localhost:8001/v1)
+  vllm-embedding:
+    extends:
+      file: infra/llm/docker-compose.yml
+      service: vllm-embedding
+    profiles: !reset []
+    ports: !override
+      - "127.0.0.1:${EMBEDDING_PORT:-8001}:8000"
+
+volumes:
+  # infra/llm을 단독으로 띄울 때와 같은 볼륨을 써서 받아 둔 모델을 다시 받지 않습니다.
+  hf-cache:
+    name: llm_hf-cache

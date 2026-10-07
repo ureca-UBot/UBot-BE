@@ -71,7 +71,8 @@ docker compose up -d --build
 
 `http://localhost:8080/actuator/health`가 `"status":"UP"`이면 실행된 것입니다. API는 Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 볼 수 있습니다.
 
-- `docker compose up`은 PostgreSQL(15432), Ollama(11435), Redis(16379), Prometheus(19090)를 띄우고 임베딩 모델을 내려받습니다. 괄호 안은 `.env.example` 기준 호스트 포트입니다.
+- `docker compose up`은 PostgreSQL(15432), Ollama(11435), Redis(16379), Prometheus(19090)를 띄우고 임베딩 모델을 내려받습니다. `.env`의 `OLLAMA_CHAT_MODEL`에 값이 있으면 채팅 모델도 함께 받습니다. 괄호 안은 `.env.example` 기준 호스트 포트입니다.
+- 어떤 모델 서버를 띄울지는 `.env`의 `COMPOSE_FILE`이 정합니다. 기본은 Ollama이고, GPU가 있는 PC에서는 같은 명령으로 vLLM 환경을 띄울 수 있습니다([quickstart](docs/quickstart.md#vllm-환경으로-실행하기)).
 - `JWT_SECRET`을 바꾸지 않으면 기동되지 않습니다([quickstart](docs/quickstart.md#2-env-만들기)).
 - 챗봇 답변까지 보려면 채팅 모델과 FAQ 데이터가 필요합니다([local-data.md](docs/how-to/local-data.md)).
 - 길찾기와 위치 검색, 채팅에서 장소 이름으로 매장을 찾는 기능은 `KAKAO_REST_API_KEY`가 있어야 동작합니다.

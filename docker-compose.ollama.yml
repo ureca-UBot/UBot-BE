@@ -1,0 +1,44 @@
+# Ollama 환경의 모델 서버입니다. docker-compose.yml과 함께 씁니다.
+services:
+  ollama:
+    image: ollama/ollama:0.34.0
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT}:11434"
+
+    volumes:
+      - ollama-data:/root/.ollama
+
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # 임베딩 모델을 받고, OLLAMA_CHAT_MODEL이 있으면 채팅 모델도 받습니다.
+  # 채팅 모델은 이미 있으면 다시 받지 않습니다(용량이 크고, 직접 만든 모델일 수도 있어서).
+  ollama-init:
+    image: ollama/ollama:0.34.0
+    restart: "no"
+
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL}
+      CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-}
+
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        ollama pull "$$EMBEDDING_MODEL"
+        if [ -n "$$CHAT_MODEL" ] && ! ollama show "$$CHAT_MODEL" > /dev/null 2>&1; then
+          ollama pull "$$CHAT_MODEL"
+        fi
+
+volumes:
+  ollama-data:

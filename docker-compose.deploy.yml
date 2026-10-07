@@ -9,6 +9,7 @@ services:
       SPRING_PROFILES_ACTIVE: local
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      # Ollama 환경(docker-compose.ollama.yml을 함께 쓸 때)에서만 쓰이는 주소입니다.
       OLLAMA_BASE_URL: http://ollama:11434
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -19,10 +20,10 @@ services:
 
     restart: unless-stopped
 
+    # 모델 서버는 여기에 넣지 않습니다. vLLM 환경에는 ollama 서비스가 없고, 백엔드는 모델 서버 없이도 기동합니다.
+    # Ollama 환경에서는 ollama를 먼저 띄운 뒤 backend를 띄웁니다(docs/deploy.md).
     depends_on:
       postgres:
-        condition: service_healthy
-      ollama:
         condition: service_healthy
       redis:
         condition: service_healthy

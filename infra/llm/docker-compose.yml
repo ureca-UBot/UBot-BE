@@ -25,11 +25,11 @@ services:
 
     command:
       - --model
-      - ${LLM_MODEL:-Qwen/Qwen3-4B-AWQ}
+      - ${LLM_HF_MODEL:-Qwen/Qwen3-4B-AWQ}
       - --served-model-name
       - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
       - --max-model-len
-      - ${LLM_MAX_MODEL_LEN:-2048}
+      - ${LLM_MAX_MODEL_LEN:-4096}
       - --gpu-memory-utilization
       - ${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
       # Backend의 Tool Calling(매장 조회)에 필요합니다. parser는 모델에 맞춰야 합니다.
@@ -68,7 +68,7 @@ services:
 
     command:
       - --model
-      - ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      - ${EMBEDDING_HF_MODEL:-BAAI/bge-m3}
       - --served-model-name
       - ${EMBEDDING_SERVED_MODEL_NAME:-ubot-embedding}
       # 답변 생성 모델이 아니라 임베딩 모델로 실행합니다.
@@ -116,7 +116,7 @@ services:
       - -m
       - sglang.launch_server
       - --model-path
-      - ${LLM_MODEL:-Qwen/Qwen3-4B-AWQ}
+      - ${LLM_HF_MODEL:-Qwen/Qwen3-4B-AWQ}
       - --served-model-name
       - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
       - --host
@@ -124,7 +124,7 @@ services:
       - --port
       - "8000"
       - --context-length
-      - ${LLM_MAX_MODEL_LEN:-2048}
+      - ${LLM_MAX_MODEL_LEN:-4096}
       - --mem-fraction-static
       - ${SGLANG_MEM_FRACTION_STATIC:-0.6}
 

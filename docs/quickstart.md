@@ -76,11 +76,26 @@ openssl rand -base64 32
 | 변수 | 비워 두면 | 채우면 |
 |---|---|---|
 | `KAKAO_REST_API_KEY` | 기동은 되지만 위치 검색·길찾기 API 호출이 실패합니다 (위치 검색은 `500 G-005`) | 카카오 개발자 사이트의 REST API 키 |
-| `OLLAMA_CHAT_MODEL` | 기동은 되지만 채팅 답변 생성이 `LLM-002`로 실패합니다 | Ollama에 받아 둔 채팅 모델 이름 |
+| `OLLAMA_CHAT_MODEL` | 기동은 되지만 채팅 답변 생성이 `LLM-002`로 실패합니다 | 사용할 채팅 모델 태그. 값이 있으면 3단계에서 `ollama-init`이 임베딩 모델과 함께 내려받습니다 |
 
-`ollama-init`은 임베딩 모델만 내려받습니다. 채팅 모델은 [4단계](#4-embedding-모델-준비-확인)의 `ollama pull` 명령으로 직접 받아야 합니다. 두 키를 지우지는 마세요. 키 자체가 없으면 기동 시점에 `Could not resolve placeholder` 오류가 납니다.
+`KAKAO_REST_API_KEY` 줄은 지우지 마세요. 키 자체가 없으면 기동 시점에 `Could not resolve placeholder` 오류가 납니다.
 
 `.env`는 Git에 올라가지 않습니다(`.gitignore` 등록됨). 비밀 값은 이 파일에만 적습니다.
+
+### 실행 환경 선택
+
+`.env` 맨 위의 "실행 환경 선택" 묶음이 어떤 모델 서버를 띄울지 정합니다. 기본값은 Ollama 환경이라 그대로 두면 됩니다.
+
+```dotenv
+COMPOSE_PATH_SEPARATOR=:
+COMPOSE_FILE=docker-compose.yml:docker-compose.ollama.yml
+LLM_PROVIDER=ollama
+EMBEDDING_PROVIDER=ollama
+```
+
+- `COMPOSE_FILE`은 `docker compose` 명령이 읽을 파일 목록입니다. 공통 서비스(`docker-compose.yml`)에 환경별 모델 서버 파일을 더합니다.
+- **이전에 만든 `.env`를 쓰고 있다면 `COMPOSE_PATH_SEPARATOR`와 `COMPOSE_FILE` 두 줄을 추가하세요.** `COMPOSE_FILE`이 없으면 `docker compose up -d`가 PostgreSQL·Redis·Prometheus만 띄우고 Ollama는 띄우지 않습니다. 두 줄을 추가해도 볼륨은 그대로라서 DB 데이터와 받아 둔 모델은 유지됩니다.
+- GPU가 있는 PC에서 vLLM으로 실행하려면 [vLLM 환경으로 실행하기](#vllm-환경으로-실행하기)를 참고하세요.
 
 ## 3. PostgreSQL + pgvector + PostGIS와 Ollama 실행
 
@@ -105,9 +120,10 @@ docker compose exec ollama ollama list
 
 `ollama-init`의 종료 코드가 0이고 모델 목록에 `bge-m3:567m`이 보이면 다음 단계로 진행합니다.
 
-채팅 모델을 쓰려면 같은 Compose의 Ollama에 직접 받습니다. 받은 이름을 `.env`의 `OLLAMA_CHAT_MODEL`에 적습니다.
+`.env`의 `OLLAMA_CHAT_MODEL`에 값이 있으면 `ollama-init`이 채팅 모델도 함께 받습니다. 이미 받아 둔 채팅 모델은 다시 받지 않습니다. 나중에 값을 채웠다면 `ollama-init`을 다시 실행하거나 직접 받습니다.
 
 ```powershell
+docker compose run --rm ollama-init
 docker compose exec ollama ollama pull <채팅모델이름>
 ```
 
@@ -184,10 +200,52 @@ Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB를 만들�
 - 설정값의 의미 → [reference/configuration.md](reference/configuration.md)
 - 코드를 수정하고 PR을 올리려면 → [../CONTRIBUTING.md](../CONTRIBUTING.md)
 
+## vLLM 환경으로 실행하기
+
+NVIDIA GPU가 있는 PC에서는 Ollama 대신 vLLM으로 답변 생성과 임베딩을 모두 실행할 수 있습니다. 명령은 같고 `.env`의 "실행 환경 선택" 묶음만 바꿉니다.
+
+준비물은 Docker 컨테이너에서 GPU가 보이는 환경([확인 방법](../infra/llm/README.md#2-nvidia-gpu-확인))과 Docker Compose 2.24.4 이상입니다(`docker compose version`).
+
+1. 지금 환경을 내립니다. 프로젝트 이름이 바뀌므로, 값을 바꾸기 **전에** 내려야 합니다.
+
+    ```powershell
+    docker compose down
+    ```
+
+2. `.env`에서 Ollama 환경 세 줄을 주석으로 바꾸고 vLLM 환경 네 줄의 주석을 풉니다.
+
+    ```dotenv
+    COMPOSE_FILE=docker-compose.yml:docker-compose.vllm.yml
+    COMPOSE_PROJECT_NAME=ubot-be-vllm
+    LLM_PROVIDER=openai-compatible
+    EMBEDDING_PROVIDER=openai-compatible
+    ```
+
+3. 같은 명령으로 띄웁니다. PostgreSQL·Redis·Prometheus와 vLLM 답변 생성 서버(`:8000`), 임베딩 서버(`:8001`)가 뜹니다.
+
+    ```powershell
+    docker compose up -d --build
+    ```
+
+4. 두 모델 서버가 준비될 때까지 기다린 뒤 백엔드 연결을 확인합니다. 아래 스크립트가 준비를 기다렸다가 실제 서버로 Live 테스트를 실행합니다.
+
+    ```powershell
+    .\infra\llm\run-live-tests.ps1
+    ```
+
+5. 백엔드를 실행합니다(`.\gradlew.bat bootRun`).
+
+알아 둘 점:
+
+- **DB가 따로입니다.** `COMPOSE_PROJECT_NAME`이 달라 PostgreSQL 볼륨을 따로 씁니다. Ollama로 만든 벡터와 vLLM으로 만든 벡터가 섞이지 않게 하기 위해서입니다. 그래서 vLLM 환경에서는 계정과 FAQ를 다시 준비해야 합니다([how-to/local-data.md](how-to/local-data.md)).
+- **처음 실행할 때 모델을 내려받습니다.** 답변 생성 모델과 임베딩 모델을 받는 동안에는 서버가 준비되지 않습니다. 스크립트는 기본 300초까지 기다리므로, 처음에는 `.\infra\llm\run-live-tests.ps1 -WaitSeconds 1800`처럼 늘려서 실행합니다. 받은 모델은 `llm_hf-cache` 볼륨에 남습니다. `infra/llm`으로 이미 받아 둔 PC에서는 "volume already exists" 경고가 나오지만 그대로 재사용합니다.
+- **모델 서버 설정**은 `.env`의 "vLLM 환경" 묶음과 [infra/llm/README.md](../infra/llm/README.md)를 참고하세요. GPU 메모리가 부족하면 `VLLM_GPU_MEMORY_UTILIZATION`, `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`을 조정합니다.
+- Ollama 환경으로 돌아갈 때도 먼저 `docker compose down`을 한 뒤 `.env`를 되돌립니다.
+
 ## 정리하기
 
 ```powershell
 docker compose down      # 개발 컨테이너 제거, DB·모델 볼륨 유지
 ```
 
-> `docker compose down -v`는 PostgreSQL 데이터와 Ollama 다운로드 모델이 담긴 볼륨을 모두 삭제합니다. 테스트 DB 정리에 필요한 명령이 아닙니다. 개발 데이터를 초기화하려는 경우에만 백업과 삭제 범위를 확인한 뒤 사용하세요.
+> `docker compose down -v`는 PostgreSQL 데이터와 Ollama 다운로드 모델이 담긴 볼륨을 모두 삭제합니다. vLLM 환경에서는 받아 둔 모델(`llm_hf-cache`)도 함께 삭제합니다. 테스트 DB 정리에 필요한 명령이 아닙니다. 개발 데이터를 초기화하려는 경우에만 백업과 삭제 범위를 확인한 뒤 사용하세요.
