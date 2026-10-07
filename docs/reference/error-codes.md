@@ -136,6 +136,8 @@
 | `CHAT-015` | 500 | `INTERNAL_ERROR` | 답변 생성 중 오류가 발생했습니다. |
 | `CHAT-016` | 504 | `RESPONSE_TIMEOUT` | 답변 생성 시간이 초과되었습니다. |
 | `CHAT-017` | 429 | `GUEST_QUESTION_LIMIT_REACHED` | 비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요. |
+| `CHAT-018` | 409 | `RESEARCH_NOT_ALLOWED` | 다른 의도로 다시 검색할 수 없는 질문입니다. |
+| `CHAT-019` | 409 | `ALREADY_RESEARCHED` | 이미 해당 의도로 재검색한 질문입니다. |
 
 
 - `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다.
