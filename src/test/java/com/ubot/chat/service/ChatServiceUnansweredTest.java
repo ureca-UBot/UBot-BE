@@ -8,13 +8,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.ArrayDeque;
@@ -39,9 +40,12 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), unanswered, jobs::add);
-		ReflectionTestUtils.setField(service, "topK", 3);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(
+				vector, ai, unanswered, ChatTestFixtures.collector());
+		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attempts, jobs::add));
+		ReflectionTestUtils.setField(processor, "topK", 3);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
 		when(attempts.saveAnswerFailure(any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
@@ -65,8 +69,8 @@ class ChatServiceUnansweredTest {
 	@DisplayName("유사도가 기준보다 낮으면 가장 가까운 FAQ와 함께 INSUFFICIENT_FAQ로 저장한다")
 	void recordsInsufficientFaqWithBestResult() {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(
-				new FaqSearchResponseDto(7L, "q1", "a1", 0.6),
-				new FaqSearchResponseDto(8L, "q2", "a2", 0.5)));
+				new FaqSearchResponseDto(7L, "q1", "a1", 0.6, Intent.GENERAL),
+				new FaqSearchResponseDto(8L, "q2", "a2", 0.5, Intent.GENERAL)));
 
 		service.createChat(1L, "질문", null);
 		jobs.poll().run();
@@ -89,9 +93,9 @@ class ChatServiceUnansweredTest {
 	@Test
 	@DisplayName("답변에 성공하면 미응답 질문을 저장하지 않는다")
 	void doesNotRecordOnSuccess() {
-		List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
+		List<FaqSearchResponseDto> sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null, false));
 		when(attempts.saveAnswerSuccess(any(), any(), any(), isNull())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();

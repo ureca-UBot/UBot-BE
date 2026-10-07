@@ -1,5 +1,7 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.controller.ChatController;
 import com.ubot.auth.config.CustomUserDetails;
@@ -21,14 +23,16 @@ import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.Faq;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
-import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.llm.service.LlmService;
+import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.user.entity.User;
 import java.util.stream.IntStream;
@@ -65,9 +69,11 @@ class ChatServiceTest {
 	ConversationRepository conversations = mock(ConversationRepository.class);
 	GuestChatSettingsRepository guestSettings = mock(GuestChatSettingsRepository.class);
 	PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+	LlmService llmService = mock(LlmService.class);
 	List<AnswerAttemptsHistory> saved = new ArrayList<>();
 	Deque<Runnable> jobs = new ArrayDeque<>();
 	ChatService service;
+	ChatAnswerProcessor processor;
 	ChatAttemptsService attemptsService;
 	MockMvc mvc;
 
@@ -100,11 +106,16 @@ class ChatServiceTest {
 			return result;
 		});
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
-		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, conversations, guestSettings, tx);
+		when(llmService.getModelName()).thenReturn("recorded-chat-model");
+		attemptsService = new ChatAttemptsService(
+				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
-		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), jobs::add);
-		ReflectionTestUtils.setField(service, "topK", 3);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
+		processor = new ChatAnswerProcessor(
+				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+		service = new ChatService(attemptsService, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attemptsService, jobs::add));
+		ReflectionTestUtils.setField(processor, "topK", 3);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		var controller = new ChatController(service, mock(ClientIpResolver.class), mock(GuestConversationService.class));
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
@@ -135,15 +146,15 @@ class ChatServiceTest {
 	}
 
 	@Test void successReturnsFinalJsonAndSavesAllFaqReferences() throws Exception {
-		var sources = List.of(new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9),
-				new FaqSearchResponseDto(2L, "준비물", "준비물 원문", 0.8));
+		var sources = List.of(new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9, Intent.GENERAL),
+				new FaqSearchResponseDto(2L, "준비물", "준비물 원문", 0.8, Intent.GENERAL));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("생성된 답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("생성된 답변", null, false));
 		String body = completeRequest();
 		assertThat(body).contains("\"status\":\"SUCCESS\"", "\"success\":true", "생성된 답변")
 				.doesNotContain("event:", "data:");
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
-		verify(ai).generateAnswer("질문", sources);
+		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
 		verify(questions).saveAndFlush(1L, null, "질문", "생성된 답변", null);
 		verify(faqLogs).saveAll(argThat(items -> {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
@@ -158,15 +169,15 @@ class ChatServiceTest {
 	@ParameterizedTest
 	@ValueSource(doubles = {0.74, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
 	void onlyFaqsMeetingThresholdArePassedToLlmAndLogged(double excludedScore) throws Exception {
-		var first = new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9);
-		var excluded = new FaqSearchResponseDto(2L, "관련 없는 질문", "제외할 답변", excludedScore);
-		var third = new FaqSearchResponseDto(3L, "준비물", "준비물 안내", 0.75);
+		var first = new FaqSearchResponseDto(1L, "유심 재발급", "매장 방문", 0.9, Intent.GENERAL);
+		var excluded = new FaqSearchResponseDto(2L, "관련 없는 질문", "제외할 답변", excludedScore, Intent.GENERAL);
+		var third = new FaqSearchResponseDto(3L, "준비물", "준비물 안내", 0.75, Intent.GENERAL);
 		var accepted = List.of(first, third);
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(first, excluded, third));
-		when(ai.generateAnswer("질문", accepted)).thenReturn(new LlmResponseDto("생성된 답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", accepted))).thenReturn(new AiAnswer("생성된 답변", null, false));
 
 		assertThat(completeRequest()).contains("\"status\":\"SUCCESS\"", "생성된 답변");
-		verify(ai).generateAnswer("질문", accepted);
+		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", accepted));
 		verify(faqLogs).saveAll(argThat(items -> {
 			var logs = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(logs::add);
@@ -190,24 +201,24 @@ class ChatServiceTest {
 	@ValueSource(doubles = {0.74, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
 	void noFaqMeetingThresholdSkipsLlmAndSuccessLogs(double score) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(
-				new FaqSearchResponseDto(1L, "q", "a", score),
-				new FaqSearchResponseDto(2L, "q2", "a2", 0.7)));
+				new FaqSearchResponseDto(1L, "q", "a", score, Intent.GENERAL),
+				new FaqSearchResponseDto(2L, "q2", "a2", 0.7, Intent.GENERAL)));
 		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("정확한 답변을 찾지 못했습니다.", "\"status\":\"FAIL\"", "\"retryable\":true");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
 
 	@Test void thresholdEqualityStillCallsLlm() throws Exception {
-		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.75));
+		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.75, Intent.GENERAL));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("답변", null, false));
 		assertThat(completeRequest()).contains("\"status\":\"SUCCESS\"");
 	}
 
 	@Test void configuredSearchSizeAndThresholdAreUsed() throws Exception {
-		ReflectionTestUtils.setField(service, "topK", 5);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.8);
-		when(vector.getSimilarList("질문", 5)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.79)));
+		ReflectionTestUtils.setField(processor, "topK", 5);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.8);
+		when(vector.getSimilarList("질문", 5)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.79, Intent.GENERAL)));
 
 		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("\"status\":\"FAIL\"", "\"retryable\":true");
 		verify(vector).getSimilarList("질문", 5);
@@ -217,8 +228,8 @@ class ChatServiceTest {
 
 	@ParameterizedTest @EnumSource(LlmErrorCode.class)
 	void llmExceptionsAreRecordedAndExposeOnlySafeMessages(LlmErrorCode code) throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
-		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new LlmException(code, new RuntimeException("secret")));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)));
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenThrow(new LlmException(code, new RuntimeException("secret")));
 		assertThat(completeRequest(code)).contains("\"status\":\"FAIL\"", "\"success\":false", "\"retryable\":true")
 				.contains(code.getMessage(), saved.getFirst().getIdempotencyKey()).doesNotContain("secret");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(code);
@@ -237,11 +248,11 @@ class ChatServiceTest {
 	}
 
 	@Test void missingPromptBecomesRecordedFailureAndAllowsRetry() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
-		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new PromptException("준비 안 됨"));
-		assertThat(completeRequest(ChatErrorCode.PROMPT_NOT_READY)).contains("\"status\":\"FAIL\"", "\"retryable\":true",
-				ChatErrorCode.PROMPT_NOT_READY.getMessage());
-		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_NOT_READY);
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)));
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenThrow(new PromptException(PromptErrorCode.PROMPT_NOT_READY));
+		assertThat(completeRequest(PromptErrorCode.PROMPT_NOT_READY)).contains("\"status\":\"FAIL\"", "\"retryable\":true",
+				PromptErrorCode.PROMPT_NOT_READY.getMessage());
+		assertThat(saved.getFirst().getErrorCode()).isEqualTo(PromptErrorCode.PROMPT_NOT_READY);
 		assertThat(attemptsService.validateRetryAttempt(saved.getFirst())).isEmpty();
 		service.retryChat(1L, saved.getFirst().getIdempotencyKey(), null);
 		assertThat(saved).hasSize(2);
@@ -278,6 +289,14 @@ class ChatServiceTest {
 		assertThat(saved).allMatch(a -> a.getIdempotencyKey().equals(key) && a.getStatus().equals("FAIL"));
 		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.LIMIT_REACHED);
 		assertThat(saved).hasSize(maxAttempts);
+	}
+
+	@Test void attemptsRecordModelNameReportedByLlmService() {
+		var first = attemptsService.createAnswerAttempt(1L, "질문");
+		attemptsService.saveAnswerFailure(first, ChatErrorCode.NO_FAQ);
+		var retry = attemptsService.createRetryAttempt(1L, first.getIdempotencyKey());
+		assertThat(List.of(first, retry)).extracting(AnswerAttemptsHistory::getLlmModel)
+				.containsOnly("recorded-chat-model");
 	}
 
 	@Test void retryRejectsUnknownKey() {
@@ -326,9 +345,10 @@ class ChatServiceTest {
 
 	@Test
 	void rejectedWorkerCompletesWithRecordedFailure() {
-		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), task -> {
-			throw new java.util.concurrent.RejectedExecutionException("executor secret");
-		});
+		service = new ChatService(attemptsService, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attemptsService, task -> {
+					throw new java.util.concurrent.RejectedExecutionException("executor secret");
+				}));
 		var task = service.createChat(1L, "질문", null);
 
 		assertThatThrownBy(() -> task.result().join()).hasCauseInstanceOf(ChatException.class)
@@ -349,8 +369,8 @@ class ChatServiceTest {
 	}
 
 	@Test void unexpectedExceptionUsesRegisteredErrorCodeWithoutExposingCause() throws Exception {
-		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)));
-		when(ai.generateAnswer(anyString(), anyList())).thenThrow(new IllegalStateException("secret"));
+		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)));
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenThrow(new IllegalStateException("secret"));
 
 		assertThat(completeRequest(ChatErrorCode.INTERNAL_ERROR)).contains("\"status\":\"FAIL\"", "\"retryable\":true",
 				ChatErrorCode.INTERNAL_ERROR.getMessage()).doesNotContain("secret");
@@ -396,7 +416,7 @@ class ChatServiceTest {
 				.question("질문").status("PENDING").build();
 
 		attemptsService.saveAnswerSuccess(staleAttempt, "늦게 도착한 답변",
-				List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9)), null);
+				List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)), null);
 		attemptsService.saveAnswerFailure(staleAttempt, ChatErrorCode.INTERNAL_ERROR);
 
 		assertThat(stored.getStatus()).isEqualTo(status);
@@ -442,9 +462,9 @@ class ChatServiceTest {
 
 	@Test void guestAttemptIsStoredWithConversationOnlyAndSuccessLogKeepsIt() {
 		allowGuestQuestions(5);
-		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9));
+		var sources = List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL));
 		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
-		when(ai.generateAnswer("질문", sources)).thenReturn(new LlmResponseDto("생성된 답변"));
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources))).thenReturn(new AiAnswer("생성된 답변", null, false));
 
 		var task = service.createGuestChat(7L, "질문", null);
 		jobs.remove().run();

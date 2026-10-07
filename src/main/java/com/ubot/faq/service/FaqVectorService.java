@@ -12,21 +12,27 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FaqVectorService {
     private final EmbeddingService embeddingService;
     private final FaqVectorRepository faqVectorRepository;
 
-    public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
-        PGvector queryVector = embeddingService.embedText(userQuestion);
-        return faqVectorRepository.getSimilarList(queryVector, topK);
-    }
+	public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
+		long startedAt = System.nanoTime();
+		PGvector queryVector = embeddingService.embedText(userQuestion);
+		List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, topK);
+		return results;
+	}
 
-    public void saveVectorForFaq(Long faqId, String question) {
-        PGvector vector = embeddingService.embedText(question);
-        faqVectorRepository.saveVectorForFaq(faqId, vector);
+	public void saveVectorForFaq(Long faqId, String question) {
+		long startedAt = System.nanoTime();
+		PGvector vector = embeddingService.embedText(question);
+		faqVectorRepository.saveVectorForFaq(faqId, vector);
+		log.info("FAQ 벡터를 저장했습니다: FAQID={}, 처리시간={}ms", faqId, elapsedMillis(startedAt));
     }
 
     public void saveVectorForOldFaq(Long faqId, Integer version) {
@@ -34,6 +40,26 @@ public class FaqVectorService {
         if(vector == null) {
             throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
         }
-        faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
-    }
+		faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
+		log.info("이전 FAQ 벡터를 저장했습니다: FAQID={}, 버전={}", faqId, version);
+	}
+
+	private long elapsedMillis(long startedAt) {
+		return (System.nanoTime() - startedAt) / 1_000_000;
+	}
+
+	private String formatSearchResults(List<FaqSearchResponseDto> results) {
+		if (results == null || results.isEmpty()) {
+			return "없음";
+		}
+		return results.stream()
+				.map(result -> "FAQ ID=" + result.faqId()
+						+ ", FAQ 질문=" + normalizeForLog(result.question())
+						+ ", 유사도=" + result.similarityScore())
+				.collect(java.util.stream.Collectors.joining(" | "));
+	}
+
+	private String normalizeForLog(String value) {
+		return value == null ? "없음" : value.replaceAll("[\\r\\n\\t]+", " ");
+	}
 }

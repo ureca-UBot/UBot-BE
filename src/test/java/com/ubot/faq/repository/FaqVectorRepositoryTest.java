@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +49,17 @@ class FaqVectorRepositoryTest {
     @DisplayName("유사도 검색은 요청한 상위 결과 수를 초과하지 않는다")
     void getSimilarList_limitsResultsToTopK() {
         assertThat(repository.getSimilarList(vectorOf(0), 1)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("유사도 검색 결과에 FAQ의 intent 라벨을 담는다")
+    void getSimilarList_mapsIntent() {
+        jdbcTemplate.update("UPDATE faq SET intent = 'STORE_DATA' WHERE id = 2");
+
+        List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), 10);
+
+        assertThat(results).extracting(FaqSearchResponseDto::intent)
+                .containsExactly(Intent.GENERAL, Intent.STORE_DATA);
     }
 
     @Test

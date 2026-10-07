@@ -15,6 +15,7 @@ import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.guest.entity.GuestChatSettings;
 import com.ubot.guest.repository.GuestChatSettingsRepository;
+import com.ubot.llm.service.LlmService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -29,9 +30,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import lombok.extern.slf4j.Slf4j;
 
 /** 시도 횟수·멱등키와 JPA 기록 저장을 담당합니다. */
 @Service
+@Slf4j
 public class ChatAttemptsService {
 	@Value("${CHAT_MAX_ATTEMPTS:3}")
 	private int maxAttempts;
@@ -44,8 +47,8 @@ public class ChatAttemptsService {
 	private final GuestChatSettingsRepository guestChatSettingsRepository;
 	private final TransactionTemplate transactionTemplate;
 
-	@Value("${spring.ai.ollama.chat.options.model:${OLLAMA_CHAT_MODEL:}}")
-	private String llmModel;
+	// LLM_PROVIDER에 따라 답변을 만드는 모델이 달라지므로, 설정을 직접 읽지 않고 LLM 모듈에서 이름을 받습니다.
+	private final String llmModel;
 
 	@Value("${ollama.embedding.model:}")
 	private String embeddingModel;
@@ -57,6 +60,7 @@ public class ChatAttemptsService {
 			FaqRepository faqRepository,
 			ConversationRepository conversationRepository,
 			GuestChatSettingsRepository guestChatSettingsRepository,
+			LlmService llmService,
 			PlatformTransactionManager transactionManager
 	) {
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
@@ -65,6 +69,7 @@ public class ChatAttemptsService {
 		this.faqRepository = faqRepository;
 		this.conversationRepository = conversationRepository;
 		this.guestChatSettingsRepository = guestChatSettingsRepository;
+		this.llmModel = llmService.getModelName();
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 		// 기록 저장 트랜잭션만 열고, 모델 호출 중에는 DB 연결이나 행 잠금을 유지하지 않습니다.
 		this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -150,7 +155,7 @@ public class ChatAttemptsService {
 			List<FaqSearchResponseDto> sources,
 			String userIp
 	) {
-		return transactionTemplate.execute(transactionStatus -> {
+		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findAttemptForLock(attempt.getId()).orElseThrow();
 			if (!"PENDING".equals(currentAttempt.getStatus())) {
@@ -181,10 +186,13 @@ public class ChatAttemptsService {
 			currentAttempt.succeed();
 			return currentAttempt;
 		});
+		log.info("답변 성공 이력을 저장했습니다: 시도ID={}, 상태={}, 참고FAQ수={}",
+				attempt.getId(), savedAttempt.getStatus(), sources.size());
+		return savedAttempt;
 	}
 
 	public AnswerAttemptsHistory saveAnswerFailure(AnswerAttemptsHistory attempt, ErrorCode errorCode) {
-		return transactionTemplate.execute(transactionStatus -> {
+		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
 					.findAttemptForLock(attempt.getId()).orElseThrow();
 			if (!"PENDING".equals(currentAttempt.getStatus())) {
@@ -193,16 +201,21 @@ public class ChatAttemptsService {
 			currentAttempt.fail(errorCode);
 			return currentAttempt;
 		});
+		log.info("답변 실패 이력을 저장했습니다: 시도ID={}, 상태={}, 오류코드={}, 오류메시지={}",
+				attempt.getId(), savedAttempt.getStatus(), errorCode.getCode(), errorCode.getMessage());
+		return savedAttempt;
 	}
 
 	public AnswerAttemptsHistory saveAnswerTimeout(AnswerAttemptsHistory attempt) {
 		// 트랜잭션 커밋이 끝난 기록으로 재시도 응답을 구성합니다.
-		return transactionTemplate.execute(transactionStatus -> {
+		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			answerAttemptsHistoryRepository.updatePendingAttemptToFail(
 					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage()
 			);
 			return answerAttemptsHistoryRepository.findById(attempt.getId()).orElseThrow();
 		});
+		log.warn("답변 생성 시간을 초과했습니다: 시도ID={}, 상태={}", attempt.getId(), savedAttempt.getStatus());
+		return savedAttempt;
 	}
 
 	/** 재시도가 불가능한 사유를 반환하고, 가능하면 빈 결과를 반환합니다. */

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 380" width="1000" height="380" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif" role="img" aria-labelledby="title desc">
   <title id="title">UBot 질문 처리 흐름</title>
-  <desc id="desc">고객 질문은 금지어 검사와 FAQ 벡터 검색을 거친다. 유사도가 기준 이상이면 LLM이 FAQ를 근거로 답변을 만들고, 기준에 못 미치면 미응답 질문으로 모여 관리자가 FAQ로 보강한다.</desc>
+  <desc id="desc">고객 질문은 금지어 검사와 FAQ 벡터 검색을 거친다. 유사도가 기준 이상이면 LLM이 FAQ와 FAQ 종류에 맞게 조회한 자료(근처 매장, 사용자 정보)를 근거로 답변을 만들고, 기준에 못 미치면 미응답 질문으로 모여 관리자가 FAQ로 보강한다.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#475569"/>
@@ -51,7 +51,7 @@
     <text x="254" y="120">활성 금지어 포함 여부</text>
     <text x="418" y="120">가장 비슷한 3건</text>
     <text x="582" y="120">기준 0.75 이상인가</text>
-    <text x="746" y="120">통과한 FAQ만 근거</text>
+    <text x="746" y="120">통과한 FAQ·조회 자료</text>
     <text x="910" y="120">근거 FAQ ID 포함</text>
     <text x="254" y="300">검색·생성 전에 중단</text>
     <text x="582" y="300">비슷한 질문끼리 모음</text>

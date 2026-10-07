@@ -11,6 +11,7 @@ import com.ubot.chat.service.ChatService;
 import com.ubot.common.ErrorCode;
 import com.ubot.conversation.service.ConversationService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.guest.session.GuestSessionState;
@@ -111,7 +112,7 @@ class GuestChatIntegrationTest {
 		faqId = jdbc.queryForObject("insert into faq(category_id,question,answer) values (?, ?, ?) returning id",
 				Long.class, category, "유심 재발급", "매장 방문");
 		when(vector.getSimilarList(anyString(), eq(3)))
-				.thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9)));
+				.thenReturn(List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL)));
 		when(vector.getSimilarList(MISSING_FAQ, 3)).thenReturn(List.of());
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("게스트 답변"));
 	}

@@ -35,9 +35,12 @@ src/main/resources/
 | `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig` | 빈 값 (사용할 모델 지정) | YAML에는 없음. `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
+| `LLM_PROVIDER` | `LlmConfig`: 채팅 답변을 만들 LLM 서버. `ollama`(개발) 또는 `openai-compatible`(운영 vLLM) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
+| `LLM_BASE_URL` | `LlmConfig`: `LLM_PROVIDER=openai-compatible`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
+| `LLM_MODEL` | `LlmConfig`: `LLM_PROVIDER=openai-compatible`일 때 요청에 넣는 모델 이름. vLLM의 served model name과 같아야 함 | `ubot-chat` | `ubot-chat` |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
-| `CHAT_TOP_K` | `ChatService`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
-| `CHAT_CONFIDENCE_THRESHOLD` | `ChatService`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
+| `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
+| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
 | `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingService` | `3s` | `3s` |
@@ -65,7 +68,7 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 | `kakao.directions.read-timeout` | `5s` | `KakaoDirectionsClient` |
 | `prompt.faq.system-location` | `classpath:prompts/faq-system.txt` | `PromptService` |
 | `prompt.faq.user-location` | `classpath:prompts/faq-user.txt` | `PromptService` |
-| `spring.ai.ollama.chat.options.model` | 없음 (`OLLAMA_CHAT_MODEL`로 대체) | `LlmConfig`, `ChatAttemptsService`(시도 기록의 `llm_model`) |
+| `spring.ai.ollama.chat.options.model` | 없음 (`OLLAMA_CHAT_MODEL`로 대체) | `LlmConfig` |
 
 ### 키가 있지만 값이 비어 있을 때
 
@@ -196,6 +199,16 @@ Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한
 모델명이 비어 있어도 모듈 생성 시 외부 서버에 접속하지 않습니다. 실제 호출 시에는
 `LLM_MODEL_NOT_CONFIGURED` 오류를 반환합니다. 사용할 모델을 Ollama에 미리 준비하고
 모델명을 설정하세요. 이 모듈은 모델을 자동 다운로드하거나 요청을 자동 재시도하지 않습니다.
+
+`LLM_PROVIDER=openai-compatible`이면 `LlmConfig`가 `OllamaClient` 대신 `OpenAiCompatibleLlmClient`를 등록해
+`LLM_BASE_URL`의 OpenAI 호환 API를 `LLM_MODEL`로 호출합니다. 제한 시간은 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
+임베딩은 이 값과 관계없이 Ollama를 호출합니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#llm-provider-선택)에 있습니다.
+
+`infra/llm/.env`에도 `LLM_MODEL`이 있지만 뜻이 다릅니다. 그쪽은 vLLM이 불러올 Hugging Face 모델(`Qwen/Qwen3-4B-AWQ`)이고,
+백엔드의 `LLM_MODEL`은 그 서버가 API에 내보이는 이름(`LLM_SERVED_MODEL_NAME`, 기본 `ubot-chat`)입니다.
+
+답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 provider의 모델 이름이 남습니다.
+`ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.
 
 현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
 전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,

@@ -17,6 +17,7 @@ import com.ubot.unanswered.exception.UnansweredException;
 import com.ubot.unanswered.repository.UnansweredQuestionGroupRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -29,6 +30,7 @@ import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UnansweredGroupService {
 	private static final Set<Integer> ALLOWED_PAGE_SIZES = Set.of(10, 20, 50);
 	private static final Map<String, Sort> SORTS = Map.of(
@@ -77,6 +79,7 @@ public class UnansweredGroupService {
 			throw new UnansweredException(UnansweredErrorCode.UNANSWERED_GROUP_ALREADY_RESOLVED);
 		}
 		group.updateStatus(requestDto.status());
+		log.info("미응답 질문 그룹 상태를 변경했습니다: 그룹ID={}, 상태={}", groupId, requestDto.status());
 		return UnansweredGroupResponseDto.from(group);
 	}
 
@@ -101,6 +104,7 @@ public class UnansweredGroupService {
 		);
 
 		group.resolve(faq.id());
+		log.info("미응답 질문 그룹을 FAQ로 전환했습니다: 그룹ID={}, FAQID={}, 관리자ID={}", groupId, faq.id(), adminId);
 		return UnansweredGroupResponseDto.from(group);
 	}
 

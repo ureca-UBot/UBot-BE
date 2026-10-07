@@ -7,6 +7,7 @@ import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,6 +15,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserService {
 	private final UserRepository userRepository;
 
@@ -53,6 +55,7 @@ public class UserService {
 				requestDto.gender(),
 				requestDto.residenceArea()
 		);
+		log.info("회원 정보를 수정했습니다: 사용자ID={}", userId);
 		return UserResponseDto.from(user);
 	}
 }
