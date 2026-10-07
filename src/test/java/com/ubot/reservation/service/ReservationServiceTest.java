@@ -209,6 +209,23 @@ class ReservationServiceTest {
 	}
 
 	@Test
+	@DisplayName("취소와 관리자 상태 변경이 동시에 와도 하나만 반영된다")
+	void appliesOnlyOneOfConcurrentStatusChanges() throws Exception {
+		Long reservationId = reservationService.createReservation(userId, request(10)).reservationId();
+
+		List<Object> results = runConcurrently(
+				() -> reservationService.cancelReservation(userId, reservationId),
+				() -> reservationService.updateReservationStatus(reservationId, ReservationStatus.COMPLETED));
+
+		assertThat(results).filteredOn(ReservationResponseDto.class::isInstance).hasSize(1);
+		ReservationResponseDto winner = (ReservationResponseDto) results.stream()
+				.filter(ReservationResponseDto.class::isInstance).findFirst().orElseThrow();
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT status FROM store_reservations WHERE reservation_id = ?", String.class, reservationId))
+				.isEqualTo(winner.status().name());
+	}
+
+	@Test
 	@DisplayName("알림을 읽음 처리한다")
 	void readsNotification() {
 		reservationService.createReservation(userId, request(10));

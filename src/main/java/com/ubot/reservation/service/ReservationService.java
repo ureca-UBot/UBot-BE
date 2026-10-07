@@ -106,7 +106,7 @@ public class ReservationService {
 
 	@Transactional
 	public ReservationResponseDto cancelReservation(Long userId, Long reservationId){
-		StoreReservation reservation = storeReservationRepository.findByReservationIdAndUserId(reservationId, userId)
+		StoreReservation reservation = storeReservationRepository.findByReservationIdAndUserIdForUpdate(reservationId, userId)
 				.orElseThrow(() -> new ReservationException(ReservationErrorCode.RESERVATION_NOT_FOUND));
 		if(reservation.getStatus() != ReservationStatus.RESERVED || !reservation.getVisitAt().isAfter(LocalDateTime.now())){
 			throw new ReservationException(ReservationErrorCode.RESERVATION_NOT_CANCELABLE);
@@ -143,7 +143,7 @@ public class ReservationService {
 
 	@Transactional
 	public ReservationResponseDto updateReservationStatus(Long reservationId, ReservationStatus status){
-		StoreReservation reservation = storeReservationRepository.findById(reservationId)
+		StoreReservation reservation = storeReservationRepository.findByIdForUpdate(reservationId)
 				.orElseThrow(() -> new ReservationException(ReservationErrorCode.RESERVATION_NOT_FOUND));
 		if(!ADMIN_STATUSES.contains(status) || reservation.getStatus() != ReservationStatus.RESERVED){
 			throw new ReservationException(ReservationErrorCode.INVALID_STATUS_CHANGE);
