@@ -697,6 +697,88 @@ Concurrency 예:
 
 ---
 
+# Embedding 서버
+
+Backend의 `EMBEDDING_PROVIDER=openai-compatible`이 호출하는 임베딩 서버입니다. 답변 생성 서버와 별도 Compose Profile(`embedding`)로 실행합니다.
+
+```text
+Model
+→ BAAI/bge-m3
+
+Served Model Name
+→ ubot-embedding
+
+Port
+→ 8001
+
+OpenAI Compatible API
+→ /v1/models
+→ /v1/embeddings
+```
+
+시작:
+
+```powershell
+docker compose `
+  -f .\infra\llm\docker-compose.yml `
+  --env-file .\infra\llm\.env `
+  --profile embedding `
+  up -d
+```
+
+종료:
+
+```powershell
+docker compose `
+  -f .\infra\llm\docker-compose.yml `
+  --env-file .\infra\llm\.env `
+  --profile embedding `
+  down
+```
+
+확인:
+
+```powershell
+curl.exe http://localhost:8001/v1/models
+```
+
+Backend 연결 테스트는 임베딩 서버를 띄운 상태에서 Repository 루트에서 실행합니다.
+
+```powershell
+$env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
+.\gradlew.bat test --tests 'com.ubot.embedding.client.OpenAiCompatibleEmbeddingClientLiveTest'
+```
+
+실행 옵션:
+
+```text
+--runner pooling
+→ 임베딩 모델로 실행
+
+--hf-overrides '{"architectures":["BgeM3EmbeddingModel"]}'
+--pooler-config.task embed
+→ bge-m3의 dense 임베딩(1024차원, 정규화됨) 사용
+
+--max-model-len 8192
+→ 8192 토큰을 넘는 입력은 잘라서 처리하지 않고 400으로 거절
+```
+
+주의:
+
+```text
+EMBEDDING_MODEL (infra/llm/.env)
+→ vLLM이 불러올 Hugging Face 모델
+
+EMBEDDING_MODEL (Backend .env)
+→ 요청에 넣는 Served Model Name (ubot-embedding)
+```
+
+답변 생성 서버와 같은 GPU에 띄울 때는 `VLLM_GPU_MEMORY_UTILIZATION`과 `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`의 합이 GPU 여유 메모리를 넘지 않게 조정합니다.
+
+Backend 설정은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-provider-선택)에 있습니다.
+
+---
+
 # 검증 완료 항목
 
 현재 로컬에서 확인한 항목:
@@ -730,30 +812,40 @@ Backend 일반 답변 연결               ✅
 Backend 매장 조회 Tool Calling 연결   ✅
 ```
 
+vLLM `v0.31.0` + BAAI/bge-m3 임베딩 서버, 로컬 RTX 3060 12GB에서 확인한 항목 (2026-10-07):
+
+```text
+/v1/models (ubot-embedding)          ✅
+/v1/embeddings 1024차원, 정규화       ✅
+Batch 요청의 index 순서               ✅
+질문 최대 길이(4,000자) 입력           ✅
+Backend 임베딩 연결 테스트            ✅
+```
+
 AWS L4 환경에서는 아직 확인하지 않았습니다.
 
 ---
 
-# 예정된 Serving 구조
+# Serving 구조
 
-Chat, Embedding, Reranker는 Port와 Served Model Name을 나눠서 운영할 예정입니다.
+Chat, Embedding, Reranker는 Port와 Served Model Name을 나눠서 운영합니다.
 
 ```text
 :8000
 ubot-chat
-→ Generation (현재)
+→ Generation (구성됨)
 
 :8001
 ubot-embedding
-→ Embedding (예정)
+→ Embedding (구성됨)
 
 :8002
 ubot-reranker
 → Reranker (예정)
 ```
 
-`8001`, `8002` 서비스는 아직 구성하지 않았습니다.
+`8002` 서비스는 아직 구성하지 않았습니다.
 
-Embedding은 현재 Ollama 기반 구성을 그대로 유지합니다.
+Backend는 기본값으로 Ollama 임베딩을 씁니다. 운영 DB의 벡터는 Ollama로 만든 값이므로, 벡터 관리 작업이 끝나기 전에는 Backend의 `EMBEDDING_PROVIDER`를 바꾸지 않습니다.
 
-Backend 설정 이름과 전환 시 지켜야 할 절차는 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-provider-전환-기반-예정)에 있습니다.
+Backend 설정 이름과 전환 계획은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-provider-선택)에 있습니다.

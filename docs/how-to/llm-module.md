@@ -125,7 +125,7 @@ LLM_MODEL=ubot-chat
 - 생성 옵션(temperature, Thinking Mode 등)은 요청에 넣지 않고 서버 기본 설정을 따릅니다. Qwen3의 Thinking Mode는 `infra/llm`의 `VLLM_ENABLE_THINKING`(기본 `false`)으로 정합니다. Thinking을 켠 서버에서 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다.
 - 실패는 Ollama와 같은 `LlmErrorCode`로 바꿉니다. 서버가 4xx·5xx로 응답하면 `LLM-003`으로 처리하고, 상태 코드와 응답 본문 앞부분을 경고 로그에 남깁니다.
 - `LLM_PROVIDER`가 `ollama`나 `openai-compatible`이 아니면 `LlmClient` 빈이 없어 애플리케이션이 뜨지 않습니다.
-- 임베딩은 `LLM_PROVIDER`와 관계없이 Ollama를 호출합니다(`EmbeddingService`). 운영에서 vLLM으로 답변을 만들더라도 임베딩용 Ollama는 계속 떠 있어야 합니다.
+- 임베딩 서버는 `LLM_PROVIDER`와 관계없이 `EMBEDDING_PROVIDER`로 따로 정합니다([Embedding Provider 선택](#embedding-provider-선택)). 기본값이 Ollama라서, 운영에서 vLLM으로 답변을 만들더라도 임베딩을 전환하기 전까지는 임베딩용 Ollama가 계속 떠 있어야 합니다.
 - 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 구현체가 요청에 넣는 모델 이름이 남습니다. `ChatAttemptsService`가 설정을 직접 읽지 않고 `LlmService.getModelName()`으로 받습니다. `ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.
 - `LLM_MODEL`은 서버가 내보이는 이름(served model name)입니다. vLLM 서버에서 실제 모델을 바꿔도 이 이름이 같으면 시도 기록에는 같은 값이 남습니다.
 - 스트리밍(SSE), provider별 생성 옵션 추상화, SGLang 연동은 구현하지 않았습니다.
@@ -139,32 +139,60 @@ $env:LLM_LIVE_BASE_URL = "http://localhost:8000/v1"
 .\gradlew.bat test --tests 'com.ubot.llm.client.OpenAiCompatibleLlmClientLiveTest'
 ```
 
-### Embedding Provider 전환 기반 (예정)
+### Embedding Provider 선택
 
-지금은 임베딩 코드를 바꾸지 않고 Ollama(`EmbeddingService` → `/api/embed`)를 그대로 씁니다.
-나중에 vLLM 임베딩으로 바꿀 때 설정 이름과 포트가 다시 바뀌지 않도록 아래 계약만 미리 정해 둡니다. 아직 코드와 서버는 없습니다.
+임베딩도 `EMBEDDING_PROVIDER`에 따라 `EmbeddingClient` 구현체 하나만 빈으로 등록됩니다(`EmbeddingConfig`). 값이 없으면 `ollama`입니다.
+`FaqVectorService`, `UnansweredQuestionService` 같은 호출자는 지금처럼 `EmbeddingService`만 사용합니다.
+
+| `EMBEDDING_PROVIDER` | 구현체 | 호출 대상 |
+|---|---|---|
+| `ollama` (기본) | `OllamaEmbeddingClient` | Ollama `/api/embed` (개발 환경) |
+| `openai-compatible` | `OpenAiCompatibleEmbeddingClient` | OpenAI 호환 `POST {EMBEDDING_BASE_URL}/embeddings` (운영 환경의 vLLM) |
 
 ```properties
-EMBEDDING_PROVIDER=ollama|openai-compatible
+EMBEDDING_PROVIDER=openai-compatible
 EMBEDDING_BASE_URL=http://<GPU_HOST>:8001/v1
 EMBEDDING_MODEL=ubot-embedding
+EMBEDDING_CONNECT_TIMEOUT=3s
+EMBEDDING_READ_TIMEOUT=30s
 ```
+
+- Ollama는 기존 설정(`OLLAMA_BASE_URL`, `OLLAMA_EMBEDDING_MODEL`, `OLLAMA_CONNECT_TIMEOUT`, `OLLAMA_READ_TIMEOUT`)과 요청 옵션(`num_ctx=4096`, `keep_alive=30m`)을 그대로 씁니다. `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`, `EMBEDDING_*_TIMEOUT`은 `openai-compatible` 전용입니다.
+- `EMBEDDING_BASE_URL`은 `/v1`까지 적고, `EMBEDDING_MODEL`은 서버의 served model name과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md#embedding-서버)에 있습니다.
+- 차원은 설정이 아니라 1024로 고정입니다(DB 컬럼 `vector(1024)`). 응답이 1024차원이 아니거나, 입력과 개수가 다르거나, 유한하지 않은 값이 있으면 `EM-002`로 거절합니다.
+- 실패는 두 구현체가 같은 `EmbeddingErrorCode`로 바꿉니다. 연결 실패와 응답 지연은 `EM-003`, 서버의 4xx·5xx 응답은 `EM-001`입니다. OpenAI 호환 구현체는 4xx·5xx일 때 상태 코드와 응답 본문 앞부분을 경고 로그에 남깁니다.
+- vLLM은 8192 토큰을 넘는 입력을 잘라서 처리하지 않고 400으로 거절하며, 이때는 `EM-001`이 됩니다. 채팅 질문 최대 길이인 4,000자 한국어 문장은 처리되는 것을 확인했습니다.
+- 답변 시도 기록(`answer_attempts_history.embedding_model`)에는 선택된 구현체가 요청에 넣는 모델 이름이 남습니다. `ollama`면 `OLLAMA_EMBEDDING_MODEL`, `openai-compatible`이면 `EMBEDDING_MODEL` 값입니다.
+- `EMBEDDING_PROVIDER`가 `ollama`나 `openai-compatible`이 아니면 `EmbeddingClient` 빈이 없어 애플리케이션이 뜨지 않습니다.
+
+두 구현체가 같은 동작을 하는지는 공통 계약 테스트(`EmbeddingClientContractTest`)로 확인합니다.
+실제 임베딩 서버로 확인하려면 서버를 띄운 뒤 아래처럼 실행합니다. 이 테스트는 `EMBEDDING_LIVE_BASE_URL`이 있을 때만 실행됩니다.
+
+```powershell
+$env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
+.\gradlew.bat test --tests 'com.ubot.embedding.client.OpenAiCompatibleEmbeddingClientLiveTest'
+```
+
+#### 지금은 Provider를 전환하지 않습니다
+
+저장된 벡터(FAQ, 미응답 질문, 미응답 묶음 중심)는 Ollama로 만든 값입니다. 같은 `bge-m3`여도 서버가 다르면 벡터가 호환된다고 가정하지 않으므로, 기존 DB에서 `EMBEDDING_PROVIDER`를 바꾸면 다른 서버로 만든 질문 벡터와 섞입니다.
+실제 전환은 아래 벡터 관리 작업이 끝난 뒤에 합니다.
+
+#### 벡터 관리 계획 (예정)
+
+임베딩 모델은 `bge-m3`(1024차원)를 그대로 쓰고, 서버만 Ollama와 vLLM 두 가지를 씁니다.
+
+- 벡터를 만든 설정(provider, 모델 이름, 차원, 버전)을 Embedding Profile로 두고, FAQ 벡터와 미응답 벡터를 Profile별로 따로 보관합니다. 서버를 바꿀 때 기존 벡터를 덮어쓰지 않습니다.
+- 어느 Profile을 쓸지는 DB가 아니라 `EMBEDDING_PROVIDER` 설정이 정합니다. 질문 임베딩과 벡터 검색에 항상 같은 Profile을 씁니다.
+- FAQ를 추가하거나 고치면 그때 설정된 서버의 벡터만 만들어집니다. 그래서 백엔드가 시작할 때, 지금 Profile에 벡터가 없거나 그 뒤에 수정된 FAQ만 임베딩해 채웁니다. 이 일은 요청을 받기 전에 끝냅니다.
+- 기존 벡터는 처음 한 번 Ollama Profile로 복사하고, 기존 컬럼은 후속 마이그레이션에서 제거합니다.
+- 서버를 바꾸거나 되돌릴 때는 `EMBEDDING_PROVIDER`를 바꾸고 백엔드를 재시작합니다.
 
 | 포트 | served model name | 역할 |
 |---|---|---|
 | `8000` | `ubot-chat` | 답변 생성 (연결됨) |
-| `8001` | `ubot-embedding` | 임베딩 (예정) |
+| `8001` | `ubot-embedding` | 임베딩 (구현체와 서버 구성 완료, 전환 전) |
 | `8002` | `ubot-reranker` | Reranker (예정) |
-
-Provider나 임베딩 모델을 바꿀 때는 기존 벡터와 새 질문 벡터를 섞어 쓰지 않습니다.
-같은 `bge-m3`, 같은 1024차원이어도 provider가 바뀌면 호환된다고 가정하지 않습니다.
-
-1. 같은 입력으로 Ollama와 vLLM의 임베딩을 비교합니다(차원, 정규화 여부, 값 차이).
-2. 검색 결과와 기존 평가 질문셋 결과를 비교합니다.
-3. 벡터 컬럼을 모두 다시 임베딩합니다: `faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`.
-4. 그 뒤에 provider를 전환합니다.
-
-`EmbeddingClient` 추상화와 vLLM 임베딩 구현은 별도 이슈에서 진행합니다.
 
 ## 오류 연결
 

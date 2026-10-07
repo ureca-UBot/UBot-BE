@@ -43,8 +43,13 @@ src/main/resources/
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
 | `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
-| `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingService` | `3s` | `3s` |
-| `OLLAMA_READ_TIMEOUT` | `EmbeddingService` | `10s` | `10s` |
+| `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |
+| `OLLAMA_READ_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 응답 제한 시간 | `10s` | `10s` |
+| `EMBEDDING_PROVIDER` | `EmbeddingConfig`: 임베딩 서버. `ollama`(개발) 또는 `openai-compatible`(운영 vLLM) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
+| `EMBEDDING_BASE_URL` | `EmbeddingConfig`: `EMBEDDING_PROVIDER=openai-compatible`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8001/v1` | `http://localhost:8001/v1` |
+| `EMBEDDING_MODEL` | `EmbeddingConfig`: `EMBEDDING_PROVIDER=openai-compatible`일 때 요청에 넣는 모델 이름. 서버의 served model name과 같아야 함 | `ubot-embedding` | `ubot-embedding` |
+| `EMBEDDING_CONNECT_TIMEOUT` | `EmbeddingConfig`: `openai-compatible` 임베딩 연결 제한 시간 | `3s` | `3s` |
+| `EMBEDDING_READ_TIMEOUT` | `EmbeddingConfig`: `openai-compatible` 임베딩 응답 제한 시간 | `30s` | `30s` |
 | `KAKAO_REST_API_KEY` | `KakaoLocalClient`(주소 검색), `KakaoDirectionsClient`(길찾기) | 빈 값 | 없음 |
 | `JWT_SECRET` | `JwtUtil` | 안내 문구 (**변경 필수**) | 없음 |
 | `JWT_ACCESS_TOKEN_EXPIRATION_MILLIS` | `JwtUtil` | `600000` (10분) | `3600000` (1시간) |
@@ -142,7 +147,7 @@ FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니�
 | 설정 키 | 읽는 주체 | 용도 |
 |---|---|---|
 | `spring.ai.ollama.*` | Spring AI 자동 구성, `LlmConfig` | LLM 채팅. 서비스 호출에는 `LlmConfig`의 전용 모델 인스턴스 사용 |
-| `ollama.*` | `EmbeddingService` | 임베딩 생성 (`/api/embed` 직접 호출) |
+| `ollama.*` | `EmbeddingConfig` (`OllamaEmbeddingClient`) | 임베딩 생성 (`/api/embed` 직접 호출). `EMBEDDING_PROVIDER=ollama`일 때만 사용 |
 
 `ollama.*`에는 `base-url`, `embedding.model`, `connect-timeout`, `read-timeout`이 있습니다. 왜 이렇게 나뉘어 있는지는 [architecture.md](../architecture.md#spring-ai를-쓰는-범위)를 참고하세요.
 
@@ -171,7 +176,8 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | 인증 없이 호출 가능한 경로, `ADMIN` 경로 | [architecture.md#인증](../architecture.md#인증) | `SecurityConfig` |
 | 채팅 질문 최대 길이 | 4000자 | `ChatRequestDto`, `ChatService` |
 | 채팅 답변 생성 Executor | 가상 스레드, 동시 처리 수 제한 없음, 종료 대기 150초 | `AsyncConfig` |
-| 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `EmbeddingService` |
+| Ollama 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `OllamaEmbeddingClient` |
+| 임베딩 차원 | 1024 (DB 컬럼 `vector(1024)`와 같음). 다른 차원의 응답은 거절 | `EmbeddingClient` |
 | Nginx 프록시 응답 제한 시간 | `180s` | `infra/nginx/nginx.conf` |
 | Nginx `/chat/`·`/api/chat/` 게스트 요청 속도 제한 (IP별, `Authorization: Bearer …`가 없는 요청) | `CHAT_GUEST_RATE_LIMIT_RATE`(기본 `30r/m`), `CHAT_GUEST_RATE_LIMIT_BURST`(기본 `10`) | `.env`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` |
 | 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
@@ -202,13 +208,27 @@ Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한
 
 `LLM_PROVIDER=openai-compatible`이면 `LlmConfig`가 `OllamaClient` 대신 `OpenAiCompatibleLlmClient`를 등록해
 `LLM_BASE_URL`의 OpenAI 호환 API를 `LLM_MODEL`로 호출합니다. 제한 시간은 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
-임베딩은 이 값과 관계없이 Ollama를 호출합니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#llm-provider-선택)에 있습니다.
+임베딩 서버는 이 값과 관계없이 `EMBEDDING_PROVIDER`로 따로 고릅니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#llm-provider-선택)에 있습니다.
 
 `infra/llm/.env`에도 `LLM_MODEL`이 있지만 뜻이 다릅니다. 그쪽은 vLLM이 불러올 Hugging Face 모델(`Qwen/Qwen3-4B-AWQ`)이고,
 백엔드의 `LLM_MODEL`은 그 서버가 API에 내보이는 이름(`LLM_SERVED_MODEL_NAME`, 기본 `ubot-chat`)입니다.
 
 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 provider의 모델 이름이 남습니다.
 `ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.
+
+## 임베딩 호출 모듈 설정
+
+`EmbeddingConfig`는 `EMBEDDING_PROVIDER`에 따라 `EmbeddingClient` 구현체 하나만 등록합니다.
+`ollama`(기본)면 `OllamaEmbeddingClient`가 기존과 같이 `ollama.*` 설정으로 `/api/embed`를 호출하고,
+`openai-compatible`이면 `OpenAiCompatibleEmbeddingClient`가 `EMBEDDING_BASE_URL`의 `/embeddings`를 `EMBEDDING_MODEL`로 호출합니다.
+모듈을 만들 때는 외부 서버에 접속하지 않습니다.
+
+두 구현체 모두 응답이 1024차원이 아니거나 유한하지 않은 값이 있으면 `EM-002`로 거절합니다.
+답변 시도 기록(`answer_attempts_history.embedding_model`)에는 선택된 provider의 모델 이름이 남습니다.
+`ollama`면 `OLLAMA_EMBEDDING_MODEL`, `openai-compatible`이면 `EMBEDDING_MODEL` 값입니다.
+
+저장된 벡터는 Ollama로 만든 값입니다. 기존 DB에서 `EMBEDDING_PROVIDER`를 바꾸면 다른 서버로 만든 질문 벡터와 섞이므로,
+벡터 관리 작업이 끝나기 전에는 바꾸지 않습니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#embedding-provider-선택)에 있습니다.
 
 현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
 전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,

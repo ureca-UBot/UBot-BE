@@ -21,6 +21,7 @@ import com.ubot.guest.repository.GuestChatSettingsRepository;
 import com.ubot.guest.session.GuestConversationService;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
+import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.enums.Intent;
@@ -70,6 +71,7 @@ class ChatServiceTest {
 	GuestChatSettingsRepository guestSettings = mock(GuestChatSettingsRepository.class);
 	PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
 	LlmService llmService = mock(LlmService.class);
+	EmbeddingService embeddingService = mock(EmbeddingService.class);
 	List<AnswerAttemptsHistory> saved = new ArrayList<>();
 	Deque<Runnable> jobs = new ArrayDeque<>();
 	ChatService service;
@@ -107,8 +109,9 @@ class ChatServiceTest {
 		});
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
 		when(llmService.getModelName()).thenReturn("recorded-chat-model");
+		when(embeddingService.getModelName()).thenReturn("recorded-embedding-model");
 		attemptsService = new ChatAttemptsService(
-				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, tx);
+				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, embeddingService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
 				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
@@ -297,6 +300,14 @@ class ChatServiceTest {
 		var retry = attemptsService.createRetryAttempt(1L, first.getIdempotencyKey());
 		assertThat(List.of(first, retry)).extracting(AnswerAttemptsHistory::getLlmModel)
 				.containsOnly("recorded-chat-model");
+	}
+
+	@Test void attemptsRecordModelNameReportedByEmbeddingService() {
+		var first = attemptsService.createAnswerAttempt(1L, "질문");
+		attemptsService.saveAnswerFailure(first, ChatErrorCode.NO_FAQ);
+		var retry = attemptsService.createRetryAttempt(1L, first.getIdempotencyKey());
+		assertThat(List.of(first, retry)).extracting(AnswerAttemptsHistory::getEmbeddingModel)
+				.containsOnly("recorded-embedding-model");
 	}
 
 	@Test void retryRejectsUnknownKey() {
