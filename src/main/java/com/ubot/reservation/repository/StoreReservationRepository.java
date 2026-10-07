@@ -44,6 +44,9 @@ public interface StoreReservationRepository
 	@EntityGraph(attributePaths = "store")
 	Optional<StoreReservation> findByReservationIdAndUserId(Long reservationId, Long userId);
 
+	@Query(value = "SELECT user_id FROM users WHERE user_id = :userId FOR UPDATE", nativeQuery = true)
+	Long lockUser(@Param("userId") Long userId);
+
 	@Override
 	@EntityGraph(attributePaths = "store")
 	Page<StoreReservation> findAll(Specification<StoreReservation> spec, Pageable pageable);

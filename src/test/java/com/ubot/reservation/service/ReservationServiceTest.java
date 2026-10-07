@@ -8,7 +8,15 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -183,6 +191,24 @@ class ReservationServiceTest {
 	}
 
 	@Test
+	@DisplayName("같은 사용자가 동시에 예약해도 진행 중 예약은 3건을 넘지 않는다")
+	void keepsActiveLimitUnderConcurrentRequests() throws Exception {
+		reservationService.createReservation(userId, request(10));
+		reservationService.createReservation(userId, request(11));
+		LocalDate nextDate = visitDate.plusDays(1).getDayOfWeek() == DayOfWeek.SUNDAY ? visitDate.plusDays(2) : visitDate.plusDays(1);
+
+		List<Object> results = runConcurrently(
+				() -> reservationService.createReservation(userId, request(12)),
+				() -> reservationService.createReservation(userId, request(nextDate.atTime(10, 0))));
+
+		assertThat(results).filteredOn(ReservationResponseDto.class::isInstance).hasSize(1);
+		assertThat(results).contains(ReservationErrorCode.RESERVATION_LIMIT_EXCEEDED);
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM store_reservations WHERE user_id = ? AND status = 'RESERVED'", Integer.class, userId))
+				.isEqualTo(3);
+	}
+
+	@Test
 	@DisplayName("알림을 읽음 처리한다")
 	void readsNotification() {
 		reservationService.createReservation(userId, request(10));
@@ -197,6 +223,32 @@ class ReservationServiceTest {
 
 	private ReservationCreateRequestDto request(LocalDateTime visitAt) {
 		return new ReservationCreateRequestDto(storeId, ReservationPurpose.PLAN_CHANGE, visitAt);
+	}
+
+	private List<Object> runConcurrently(Callable<Object> first, Callable<Object> second) throws Exception {
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		CountDownLatch start = new CountDownLatch(1);
+		try {
+			List<Future<Object>> futures = new ArrayList<>();
+			for (Callable<Object> task : List.of(first, second)) {
+				futures.add(executor.submit(() -> {
+					start.await();
+					try {
+						return task.call();
+					} catch (ReservationException e) {
+						return e.getErrorCode();
+					}
+				}));
+			}
+			start.countDown();
+			List<Object> results = new ArrayList<>();
+			for (Future<Object> future : futures) {
+				results.add(future.get(30, TimeUnit.SECONDS));
+			}
+			return results;
+		} finally {
+			executor.shutdownNow();
+		}
 	}
 
 	private Long user() {

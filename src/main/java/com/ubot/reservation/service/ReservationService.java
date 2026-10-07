@@ -75,6 +75,7 @@ public class ReservationService {
 		Store store = findActiveStore(requestDto.storeId());
 		LocalDateTime visitAt = requestDto.visitAt();
 		validateVisitTime(store, visitAt);
+		storeReservationRepository.lockUser(userId);
 		if(storeReservationRepository.existsByStore_StoreIdAndVisitAtAndStatus(store.getStoreId(), visitAt, ReservationStatus.RESERVED)
 				|| storeReservationRepository.existsByUserIdAndVisitAtAndStatus(userId, visitAt, ReservationStatus.RESERVED)){
 			throw new ReservationException(ReservationErrorCode.RESERVATION_SLOT_UNAVAILABLE);
