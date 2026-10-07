@@ -168,6 +168,21 @@ class ReservationServiceTest {
 	}
 
 	@Test
+	@DisplayName("영업시간이 정각이 아니어도 조회된 시간에 예약할 수 있다")
+	void reservesSlotOfHalfHourBusinessHours() {
+		Long halfHourStoreId = jdbcTemplate.queryForObject(
+				"INSERT INTO stores (store_name, address, latitude, longitude, business_hours) VALUES (?, ?, 37.5, 127.0, '10:30-13:30') RETURNING store_id",
+				Long.class, "예약테스트점-" + UUID.randomUUID(), "서울 테스트로 " + UUID.randomUUID());
+
+		assertThat(reservationService.getReservationSlotList(halfHourStoreId, visitDate))
+				.extracting(ReservationSlotResponseDto::time)
+				.containsExactly(LocalTime.of(10, 30), LocalTime.of(11, 30), LocalTime.of(12, 30));
+		assertThat(reservationService.createReservation(userId, new ReservationCreateRequestDto(
+				halfHourStoreId, ReservationPurpose.PLAN_CHANGE, visitDate.atTime(10, 30))).status())
+				.isEqualTo(ReservationStatus.RESERVED);
+	}
+
+	@Test
 	@DisplayName("알림을 읽음 처리한다")
 	void readsNotification() {
 		reservationService.createReservation(userId, request(10));

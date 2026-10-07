@@ -155,9 +155,7 @@ public class ReservationService {
 	}
 
 	private void validateVisitTime(Store store, LocalDateTime visitAt){
-		boolean onTheHour = visitAt.getMinute() == 0 && visitAt.getSecond() == 0 && visitAt.getNano() == 0;
-		if(!onTheHour
-				|| !isReservableDate(visitAt.toLocalDate())
+		if(!isReservableDate(visitAt.toLocalDate())
 				|| !visitAt.isAfter(LocalDateTime.now())
 				|| !getSlotTimeList(store.getBusinessHours()).contains(visitAt.toLocalTime())){
 			throw new ReservationException(ReservationErrorCode.INVALID_VISIT_TIME);
