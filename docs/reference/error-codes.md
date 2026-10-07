@@ -140,11 +140,12 @@
 | `CHAT-019` | 409 | `ALREADY_RESEARCHED` | 이미 해당 의도로 재검색한 질문입니다. |
 
 
-- `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다.
+- `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다. 의도 재검색으로 만들어진 답변 시도는 재시도할 수 없어 `CHAT-007`을 반환합니다.
 - `CHAT-006`의 메시지는 `CHAT_MAX_ATTEMPTS` 설정과 관계없이 "최대 3회"로 고정되어 있습니다.
 - `CHAT-016`은 `CHAT_RESPONSE_TIMEOUT_MILLIS`(기본 180초) 초과입니다. 재시도할 수 있습니다.
-- `CHAT-017`은 비로그인 게스트가 한 세션에서 `guest_chat_settings.max_question_count`(기본 5)를 모두 쓴 뒤에 반환합니다. 정상 답변을 받은 질문과 FAQ를 찾지 못한 질문(`CHAT-012`·`CHAT-013`)만 횟수에 포함하고, 시스템 오류로 실패한 질문과 같은 질문의 재시도는 포함하지 않습니다. 횟수를 다 쓴 뒤에도 이미 한 질문의 재시도는 `CHAT_MAX_ATTEMPTS` 안에서 가능합니다. 최대 횟수는 관리자가 `PATCH /admin/guest-chat-settings`로 바꿀 수 있습니다. 이때 `data`는 `null`입니다.
-- `CHAT-012`·`CHAT-013`으로 끝난 질문은 미응답 질문으로 저장됩니다([architecture.md](../architecture.md#미응답-질문-저장-105)).
+- `CHAT-017`은 비로그인 게스트가 한 세션에서 `guest_chat_settings.max_question_count`(기본 5)를 모두 쓴 뒤에 반환합니다. 정상 답변을 받은 질문과 FAQ를 찾지 못한 질문(`CHAT-012`·`CHAT-013`)만 횟수에 포함하고, 시스템 오류로 실패한 질문과 같은 질문의 재시도, 의도 재검색은 포함하지 않습니다. 횟수를 다 쓴 뒤에도 이미 한 질문의 재시도는 `CHAT_MAX_ATTEMPTS` 안에서 가능합니다. 최대 횟수는 관리자가 `PATCH /admin/guest-chat-settings`로 바꿀 수 있습니다. 이때 `data`는 `null`입니다.
+- `CHAT-012`·`CHAT-013`으로 끝난 질문은 미응답 질문으로 저장됩니다([architecture.md](../architecture.md#미응답-질문-저장-105)). 다만 의도 재검색 요청이 같은 사유로 실패한 경우는 사용자가 의도를 직접 골라 요청한 것이므로 저장하지 않습니다.
+- `CHAT-018`·`CHAT-019`는 의도 재검색 요청(`/chat/questions/research`)의 거절 사유입니다. 답변이 성공하지 않았거나 이미 재검색으로 만들어진 답변은 `CHAT-018`, 같은 질문을 같은 의도로 이미 재검색했다면 `CHAT-019`를 반환합니다. 재검색할 원본 질문을 찾을 수 없으면 `CHAT-003`을 반환합니다.
 - 배포 환경에서는 Nginx가 `/chat/`의 게스트 요청을 IP별로 제한하며(회원 요청은 제한 없음), 넘으면 백엔드를 거치지 않고 `429 RATE-001`("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")을 같은 응답 형식으로 반환합니다([deploy.md](../deploy.md)).
 - 증상별 확인 방법은 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 참고하세요.
 
