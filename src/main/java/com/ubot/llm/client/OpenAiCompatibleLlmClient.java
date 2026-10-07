@@ -103,6 +103,11 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 		return new LlmResponseDto(answer);
 	}
 
+	@Override
+	public String getModelName() {
+		return modelName;
+	}
+
 	/** LLM이 도구를 요청하는 동안, 도구 실행 결과를 대화에 붙여 다시 호출합니다. */
 	private Completion completeWithTools(List<Message> messages, LlmRequestDto request) {
 		ToolCallingChatOptions options = ToolCallingChatOptions.builder()

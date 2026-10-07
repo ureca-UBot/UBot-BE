@@ -130,6 +130,18 @@ class LlmConfigTest {
     }
 
     @Test
+    void reportsModelNameOfSelectedProvider() {
+        // 두 모델명이 모두 설정돼 있어도, 시도 기록에 남길 이름은 선택된 provider의 것입니다.
+        var runner = contextRunner.withPropertyValues("OLLAMA_CHAT_MODEL=ollama-model", "LLM_MODEL=served-model");
+
+        runner.run(context -> assertThat(context.getBean(LlmService.class).getModelName())
+                .isEqualTo("ollama-model"));
+        runner.withPropertyValues("LLM_PROVIDER=openai-compatible")
+                .run(context -> assertThat(context.getBean(LlmService.class).getModelName())
+                        .isEqualTo("served-model"));
+    }
+
+    @Test
     void failsToStartWithUnknownProvider() {
         contextRunner.withPropertyValues("LLM_PROVIDER=unknown")
                 .run(context -> assertThat(context).hasFailed());

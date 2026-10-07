@@ -190,6 +190,18 @@ abstract class LlmClientContractTest {
 		assertThat(server.requests()).isEmpty();
 	}
 
+	@Test
+	void reportsModelNameUsedForRequests() {
+		server.respond(answerResponse("답변"));
+		var client = client();
+
+		client.generateAnswer(question("질문"));
+
+		// 시도 기록에 남기는 이름이 실제 요청에 넣은 모델 이름과 같아야 합니다.
+		assertThat(client.getModelName()).isEqualTo(MODEL_NAME);
+		assertThat(server.requests().getFirst().get("model").asString()).isEqualTo(MODEL_NAME);
+	}
+
 	private LlmClient client() {
 		return createClient(server.url(), MODEL_NAME, Duration.ofSeconds(3));
 	}

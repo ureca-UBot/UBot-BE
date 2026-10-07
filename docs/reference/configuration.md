@@ -68,7 +68,7 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 | `kakao.directions.read-timeout` | `5s` | `KakaoDirectionsClient` |
 | `prompt.faq.system-location` | `classpath:prompts/faq-system.txt` | `PromptService` |
 | `prompt.faq.user-location` | `classpath:prompts/faq-user.txt` | `PromptService` |
-| `spring.ai.ollama.chat.options.model` | 없음 (`OLLAMA_CHAT_MODEL`로 대체) | `LlmConfig`, `ChatAttemptsService`(시도 기록의 `llm_model`) |
+| `spring.ai.ollama.chat.options.model` | 없음 (`OLLAMA_CHAT_MODEL`로 대체) | `LlmConfig` |
 
 ### 키가 있지만 값이 비어 있을 때
 
@@ -206,6 +206,9 @@ Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한
 
 `infra/llm/.env`에도 `LLM_MODEL`이 있지만 뜻이 다릅니다. 그쪽은 vLLM이 불러올 Hugging Face 모델(`Qwen/Qwen3-4B-AWQ`)이고,
 백엔드의 `LLM_MODEL`은 그 서버가 API에 내보이는 이름(`LLM_SERVED_MODEL_NAME`, 기본 `ubot-chat`)입니다.
+
+답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 provider의 모델 이름이 남습니다.
+`ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.
 
 현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
 전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,

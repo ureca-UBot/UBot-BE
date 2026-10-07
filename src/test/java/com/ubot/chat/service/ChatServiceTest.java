@@ -31,6 +31,7 @@ import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.user.entity.User;
@@ -68,6 +69,7 @@ class ChatServiceTest {
 	ConversationRepository conversations = mock(ConversationRepository.class);
 	GuestChatSettingsRepository guestSettings = mock(GuestChatSettingsRepository.class);
 	PlatformTransactionManager tx = mock(PlatformTransactionManager.class);
+	LlmService llmService = mock(LlmService.class);
 	List<AnswerAttemptsHistory> saved = new ArrayList<>();
 	Deque<Runnable> jobs = new ArrayDeque<>();
 	ChatService service;
@@ -104,7 +106,9 @@ class ChatServiceTest {
 			return result;
 		});
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
-		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, conversations, guestSettings, tx);
+		when(llmService.getModelName()).thenReturn("recorded-chat-model");
+		attemptsService = new ChatAttemptsService(
+				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
 				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
@@ -285,6 +289,14 @@ class ChatServiceTest {
 		assertThat(saved).allMatch(a -> a.getIdempotencyKey().equals(key) && a.getStatus().equals("FAIL"));
 		assertChatError(() -> service.retryChat(1L, key, null), ChatErrorCode.LIMIT_REACHED);
 		assertThat(saved).hasSize(maxAttempts);
+	}
+
+	@Test void attemptsRecordModelNameReportedByLlmService() {
+		var first = attemptsService.createAnswerAttempt(1L, "질문");
+		attemptsService.saveAnswerFailure(first, ChatErrorCode.NO_FAQ);
+		var retry = attemptsService.createRetryAttempt(1L, first.getIdempotencyKey());
+		assertThat(List.of(first, retry)).extracting(AnswerAttemptsHistory::getLlmModel)
+				.containsOnly("recorded-chat-model");
 	}
 
 	@Test void retryRejectsUnknownKey() {

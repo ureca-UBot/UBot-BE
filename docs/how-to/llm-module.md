@@ -126,7 +126,8 @@ LLM_MODEL=ubot-chat
 - 실패는 Ollama와 같은 `LlmErrorCode`로 바꿉니다. 서버가 4xx·5xx로 응답하면 `LLM-003`으로 처리하고, 상태 코드와 응답 본문 앞부분을 경고 로그에 남깁니다.
 - `LLM_PROVIDER`가 `ollama`나 `openai-compatible`이 아니면 `LlmClient` 빈이 없어 애플리케이션이 뜨지 않습니다.
 - 임베딩은 `LLM_PROVIDER`와 관계없이 Ollama를 호출합니다(`EmbeddingService`). 운영에서 vLLM으로 답변을 만들더라도 임베딩용 Ollama는 계속 떠 있어야 합니다.
-- 시도 기록의 `llm_model`은 아직 `OLLAMA_CHAT_MODEL`에서 읽습니다(`ChatAttemptsService`). `openai-compatible`일 때는 실제 모델 이름이 남지 않습니다.
+- 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 구현체가 요청에 넣는 모델 이름이 남습니다. `ChatAttemptsService`가 설정을 직접 읽지 않고 `LlmService.getModelName()`으로 받습니다. `ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.
+- `LLM_MODEL`은 서버가 내보이는 이름(served model name)입니다. vLLM 서버에서 실제 모델을 바꿔도 이 이름이 같으면 시도 기록에는 같은 값이 남습니다.
 - 스트리밍(SSE), provider별 생성 옵션 추상화, SGLang 연동은 구현하지 않았습니다.
 
 두 구현체가 같은 동작을 하는지는 공통 계약 테스트(`LlmClientContractTest`)로 확인합니다.
