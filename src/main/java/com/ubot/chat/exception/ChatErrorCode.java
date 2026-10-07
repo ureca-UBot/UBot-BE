@@ -27,7 +27,10 @@ public enum ChatErrorCode implements ErrorCode {
 	PROMPT_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-014", "답변 프롬프트가 준비되지 않았습니다."),
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CHAT-015", "답변 생성 중 오류가 발생했습니다."),
 	RESPONSE_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "CHAT-016", "답변 생성 시간이 초과되었습니다."),
-	GUEST_QUESTION_LIMIT_REACHED(HttpStatus.TOO_MANY_REQUESTS, "CHAT-017", "비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요.");
+	GUEST_QUESTION_LIMIT_REACHED(HttpStatus.TOO_MANY_REQUESTS, "CHAT-017",
+			"비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요."),
+	RESEARCH_NOT_ALLOWED(HttpStatus.CONFLICT, "CHAT-018", "다른 의도로 다시 검색할 수 없는 질문입니다."),
+	ALREADY_RESEARCHED(HttpStatus.CONFLICT, "CHAT-019", "이미 해당 의도로 재검색한 질문입니다.");
 
 	private final HttpStatus status;
 	private final String code;

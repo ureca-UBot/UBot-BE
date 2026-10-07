@@ -1,7 +1,9 @@
 package com.ubot.faq.service;
 
 import java.util.List;
+import java.util.Objects;
 
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import org.springframework.stereotype.Service;
@@ -18,8 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class FaqVectorService {
-    private final EmbeddingService embeddingService;
-    private final FaqVectorRepository faqVectorRepository;
+	private final EmbeddingService embeddingService;
+	private final FaqVectorRepository faqVectorRepository;
 
 	public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
 		long startedAt = System.nanoTime();
@@ -28,18 +30,24 @@ public class FaqVectorService {
 		return results;
 	}
 
+	public List<FaqSearchResponseDto> getSimilarListByIntent(String userQuestion, Intent intent, int topK) {
+		Objects.requireNonNull(intent, "intent는 필수입니다.");
+		PGvector queryVector = embeddingService.embedText(userQuestion);
+		return faqVectorRepository.getSimilarListByIntent(queryVector, intent, topK);
+	}
+
 	public void saveVectorForFaq(Long faqId, String question) {
 		long startedAt = System.nanoTime();
 		PGvector vector = embeddingService.embedText(question);
 		faqVectorRepository.saveVectorForFaq(faqId, vector);
 		log.info("FAQ 벡터를 저장했습니다: FAQID={}, 처리시간={}ms", faqId, elapsedMillis(startedAt));
-    }
+	}
 
-    public void saveVectorForOldFaq(Long faqId, Integer version) {
-        PGvector vector = faqVectorRepository.findVectorByFaqId(faqId);
-        if(vector == null) {
-            throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
-        }
+	public void saveVectorForOldFaq(Long faqId, Integer version) {
+		PGvector vector = faqVectorRepository.findVectorByFaqId(faqId);
+		if (vector == null) {
+			throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
+		}
 		faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
 		log.info("이전 FAQ 벡터를 저장했습니다: FAQID={}, 버전={}", faqId, version);
 	}
