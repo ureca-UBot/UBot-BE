@@ -2,6 +2,7 @@ package com.ubot.llm.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -15,6 +16,7 @@ import com.ubot.llm.exception.LlmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +25,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.tool.ToolCallback;
 
 @ExtendWith(MockitoExtension.class)
 class LlmServiceTest {
@@ -41,6 +44,26 @@ class LlmServiceTest {
         when(llmClient.generateAnswer(request)).thenReturn(new LlmResponseDto("가까운 매장을 방문해주세요."));
 
         assertThat(llmService.generateAnswer(request).answer()).isEqualTo("가까운 매장을 방문해주세요.");
+    }
+
+    @Test
+    void rejectsToolsWithoutToolContext() {
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "근처 매장")))
+                .withTools(List.of(mock(ToolCallback.class)), Map.of());
+
+        assertThatThrownBy(() -> llmService.generateAnswer(request))
+                .isInstanceOfSatisfying(LlmException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_REQUEST_INVALID));
+        verifyNoInteractions(llmClient);
+    }
+
+    @Test
+    void passesToolsWithToolContextToClient() {
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "근처 매장")))
+                .withTools(List.of(mock(ToolCallback.class)), Map.of("question", "근처 매장"));
+        when(llmClient.generateAnswer(request)).thenReturn(new LlmResponseDto("답변"));
+
+        assertThat(llmService.generateAnswer(request).answer()).isEqualTo("답변");
     }
 
     @ParameterizedTest

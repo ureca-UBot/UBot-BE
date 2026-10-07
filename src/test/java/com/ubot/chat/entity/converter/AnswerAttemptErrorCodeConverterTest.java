@@ -4,6 +4,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.common.ErrorCode;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.llm.exception.LlmErrorCode;
+import com.ubot.prompt.exception.PromptErrorCode;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -65,7 +66,11 @@ class AnswerAttemptErrorCodeConverterTest {
 				Arguments.of("LLM-002", LlmErrorCode.LLM_MODEL_NOT_CONFIGURED),
 				Arguments.of("LLM-003", LlmErrorCode.LLM_SERVICE_UNAVAILABLE),
 				Arguments.of("LLM-004", LlmErrorCode.LLM_TIMEOUT),
-				Arguments.of("LLM-005", LlmErrorCode.LLM_RESPONSE_INVALID)
+				Arguments.of("LLM-005", LlmErrorCode.LLM_RESPONSE_INVALID),
+				Arguments.of("CHAT-014", ChatErrorCode.PROMPT_NOT_READY),
+				Arguments.of("PROMPT-001", PromptErrorCode.PROMPT_NOT_READY),
+				Arguments.of("PROMPT-002", PromptErrorCode.PROMPT_INPUT_MISSING),
+				Arguments.of("PROMPT-003", PromptErrorCode.PROMPT_FAQ_INVALID)
 		);
 	}
 }

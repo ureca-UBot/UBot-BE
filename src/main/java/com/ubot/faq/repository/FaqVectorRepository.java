@@ -19,7 +19,7 @@ public class FaqVectorRepository {
 
     public List<FaqSearchResponseDto> getSimilarList(PGvector queryEmbedding, int topK) {
         String sql = """
-                SELECT id, question, answer, 1 - (vector <=> ?) AS similarity_score
+                SELECT id, question, answer, intent, 1 - (vector <=> ?) AS similarity_score
                 FROM faq
                 WHERE deleted_at IS NULL
                 ORDER BY vector <=> ?
@@ -31,7 +31,8 @@ public class FaqVectorRepository {
                         rs.getLong("id"),
                         rs.getString("question"),
                         rs.getString("answer"),
-                        rs.getDouble("similarity_score")),
+                        rs.getDouble("similarity_score"),
+                        Intent.valueOf(rs.getString("intent"))),
                 queryEmbedding, queryEmbedding, topK);
     }
 
@@ -49,8 +50,9 @@ public class FaqVectorRepository {
                         rs.getLong("id"),
                         rs.getString("question"),
                         rs.getString("answer"),
-                        rs.getDouble("similarity_score")),
-                queryEmbedding, intent, queryEmbedding, topK);
+                        rs.getDouble("similarity_score"),
+                        Intent.valueOf(rs.getString("intent"))),
+                queryEmbedding, intent.name(), queryEmbedding, topK);
     }
 
     public void saveVectorForFaq(Long faqId, PGvector embedding) {

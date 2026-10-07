@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqVectorRepository;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +22,7 @@ class FaqVectorServiceTest {
     @DisplayName("사용자 질문을 임베딩한 뒤 유사 FAQ 목록을 조회한다")
     void getSimilarList_embedsQuestionThenQueriesRepository() {
         PGvector vector = vector();
-        var expected = List.of(new FaqSearchResponseDto(1L, "질문", "답변", 0.9));
+        var expected = List.of(new FaqSearchResponseDto(1L, "질문", "답변", 0.9, Intent.GENERAL));
         when(embeddingService.embedText("질문")).thenReturn(vector);
         when(repository.getSimilarList(vector, 3)).thenReturn(expected);
 

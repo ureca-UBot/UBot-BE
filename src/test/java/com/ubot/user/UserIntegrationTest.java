@@ -3,6 +3,7 @@ package com.ubot.user;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.auth.repository.RefreshTokenRepository;
 import com.ubot.user.repository.UserRepository;
+import com.maxmind.geoip2.DatabaseReader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -45,6 +47,10 @@ class UserIntegrationTest {
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
+
+    // 사용자 정보 API 검증에는 GeoIP DB 조회가 필요하지 않으므로 대용량 DB 로딩을 막는다.
+    @MockitoBean
+    private DatabaseReader geoIpDatabaseReader;
 
     @BeforeEach
     void cleanUserData() {

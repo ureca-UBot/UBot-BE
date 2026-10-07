@@ -1,24 +1,25 @@
 package com.ubot.ranking.service;
 
 import com.ubot.ranking.dto.model.*;
+import com.ubot.ranking.dto.response.RankingResponseDto;
 import com.ubot.ranking.entity.RegionalTrendRankingPolicy;
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.ranking.repository.RankingQueryRepository;
 import com.ubot.ranking.repository.RankingRedisRepository;
 import com.ubot.ranking.repository.RegionalTrendRankingPolicyRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RankingService {
 	private final RankingQueryRepository rankingQueryRepository;
 	private final RankingRedisRepository rankingRedisRepository;
@@ -72,7 +73,7 @@ public class RankingService {
 				null
 				);
 		TrendRankingSnapshot globalTrendSnapshot = new TrendRankingSnapshot(calculatedAt, globalTrend);
-		snapshots.put(RankingRedisKey.trending(), globalTrendSnapshot);
+		snapshots.put(RankingRedisKey.trend(), globalTrendSnapshot);
 
 		List<RegionalTrendRankingPolicy> regionalPolicies = regionalTrendRankingPolicyRepository.findAll();
 		Map<RegionSido, RegionalTrendRankingPolicy> regionPoliciesMap =
@@ -103,8 +104,41 @@ public class RankingService {
 					region
 			);
 			TrendRankingSnapshot regionTrendSnapshot = new TrendRankingSnapshot(calculatedAt, regionalTrend);
-			snapshots.put(RankingRedisKey.trending(region), regionTrendSnapshot);
+			snapshots.put(RankingRedisKey.trend(region), regionTrendSnapshot);
 		}
 		rankingRedisRepository.saveSnapshots(snapshots);
+		log.info("랭킹 스냅샷을 저장했습니다: 인기순위수={}, 전체급상승순위수={}, 지역스냅샷수={}",
+				popular.size(), globalTrend.size(), RegionSido.values().length);
+	}
+
+	public RankingResponseDto getRanking() {
+		Map<String, RankingSnapshot> snapshots =
+				rankingRedisRepository.findSnapshots();
+
+		PopularRankingSnapshot popular =
+				(PopularRankingSnapshot) snapshots.get(
+						RankingRedisKey.popular()
+				);
+
+		TrendRankingSnapshot trend =
+				(TrendRankingSnapshot) snapshots.get(
+						RankingRedisKey.trend()
+				);
+
+		Map<RegionSido, TrendRankingSnapshot> regionalTrend = new EnumMap<>(RegionSido.class);
+
+		for (RegionSido region : RegionSido.values()) {
+			TrendRankingSnapshot regionRankingSnapshot = (TrendRankingSnapshot) snapshots.get(RankingRedisKey.trend(region));
+			regionalTrend.put(region, regionRankingSnapshot);
+		}
+		log.debug("랭킹 스냅샷을 조회했습니다: 인기순위수={}, 전체급상승순위수={}",
+				popular == null || popular.rankings() == null ? 0 : popular.rankings().size(),
+				trend == null || trend.rankings() == null ? 0 : trend.rankings().size());
+
+		return new RankingResponseDto(
+				popular,
+				trend,
+				regionalTrend
+		);
 	}
 }

@@ -5,11 +5,13 @@ import com.ubot.guest.dto.response.GuestChatSettingsResponseDto;
 import com.ubot.guest.entity.GuestChatSettings;
 import com.ubot.guest.repository.GuestChatSettingsRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GuestChatSettingsService {
 	private final GuestChatSettingsRepository guestChatSettingsRepository;
 
@@ -24,6 +26,7 @@ public class GuestChatSettingsService {
 	) {
 		GuestChatSettings settings = getSettings();
 		settings.update(requestDto.maxQuestionCount(), adminId);
+		log.info("비회원 채팅 설정을 변경했습니다: 관리자ID={}, 최대질문수={}", adminId, requestDto.maxQuestionCount());
 		return GuestChatSettingsResponseDto.from(settings);
 	}
 

@@ -10,6 +10,7 @@ import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.repository.FaqCategoryRepository;
 import com.ubot.faq.repository.FaqRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FaqCategoryService {
 	private final FaqCategoryRepository faqCategoryRepository;
 	private final FaqRepository faqRepository;
@@ -38,7 +40,9 @@ public class FaqCategoryService {
 				.updatedAt(LocalDateTime.now())
 				.build();
 
-		return FaqCategoryResponseDto.from(faqCategoryRepository.save(faqCategory));
+		FaqCategory savedCategory = faqCategoryRepository.save(faqCategory);
+		log.info("FAQ 카테고리를 생성했습니다: 카테고리ID={}", savedCategory.getId());
+		return FaqCategoryResponseDto.from(savedCategory);
 	}
 
 	public FaqCategoryResponseDto getFaqCategory(Long faqCategoryId) {
@@ -75,7 +79,9 @@ public class FaqCategoryService {
 
 		faqCategory.update(afterCategoryName);
 
-		return FaqCategoryResponseDto.from(faqCategoryRepository.save(faqCategory));
+		FaqCategory savedCategory = faqCategoryRepository.save(faqCategory);
+		log.info("FAQ 카테고리를 수정했습니다: 카테고리ID={}", faqCategoryId);
+		return FaqCategoryResponseDto.from(savedCategory);
 	}
 
 	@Transactional
@@ -87,5 +93,6 @@ public class FaqCategoryService {
 			throw new FaqException(FaqErrorCode.FAQ_CATEGORY_IN_USE);
 		}
 		faqCategory.delete();
+		log.info("FAQ 카테고리를 삭제했습니다: 카테고리ID={}", faqCategoryId);
 	}
 }

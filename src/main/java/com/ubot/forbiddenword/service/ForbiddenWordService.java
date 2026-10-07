@@ -13,6 +13,7 @@ import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -26,6 +27,7 @@ import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ForbiddenWordService {
 	private static final Set<Integer> ALLOWED_PAGE_SIZES = Set.of(10, 20, 50);
 
@@ -54,6 +56,7 @@ public class ForbiddenWordService {
 		}
 
 		eventPublisher.publishEvent(new ForbiddenWordChangedEvent());
+		log.info("금칙어를 등록했습니다: 금칙어ID={}", forbiddenWord.getId());
 		return ForbiddenWordResponseDto.from(forbiddenWord);
 	}
 
@@ -87,6 +90,7 @@ public class ForbiddenWordService {
 		}
 
 		eventPublisher.publishEvent(new ForbiddenWordChangedEvent());
+		log.info("금칙어를 수정했습니다: 금칙어ID={}", forbiddenWordId);
 		return ForbiddenWordResponseDto.from(forbiddenWord);
 	}
 
@@ -102,6 +106,7 @@ public class ForbiddenWordService {
 		forbiddenWord.updateStatus(requestDto.status());
 
 		eventPublisher.publishEvent(new ForbiddenWordChangedEvent());
+		log.info("금칙어 상태를 변경했습니다: 금칙어ID={}, 상태={}", forbiddenWordId, requestDto.status());
 		return ForbiddenWordResponseDto.from(forbiddenWord);
 	}
 
