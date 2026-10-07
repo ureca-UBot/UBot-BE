@@ -87,7 +87,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
               → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
                  → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
               → ChatContextCollector : 남은 FAQ의 intent별로 답변 자료 수집
-              → AiService → PromptService → LlmService → OllamaClient (모은 자료 전달)
+              → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 LLM_PROVIDER로 선택)
           → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
           → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
   → CHAT_RESPONSE_TIMEOUT_MILLIS 초과 시 시도를 FAIL(CHAT-016)로 저장하고 작업을 취소
@@ -190,7 +190,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 |---|---|---|
 | 임베딩 생성 | `EmbeddingService` (RestClient로 Ollama 직접 호출) | `spring.ai.model.embedding: none` |
 | 벡터 검색 | `FaqVectorRepository` (JdbcTemplate + `PGvector`) | `spring.ai.vectorstore.type: none` |
-| LLM 채팅 | `AiService` → `PromptService` → `LlmService` → `OllamaClient` (Spring AI) | `LlmConfig`: 서버 주소·모델명·LLM 전용 제한 시간 |
+| LLM 채팅 | `AiService` → `PromptService` → `LlmService` → `LlmClient`. 기본은 `OllamaClient`(Spring AI), `LLM_PROVIDER=openai-compatible`이면 `OpenAiCompatibleLlmClient`(vLLM) | `LlmConfig`: provider 선택, 서버 주소·모델명·LLM 전용 제한 시간 |
 
 `spring.ai.model.embedding: none`으로 `OllamaEmbeddingModel` 빈을 만들지 않기 때문에, 그 빈에 의존하는 `PgVectorStore`도 생성되지 않습니다. 그래서 Spring AI가 `vector_store` 테이블을 자동으로 만들지 않습니다. `application-local.yml`의 pgvector 설정은 주석으로 남아 있고, Spring AI 벡터 스토어 채택이 확정되면 되살릴 예정입니다. 자세한 설정값은 [configuration.md](reference/configuration.md)를 참고하세요.
 

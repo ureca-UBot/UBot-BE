@@ -4,7 +4,7 @@
 
 ## 구현 범위
 
-채팅에서 검색한 FAQ를 프롬프트에 넣어 Ollama를 호출하고, 생성된 최종 답변을 채팅으로 반환합니다.
+채팅에서 검색한 FAQ를 프롬프트에 넣어 LLM(Ollama 또는 vLLM)을 호출하고, 생성된 최종 답변을 채팅으로 반환합니다.
 검색은 `ChatAnswerProcessor`가 담당하고, `AiService`가 프롬프트 구성과 LLM 호출을 연결합니다.
 
 ```text
@@ -15,9 +15,9 @@ POST /chat/questions
   → AiService.generateAnswer(AnswerMaterials)
   → PromptService.createPrompt(question, faqs, sections)
   → LlmService.generateAnswer(LlmRequestDto)
-  → LlmClient / OllamaClient
-  → Spring AI OllamaChatModel
-  → Ollama
+  → LlmClient: OllamaClient(기본) 또는 OpenAiCompatibleLlmClient (LLM_PROVIDER로 선택)
+  → Spring AI OllamaChatModel 또는 vLLM의 OpenAI 호환 API
+  → Ollama 또는 vLLM
   → LlmResponseDto(answer)
   → ChatResponseDto: 채팅 응답
 ```
@@ -80,8 +80,8 @@ String answer = response.answer();
 ```
 
 `LlmClient`는 통신 교체를 위한 인터페이스이며, 호출 담당자는 `LlmService`를 사용합니다.
-현재 구현체는 Ollama 한 가지입니다. vLLM, 스트리밍/SSE, 관리자 설정 DB,
-도구 실행과 모델 라우팅은 이 모듈에 구현하지 않았습니다.
+구현체는 `OllamaClient`와 `OpenAiCompatibleLlmClient` 두 가지이고, `LLM_PROVIDER` 값에 따라 하나만 빈으로 등록됩니다.
+스트리밍/SSE, 관리자 설정 DB, 요청별 모델 라우팅은 이 모듈에 구현하지 않았습니다.
 
 ## 설정
 
@@ -102,6 +102,68 @@ Spring AI 자동 구성의 공용 모델 빈 대신, LLM 전용 HTTP 제한 시�
 `LlmClient` 내부에서 사용합니다. 새 `ChatModel` 빈을 등록하지 않아 기존 빈 선택을 바꾸지 않습니다.
 모델 다운로드와 자동 재시도는 비활성화했습니다. 생성 옵션(temperature, seed, thinking 등)을
 이번 모듈에서 임의로 덮어쓰지 않으며, 지정하지 않은 옵션은 Ollama/모델 기본 설정을 따릅니다.
+
+### LLM Provider 선택
+
+`LLM_PROVIDER`에 따라 `LlmClient` 구현체 하나만 빈으로 등록됩니다(`LlmConfig`). 값이 없으면 `ollama`입니다.
+구현체가 빈 구성 단계에서 정해지므로 `ChatService`, `AiService`, `LlmService`에는 provider별 분기가 없습니다.
+
+| `LLM_PROVIDER` | 구현체 | 호출 대상 |
+|---|---|---|
+| `ollama` (기본) | `OllamaClient` | Ollama `/api/chat` (개발 환경) |
+| `openai-compatible` | `OpenAiCompatibleLlmClient` | OpenAI 호환 `POST {LLM_BASE_URL}/chat/completions` (운영 환경의 vLLM) |
+
+```properties
+LLM_PROVIDER=openai-compatible
+LLM_BASE_URL=http://<GPU_HOST>:8000/v1
+LLM_MODEL=ubot-chat
+```
+
+- `LLM_BASE_URL`은 `/v1`까지 적고, `LLM_MODEL`은 서버의 served model name과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에 있습니다.
+- 제한 시간은 두 구현체 모두 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다. 자동 재시도는 하지 않습니다.
+- 도구가 붙은 요청(매장 FAQ)은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회)는 `OllamaClient`와 같습니다. vLLM은 `--enable-auto-tool-choice`와 `--tool-call-parser`로 실행되어 있어야 하며(`infra/llm`에 반영), 그렇지 않으면 도구가 붙은 요청을 거절합니다.
+- 생성 옵션(temperature, Thinking Mode 등)은 요청에 넣지 않고 서버 기본 설정을 따릅니다. Qwen3의 Thinking Mode는 `infra/llm`의 `VLLM_ENABLE_THINKING`(기본 `false`)으로 정합니다. Thinking을 켠 서버에서 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다.
+- 실패는 Ollama와 같은 `LlmErrorCode`로 바꿉니다. 서버가 4xx·5xx로 응답하면 `LLM-003`으로 처리하고, 상태 코드와 응답 본문 앞부분을 경고 로그에 남깁니다.
+- `LLM_PROVIDER`가 `ollama`나 `openai-compatible`이 아니면 `LlmClient` 빈이 없어 애플리케이션이 뜨지 않습니다.
+- 임베딩은 `LLM_PROVIDER`와 관계없이 Ollama를 호출합니다(`EmbeddingService`). 운영에서 vLLM으로 답변을 만들더라도 임베딩용 Ollama는 계속 떠 있어야 합니다.
+- 시도 기록의 `llm_model`은 아직 `OLLAMA_CHAT_MODEL`에서 읽습니다(`ChatAttemptsService`). `openai-compatible`일 때는 실제 모델 이름이 남지 않습니다.
+- 스트리밍(SSE), provider별 생성 옵션 추상화, SGLang 연동은 구현하지 않았습니다.
+
+두 구현체가 같은 동작을 하는지는 공통 계약 테스트(`LlmClientContractTest`)로 확인합니다.
+`OllamaClientContractTest`와 `OpenAiCompatibleLlmClientContractTest`가 같은 테스트를 각자의 응답 형식으로 실행합니다.
+실제 vLLM 서버로 확인하려면 서버를 띄운 뒤 아래처럼 실행합니다. 이 테스트는 `LLM_LIVE_BASE_URL`이 있을 때만 실행됩니다.
+
+```powershell
+$env:LLM_LIVE_BASE_URL = "http://localhost:8000/v1"
+.\gradlew.bat test --tests 'com.ubot.llm.client.OpenAiCompatibleLlmClientLiveTest'
+```
+
+### Embedding Provider 전환 기반 (예정)
+
+지금은 임베딩 코드를 바꾸지 않고 Ollama(`EmbeddingService` → `/api/embed`)를 그대로 씁니다.
+나중에 vLLM 임베딩으로 바꿀 때 설정 이름과 포트가 다시 바뀌지 않도록 아래 계약만 미리 정해 둡니다. 아직 코드와 서버는 없습니다.
+
+```properties
+EMBEDDING_PROVIDER=ollama|openai-compatible
+EMBEDDING_BASE_URL=http://<GPU_HOST>:8001/v1
+EMBEDDING_MODEL=ubot-embedding
+```
+
+| 포트 | served model name | 역할 |
+|---|---|---|
+| `8000` | `ubot-chat` | 답변 생성 (연결됨) |
+| `8001` | `ubot-embedding` | 임베딩 (예정) |
+| `8002` | `ubot-reranker` | Reranker (예정) |
+
+Provider나 임베딩 모델을 바꿀 때는 기존 벡터와 새 질문 벡터를 섞어 쓰지 않습니다.
+같은 `bge-m3`, 같은 1024차원이어도 provider가 바뀌면 호환된다고 가정하지 않습니다.
+
+1. 같은 입력으로 Ollama와 vLLM의 임베딩을 비교합니다(차원, 정규화 여부, 값 차이).
+2. 검색 결과와 기존 평가 질문셋 결과를 비교합니다.
+3. 벡터 컬럼을 모두 다시 임베딩합니다: `faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`.
+4. 그 뒤에 provider를 전환합니다.
+
+`EmbeddingClient` 추상화와 vLLM 임베딩 구현은 별도 이슈에서 진행합니다.
 
 ## 오류 연결
 
