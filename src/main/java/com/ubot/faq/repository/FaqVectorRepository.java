@@ -36,11 +36,12 @@ public class FaqVectorRepository {
                 queryEmbedding, queryEmbedding, topK);
     }
 
-    public List<FaqSearchResponseDto> getSimilarListByIntent(PGvector queryEmbedding, int topK, Intent intent) {
+    public List<FaqSearchResponseDto> getSimilarListByIntent(PGvector queryEmbedding, Intent intent, int topK) {
         String sql = """
-                SELECT id, question, answer, 1 - (vector <=> ?) AS similarity_score
+                SELECT id, question, answer, intent, 1 - (vector <=> ?) AS similarity_score
                 FROM faq
-                WHERE deleted_at IS NULL AND intent = ?
+                WHERE deleted_at IS NULL
+                  AND intent = ?
                 ORDER BY vector <=> ?
                 LIMIT ?
                 """;
