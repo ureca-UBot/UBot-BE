@@ -9,6 +9,7 @@ import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.common.ErrorCode;
 import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.repository.ConversationRepository;
+import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.entity.FaqLog;
 import com.ubot.faq.enums.Intent;
@@ -52,8 +53,8 @@ public class ChatAttemptsService {
 	// LLM_PROVIDER에 따라 답변을 만드는 모델이 달라지므로, 설정을 직접 읽지 않고 LLM 모듈에서 이름을 받습니다.
 	private final String llmModel;
 
-	@Value("${ollama.embedding.model:}")
-	private String embeddingModel;
+	// EMBEDDING_PROVIDER에 따라 임베딩 모델이 달라지므로, 같은 방식으로 임베딩 모듈에서 이름을 받습니다.
+	private final String embeddingModel;
 
 	public ChatAttemptsService(
 			AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
@@ -63,6 +64,7 @@ public class ChatAttemptsService {
 			ConversationRepository conversationRepository,
 			GuestChatSettingsRepository guestChatSettingsRepository,
 			LlmService llmService,
+			EmbeddingService embeddingService,
 			PlatformTransactionManager transactionManager) {
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
 		this.questionLogService = questionLogService;
@@ -71,6 +73,7 @@ public class ChatAttemptsService {
 		this.conversationRepository = conversationRepository;
 		this.guestChatSettingsRepository = guestChatSettingsRepository;
 		this.llmModel = llmService.getModelName();
+		this.embeddingModel = embeddingService.getModelName();
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 		// 기록 저장 트랜잭션만 열고, 모델 호출 중에는 DB 연결이나 행 잠금을 유지하지 않습니다.
 		this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);

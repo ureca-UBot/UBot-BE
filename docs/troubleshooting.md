@@ -200,7 +200,8 @@ $env:CI = 'true'; .\gradlew.bat test
 | `AUTH-001`, `JWT-*` | `Authorization: Bearer <token>` 헤더, 토큰 만료 여부 |
 | `CHAT-011`, `CHAT-003` | `Idempotency-Key`가 소문자 16진수 64자리인지, 같은 사용자의 토큰으로 재시도했는지 |
 | `CHAT-004`~`CHAT-007` | 이전 응답의 `status`, `attemptCount` |
-| `EM-001`, `EM-003` | Ollama 실행 여부, `OLLAMA_BASE_URL`, [모델 준비](#ollama-모델이-준비되지-않음) |
+| `EM-001`, `EM-003` | Ollama 실행 여부, `OLLAMA_BASE_URL`, [모델 준비](#ollama-모델이-준비되지-않음). `EMBEDDING_PROVIDER=openai-compatible`이면 임베딩 서버 실행 여부, `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL` |
+| `EM-002` | 임베딩 서버가 1024차원이 아닌 벡터를 돌려주는지(다른 모델이 설정됐는지) |
 | `CHAT-010`, `CHAT-008` | PostgreSQL 상태, 애플리케이션 로그 |
 | `CHAT-012` | `faq`에 삭제되지 않은 FAQ가 있는지 ([FAQ 준비](how-to/local-data.md#2-faq-등록)) |
 | `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`, FAQ의 `vector`가 비어 있지 않은지. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |

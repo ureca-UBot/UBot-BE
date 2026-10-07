@@ -1,6 +1,8 @@
 package com.ubot.embedding.service;
 
 import com.sun.net.httpserver.HttpServer;
+import com.ubot.embedding.client.EmbeddingClient;
+import com.ubot.embedding.config.EmbeddingConfig;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
 import com.pgvector.PGvector;
@@ -43,8 +45,22 @@ class EmbeddingServiceTest {
         fakeOllamaServer.start();
 
         String baseUrl = "http://localhost:" + fakeOllamaServer.getAddress().getPort();
-        return new EmbeddingService(RestClient.builder(), baseUrl, MODEL_NAME,
-                Duration.ofSeconds(3), readTimeout);
+        return createService(baseUrl, Duration.ofSeconds(3), readTimeout);
+    }
+
+    /** 기본 설정(EMBEDDING_PROVIDER 없음)과 같이 Ollama 구현체를 붙인 EmbeddingService를 만든다. */
+    private EmbeddingService createService(String baseUrl, Duration connectTimeout, Duration readTimeout) {
+        return new EmbeddingService(new EmbeddingConfig().ollamaEmbeddingClient(
+                RestClient.builder(), baseUrl, MODEL_NAME, connectTimeout, readTimeout));
+    }
+
+    /** 앞쪽 값만 지정하고 나머지는 0으로 채운 1024차원 벡터의 JSON. 1024차원이 아닌 응답은 거절되기 때문이다. */
+    private static String vectorJson(double... head) {
+        StringBuilder json = new StringBuilder("[");
+        for (int index = 0; index < EmbeddingClient.DIMENSIONS; index++) {
+            json.append(index == 0 ? "" : ", ").append(index < head.length ? head[index] : 0.0);
+        }
+        return json.append("]").toString();
     }
 
     private void respond(com.sun.net.httpserver.HttpExchange exchange, int status, String body) throws IOException {
@@ -58,9 +74,8 @@ class EmbeddingServiceTest {
     @Test
     void embedText_정상_응답이면_PGvector를_반환한다() throws IOException {
         EmbeddingService service = createServiceWithFakeServer(
-                (exchange, requestBody) -> respond(exchange, 200, """
-                        {"embeddings": [[0.1, 0.2, 0.3]]}
-                        """),
+                (exchange, requestBody) -> respond(exchange, 200,
+                        "{\"embeddings\": [" + vectorJson(0.1, 0.2, 0.3) + "]}"),
                 Duration.ofSeconds(3));
 
         PGvector result = service.embedText("유심 재발급 어떻게 해요");
@@ -76,9 +91,7 @@ class EmbeddingServiceTest {
         EmbeddingService service = createServiceWithFakeServer(
                 (exchange, requestBody) -> {
                     capturedRequestBody.set(requestBody);
-                    respond(exchange, 200, """
-                            {"embeddings": [[0.1]]}
-                            """);
+                    respond(exchange, 200, "{\"embeddings\": [" + vectorJson(0.1) + "]}");
                 },
                 Duration.ofSeconds(3));
 
@@ -90,9 +103,8 @@ class EmbeddingServiceTest {
     @Test
     void embedTexts_여러_텍스트를_배치로_보내면_같은_개수의_벡터를_반환한다() throws IOException {
         EmbeddingService service = createServiceWithFakeServer(
-                (exchange, requestBody) -> respond(exchange, 200, """
-                        {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
-                        """),
+                (exchange, requestBody) -> respond(exchange, 200,
+                        "{\"embeddings\": [" + vectorJson(0.1, 0.2) + ", " + vectorJson(0.3, 0.4) + "]}"),
                 Duration.ofSeconds(3));
 
         List<PGvector> results = service.embedTexts(List.of("질문1", "질문2"));
@@ -141,14 +153,21 @@ class EmbeddingServiceTest {
     @Test
     void 연결_자체가_안_되면_EMBEDDING_TIMEOUT_예외를_던진다() {
         // 아무도 듣고 있지 않은 포트로 연결 시도 -> 즉시 연결 거부(refused) 발생
-        EmbeddingService service = new EmbeddingService(
-                RestClient.builder(), "http://localhost:1", MODEL_NAME,
-                Duration.ofMillis(300), Duration.ofSeconds(1));
+        EmbeddingService service = createService(
+                "http://localhost:1", Duration.ofMillis(300), Duration.ofSeconds(1));
 
         assertThatThrownBy(() -> service.embedText("테스트"))
                 .isInstanceOf(EmbeddingException.class)
                 .extracting(ex -> ((EmbeddingException) ex).getErrorCode())
                 .isEqualTo(EmbeddingErrorCode.EMBEDDING_TIMEOUT);
+    }
+
+    @Test
+    void getModelName_선택된_구현체의_모델명을_반환한다() {
+        EmbeddingService service = createService(
+                "http://localhost:1", Duration.ofMillis(300), Duration.ofSeconds(1));
+
+        assertThat(service.getModelName()).isEqualTo(MODEL_NAME);
     }
 
     @FunctionalInterface

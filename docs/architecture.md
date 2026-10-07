@@ -14,7 +14,7 @@ com.ubot
 ├── ai             FAQ 프롬프트 구성과 LLM 호출 연결 (AiService)
 ├── prompt         질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
 ├── llm            LLM 요청 검증·Ollama 호출·오류 변환
-├── embedding      Ollama /api/embed 직접 호출 (EmbeddingService)
+├── embedding      임베딩 서버 호출 (EmbeddingService → EmbeddingClient, 기본은 Ollama /api/embed)
 ├── faq            FAQ·카테고리 CRUD, 수정 이력(old_faq)·참고 로그(faq_log), FAQ 벡터 검색
 ├── forbiddenword  금지어 관리 API, 채팅 입력 금지어 필터 (메모리 캐시)
 ├── unanswered     답을 찾지 못한 질문 저장과 유사 질문 묶기
@@ -83,7 +83,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
       → ChatAnswerExecutor         : chatExecutor(가상 스레드)에 답변 생성 작업 제출 (컨트롤러는 DeferredResult로 응답 보류)
           → ChatAnswerProcessor.generateAnswer (가상 스레드에서 실행, 답변 또는 실패 코드를 돌려줌)
               → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
-                  → EmbeddingService    : Ollama /api/embed로 1024차원 벡터 생성
+                  → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성 (기본은 Ollama /api/embed)
                   → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색
               → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
               → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
@@ -204,13 +204,13 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 
 | 기능 | 현재 구현 | 설정 |
 |---|---|---|
-| 임베딩 생성 | `EmbeddingService` (RestClient로 Ollama 직접 호출) | `spring.ai.model.embedding: none` |
+| 임베딩 생성 | `EmbeddingService` → `EmbeddingClient` (RestClient로 직접 호출). 기본은 `OllamaEmbeddingClient`, `EMBEDDING_PROVIDER=openai-compatible`이면 `OpenAiCompatibleEmbeddingClient`(vLLM) | `spring.ai.model.embedding: none`, `EmbeddingConfig`: provider 선택 |
 | 벡터 검색 | `FaqVectorRepository` (JdbcTemplate + `PGvector`) | `spring.ai.vectorstore.type: none` |
 | LLM 채팅 | `AiService` → `PromptService` → `LlmService` → `LlmClient`. 기본은 `OllamaClient`(Spring AI), `LLM_PROVIDER=openai-compatible`이면 `OpenAiCompatibleLlmClient`(vLLM) | `LlmConfig`: provider 선택, 서버 주소·모델명·LLM 전용 제한 시간 |
 
 `spring.ai.model.embedding: none`으로 `OllamaEmbeddingModel` 빈을 만들지 않기 때문에, 그 빈에 의존하는 `PgVectorStore`도 생성되지 않습니다. 그래서 Spring AI가 `vector_store` 테이블을 자동으로 만들지 않습니다. `application-local.yml`의 pgvector 설정은 주석으로 남아 있고, Spring AI 벡터 스토어 채택이 확정되면 되살릴 예정입니다. 자세한 설정값은 [configuration.md](reference/configuration.md)를 참고하세요.
 
-`EmbeddingService`는 `spring.ai.ollama`와 별개인 `ollama.*` 설정(`base-url`, `embedding.model`, `connect-timeout`, `read-timeout`)을 직접 읽습니다. 같은 환경변수를 두 곳에서 각각 읽는 구조입니다.
+`EmbeddingConfig`의 Ollama 구현체는 `spring.ai.ollama`와 별개인 `ollama.*` 설정(`base-url`, `embedding.model`, `connect-timeout`, `read-timeout`)을 직접 읽습니다. 같은 환경변수를 두 곳에서 각각 읽는 구조입니다. 저장된 벡터는 Ollama로 만든 값이라, 벡터 관리 작업 전에는 `EMBEDDING_PROVIDER`를 바꾸지 않습니다([LLM 모듈 안내](how-to/llm-module.md#embedding-provider-선택)).
 
 ## 테스트 구성
 
