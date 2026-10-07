@@ -6,6 +6,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.conversation.service.ConversationService;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.service.FaqVectorService;
@@ -57,6 +58,8 @@ class ChatAttemptsServiceResearchTest {
     UnansweredQuestionGroupRepository unansweredQuestionGroups;
     @Autowired
     UserRepository users;
+    @Autowired
+    ConversationService conversationService;
     @MockitoBean
     FaqVectorService vector;
     @MockitoBean
@@ -191,6 +194,22 @@ class ChatAttemptsServiceResearchTest {
 
         assertThat(results).containsExactlyInAnyOrder("OK", ChatErrorCode.ALREADY_RESEARCHED.getCode());
         assertThat(attempts.findAll().stream().filter(a -> a.getSourceAttemptId() != null)).hasSize(1);
+    }
+
+    @Test
+    void researchAttemptsAreNotCountedAsGuestQuestions() {
+        Long conversationId = conversationService.createGuestConversation();
+        var original = new AnswerAttemptsHistory(user.getId(), conversationId, "유심 재발급", 1,
+                "q-" + UUID.randomUUID(), LocalDateTime.now(), "", "");
+        original.succeed();
+        attempts.saveAndFlush(original);
+        // 재검색 attempt는 원본의 conversationId를 그대로 복사합니다.
+        attemptsService.createResearchAttempt(user.getId(), original.getIdempotencyKey(), Intent.STORE_DATA);
+
+        long counted = attempts.countGuestQuestions(
+                conversationId, "none", ChatErrorCode.NO_FAQ, ChatErrorCode.INSUFFICIENT_FAQ);
+
+        assertThat(counted).isEqualTo(1);
     }
 
     private User saveUser() {
