@@ -21,7 +21,10 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-/** FAQ 검색·유사도 판정·미응답 처리·intent별 자료 수집·AI 호출로 답변을 계산합니다. 결과 저장과 응답 확정은 ChatAnswerExecutor가 합니다. */
+/**
+ * FAQ 검색·유사도 판정·미응답 처리·intent별 자료 수집·AI 호출로 답변을 계산합니다. 결과 저장과 응답 확정은
+ * ChatAnswerExecutor가 합니다.
+ */
 @Slf4j
 @Component
 public class ChatAnswerProcessor {
@@ -40,8 +43,7 @@ public class ChatAnswerProcessor {
 			FaqVectorService faqVectorService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
-			ChatContextCollector chatContextCollector
-	) {
+			ChatContextCollector chatContextCollector) {
 		this.faqVectorService = faqVectorService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
@@ -54,14 +56,14 @@ public class ChatAnswerProcessor {
 		// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
 		List<FaqSearchResponseDto> results;
 		try {
-			results = faqVectorService.getSimilarList(attempt.getQuestion(), topK);
+			results = searchFaqs(attempt);
 		} catch (DataAccessException exception) {
 			return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
 		checkCancellation.run();
-		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 결과수={}, 최고유사도={}, 검색결과=[{}]",
-				attempt.getId(), results == null ? 0 : results.size(), highestSimilarity(results),
-				formatSearchResults(results));
+		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, 검색결과=[{}]",
+				attempt.getId(), attempt.getIntent(), results == null ? 0 : results.size(),
+				highestSimilarity(results), formatSearchResults(results));
 		if (results == null || results.isEmpty()) {
 			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
@@ -89,17 +91,27 @@ public class ChatAnswerProcessor {
 		return ChatAnswerResult.answered(answer, filteredResults);
 	}
 
+	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
+	private List<FaqSearchResponseDto> searchFaqs(AnswerAttemptsHistory attempt) {
+		if (attempt.isResearch()) {
+			return faqVectorService.getSimilarListByIntent(attempt.getQuestion(), attempt.getIntent(), topK);
+		}
+		return faqVectorService.getSimilarList(attempt.getQuestion(), topK);
+	}
+
 	private void createUnansweredQuestion(
-			AnswerAttemptsHistory attempt, UnansweredReason reason, FaqSearchResponseDto bestResult
-	) {
+			AnswerAttemptsHistory attempt, UnansweredReason reason, FaqSearchResponseDto bestResult) {
+		// 재검색은 사용자가 의도를 직접 고른 결과라서, FAQ 부족 신호(미응답 질문)로 쌓지 않습니다.
+		if (attempt.isResearch()) {
+			return;
+		}
 		try {
 			unansweredQuestionService.createUnansweredQuestion(
 					attempt.getId(),
 					attempt.getQuestion(),
 					reason,
 					bestResult == null ? null : bestResult.faqId(),
-					bestResult == null ? null : bestResult.similarityScore()
-			);
+					bestResult == null ? null : bestResult.similarityScore());
 		} catch (RuntimeException exception) {
 			log.warn("미응답 질문 저장에 실패했습니다: 시도ID={}", attempt.getId(), exception);
 		}
