@@ -54,6 +54,7 @@ com.ubot
 | 관리자 게스트 설정 | `GET`, `PATCH /admin/guest-chat-settings` (게스트 최대 질문 횟수) | JWT + `ADMIN` |
 | 관리자 매장 | `/admin/stores/**` (등록·수정·삭제·활성화·목록·삭제 목록) | JWT + `ADMIN` |
 | 상태 확인 | `GET /actuator/health` | 불필요 |
+| 챗봇 | `POST /chat/questions/research` (`Idempotency-Key` 헤더, 본문 `intent`와 선택적 `latitude`·`longitude`) | JWT (회원 전용) |
 
 ## 인증
 
@@ -63,6 +64,7 @@ com.ubot
 - 인증이 필요 없는 경로라도 잘못되거나 만료된 Bearer 토큰을 보내면 필터에서 오류 응답이 나갑니다.
 - 채팅 응답은 비동기(`DeferredResult`)로 완료되므로, `/chat/` 경로의 내부 `ASYNC` 재디스패치는 인증 검사 없이 허용합니다.
 - `POST /chat/questions`, `POST /chat/questions/retries`는 JWT 없이도 호출할 수 있습니다. Bearer 토큰이 있으면 회원으로, 없으면 게스트로 처리합니다. 게스트는 `HttpSession`(`JSESSIONID`, 30분)에 연결된 `conversations` 행으로 식별하고, 시도와 질문 로그를 `user_id = null`, `conversation_id`로 저장합니다. 한 세션의 질문 수는 `guest_chat_settings.max_question_count`까지이며 넘으면 `CHAT-017`입니다.
+- `POST /chat/questions/research`는 회원 전용이라 `permitAll`에 넣지 않았습니다. 비로그인 요청은 인증 단계에서 `401`로 거절됩니다.
 - 게스트가 로그인한 뒤 같은 세션으로 처음 채팅을 요청하면, 세션에 연결된 게스트 Conversation을 회원에게 승계합니다. `conversations`의 `type`을 `MEMBER`로 바꾸고 `user_id`를 채우며, 그 Conversation의 `answer_attempts_history`·`question_log`에도 `user_id`를 채운 뒤 게스트 세션을 종료합니다. 이미 회원에게 연결된 Conversation은 다시 승계하지 않습니다.
 - Spring Security 인증은 `STATELESS`로 유지합니다. `HttpSession`은 인증 상태가 아니라 게스트 Conversation 식별에만 씁니다.
 - 게스트 질문은 실시간 검색어 랭킹 집계에서 제외합니다(`ranking_eligible = false`). 승계된 과거 게스트 질문도 그대로 제외하고, 로그인 이후 생성된 질문부터 집계합니다.
@@ -129,6 +131,19 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 ![채팅 재시도 흐름](images/chat-retry-flow.svg)
 
+### 의도 재검색 (#117)
+
+성공한 답변을 사용자가 고른 intent(`GENERAL`, `STORE_DATA`, `USER_DATA`)로 같은 질문을 다시 검색합니다. FAQ가 질문의 의도와 다른 intent로 걸려 엉뚱한 답이 나왔을 때 쓰는 기능입니다.
+
+- `POST /chat/questions/research`에 `Idempotency-Key`(원본 답변의 키)와 본문 `{ "intent": "STORE_DATA", "latitude": 37.5, "longitude": 127.0 }`을 보냅니다. 좌표는 함께 보내거나 함께 생략하며 선택입니다. 회원만 쓸 수 있습니다.
+- 원본은 본인의 해당 키의 가장 최근 시도입니다(`ChatAttemptsService.createResearchAttempt`). 원본이 `SUCCESS`가 아니거나 재검색으로 만들어진 시도이면 `CHAT-018`, 같은 원본을 같은 intent로 이미 재검색했으면 `CHAT-019`이며, 원본을 찾을 수 없으면 `CHAT-003`입니다.
+- 중복 방지는 두 겹입니다. 원본 시도 행을 잠근 뒤 `existsBySourceAttemptIdAndIntent`로 확인하고, `answer_attempts_history`의 부분 유니크 인덱스 `uq_answer_attempts_history_source_intent`(`source_attempt_id`, `intent`)가 동시 요청을 마지막으로 막습니다.
+- 재검색은 원본과 섞이지 않는 새 시도입니다. `source_attempt_id`·`intent`를 채우고, 질문과 대화는 원본에서 복사하며, `attempt_count`는 `1`, 멱등키는 원본 id와 intent를 반영해 새로 발급합니다. 응답의 `idempotencyKey`도 이 새 키입니다.
+- `ChatAnswerProcessor`는 재검색 시도에서만 `FaqVectorService.getSimilarListByIntent`로 선택한 intent의 FAQ만 검색합니다. 임계값 판정, 자료 수집, AI 호출은 일반 질문과 같습니다.
+- 재검색 시도는 재시도할 수 없습니다(`retryable = false`, 재시도 요청은 `CHAT-007`).
+- 재검색이 `CHAT-012`·`CHAT-013`으로 실패해도 미응답 질문으로 저장하지 않습니다. 사용자가 의도를 직접 고른 결과라 FAQ 부족 신호로 보기 어렵기 때문입니다.
+- 게스트 질문 횟수(`countGuestQuestions`)와 질문 로그 순위 집계에서 재검색이 중복으로 잡히지 않게 합니다. 재검색 시도는 질문 횟수에 포함하지 않습니다.
+
 ### 미응답 질문 저장 (#105)
 
 `CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
@@ -142,6 +157,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 - 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
 - 저장에 실패해도 경고 로그만 남기고 채팅 응답(`CHAT-012`·`CHAT-013`)은 그대로 나갑니다.
 - 재시도도 새 답변 시도이므로, 같은 질문을 재시도해 또 실패하면 한 건씩 더 쌓여 묶음의 질문 수가 늘어납니다.
+- 의도 재검색이 같은 사유로 실패한 경우는 저장하지 않습니다([의도 재검색](#의도-재검색-117)).
 - 묶음을 찾고 만드는 과정에 잠금이 없어, 동시에 들어온 비슷한 질문이 서로 다른 묶음으로 나뉠 수 있습니다.
 - 묶음을 조회하고 처리 상태를 바꾸는 관리자 API는 아직 없습니다(#109).
 

@@ -151,6 +151,26 @@ Idempotency-Key: <실패 응답의 idempotencyKey>
 - `data.retryable`이 `true`일 때만 재시도 버튼을 보여 주면 됩니다. `retryable`은 안내값이고, 실제 요청이 오면 서버가 본인 기록인지와 재시도 조건을 다시 검사합니다(#82). UBot-FE는 `status === "FAIL"`, `retryable`, `idempotencyKey`가 모두 있을 때만 재시도합니다.
 - 최초 요청을 포함해 최대 `CHAT_MAX_ATTEMPTS`(기본 3)회까지 시도할 수 있습니다. 거절 사유는 `CHAT-003`(본인 기록 없음), `CHAT-004`(처리 중), `CHAT-005`(이미 성공), `CHAT-006`(횟수 초과), `CHAT-007`, `CHAT-011`(키 형식 오류)이며, 이때 `data`는 `null`입니다.
 
+### 의도 재검색
+
+성공한 답변이 질문의 의도와 맞지 않을 때, 사용자가 고른 의도(`GENERAL`, `STORE_DATA`, `USER_DATA`)로 같은 질문을 다시 검색합니다. 회원만 쓸 수 있습니다.
+
+```http
+POST /chat/questions/research
+Authorization: Bearer <accessToken>
+Idempotency-Key: <성공 응답의 idempotencyKey>
+Content-Type: application/json
+
+{ "intent": "STORE_DATA", "latitude": 37.4979, "longitude": 127.0276 }
+```
+
+- `intent`는 필수입니다. 알 수 없는 값이면 `400`입니다.
+- `latitude`·`longitude`는 선택이며 함께 보내거나 함께 생략합니다. 매장 의도에서 현재 위치를 쓰고 싶을 때만 보내면 됩니다. 한쪽만 보내거나 범위(위도 ±90, 경도 ±180)를 벗어나면 `G-001`입니다.
+- 질문은 서버가 원본 기록에서 가져옵니다. 응답 형식은 질문·재시도와 같은 `ChatResponseDto`이며, `idempotencyKey`는 **재검색 시도의 새 키**입니다. 원본의 키를 덮어쓰지 마세요.
+- 재검색한 답변은 재시도할 수 없습니다(`retryable`은 항상 `false`). 실패하면 다른 의도를 고르게 하세요.
+- 같은 질문의 같은 의도는 한 번만 재검색할 수 있습니다. 거절 사유는 `CHAT-018`(재검색할 수 없는 답변), `CHAT-019`(이미 재검색한 의도), `CHAT-003`(본인 기록 없음)이며 이때 `data`는 `null`입니다. 비로그인이면 `401`입니다.
+- 재검색이 `CHAT-012`·`CHAT-013`으로 끝나면 해당 의도의 FAQ에서 근거를 찾지 못했다는 뜻입니다.
+
 ### 알아 둘 점
 
 - **답변 문자열이 JSON일 수 있습니다.** 모델이 출력한 JSON 문자열이 그대로 `answer`에 들어옵니다([LLM 모듈 안내](llm-module.md#출력-형식과-서버-처리-json-분리는-후속-작업)). 지금은 UBot-FE의 `ChatMessages.tsx`(`getAnswerText`)가 이를 JSON으로 파싱해 안쪽 `answer`만 표시하고, 파싱에 실패하면 원문을 표시합니다. 그런데 모델이 JSON을 마크다운 코드 블록(```` ```json … ``` ````)으로 감싸 반환하는 경우가 있고(`exaone3.5:7.8b`로 확인), 이때는 파싱에 실패해 코드 블록이 화면에 그대로 보입니다. 백엔드가 JSON 분리(#81)를 구현하면 응답 형식이 바뀔 수 있으므로 양쪽이 함께 맞춰야 합니다.
