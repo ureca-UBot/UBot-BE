@@ -35,9 +35,6 @@ src/main/resources/
 | `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig` | 빈 값 (사용할 모델 지정) | YAML에는 없음. `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
-| `LLM_PROVIDER` | `LlmConfig`: 채팅 답변을 만들 LLM 서버. `ollama` 또는 `vllm` | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
-| `VLLM_BASE_URL` | `LlmConfig`: `LLM_PROVIDER=vllm`일 때 호출할 vLLM의 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
-| `VLLM_MODEL` | `LlmConfig`: vLLM이 제공하는 모델 이름(`--served-model-name`) | `ubot-chat` | `ubot-chat` |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
@@ -199,10 +196,6 @@ Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한
 모델명이 비어 있어도 모듈 생성 시 외부 서버에 접속하지 않습니다. 실제 호출 시에는
 `LLM_MODEL_NOT_CONFIGURED` 오류를 반환합니다. 사용할 모델을 Ollama에 미리 준비하고
 모델명을 설정하세요. 이 모듈은 모델을 자동 다운로드하거나 요청을 자동 재시도하지 않습니다.
-
-`LLM_PROVIDER=vllm`이면 `LlmConfig`가 `OllamaClient` 대신 `VllmClient`를 등록해 `VLLM_BASE_URL`의
-OpenAI 호환 API를 `VLLM_MODEL`로 호출합니다. 제한 시간은 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
-임베딩은 이 값과 관계없이 Ollama를 호출합니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#vllm으로-호출하기)에 있습니다.
 
 현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
 전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,
