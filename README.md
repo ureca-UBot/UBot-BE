@@ -50,12 +50,12 @@ API 경로와 인증 방식은 [architecture.md](docs/architecture.md)에, 오�
 | 서버 | Java 21, Spring Boot 4.1.1, Spring Security + JWT |
 | 데이터 | PostgreSQL 18 — pgvector(FAQ 벡터 검색, 미응답 질문 묶기), PostGIS(매장 위치 검색), Flyway |
 | 캐시·스케줄 | Redis 8 — FAQ 순위 스냅샷 저장, 스케줄러 중복 실행 방지(ShedLock) |
-| AI | Ollama — 임베딩 `bge-m3:567m`(REST 직접 호출), 채팅 모델은 환경변수로 지정(Spring AI 2.0.1로 호출, 매장 조회는 tool calling) |
+| AI | Ollama — 임베딩 `bge-m3:567m`(REST 직접 호출), 채팅 모델은 환경변수로 지정(Spring AI 2.0.1로 호출, 매장 조회는 tool calling). 운영에서는 `LLM_PROVIDER=openai-compatible`로 vLLM을 호출할 수 있습니다. |
 | 외부 API | 카카오 로컬(주소·장소 검색), 카카오맵 길찾기(도보·대중교통), 카카오모빌리티 길찾기(자동차) |
 | 지역 판별 | MaxMind GeoLite2 — 접속 IP로 시도 판별 |
 | 모니터링 | Micrometer, Prometheus (`/actuator/prometheus`). 로컬 Compose에 Prometheus가 들어 있고, Nginx는 이 경로를 외부에 열지 않습니다. |
 | 배포 | Docker Compose, Nginx(`/api` 접두사 처리, 게스트 채팅 속도 제한), GitHub Actions(CI, 수동 CD) |
-| 테스트 인프라 | Terraform(AWS 네트워크, GPU 테스트 서버), vLLM·SGLang LLM 서빙 런타임. 백엔드와는 아직 연결하지 않았고, 지금은 Ollama만 호출합니다. |
+| 테스트 인프라 | Terraform(AWS 네트워크, GPU 테스트 서버), vLLM·SGLang LLM 서빙 런타임. 백엔드는 답변 생성에만 vLLM을 연결할 수 있고, 임베딩은 Ollama를 씁니다. |
 
 환경변수 전체 목록은 [.env.example](.env.example)에, 주요 설정의 설명은 [configuration.md](docs/reference/configuration.md)에 있습니다.
 

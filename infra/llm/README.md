@@ -126,8 +126,11 @@ LLM_MAX_MODEL_LEN=4096
 
 HF_TOKEN=
 
-VLLM_IMAGE=vllm/vllm-openai:latest
+VLLM_IMAGE=vllm/vllm-openai:v0.31.0
 SGLANG_IMAGE=lmsysorg/sglang:latest-runtime
+
+VLLM_TOOL_CALL_PARSER=hermes
+VLLM_ENABLE_THINKING=false
 
 VLLM_GPU_MEMORY_UTILIZATION=0.6
 SGLANG_MEM_FRACTION_STATIC=0.6
@@ -397,7 +400,71 @@ OpenAI Compatible 요청 예:
 }
 ```
 
-Backend에서 Thinking Mode 사용 여부는 추후 LLM Client 정책에서 결정합니다.
+vLLM 서비스는 `VLLM_ENABLE_THINKING` 값을 `--default-chat-template-kwargs`로 넘겨 Thinking Mode의 기본값을 정합니다.
+
+```dotenv
+VLLM_ENABLE_THINKING=false
+```
+
+기본값은 `false`이며, `true`로 바꾸고 다시 시작하면 모든 요청에서 Thinking이 켜집니다.
+
+Backend는 이 옵션을 요청에 넣지 않고 서버 기본값을 따릅니다.
+
+Thinking을 켠 경우 답변 앞에 붙는 `<think>...</think>`는 Backend가 떼어 내고 최종 답변만 사용합니다.
+
+---
+
+# Tool Calling
+
+Backend의 매장 조회는 Tool Calling을 사용합니다.
+
+vLLM 서비스는 다음 옵션으로 실행합니다.
+
+```text
+--enable-auto-tool-choice
+--tool-call-parser ${VLLM_TOOL_CALL_PARSER}
+```
+
+```dotenv
+VLLM_TOOL_CALL_PARSER=hermes
+```
+
+Qwen3 계열은 `hermes` parser를 사용합니다.
+
+모델을 바꾸면 parser도 그 모델에 맞는 값으로 바꿉니다.
+
+이 옵션 없이 실행한 vLLM은 `tools`가 포함된 요청을 거절하므로 매장 관련 질문의 답변 생성이 실패합니다.
+
+SGLang 서비스에는 Tool Calling 설정을 반영하지 않았습니다.
+
+---
+
+# vLLM 이미지 버전
+
+`VLLM_IMAGE`는 `latest` 대신 검증한 버전으로 고정합니다.
+
+```dotenv
+VLLM_IMAGE=vllm/vllm-openai:v0.31.0
+```
+
+Tool parser, Thinking 옵션, OpenAI Compatible API 동작이 버전에 따라 달라질 수 있기 때문입니다.
+
+버전을 올릴 때는 아래 항목을 다시 확인한 뒤 값을 바꿉니다.
+
+```text
+/v1/models
+/v1/chat/completions 한국어 응답
+Tool Calling 응답 (tool_calls)
+Thinking 기본값
+Backend 연결 테스트
+```
+
+Backend 연결 테스트는 vLLM을 띄운 상태에서 Repository 루트에서 실행합니다.
+
+```powershell
+$env:LLM_LIVE_BASE_URL = "http://localhost:8000/v1"
+.\gradlew.bat test --tests 'com.ubot.llm.client.OpenAiCompatibleLlmClientLiveTest'
+```
 
 ---
 
@@ -653,4 +720,40 @@ Served Model ubot-chat 통일    ✅
 Engine 전환                   ✅
 ```
 
-Embedding은 현재 Ollama 기반 구성을 별도로 유지하며 이번 Serving Runtime 작업은 Chat Generation 모델을 대상으로 합니다.
+vLLM `v0.31.0` + Qwen3-4B-AWQ, 로컬 RTX 3060 12GB에서 확인한 항목 (2026-10-07):
+
+```text
+Tool Calling (hermes parser)        ✅
+Thinking 기본값 꺼짐                 ✅
+요청별 Thinking 켜기                 ✅
+Backend 일반 답변 연결               ✅
+Backend 매장 조회 Tool Calling 연결   ✅
+```
+
+AWS L4 환경에서는 아직 확인하지 않았습니다.
+
+---
+
+# 예정된 Serving 구조
+
+Chat, Embedding, Reranker는 Port와 Served Model Name을 나눠서 운영할 예정입니다.
+
+```text
+:8000
+ubot-chat
+→ Generation (현재)
+
+:8001
+ubot-embedding
+→ Embedding (예정)
+
+:8002
+ubot-reranker
+→ Reranker (예정)
+```
+
+`8001`, `8002` 서비스는 아직 구성하지 않았습니다.
+
+Embedding은 현재 Ollama 기반 구성을 그대로 유지합니다.
+
+Backend 설정 이름과 전환 시 지켜야 할 절차는 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-provider-전환-기반-예정)에 있습니다.
