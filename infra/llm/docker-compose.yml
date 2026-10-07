@@ -41,6 +41,52 @@ services:
       - '{"enable_thinking": ${VLLM_ENABLE_THINKING:-false}}'
 
 
+  # Backend의 EMBEDDING_PROVIDER=openai-compatible이 호출하는 임베딩 서버입니다.
+  vllm-embedding:
+    profiles: ["embedding"]
+
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+
+    ports:
+      - "${EMBEDDING_PORT:-8001}:8000"
+
+    ipc: host
+
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      - --model
+      - ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      - --served-model-name
+      - ${EMBEDDING_SERVED_MODEL_NAME:-ubot-embedding}
+      # 답변 생성 모델이 아니라 임베딩 모델로 실행합니다.
+      - --runner
+      - pooling
+      # bge-m3의 dense 임베딩을 쓰도록 모델 구조와 출력 종류를 지정합니다.
+      - --hf-overrides
+      - '{"architectures":["BgeM3EmbeddingModel"]}'
+      - --pooler-config.task
+      - embed
+      - --dtype
+      - ${EMBEDDING_DTYPE:-float16}
+      - --max-model-len
+      - ${EMBEDDING_MAX_MODEL_LEN:-8192}
+      - --gpu-memory-utilization
+      - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.2}
+
+
   sglang:
     profiles: ["sglang"]
 
