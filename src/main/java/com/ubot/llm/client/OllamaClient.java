@@ -90,6 +90,11 @@ public class OllamaClient implements LlmClient {
         return new LlmResponseDto(answer);
     }
 
+    @Override
+    public String getModelName() {
+        return modelName;
+    }
+
     private Message toMessage(LlmMessageRequestDto message) {
         return switch (message.role()) {
             case SYSTEM -> new SystemMessage(message.content());

@@ -16,6 +16,7 @@ import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.guest.entity.GuestChatSettings;
 import com.ubot.guest.repository.GuestChatSettingsRepository;
+import com.ubot.llm.service.LlmService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -49,8 +50,8 @@ public class ChatAttemptsService {
 	private final GuestChatSettingsRepository guestChatSettingsRepository;
 	private final TransactionTemplate transactionTemplate;
 
-	@Value("${spring.ai.ollama.chat.options.model:${OLLAMA_CHAT_MODEL:}}")
-	private String llmModel;
+	// LLM_PROVIDER에 따라 답변을 만드는 모델이 달라지므로, 설정을 직접 읽지 않고 LLM 모듈에서 이름을 받습니다.
+	private final String llmModel;
 
 	@Value("${ollama.embedding.model:}")
 	private String embeddingModel;
@@ -62,6 +63,7 @@ public class ChatAttemptsService {
 			FaqRepository faqRepository,
 			ConversationRepository conversationRepository,
 			GuestChatSettingsRepository guestChatSettingsRepository,
+			LlmService llmService,
 			PlatformTransactionManager transactionManager) {
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
 		this.questionLogService = questionLogService;
@@ -69,6 +71,7 @@ public class ChatAttemptsService {
 		this.faqRepository = faqRepository;
 		this.conversationRepository = conversationRepository;
 		this.guestChatSettingsRepository = guestChatSettingsRepository;
+		this.llmModel = llmService.getModelName();
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 		// 기록 저장 트랜잭션만 열고, 모델 호출 중에는 DB 연결이나 행 잠금을 유지하지 않습니다.
 		this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);

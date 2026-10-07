@@ -47,6 +47,13 @@ class LlmServiceTest {
     }
 
     @Test
+    void getModelNameReturnsModelNameOfSelectedClient() {
+        when(llmClient.getModelName()).thenReturn("ubot-chat");
+
+        assertThat(llmService.getModelName()).isEqualTo("ubot-chat");
+    }
+
+    @Test
     void rejectsToolsWithoutToolContext() {
         var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "근처 매장")))
                 .withTools(List.of(mock(ToolCallback.class)), Map.of());

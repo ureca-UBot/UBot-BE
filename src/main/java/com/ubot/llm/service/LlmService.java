@@ -39,6 +39,11 @@ public class LlmService {
 		}
     }
 
+	/** LLM_PROVIDER로 선택된 구현체가 답변 생성에 쓰는 모델 이름을 반환합니다. */
+	public String getModelName() {
+		return llmClient.getModelName();
+	}
+
     private void validateRequest(LlmRequestDto request) {
         if (request == null || request.messages() == null || request.messages().isEmpty()) {
             throw new LlmException(LlmErrorCode.LLM_REQUEST_INVALID);
