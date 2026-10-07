@@ -57,10 +57,13 @@ class ChatServiceIntentRoutingTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class),
-				mock(UnansweredQuestionService.class), ChatTestFixtures.collector(nearbyStoreSearcher), jobs::add);
-		ReflectionTestUtils.setField(service, "topK", 3);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(
+				vector, ai, mock(UnansweredQuestionService.class),
+				ChatTestFixtures.collector(nearbyStoreSearcher));
+		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attempts, jobs::add));
+		ReflectionTestUtils.setField(processor, "topK", 3);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "근처 매장 알려줘")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("근처 매장 알려줘", 3)).thenReturn(sources);

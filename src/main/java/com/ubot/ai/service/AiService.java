@@ -28,7 +28,7 @@ public class AiService {
     private final AiToolRegistry toolRegistry;
 
     public AiAnswer generateAnswer(AnswerMaterials materials) {
-        // ChatService가 intent별로 모은 자료를 받습니다. DB를 다시 조회하지 않습니다.
+        // ChatAnswerProcessor가 intent별로 모은 자료를 받습니다. DB를 다시 조회하지 않습니다.
     	
     	// LLM에게 줄 자료(FAQ·추가 자료·도구)가 하나도 없으면 호출하지 않습니다. storeMap은 화면용이라 자료로 세지 않습니다.
         if (materials.faqs().isEmpty() && materials.sections().isEmpty() && materials.tools().isEmpty()) {
@@ -46,7 +46,7 @@ public class AiService {
         }
 
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
-        // 빈 응답 판단은 기존처럼 ChatService가 합니다.
+        // 빈 응답 판단은 ChatAnswerProcessor가 합니다.
         LlmResponseDto response = llmService.generateAnswer(request);
         // 지도 정보는 도구 결과를 먼저 쓰고, 없으면 핸들러가 내 위치로 바로 조회한 결과를 씁니다.
         StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());

@@ -10,7 +10,7 @@
 com.ubot
 ├── auth           인증 (JWT 발급·검증, refresh token, Security 설정)
 ├── user           사용자 엔티티·저장소·서비스, 내 정보 조회·수정 (/auth/me)
-├── chat           질문 처리 진입점 (컨트롤러 → ChatService), 답변 시도 기록·재시도
+├── chat           질문 처리 진입점 (컨트롤러 → ChatService), 답변 생성 실행·처리 (ChatAnswerExecutor → ChatAnswerProcessor), 답변 시도 기록·재시도
 ├── ai             FAQ 프롬프트 구성과 LLM 호출 연결 (AiService)
 ├── prompt         질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
 ├── llm            LLM 요청 검증·Ollama 호출·오류 변환
@@ -75,21 +75,35 @@ com.ubot
 
 ```text
 POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~4000자)
-  → ChatService.createChat
+  → ChatService.createChat (게스트는 createGuestChat)
       → ForbiddenWordFilterService : 활성 금지어 포함 시 FW-003 (시도 기록을 남기지 않음)
       → ChatAttemptsService        : answer_attempts_history에 PENDING 행 저장, 멱등키 발급
-      → chatExecutor(가상 스레드)에 답변 생성 작업 제출 후 DeferredResult 반환
-          → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
-              → EmbeddingService    : Ollama /api/embed로 1024차원 벡터 생성
-              → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색
-          → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
-          → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
-             → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
-          → AiService → PromptService → LlmService → OllamaClient (남은 FAQ만 전달)
+      → ChatAnswerExecutor         : chatExecutor(가상 스레드)에 답변 생성 작업 제출 (컨트롤러는 DeferredResult로 응답 보류)
+          → ChatAnswerProcessor.generateAnswer (가상 스레드에서 실행, 답변 또는 실패 코드를 돌려줌)
+              → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
+                  → EmbeddingService    : Ollama /api/embed로 1024차원 벡터 생성
+                  → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색
+              → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
+              → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
+                 → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
+              → ChatContextCollector : 남은 FAQ의 intent별로 답변 자료 수집
+              → AiService → PromptService → LlmService → OllamaClient (모은 자료 전달)
           → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
           → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
   → CHAT_RESPONSE_TIMEOUT_MILLIS 초과 시 시도를 FAIL(CHAT-016)로 저장하고 작업을 취소
 ```
+
+요청을 받는 일, 비동기로 실행하는 일, 답변을 만드는 일은 클래스가 나뉘어 있습니다(#140).
+
+| 클래스 | 맡은 일 |
+|---|---|
+| `ChatService` | 회원·게스트의 질문과 재시도 요청을 받습니다. 입력값과 금지어를 검증하고, 답변 시도를 만든 뒤 실행을 요청합니다. |
+| `ChatAnswerExecutor` | 답변 생성 작업을 `chatExecutor`에 제출하고, 작업 결과를 시도 기록에 저장해 응답을 확정합니다(성공이면 답변, 실패면 오류 코드). 제한 시간을 넘으면 시도를 실패로 저장하고 작업을 취소하도록 `ChatAnswerTask`를 구성하며, 작업을 시작하지 못하면 `CHAT-009`로 실패 처리합니다. |
+| `ChatAnswerProcessor` | 답변을 계산합니다. FAQ 검색, 유사도 판정, 미응답 질문 저장, intent별 답변 자료 수집, AI 호출을 차례로 수행하고 답변 또는 실패 코드를 돌려줍니다. 시도 기록은 저장하지 않습니다. |
+| `ChatAttemptsService` | 답변 시도를 만들고 재시도 조건을 검사하며, 시도 상태와 질문·FAQ 로그를 DB에 저장합니다. |
+| `ChatAnswerTask` | 요청 하나의 답변 결과입니다. 답변 저장과 타임아웃 중 먼저 확정된 결과 하나만 남깁니다. |
+
+`ChatAnswerProcessor`는 기준을 넘은 FAQ를 `ChatContextCollector`에 넘겨 intent(`GENERAL`, `STORE_DATA`, `USER_DATA`)별 답변 자료를 받습니다(#114). `GENERAL`은 FAQ 원문, `STORE_DATA`는 LLM이 호출할 매장 조회 도구(내 위치 기준으로 다시 요청하면 서버가 바로 조회한 근처 매장), `USER_DATA`는 로그인 사용자의 정보가 자료가 됩니다.
 
 같은 흐름을 답변 확정과 타임아웃이 경쟁하는 부분까지 포함해 그리면 아래와 같습니다.
 
@@ -133,11 +147,11 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 ### 동시성·트랜잭션 원칙
 
-- 시도 기록 저장은 `ChatAttemptsService`의 `REQUIRES_NEW` 트랜잭션으로만 짧게 수행합니다. FAQ 검색용 임베딩과 LLM 호출 중에는 DB 연결이나 행 잠금을 잡지 않습니다.
+- 시도 기록 저장은 `ChatAttemptsService`의 `REQUIRES_NEW` 트랜잭션으로만 짧게 수행합니다. `ChatAnswerProcessor`는 FAQ 검색용 임베딩과 LLM 호출 중에 DB 연결이나 행 잠금을 잡지 않습니다.
 - 예외: 미응답 질문 저장(`UnansweredQuestionService`)은 한 트랜잭션 안에서 질문을 다시 임베딩하므로, 그 Ollama 호출 동안 DB 연결을 사용합니다.
 - `ChatAnswerTask`는 lock으로 "저장 커밋 → 응답 확정"을 한 단위로 묶어, 답변 저장과 타임아웃이 겹쳐도 둘 중 먼저 확정된 결과 하나만 응답합니다.
 - 결과 저장은 시도 행을 잠근 뒤 아직 `PENDING`일 때만 상태를 바꿉니다. 타임아웃이 먼저 `FAIL`로 바꾸면 늦게 도착한 답변은 저장하지 않습니다.
-- `chatExecutor`는 동시 처리 수 제한이 없는 가상 스레드 Executor입니다(`global/config/AsyncConfig`). 종료 시 최대 150초까지 작업 완료를 기다립니다.
+- `chatExecutor`는 동시 처리 수 제한이 없는 가상 스레드 Executor입니다(`global/config/AsyncConfig`). 종료 시 최대 150초까지 작업 완료를 기다립니다. 작업 제출은 `ChatAnswerExecutor`만 합니다.
 
 ### 현재 상태와 남은 작업
 
@@ -152,7 +166,6 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 - **임계값**: 기본값은 `0.75`(`CHAT_CONFIDENCE_THRESHOLD`)입니다. [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)(#86)는 `0.73`을 채택했지만, 기본값과 `.env.example`을 바꿀지는 논의된 기록이 없습니다.
 - **프론트 배포 환경 연결**: GitHub Pages에 배포된 UBot-FE는 CORS 미설정, HTTPS 미적용, `/api` 접두사 불일치 때문에 백엔드를 호출할 수 없습니다. 선택지는 [프론트엔드 연동 가이드](how-to/frontend-integration.md#배포-환경-미해결)에 있습니다.
-- **FAQ intent 분기**: #90에서 매장·사용자 데이터 검색을 구분하려고 intent(`GENERAL`, `STORE_DATA`, `USER_DATA`)를 추가했지만(V13), 채팅 흐름은 아직 intent와 관계없이 모든 FAQ를 LLM에 전달합니다. 분기 구현을 추적하는 이슈는 없습니다.
 
 ## FAQ 관리 흐름
 

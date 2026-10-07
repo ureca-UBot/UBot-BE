@@ -40,9 +40,12 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new ChatService(vector, ai, attempts, mock(ForbiddenWordFilterService.class), unanswered, ChatTestFixtures.collector(), jobs::add);
-		ReflectionTestUtils.setField(service, "topK", 3);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(
+				vector, ai, unanswered, ChatTestFixtures.collector());
+		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attempts, jobs::add));
+		ReflectionTestUtils.setField(processor, "topK", 3);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		when(attempts.createAnswerAttempt(1L, "질문")).thenReturn(attempt);
 		when(attempts.saveAnswerFailure(any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);

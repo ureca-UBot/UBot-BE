@@ -49,7 +49,7 @@ public class PromptService {
             throw new PromptException(PromptErrorCode.PROMPT_INPUT_MISSING);
         }
 
-        // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatService의 검색 판단용입니다.
+        // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatAnswerProcessor의 검색 판단용입니다.
         // 매장만 묻는 질문처럼 FAQ 없이 도구·추가 자료만으로 답할 수도 있습니다.
         String faqText = faqs == null || faqs.isEmpty() ? EMPTY_VALUE : formatFaqs(faqs);
         String contextText = contextSections.isEmpty() ? EMPTY_VALUE : formatSections(contextSections);
