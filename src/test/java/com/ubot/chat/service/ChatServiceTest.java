@@ -71,6 +71,7 @@ class ChatServiceTest {
 	List<AnswerAttemptsHistory> saved = new ArrayList<>();
 	Deque<Runnable> jobs = new ArrayDeque<>();
 	ChatService service;
+	ChatAnswerProcessor processor;
 	ChatAttemptsService attemptsService;
 	MockMvc mvc;
 
@@ -105,9 +106,12 @@ class ChatServiceTest {
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
 		attemptsService = new ChatAttemptsService(attempts, questions, faqLogs, faqs, conversations, guestSettings, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
-		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), jobs::add);
-		ReflectionTestUtils.setField(service, "topK", 3);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.75);
+		processor = new ChatAnswerProcessor(
+				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+		service = new ChatService(attemptsService, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attemptsService, jobs::add));
+		ReflectionTestUtils.setField(processor, "topK", 3);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		var controller = new ChatController(service, mock(ClientIpResolver.class), mock(GuestConversationService.class));
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
@@ -208,8 +212,8 @@ class ChatServiceTest {
 	}
 
 	@Test void configuredSearchSizeAndThresholdAreUsed() throws Exception {
-		ReflectionTestUtils.setField(service, "topK", 5);
-		ReflectionTestUtils.setField(service, "confidenceThreshold", 0.8);
+		ReflectionTestUtils.setField(processor, "topK", 5);
+		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.8);
 		when(vector.getSimilarList("질문", 5)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.79, Intent.GENERAL)));
 
 		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("\"status\":\"FAIL\"", "\"retryable\":true");
@@ -329,9 +333,10 @@ class ChatServiceTest {
 
 	@Test
 	void rejectedWorkerCompletesWithRecordedFailure() {
-		service = new ChatService(vector, ai, attemptsService, mock(ForbiddenWordFilterService.class), mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), task -> {
-			throw new java.util.concurrent.RejectedExecutionException("executor secret");
-		});
+		service = new ChatService(attemptsService, mock(ForbiddenWordFilterService.class),
+				new ChatAnswerExecutor(processor, attemptsService, task -> {
+					throw new java.util.concurrent.RejectedExecutionException("executor secret");
+				}));
 		var task = service.createChat(1L, "질문", null);
 
 		assertThatThrownBy(() -> task.result().join()).hasCauseInstanceOf(ChatException.class)
