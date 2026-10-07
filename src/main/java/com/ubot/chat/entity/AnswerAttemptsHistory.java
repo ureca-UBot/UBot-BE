@@ -13,7 +13,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -67,15 +67,15 @@ public class AnswerAttemptsHistory {
 	@Column(name = "error_message")
 	private String errorMessage;
 
+	@Column(name = "created_at")
+	private LocalDateTime createdAt;
+
 	@Column(name = "source_attempt_id")
 	private Long sourceAttemptId;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "intent")
 	private Intent intent;
-
-	@Column(name = "created_at")
-	private LocalDateTime createdAt;
 
 	public AnswerAttemptsHistory(
 			Long userId,
@@ -110,13 +110,19 @@ public class AnswerAttemptsHistory {
 
 	/**
 	 * 성공한 원본을 사용자가 고른 intent로 다시 검색하는 새 attempt입니다. 재시도 체인과 분리하려고 호출하는 쪽에서 새 멱등키를
-	 * 넘깁니다.
+	 * 넘깁니다. 질문과 소유자·대화는 원본에서 이어받고, 모델은 이번에 사용하는 설정값을 기록합니다(재시도와 같습니다).
 	 */
 	public static AnswerAttemptsHistory createResearchAttempt(
 			AnswerAttemptsHistory source,
 			Intent intent,
 			String idempotencyKey,
-			LocalDateTime createdAt) {
+			LocalDateTime createdAt,
+			String llmModel,
+			String embeddingModel) {
+		Objects.requireNonNull(source, "source는 필수입니다.");
+		Objects.requireNonNull(source.id, "저장된 원본 attempt가 필요합니다.");
+		Objects.requireNonNull(source.userId, "재검색은 회원 attempt만 가능합니다.");
+		Objects.requireNonNull(intent, "intent는 필수입니다.");
 		return AnswerAttemptsHistory.builder()
 				.userId(source.userId)
 				.conversationId(source.conversationId)
@@ -126,10 +132,15 @@ public class AnswerAttemptsHistory {
 				.sourceAttemptId(source.id)
 				.intent(intent)
 				.createdAt(createdAt)
-				.llmModel(source.llmModel)
-				.embeddingModel(source.embeddingModel)
+				.llmModel(llmModel)
+				.embeddingModel(embeddingModel)
 				.status("PENDING")
 				.build();
+	}
+
+	/** 의도 재검색으로 만들어진 attempt인지 반환합니다. */
+	public boolean isResearch() {
+		return sourceAttemptId != null;
 	}
 
 	public void succeed() {

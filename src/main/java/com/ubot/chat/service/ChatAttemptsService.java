@@ -105,33 +105,41 @@ public class ChatAttemptsService {
 	/** 성공한 답변(idempotencyKey)에 대해, 로그인 사용자가 고른 intent로 재검색하는 새 attempt를 만듭니다. */
 	public AnswerAttemptsHistory createResearchAttempt(Long userId, String idempotencyKey, Intent intent) {
 		return transactionTemplate.execute(transactionStatus -> {
-			// userId 조건이 포함된 조회라 다른 사용자의 키나 게스트 attempt는 찾을 수 없습니다.
 			AnswerAttemptsHistory latest = answerAttemptsHistoryRepository
 					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
-			// 같은 원본에 대한 동시 재검색 요청을 직렬로 처리하기 위해 원본 행을 잠급니다.
 			AnswerAttemptsHistory source = answerAttemptsHistoryRepository
 					.findAttemptForLock(latest.getId())
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
-			// 답변이 온전히 성공한 원본만 가능하고, 재검색 attempt 자체는 다시 재검색할 수 없습니다.
-			if (!"SUCCESS".equals(source.getStatus()) || source.getSourceAttemptId() != null) {
+			if (!"SUCCESS".equals(source.getStatus()) || source.isResearch()) {
 				throw new ChatException(ChatErrorCode.RESEARCH_NOT_ALLOWED);
 			}
 			if (answerAttemptsHistoryRepository.existsBySourceAttemptIdAndIntent(source.getId(), intent)) {
 				throw new ChatException(ChatErrorCode.ALREADY_RESEARCHED);
 			}
 
+			LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+			String researchKey = createIdempotencyKey(
+					userId + ":research:" + source.getId() + ":" + intent, source.getQuestion(), createdAt);
+
 			try {
-				LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
-				String researchKey = createIdempotencyKey(userId, source.getQuestion(), createdAt);
 				return answerAttemptsHistoryRepository.saveAndFlush(
-						AnswerAttemptsHistory.createResearchAttempt(source, intent, researchKey, createdAt));
+						AnswerAttemptsHistory.createResearchAttempt(
+								source, intent, researchKey, createdAt, llmModel, embeddingModel));
 			} catch (DataIntegrityViolationException exception) {
-				throw new ChatException(ChatErrorCode.ALREADY_RESEARCHED);
+				if (isResearchDuplicate(exception)) {
+					throw new ChatException(ChatErrorCode.ALREADY_RESEARCHED);
+				}
+				throw exception;
 			}
 		});
+	}
+
+	private boolean isResearchDuplicate(DataIntegrityViolationException exception) {
+		String message = exception.getMostSpecificCause().getMessage();
+		return message != null && message.contains("uq_answer_attempts_history_source_intent");
 	}
 
 	private AnswerAttemptsHistory createRetryAttempt(Long userId, Long conversationId, String idempotencyKey) {
