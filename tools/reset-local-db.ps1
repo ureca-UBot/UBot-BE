@@ -98,9 +98,30 @@ COMMIT;
     if ($postgresContainerId) { docker exec $postgresContainerId rm -f /tmp/baseline-seed.sql 2>$null }
 }
 
-Invoke-Checked {
-    docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U $databaseUser -d $databaseName -Atc `
-        "SELECT count(*) = 2 FROM users HAVING count(*) = 2; SELECT count(*) = 17 FROM faq_category HAVING count(*) = 17; SELECT count(*) = 1000 AND count(vector) = 1000 AND min(vector_dims(vector)) = 1024 AND max(vector_dims(vector)) = 1024 FROM faq;"
-} '기본 데이터 검증에 실패했습니다.'
+$verificationOutput = & docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
+    -U $databaseUser -d $databaseName -At -F '|' -c @"
+SELECT
+  (SELECT
+    count(*) = 2
+    AND count(*) FILTER (WHERE email = 'user@user.com' AND "role" = 'USER'
+      AND crypt('12345678', password_hash) = password_hash) = 1
+    AND count(*) FILTER (WHERE email = 'admin@admin.com' AND "role" = 'ADMIN'
+      AND crypt('12345678', password_hash) = password_hash) = 1
+   FROM users) AS users_ok,
+  (SELECT count(*) = 17 FROM faq_category) AS categories_ok,
+  (SELECT
+    count(*) = 1000
+    AND count(vector) = 1000
+    AND min(vector_dims(vector)) = 1024
+    AND max(vector_dims(vector)) = 1024
+   FROM faq) AS faqs_and_vectors_ok;
+"@
+
+if ($LASTEXITCODE -ne 0) { throw '기본 데이터 검증 쿼리 실행에 실패했습니다.' }
+
+$verification = ($verificationOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 1).Trim()
+if ($verification -ne 't|t|t') {
+    throw "기본 데이터 검증에 실패했습니다. 검증 결과: $verification"
+}
 
 Write-Host 'DB Reset Completed.'
