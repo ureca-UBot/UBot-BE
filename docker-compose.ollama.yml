@@ -18,7 +18,7 @@ services:
       start_period: 20s
 
   # 임베딩 모델을 받고, OLLAMA_CHAT_MODEL이 있으면 채팅 모델도 받습니다.
-  # 채팅 모델은 이미 있으면 다시 받지 않습니다(용량이 크고, 직접 만든 모델일 수도 있어서).
+  # 이미 있는 모델은 다시 받지 않습니다. 그래서 배포할 때마다 실행해도 되고, 모델이 있으면 외부 연결 없이 끝납니다.
   ollama-init:
     image: ollama/ollama:0.34.0
     restart: "no"
@@ -29,15 +29,24 @@ services:
 
     environment:
       OLLAMA_HOST: http://ollama:11434
-      EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL}
+      # 기본값은 백엔드(application-local.yml)의 기본값과 같습니다.
+      EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3:567m}
       CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-}
 
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        ollama pull "$$EMBEDDING_MODEL"
-        if [ -n "$$CHAT_MODEL" ] && ! ollama show "$$CHAT_MODEL" > /dev/null 2>&1; then
-          ollama pull "$$CHAT_MODEL"
+        pull_if_missing() {
+          if ollama show "$$1" > /dev/null 2>&1; then
+            echo "$$1: already present"
+          else
+            ollama pull "$$1"
+          fi
+        }
+
+        pull_if_missing "$$EMBEDDING_MODEL"
+        if [ -n "$$CHAT_MODEL" ]; then
+          pull_if_missing "$$CHAT_MODEL"
         fi
 
 volumes:

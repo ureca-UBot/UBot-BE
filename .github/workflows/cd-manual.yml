@@ -47,9 +47,11 @@ jobs:
           if [ "$RUNTIME" = "vllm" ]; then
             echo "COMPOSE_ARGS=-p ubot -f docker-compose.yml -f docker-compose.deploy.yml" >> "$GITHUB_ENV"
             echo "MODEL_SERVICES=" >> "$GITHUB_ENV"
+            echo "MODEL_INIT_SERVICE=" >> "$GITHUB_ENV"
           else
             echo "COMPOSE_ARGS=-p ubot -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml" >> "$GITHUB_ENV"
             echo "MODEL_SERVICES=ollama" >> "$GITHUB_ENV"
+            echo "MODEL_INIT_SERVICE=ollama-init" >> "$GITHUB_ENV"
           fi
 
       # --------------------------------------------------
@@ -155,6 +157,78 @@ jobs:
           '
 
       # --------------------------------------------------
+      # 5-1. Runtime settings preflight (vllm)
+      # --------------------------------------------------
+      # vllm은 같은 서버에 Ollama를 띄우지 않습니다. 서버 .env가 Ollama를 쓰도록 남아 있으면
+      # 배포는 성공해도 채팅이 동작하지 않으므로, 이미지를 올리기 전에 막습니다.
+      - name: Validate runtime settings
+        if: env.RUNTIME == 'vllm'
+        run: |
+          ssh ubot-staging 'bash -s' <<'EOF'
+          set -eu
+
+          ENV_FILE="$HOME/ubot/.env"
+
+          # .env에서 마지막으로 정의된 값을 읽습니다. 주소는 로그에 남기지 않습니다.
+          env_value() {
+            line="$(grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n 1 | tr -d '\r')"
+            value="${line#*=}"
+            case "$value" in
+              \"*\") value="${value#\"}"; value="${value%\"}" ;;
+              \'*\') value="${value#\'}"; value="${value%\'}" ;;
+              *) value="$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')" ;;
+            esac
+            printf '%s' "$value"
+          }
+
+          failed=0
+
+          for key in LLM_PROVIDER EMBEDDING_PROVIDER; do
+            value="$(env_value "$key")"
+            if [ "$value" != "openai-compatible" ]; then
+              echo "::error::runtime=vllm needs ${key}=openai-compatible in ~/ubot/.env (current: ${value:-not set, so the backend uses ollama}). This runtime has no ollama container."
+              failed=1
+            fi
+          done
+
+          for key in LLM_BASE_URL EMBEDDING_BASE_URL; do
+            value="$(env_value "$key")"
+            case "$value" in
+              "")
+                echo "::error::${key} is not set in ~/ubot/.env. Without it the backend calls localhost inside its own container."
+                failed=1
+                ;;
+              *://localhost*|*://127.*|*://\[::1\]*|*://ollama:*|*://ollama/*)
+                echo "::error::${key} points to the backend container itself or to the ollama service. Set the GPU server address."
+                failed=1
+                ;;
+              http://*|https://*)
+                ;;
+              *)
+                echo "::error::${key} must start with http:// or https://."
+                failed=1
+                ;;
+            esac
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "Provider and base URL settings match runtime=vllm"
+
+          # 주소가 맞는지는 실제 응답으로 확인합니다. GPU 서버가 꺼져 있을 수 있으므로 실패로 처리하지 않고 경고만 남깁니다.
+          for key in LLM_BASE_URL EMBEDDING_BASE_URL; do
+            url="$(env_value "$key")"
+            if curl -fs -m 10 -o /dev/null "${url%/}/models" 2>/dev/null; then
+              echo "${key}: model server answered"
+            else
+              echo "::warning::${key}: the model server did not answer /models. Chat will fail until it is reachable."
+            fi
+          done
+          EOF
+
+      # --------------------------------------------------
       # 6. Upload
       # --------------------------------------------------
       - name: Upload deployment files
@@ -197,6 +271,13 @@ jobs:
               docker compose \
                 ${COMPOSE_ARGS} \
                 up -d --wait ${MODEL_SERVICES}
+
+              echo '== Prepare models =='
+
+              # 없는 모델만 받습니다. 처음 배포할 때는 내려받는 만큼 오래 걸립니다.
+              docker compose \
+                ${COMPOSE_ARGS} \
+                run --rm -T ${MODEL_INIT_SERVICE}
             fi
 
             echo '== Start backend stack =='

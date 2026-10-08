@@ -66,6 +66,7 @@ curl.exe http://localhost/actuator/health
 GitHub → Actions → `Backend Manual CD` → `Run workflow`에서 브랜치를 `develop`으로 선택해 실행합니다.
 
 - `runtime` 입력으로 모델 서버 환경을 고릅니다. 기본값 `ollama`는 같은 서버에 Ollama 컨테이너를 함께 띄우는 기존 구성입니다. `vllm`은 공통 서비스와 `backend`만 띄우며, 모델 서버는 별도 GPU 서버에 있어야 합니다.
+- `vllm`으로 실행하면 이미지를 올리기 전에 서버 `~/ubot/.env`를 검사합니다. `LLM_PROVIDER`, `EMBEDDING_PROVIDER`가 `openai-compatible`이 아니거나, `LLM_BASE_URL`, `EMBEDDING_BASE_URL`이 비어 있거나 `localhost`·`ollama`를 가리키면 배포가 실패합니다. 이 구성에는 `ollama` 컨테이너가 없어서, 그대로 올리면 배포는 성공해도 채팅이 동작하지 않기 때문입니다. 주소가 응답하지 않는 경우는 경고만 남기고 계속합니다.
 - `develop` 이외의 브랜치로 실행하면 job이 건너뛰어집니다.
 - GitHub Environment `staging`을 사용합니다. Environment에 보호 규칙이 있으면 승인 후 진행됩니다.
 - 동시에 하나만 실행되며(`concurrency: ubot-backend-deploy`), 뒤에 실행한 것은 앞 배포가 끝날 때까지 기다립니다. 제한 시간은 45분입니다.
@@ -82,10 +83,11 @@ GitHub → Actions → `Backend Manual CD` → `Run workflow`에서 브랜치를
 
 1. `docker build`로 `ubot-be:<커밋 SHA>` 이미지를 만들고 `docker save`로 압축합니다.
 2. `docker-compose.yml`, `docker-compose.ollama.yml`, `docker-compose.deploy.yml`, `infra/postgres/Dockerfile`, `infra/nginx/nginx.conf`를 묶습니다.
-3. SSH 연결을 설정하고 서버에서 Docker·Compose 버전과 `~/ubot/.env` 존재를 확인합니다. `.env`가 없으면 여기서 실패합니다.
+3. SSH 연결을 설정하고 서버에서 Docker·Compose 버전과 `~/ubot/.env` 존재를 확인합니다. `.env`가 없으면 여기서 실패합니다. `runtime`이 `vllm`이면 `.env`의 provider와 주소 설정도 검사합니다.
 4. 두 압축 파일을 `~/ubot-deploy/`로 복사합니다.
 5. 서버에서 구성 파일을 `~/ubot`에 풀고, 이미지를 `docker load`한 뒤 Compose 프로젝트 `ubot`으로 실행합니다. `runtime`이 `ollama`면 `docker-compose.yml`·`docker-compose.ollama.yml`·`docker-compose.deploy.yml`을, `vllm`이면 `docker-compose.yml`·`docker-compose.deploy.yml`을 씁니다.
    - `up -d --wait ollama` (`runtime`이 `ollama`일 때만): `ollama`가 healthy가 될 때까지 기다립니다.
+   - `run --rm -T ollama-init` (`runtime`이 `ollama`일 때만): `.env`의 임베딩 모델과 채팅 모델 중 서버에 없는 것만 내려받습니다. 내려받기에 실패하면 배포가 여기서 멈춥니다.
    - `up -d backend`: 새 이미지로 `backend`를 올립니다. 의존 서비스인 `postgres`, `redis`가 없으면 함께 시작하며, `postgres` 이미지가 서버에 없으면 `infra/postgres/Dockerfile`로 빌드합니다.
    - `up -d --no-deps --force-recreate nginx`: 설정 파일 변경을 반영하도록 `nginx`를 다시 만듭니다.
 6. 서버에서 `http://127.0.0.1/actuator/health`를 5초 간격으로 최대 30회 확인합니다. 실패하면 컨테이너 상태와 `backend`·`nginx` 로그 200줄을 출력하고 실패로 끝납니다.
@@ -95,14 +97,14 @@ GitHub → Actions → `Backend Manual CD` → `Run workflow`에서 브랜치를
 - Docker와 Docker Compose 플러그인을 설치합니다.
 - `~/ubot/.env`를 만듭니다. 개발용 `.env`를 복사하지 말고 서버용 값(`POSTGRES_PASSWORD`, `JWT_SECRET`, `OLLAMA_CHAT_MODEL`, `KAKAO_REST_API_KEY` 등)을 따로 준비합니다. 필요한 키 목록은 [configuration.md](reference/configuration.md#개발-환경변수)를 참고하세요.
 - 보안 그룹에서 80 포트를 엽니다.
-- **Ollama 모델을 직접 받습니다.** CD는 `ollama-init`을 실행하지 않으므로 임베딩 모델과 채팅 모델 모두 서버에서 한 번 받아야 합니다. 모델은 Compose 볼륨에 남습니다.
+- **Ollama 모델은 CD가 받습니다.** `runtime`이 `ollama`면 배포할 때마다 `ollama-init`을 실행해 `.env`의 `OLLAMA_EMBEDDING_MODEL`(없으면 `bge-m3:567m`)과 `OLLAMA_CHAT_MODEL` 중 서버에 없는 모델을 내려받습니다. 처음 배포할 때는 내려받는 만큼 오래 걸리고, 모델은 Compose 볼륨에 남아 다음부터는 건너뜁니다. 받아진 모델은 아래 명령으로 확인합니다.
 
 ```bash
 cd ~/ubot
-docker compose -p ubot -f docker-compose.yml -f docker-compose.ollama.yml exec ollama ollama pull bge-m3:567m
-docker compose -p ubot -f docker-compose.yml -f docker-compose.ollama.yml exec ollama ollama pull <채팅모델이름>
 docker compose -p ubot -f docker-compose.yml -f docker-compose.ollama.yml exec ollama ollama list
 ```
+
+- **`vllm`으로 배포하려면** `.env`에 `LLM_PROVIDER=openai-compatible`, `EMBEDDING_PROVIDER=openai-compatible`과 GPU 서버 주소(`LLM_BASE_URL`, `EMBEDDING_BASE_URL`)를 넣어 둡니다. 맞지 않으면 CD가 배포 전에 실패합니다.
 
 ### 서버에서 상태 확인·롤백
 

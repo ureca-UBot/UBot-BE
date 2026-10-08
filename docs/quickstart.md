@@ -120,7 +120,7 @@ docker compose exec ollama ollama list
 
 `ollama-init`의 종료 코드가 0이고 모델 목록에 `bge-m3:567m`이 보이면 다음 단계로 진행합니다.
 
-`.env`의 `OLLAMA_CHAT_MODEL`에 값이 있으면 `ollama-init`이 채팅 모델도 함께 받습니다. 이미 받아 둔 채팅 모델은 다시 받지 않습니다. 나중에 값을 채웠다면 `ollama-init`을 다시 실행하거나 직접 받습니다.
+`.env`의 `OLLAMA_CHAT_MODEL`에 값이 있으면 `ollama-init`이 채팅 모델도 함께 받습니다. 이미 받아 둔 모델은 다시 받지 않습니다. 나중에 값을 채웠다면 `ollama-init`을 다시 실행하거나 직접 받습니다.
 
 ```powershell
 docker compose run --rm ollama-init
