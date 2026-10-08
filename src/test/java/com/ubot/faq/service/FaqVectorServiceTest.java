@@ -1,6 +1,7 @@
 package com.ubot.faq.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 import com.pgvector.PGvector;
@@ -31,6 +32,28 @@ class FaqVectorServiceTest {
     }
 
     @Test
+    @DisplayName("사용자 질문을 임베딩한 뒤 선택한 intent의 유사 FAQ 목록을 조회한다")
+    void getSimilarListByIntent_embedsQuestionThenQueriesRepositoryWithIntent() {
+        PGvector vector = vector();
+        var expected = List.of(new FaqSearchResponseDto(2L, "매장 질문", "매장 답변", 0.9, Intent.STORE_DATA));
+        when(embeddingService.embedText("질문")).thenReturn(vector);
+        when(repository.getSimilarListByIntent(vector, Intent.STORE_DATA, 3)).thenReturn(expected);
+
+        assertThat(service.getSimilarListByIntent("질문", Intent.STORE_DATA, 3)).isEqualTo(expected);
+        verify(repository).getSimilarListByIntent(vector, Intent.STORE_DATA, 3);
+        verify(repository, never()).getSimilarList(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("intent가 없으면 임베딩과 조회를 하지 않고 거절한다")
+    void getSimilarListByIntent_rejectsNullIntent() {
+        assertThatThrownBy(() -> service.getSimilarListByIntent("질문", null, 3))
+                .isInstanceOf(NullPointerException.class);
+
+        verifyNoInteractions(embeddingService, repository);
+    }
+
+    @Test
     @DisplayName("FAQ 질문을 임베딩해 해당 FAQ의 벡터를 저장한다")
     void saveVectorForFaq_embedsQuestionThenSavesVector() {
         PGvector vector = vector();
@@ -41,5 +64,7 @@ class FaqVectorServiceTest {
         verify(repository).saveVectorForFaq(1L, vector);
     }
 
-    private PGvector vector() { return new PGvector(new float[] {1.0f}); }
+    private PGvector vector() {
+        return new PGvector(new float[] { 1.0f });
+    }
 }
