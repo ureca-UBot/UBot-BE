@@ -57,6 +57,12 @@ public class SecurityConfig {
 								"/swagger-ui/**",
 								"/swagger-ui.html"
 						).permitAll()
+						.requestMatchers(HttpMethod.GET,
+								"/plans", "/plans/**",
+								"/bundle-products", "/bundle-products/**",
+								"/addon-services", "/addon-services/**",
+								"/roaming-products", "/roaming-products/**"
+						).permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated()
