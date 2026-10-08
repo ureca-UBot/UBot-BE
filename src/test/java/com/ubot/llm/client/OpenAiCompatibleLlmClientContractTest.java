@@ -1,6 +1,6 @@
 package com.ubot.llm.client;
 
-import com.ubot.llm.config.LlmConfig;
+import com.ubot.llm.config.LlmClientFactory;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,8 +18,13 @@ class OpenAiCompatibleLlmClientContractTest extends LlmClientContractTest {
 	@Override
 	protected LlmClient createClient(String serverUrl, String modelName, Duration readTimeout) {
 		// 설정과 같은 형태로 기본 주소 끝에 /v1을 붙입니다.
-		return new LlmConfig().openAiCompatibleLlmClient(RestClient.builder(), serverUrl + "/v1", modelName,
-				Duration.ofSeconds(1), readTimeout);
+		return new LlmClientFactory().createOpenAiCompatible(
+		        RestClient.builder(),
+		        serverUrl + "/v1",
+		        modelName,
+		        Duration.ofSeconds(1),
+		        readTimeout
+		);
 	}
 
 	@Override

@@ -2,31 +2,33 @@ package com.ubot.embedding.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pgvector.PGvector;
-import com.ubot.embedding.config.EmbeddingConfig;
 import java.time.Duration;
 import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.web.client.RestClient;
 
-/**
- * 실제 OpenAI 호환 임베딩 서버(vLLM)에 연결해 응답 형식과 차원을 확인합니다.
- * 서버가 필요하므로 EMBEDDING_LIVE_BASE_URL(예: http://localhost:8001/v1)이 있을 때만 실행합니다.
- * 임베딩 서버의 이미지 버전이나 실행 옵션을 바꾼 뒤 다시 돌려 확인합니다.
- */
+import com.pgvector.PGvector;
+import com.ubot.embedding.config.EmbeddingClientFactory;
+
 @EnabledIfEnvironmentVariable(named = "EMBEDDING_LIVE_BASE_URL", matches = ".+")
 class OpenAiCompatibleEmbeddingClientLiveTest {
 
 	// 채팅 질문으로 받을 수 있는 최대 길이입니다(ChatRequestDto).
 	private static final int MAX_QUESTION_LENGTH = 4000;
 
-	private final EmbeddingClient client = new EmbeddingConfig().openAiCompatibleEmbeddingClient(
-			RestClient.builder(),
-			System.getenv("EMBEDDING_LIVE_BASE_URL"),
-			System.getenv().getOrDefault("EMBEDDING_LIVE_MODEL", "ubot-embedding"),
-			Duration.ofSeconds(3),
-			Duration.ofSeconds(120));
+	private final EmbeddingClient client =
+	        new EmbeddingClientFactory().createOpenAiCompatible(
+	                RestClient.builder(),
+	                System.getenv("EMBEDDING_LIVE_BASE_URL"),
+	                System.getenv().getOrDefault(
+	                        "EMBEDDING_LIVE_MODEL",
+	                        "ubot-embedding"
+	                ),
+	                Duration.ofSeconds(3),
+	                Duration.ofSeconds(120)
+	        );
 
 	@Test
 	void embedsQuestionInto1024Dimensions() {

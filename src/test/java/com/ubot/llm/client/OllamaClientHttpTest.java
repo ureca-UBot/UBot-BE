@@ -3,16 +3,6 @@ package com.ubot.llm.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
-import com.ubot.llm.config.LlmConfig;
-import com.ubot.llm.dto.request.LlmMessageRequestDto;
-import com.ubot.llm.dto.request.LlmRequestDto;
-import com.ubot.llm.exception.LlmErrorCode;
-import com.ubot.llm.enums.LlmMessageRole;
-import com.ubot.llm.exception.LlmException;
-import com.ubot.llm.service.LlmService;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -22,9 +12,22 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import com.ubot.llm.config.LlmClientFactory;
+import com.ubot.llm.dto.request.LlmMessageRequestDto;
+import com.ubot.llm.dto.request.LlmRequestDto;
+import com.ubot.llm.enums.LlmMessageRole;
+import com.ubot.llm.exception.LlmErrorCode;
+import com.ubot.llm.exception.LlmException;
+import com.ubot.llm.service.LlmService;
+
 import tools.jackson.databind.json.JsonMapper;
 
 class OllamaClientHttpTest {
@@ -134,7 +137,7 @@ class OllamaClientHttpTest {
         server.createContext("/api/chat", handler);
         server.start();
         String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-        var client = new LlmConfig().llmClient(RestClient.builder(), baseUrl, MODEL_NAME,
+        var client = new LlmClientFactory().createOllama(RestClient.builder(), baseUrl, MODEL_NAME,
                 Duration.ofSeconds(1), readTimeout);
         return new LlmService(client);
     }

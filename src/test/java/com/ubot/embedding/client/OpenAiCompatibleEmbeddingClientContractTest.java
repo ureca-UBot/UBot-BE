@@ -2,21 +2,23 @@ package com.ubot.embedding.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pgvector.PGvector;
-import com.ubot.embedding.config.EmbeddingConfig;
-import com.ubot.embedding.exception.EmbeddingErrorCode;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.web.client.RestClient;
+
+import com.pgvector.PGvector;
+import com.ubot.embedding.config.EmbeddingClientFactory;
+import com.ubot.embedding.exception.EmbeddingErrorCode;
+
 import tools.jackson.databind.JsonNode;
 
-/** OpenAiCompatibleEmbeddingClient가 공통 계약을 지키는지 /v1/embeddings 응답 형식으로 확인합니다. */
 class OpenAiCompatibleEmbeddingClientContractTest extends EmbeddingClientContractTest {
 
 	@Override
@@ -25,10 +27,19 @@ class OpenAiCompatibleEmbeddingClientContractTest extends EmbeddingClientContrac
 	}
 
 	@Override
-	protected EmbeddingClient createClient(String serverUrl, String modelName, Duration readTimeout) {
-		// 설정과 같은 형태로 기본 주소 끝에 /v1을 붙입니다.
-		return new EmbeddingConfig().openAiCompatibleEmbeddingClient(RestClient.builder(), serverUrl + "/v1",
-				modelName, Duration.ofSeconds(1), readTimeout);
+	protected EmbeddingClient createClient(
+	        String serverUrl,
+	        String modelName,
+	        Duration readTimeout) {
+
+	    return new EmbeddingClientFactory()
+	            .createOpenAiCompatible(
+	                    RestClient.builder(),
+	                    serverUrl + "/v1",
+	                    modelName,
+	                    Duration.ofSeconds(1),
+	                    readTimeout
+	            );
 	}
 
 	@Override
@@ -87,11 +98,23 @@ class OpenAiCompatibleEmbeddingClientContractTest extends EmbeddingClientContrac
 
 	@Test
 	void callsEmbeddingsPathEvenIfBaseUrlEndsWithSlash() {
-		server().respond(embeddingResponse(List.of(vector(0.1))));
-		EmbeddingClient client = new EmbeddingConfig().openAiCompatibleEmbeddingClient(RestClient.builder(),
-				server().url() + "/v1/", MODEL_NAME, Duration.ofSeconds(1), Duration.ofSeconds(3));
 
-		assertThat(client.embed("질문").toArray()).hasSize(EmbeddingClient.DIMENSIONS);
+	    server().respond(
+	            embeddingResponse(List.of(vector(0.1)))
+	    );
+
+	    EmbeddingClient client =
+	            new EmbeddingClientFactory()
+	                    .createOpenAiCompatible(
+	                            RestClient.builder(),
+	                            server().url() + "/v1/",
+	                            MODEL_NAME,
+	                            Duration.ofSeconds(1),
+	                            Duration.ofSeconds(3)
+	                    );
+
+	    assertThat(client.embed("질문").toArray())
+	            .hasSize(EmbeddingClient.DIMENSIONS);
 	}
 
 	private Map<String, Object> item(Integer index, List<Object> embedding) {

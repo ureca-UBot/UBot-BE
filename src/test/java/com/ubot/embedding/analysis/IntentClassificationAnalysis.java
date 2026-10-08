@@ -6,7 +6,7 @@ import com.ubot.embedding.service.EmbeddingService;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVRecord;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -57,10 +57,14 @@ import java.util.*;
 @Import(PgvectorTestConfiguration.class)
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
+        "app.ai.mode=ollama",
         "ollama.base-url=http://localhost:11435",
         "spring.ai.ollama.base-url=http://localhost:11435"
 })
-@DisabledIfEnvironmentVariable(named = "CI", matches = "true")
+@EnabledIfEnvironmentVariable(
+        named = "RUN_INTENT_ANALYSIS",
+        matches = "true"
+)
 class IntentClassificationAnalysis {
 
     private static final int K = 3;
