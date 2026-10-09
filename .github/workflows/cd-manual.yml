@@ -2,14 +2,6 @@ name: Backend Manual CD
 
 on:
   workflow_dispatch:
-    inputs:
-      runtime:
-        description: "모델 서버 환경 (ollama: 같은 서버의 Ollama 컨테이너, vllm: 별도 GPU 서버의 vLLM)"
-        type: choice
-        options:
-          - ollama
-          - vllm
-        default: ollama
 
 permissions:
   contents: read
@@ -20,16 +12,17 @@ concurrency:
 
 jobs:
   deploy:
-  # 당장은 develop만 배포 허용
-    if: github.ref == 'refs/heads/develop'
+    if: |
+      github.ref == 'refs/heads/develop' ||
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/chore/152-runtime-env-split'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     environment: staging
 
     env:
       IMAGE_NAME: ubot-be
-      RUNTIME: ${{ inputs.runtime }}
       EC2_HOST: ${{ secrets.EC2_HOST }}
       EC2_USER: ${{ secrets.EC2_USER }}
 
@@ -37,26 +30,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
-      # --------------------------------------------------
-      # 0. Compose files for the selected runtime
-      # --------------------------------------------------
-      # ollama: 같은 서버에 Ollama 컨테이너를 함께 띄웁니다(기본, 기존과 같은 구성).
-      # vllm:   모델 서버는 별도 GPU 서버에 있으므로 공통 서비스와 backend만 띄웁니다.
-      - name: Select compose files
-        run: |
-          if [ "$RUNTIME" = "vllm" ]; then
-            echo "COMPOSE_ARGS=-p ubot -f docker-compose.yml -f docker-compose.deploy.yml" >> "$GITHUB_ENV"
-            echo "MODEL_SERVICES=" >> "$GITHUB_ENV"
-            echo "MODEL_INIT_SERVICE=" >> "$GITHUB_ENV"
-          else
-            echo "COMPOSE_ARGS=-p ubot -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml" >> "$GITHUB_ENV"
-            echo "MODEL_SERVICES=ollama" >> "$GITHUB_ENV"
-            echo "MODEL_INIT_SERVICE=ollama-init" >> "$GITHUB_ENV"
-          fi
-
-      # --------------------------------------------------
-      # 1. Backend image build
-      # --------------------------------------------------
       - name: Build backend Docker image
         run: |
           docker build \
@@ -68,21 +41,17 @@ jobs:
           docker save "${IMAGE_NAME}:${GITHUB_SHA}" \
             | gzip > ubot-be.tar.gz
 
-      # --------------------------------------------------
-      # 2. Package deployment configuration
-      # --------------------------------------------------
       - name: Package deploy configuration
         run: |
           tar -czf ubot-deploy.tar.gz \
             docker-compose.yml \
-            docker-compose.ollama.yml \
             docker-compose.deploy.yml \
+            docker-compose.ollama.yml \
+            docker-compose.vllm.yml \
             infra/postgres/Dockerfile \
-            infra/nginx/nginx.conf
+            infra/nginx/nginx.conf \
+            infra/llm/docker-compose.yml
 
-      # --------------------------------------------------
-      # 3. SSH configuration
-      # --------------------------------------------------
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
@@ -95,13 +64,6 @@ jobs:
             > ~/.ssh/deploy_key
 
           chmod 600 ~/.ssh/deploy_key
-
-          ssh-keygen -y \
-            -f ~/.ssh/deploy_key \
-            > /tmp/deploy_key.pub
-
-          echo "Deploy key fingerprint:"
-          ssh-keygen -lf /tmp/deploy_key.pub
 
           ssh-keyscan -H "$EC2_HOST" \
             >> ~/.ssh/known_hosts
@@ -119,20 +81,16 @@ jobs:
 
           chmod 600 ~/.ssh/config
 
-      # --------------------------------------------------
-      # 4. SSH connection test
-      # --------------------------------------------------
       - name: Test SSH connection
         run: |
           ssh ubot-staging '
+            set -e
+
             echo "SSH connection successful"
             echo "user=$(whoami)"
             echo "host=$(hostname)"
           '
 
-      # --------------------------------------------------
-      # 5. Server preflight
-      # --------------------------------------------------
       - name: Check deployment environment
         run: |
           ssh ubot-staging '
@@ -153,84 +111,112 @@ jobs:
 
             echo "~/ubot/.env exists"
 
+            read_env() {
+              grep -E "^${1}=" ~/ubot/.env \
+                | tail -n 1 \
+                | cut -d= -f2- \
+                | tr -d "\r" \
+                | sed "s/^[[:space:]]*//;s/[[:space:]]*$//;s/^\"//;s/\"$//"
+            }
+
+            require_env() {
+              VALUE=$(read_env "$1")
+
+              if [ -z "${VALUE}" ]; then
+                echo "ERROR: $1 is required in ~/ubot/.env"
+                exit 1
+              fi
+            }
+
+            require_env SPRING_PROFILES_ACTIVE
+            require_env AI_MODE
+            require_env AI_RUNTIME_MANAGED
+            require_env POSTGRES_DB
+            require_env POSTGRES_USER
+            require_env POSTGRES_PASSWORD
+            require_env JWT_SECRET
+            require_env KAKAO_REST_API_KEY
+
+            SPRING_PROFILE=$(read_env SPRING_PROFILES_ACTIVE)
+            AI_MODE=$(read_env AI_MODE)
+            AI_RUNTIME_MANAGED=$(read_env AI_RUNTIME_MANAGED)
+
+            echo "SPRING_PROFILES_ACTIVE=${SPRING_PROFILE}"
+            echo "AI_MODE=${AI_MODE}"
+            echo "AI_RUNTIME_MANAGED=${AI_RUNTIME_MANAGED}"
+
+            if [ "${SPRING_PROFILE}" != "prod" ]; then
+              echo "ERROR: SPRING_PROFILES_ACTIVE must be prod"
+              exit 1
+            fi
+
+            case "${AI_MODE}" in
+              ollama)
+                require_env OLLAMA_BASE_URL
+                require_env OLLAMA_EMBEDDING_MODEL
+                ;;
+
+              vllm)
+                require_env LLM_BASE_URL
+                require_env LLM_MODEL
+                require_env EMBEDDING_BASE_URL
+                require_env EMBEDDING_MODEL
+                ;;
+
+              custom)
+                require_env AI_CHAT_ENGINE
+                require_env AI_EMBEDDING_ENGINE
+                ;;
+
+              *)
+                echo "ERROR: AI_MODE must be ollama, vllm, or custom"
+                exit 1
+                ;;
+            esac
+
+            case "${AI_RUNTIME_MANAGED}" in
+              true|false)
+                ;;
+              *)
+                echo "ERROR: AI_RUNTIME_MANAGED must be true or false"
+                exit 1
+                ;;
+            esac
+
+            if [ "${AI_RUNTIME_MANAGED}" = "true" ] && [ "${AI_MODE}" = "custom" ]; then
+              echo "ERROR: AI_MODE=custom cannot use AI_RUNTIME_MANAGED=true"
+              exit 1
+            fi
+
+            if [ "${AI_RUNTIME_MANAGED}" = "true" ]; then
+              case "${AI_MODE}" in
+                ollama)
+                  require_env OLLAMA_PORT
+                  ;;
+
+                vllm)
+                  require_env LLM_HF_MODEL
+                  require_env LLM_SERVED_MODEL_NAME
+                  require_env EMBEDDING_HF_MODEL
+                  require_env EMBEDDING_SERVED_MODEL_NAME
+                  ;;
+              esac
+            fi
+
+            if [ "${AI_RUNTIME_MANAGED}" = "true" ] && [ "${AI_MODE}" = "vllm" ]; then
+              echo "== NVIDIA GPU =="
+
+              if ! command -v nvidia-smi >/dev/null 2>&1; then
+                echo "ERROR: nvidia-smi was not found"
+                exit 1
+              fi
+
+              nvidia-smi
+            fi
+
             mkdir -p ~/ubot-deploy
           '
 
-      # --------------------------------------------------
-      # 5-1. Runtime settings preflight (vllm)
-      # --------------------------------------------------
-      # vllm은 같은 서버에 Ollama를 띄우지 않습니다. 서버 .env가 Ollama를 쓰도록 남아 있으면
-      # 배포는 성공해도 채팅이 동작하지 않으므로, 이미지를 올리기 전에 막습니다.
-      - name: Validate runtime settings
-        if: env.RUNTIME == 'vllm'
-        run: |
-          ssh ubot-staging 'bash -s' <<'EOF'
-          set -eu
-
-          ENV_FILE="$HOME/ubot/.env"
-
-          # .env에서 마지막으로 정의된 값을 읽습니다. 주소는 로그에 남기지 않습니다.
-          env_value() {
-            line="$(grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n 1 | tr -d '\r')"
-            value="${line#*=}"
-            case "$value" in
-              \"*\") value="${value#\"}"; value="${value%\"}" ;;
-              \'*\') value="${value#\'}"; value="${value%\'}" ;;
-              *) value="$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')" ;;
-            esac
-            printf '%s' "$value"
-          }
-
-          failed=0
-
-          for key in LLM_PROVIDER EMBEDDING_PROVIDER; do
-            value="$(env_value "$key")"
-            if [ "$value" != "openai-compatible" ]; then
-              echo "::error::runtime=vllm needs ${key}=openai-compatible in ~/ubot/.env (current: ${value:-not set, so the backend uses ollama}). This runtime has no ollama container."
-              failed=1
-            fi
-          done
-
-          for key in LLM_BASE_URL EMBEDDING_BASE_URL; do
-            value="$(env_value "$key")"
-            case "$value" in
-              "")
-                echo "::error::${key} is not set in ~/ubot/.env. Without it the backend calls localhost inside its own container."
-                failed=1
-                ;;
-              *://localhost*|*://127.*|*://\[::1\]*|*://ollama:*|*://ollama/*)
-                echo "::error::${key} points to the backend container itself or to the ollama service. Set the GPU server address."
-                failed=1
-                ;;
-              http://*|https://*)
-                ;;
-              *)
-                echo "::error::${key} must start with http:// or https://."
-                failed=1
-                ;;
-            esac
-          done
-
-          if [ "$failed" -ne 0 ]; then
-            exit 1
-          fi
-
-          echo "Provider and base URL settings match runtime=vllm"
-
-          # 주소가 맞는지는 실제 응답으로 확인합니다. GPU 서버가 꺼져 있을 수 있으므로 실패로 처리하지 않고 경고만 남깁니다.
-          for key in LLM_BASE_URL EMBEDDING_BASE_URL; do
-            url="$(env_value "$key")"
-            if curl -fs -m 10 -o /dev/null "${url%/}/models" 2>/dev/null; then
-              echo "${key}: model server answered"
-            else
-              echo "::warning::${key}: the model server did not answer /models. Chat will fail until it is reachable."
-            fi
-          done
-          EOF
-
-      # --------------------------------------------------
-      # 6. Upload
-      # --------------------------------------------------
       - name: Upload deployment files
         run: |
           scp \
@@ -238,79 +224,226 @@ jobs:
             ubot-deploy.tar.gz \
             ubot-staging:~/ubot-deploy/
 
-      # --------------------------------------------------
-      # 7. Deploy
-      # --------------------------------------------------
       - name: Deploy on EC2
         run: |
-          ssh ubot-staging "
-            set -e
+          ssh ubot-staging \
+            "IMAGE_NAME='${IMAGE_NAME}' GITHUB_SHA='${GITHUB_SHA}' bash -s" <<'REMOTE'
+          set -euo pipefail
 
-            echo '== Prepare deployment directory =='
+          read_env() {
+            grep -E "^${1}=" ~/ubot/.env \
+              | tail -n 1 \
+              | cut -d= -f2- \
+              | tr -d '\r' \
+              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//'
+          }
 
-            mkdir -p ~/ubot
+          echo "== Prepare deployment directory =="
 
-            tar -xzf \
-              ~/ubot-deploy/ubot-deploy.tar.gz \
-              -C ~/ubot
+          mkdir -p ~/ubot
 
-            echo '== Load backend Docker image =='
+          tar -xzf \
+            ~/ubot-deploy/ubot-deploy.tar.gz \
+            -C ~/ubot
 
-            gunzip -c \
-              ~/ubot-deploy/ubot-be.tar.gz \
-              | docker load
+          echo "== Load backend Docker image =="
 
-            cd ~/ubot
+          gunzip -c \
+            ~/ubot-deploy/ubot-be.tar.gz \
+            | docker load
 
-            echo '== Runtime: ${RUNTIME} =='
+          cd ~/ubot
 
-            # backend는 모델 서버를 기다리지 않으므로, 같은 서버에 띄우는 모델 서버는 먼저 준비시킵니다.
-            if [ -n '${MODEL_SERVICES}' ]; then
-              echo '== Start model server =='
+          export BACKEND_IMAGE="${IMAGE_NAME}:${GITHUB_SHA}"
 
-              docker compose \
-                ${COMPOSE_ARGS} \
-                up -d --wait ${MODEL_SERVICES}
+          AI_MODE=$(read_env AI_MODE)
+          AI_RUNTIME_MANAGED=$(read_env AI_RUNTIME_MANAGED)
 
-              echo '== Prepare models =='
+          echo "AI_MODE=${AI_MODE}"
+          echo "AI_RUNTIME_MANAGED=${AI_RUNTIME_MANAGED}"
+          echo "BACKEND_IMAGE=${BACKEND_IMAGE}"
 
-              # 없는 모델만 받습니다. 처음 배포할 때는 내려받는 만큼 오래 걸립니다.
-              docker compose \
-                ${COMPOSE_ARGS} \
-                run --rm -T ${MODEL_INIT_SERVICE}
+          COMPOSE=(
+            docker compose
+            -p ubot
+            --env-file .env
+            -f docker-compose.yml
+            -f docker-compose.deploy.yml
+          )
+
+          if [ "${AI_RUNTIME_MANAGED}" = "true" ]; then
+            case "${AI_MODE}" in
+              ollama)
+                COMPOSE+=(
+                  -f docker-compose.ollama.yml
+                )
+                ;;
+
+              vllm)
+                COMPOSE+=(
+                  -f docker-compose.vllm.yml
+                )
+                ;;
+            esac
+          fi
+
+          echo "== Validate Compose =="
+
+          "${COMPOSE[@]}" config >/dev/null
+
+          echo "== Remove previous managed AI runtime =="
+
+          ALL_COMPOSE=(
+            docker compose
+            -p ubot
+            --env-file .env
+            -f docker-compose.yml
+            -f docker-compose.deploy.yml
+            -f docker-compose.ollama.yml
+            -f docker-compose.vllm.yml
+          )
+
+          "${ALL_COMPOSE[@]}" \
+            rm -f -s \
+            ollama \
+            ollama-init \
+            vllm \
+            vllm-embedding \
+            || true
+
+          echo "== Start common infrastructure =="
+
+          "${COMPOSE[@]}" \
+            up -d \
+            postgres \
+            redis \
+            prometheus
+
+          if [ "${AI_RUNTIME_MANAGED}" = "true" ]; then
+
+            if [ "${AI_MODE}" = "ollama" ]; then
+              echo "== Start Ollama =="
+
+              "${COMPOSE[@]}" \
+                up -d \
+                ollama \
+                ollama-init
+
+              OLLAMA_PORT=$(read_env OLLAMA_PORT)
+
+              if [ -z "${OLLAMA_PORT}" ]; then
+                OLLAMA_PORT=11435
+              fi
+
+              echo "Waiting for Ollama..."
+
+              for i in $(seq 1 60); do
+                if curl -fsS \
+                  "http://127.0.0.1:${OLLAMA_PORT}/api/tags" \
+                  >/dev/null; then
+
+                  echo "Ollama is ready"
+                  break
+                fi
+
+                if [ "${i}" -eq 60 ]; then
+                  echo "ERROR: Ollama did not become ready"
+                  "${COMPOSE[@]}" logs --tail=200 ollama ollama-init
+                  exit 1
+                fi
+
+                echo "Ollama readiness ${i}/60"
+                sleep 5
+              done
             fi
 
-            echo '== Start backend stack =='
+            if [ "${AI_MODE}" = "vllm" ]; then
+              echo "== Start vLLM =="
 
-            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
-              docker compose \
-                ${COMPOSE_ARGS} \
-                up -d backend
-
-            echo '== Recreate nginx =='
-
-            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
-              docker compose \
-                ${COMPOSE_ARGS} \
+              "${COMPOSE[@]}" \
                 up -d \
-                --no-deps \
-                --force-recreate \
-                nginx
+                vllm \
+                vllm-embedding
 
-            echo '== Container status =='
+              LLM_PORT=$(read_env LLM_PORT)
+              EMBEDDING_PORT=$(read_env EMBEDDING_PORT)
 
-            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
-              docker compose \
-                ${COMPOSE_ARGS} \
-                ps
-          "
+              if [ -z "${LLM_PORT}" ]; then
+                LLM_PORT=8000
+              fi
 
-      # --------------------------------------------------
-      # 8. Health check
-      # --------------------------------------------------
+              if [ -z "${EMBEDDING_PORT}" ]; then
+                EMBEDDING_PORT=8001
+              fi
+
+              echo "Waiting for vLLM Chat..."
+
+              for i in $(seq 1 120); do
+                if curl -fsS \
+                  "http://127.0.0.1:${LLM_PORT}/v1/models" \
+                  >/dev/null; then
+
+                  echo "vLLM Chat is ready"
+                  break
+                fi
+
+                if [ "${i}" -eq 120 ]; then
+                  echo "ERROR: vLLM Chat did not become ready"
+                  "${COMPOSE[@]}" logs --tail=200 vllm
+                  exit 1
+                fi
+
+                echo "vLLM Chat readiness ${i}/120"
+                sleep 5
+              done
+
+              echo "Waiting for vLLM Embedding..."
+
+              for i in $(seq 1 120); do
+                if curl -fsS \
+                  "http://127.0.0.1:${EMBEDDING_PORT}/v1/models" \
+                  >/dev/null; then
+
+                  echo "vLLM Embedding is ready"
+                  break
+                fi
+
+                if [ "${i}" -eq 120 ]; then
+                  echo "ERROR: vLLM Embedding did not become ready"
+                  "${COMPOSE[@]}" logs --tail=200 vllm-embedding
+                  exit 1
+                fi
+
+                echo "vLLM Embedding readiness ${i}/120"
+                sleep 5
+              done
+            fi
+          fi
+
+          echo "== Start backend =="
+
+          "${COMPOSE[@]}" \
+            up -d \
+            backend
+
+          echo "== Recreate nginx =="
+
+          "${COMPOSE[@]}" \
+            up -d \
+            --no-deps \
+            --force-recreate \
+            nginx
+
+          echo "== Container status =="
+
+          "${COMPOSE[@]}" ps -a
+          REMOTE
+
       - name: Health check
         run: |
-          ssh ubot-staging "COMPOSE_ARGS='${COMPOSE_ARGS}'"'
+          ssh ubot-staging '
+            set -e
+
             echo "Waiting for backend..."
 
             for i in $(seq 1 30); do
@@ -334,16 +467,24 @@ jobs:
             echo "== Container status =="
 
             docker compose \
-              $COMPOSE_ARGS \
+              -p ubot \
+              --env-file .env \
+              -f docker-compose.yml \
+              -f docker-compose.deploy.yml \
+              -f docker-compose.ollama.yml \
+              -f docker-compose.vllm.yml \
               ps -a
 
             echo "== Backend / nginx logs =="
 
             docker compose \
-              $COMPOSE_ARGS \
+              -p ubot \
+              --env-file .env \
+              -f docker-compose.yml \
+              -f docker-compose.deploy.yml \
               logs \
-                --tail=200 \
-                backend nginx
+              --tail=200 \
+              backend nginx
 
             exit 1
           '

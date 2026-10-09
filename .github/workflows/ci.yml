@@ -32,8 +32,5 @@ jobs:
       - name: Grant execute permission for Gradle
         run: chmod +x gradlew
 
-      - name: Run tests with a disposable pgvector and PostGIS database
-        run: ./gradlew test --no-daemon
-
-      - name: Build
-        run: ./gradlew build -x test --no-daemon
+      - name: Test and build
+        run: ./gradlew clean build --no-daemon --console=plain
