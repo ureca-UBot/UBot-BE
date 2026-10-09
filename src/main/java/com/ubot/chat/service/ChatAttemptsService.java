@@ -50,10 +50,10 @@ public class ChatAttemptsService {
 	private final GuestChatSettingsRepository guestChatSettingsRepository;
 	private final TransactionTemplate transactionTemplate;
 
-	// LLM_PROVIDER에 따라 답변을 만드는 모델이 달라지므로, 설정을 직접 읽지 않고 LLM 모듈에서 이름을 받습니다.
+	// AI_MODE에 따라 답변을 만드는 모델이 달라지므로, 설정을 직접 읽지 않고 LLM 모듈에서 이름을 받습니다.
 	private final String llmModel;
 
-	// EMBEDDING_PROVIDER에 따라 임베딩 모델이 달라지므로, 같은 방식으로 임베딩 모듈에서 이름을 받습니다.
+	// AI_MODE에 따라 임베딩 모델이 달라지므로, 같은 방식으로 임베딩 모듈에서 이름을 받습니다.
 	private final String embeddingModel;
 
 	public ChatAttemptsService(

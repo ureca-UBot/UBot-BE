@@ -37,6 +37,7 @@ src/main/resources/
 | `.\tools\ubot.ps1 up` | 다른 쪽 모델 서버 컨테이너를 내린 뒤, 공통 서비스와 `AI_MODE`에 맞는 모델 서버를 띄웁니다. `vllm`이면 두 서버의 `/v1/models`에 `LLM_MODEL`, `EMBEDDING_MODEL`이 보일 때까지 서버마다 최대 300초 기다립니다 |
 | `.\tools\ubot.ps1 down` | 세 파일의 컨테이너를 모두 내립니다. 볼륨은 남깁니다 |
 | `.\tools\ubot.ps1 status` | 세 파일의 컨테이너 상태를 보여 줍니다 |
+| `.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>` | 실행 중인 백엔드에 임베딩 백필 API 두 개를 호출합니다. `AI_MODE`를 바꾸거나 시드 스크립트를 실행한 뒤에 씁니다([백필](../how-to/llm-module.md#백필)) |
 
 - 스크립트는 `docker compose -f <공통 파일> -f <모델 서버 파일> --env-file .env ...`를 실행합니다. 직접 실행할 때도 `-f`로 두 파일을 함께 지정합니다. `-f` 없이 실행하면 `docker-compose.yml`만 읽습니다. 그래서 `up`은 공통 서비스만 띄우고, `logs ollama`나 `run ollama-init`처럼 모델 서버를 지정한 명령은 `no such service`로 실패합니다.
 - 두 모드는 같은 Compose 프로젝트(폴더 이름을 따름. 보통 `ubot-be`)와 같은 PostgreSQL 볼륨을 씁니다. 한 DB에 두 서버의 벡터가 Profile별로 따로 저장됩니다([Embedding Profile](../how-to/llm-module.md#embedding-profile)).

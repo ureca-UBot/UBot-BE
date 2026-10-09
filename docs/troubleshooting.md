@@ -242,7 +242,13 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 **해결**
 
-관리자 계정으로 백필 API 두 개를 실행해 지금 Profile의 벡터를 채웁니다([백필](how-to/llm-module.md#백필)). 이전 설정으로 되돌리면 전에 만든 벡터를 다시 쓰므로 백필 없이도 검색됩니다.
+관리자 계정으로 백필을 실행해 지금 Profile의 벡터를 채웁니다([백필](how-to/llm-module.md#백필)).
+
+```powershell
+.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+```
+
+이전 설정으로 되돌리면 전에 만든 벡터를 다시 쓰므로 백필 없이도 검색됩니다.
 
 ## 테스트에서 Docker를 찾지 못함
 

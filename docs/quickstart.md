@@ -188,7 +188,7 @@ Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 전체 API를 보고 �
 
 `POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 질문하면 `CHAT-012`(검색 결과 없음)가, 채팅 모델이 비어 있으면 `LLM-002`가 반환됩니다.
 
-- 기본 FAQ 1,000건과 기본 계정을 한 번에 넣으려면 `.\tools\reset-local-db.ps1`을 실행하고, 애플리케이션을 다시 시작한 뒤 임베딩 백필을 실행합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
+- 기본 FAQ 1,000건과 기본 계정을 한 번에 넣으려면 `.\tools\reset-local-db.ps1`을 실행하고, 애플리케이션을 다시 시작한 뒤 임베딩 백필(`.\tools\backfill-embeddings.ps1`)을 실행합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
 - 지금 DB를 유지하려면 계정을 직접 만들고 관리자 API로 FAQ를 등록합니다.
 
 두 방법 모두 [local-data.md](how-to/local-data.md)에 있습니다.
@@ -203,7 +203,7 @@ JDK 17 이상과 실행 중인 Docker만 준비한 뒤 실행합니다.
 
 Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB를 만들고 Flyway와 두 extension을 검증한 뒤 종료 시 정리합니다. 위의 `.env` 작성·Compose 기동 단계는 테스트에 필요하지 않습니다.
 
-PR을 올리기 전에 CI와 같은 명령(`gradlew clean build --no-daemon`)으로 확인하려면 `.	oolsci.ps1`을 실행합니다.
+PR을 올리기 전에 CI와 같은 명령(`gradlew clean build --no-daemon`)으로 확인하려면 `.\tools\ci.ps1`을 실행합니다.
 
 > 단, 실제 Ollama가 필요한 분석 테스트 하나가 로컬에서 함께 실행됩니다. Ollama 없이 돌리는 방법은 [troubleshooting](troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)을 참고하세요.
 
@@ -242,7 +242,11 @@ NVIDIA GPU가 있는 PC에서는 Ollama 대신 vLLM으로 답변 생성과 임�
 
 3. 백엔드를 다시 시작합니다(`.\gradlew.bat bootRun`).
 
-4. 관리자 계정으로 임베딩 백필 두 개를 실행합니다. 지금 DB의 벡터는 Ollama로 만든 것이라, vLLM용 벡터를 한 번 채워야 합니다. 방법은 [백필](how-to/llm-module.md#백필)에 있습니다.
+4. 관리자 계정으로 임베딩 백필을 실행합니다. 지금 DB의 벡터는 Ollama로 만든 것이라, vLLM용 벡터를 한 번 채워야 합니다. 자세한 내용은 [백필](how-to/llm-module.md#백필)에 있습니다.
+
+    ```powershell
+    .\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+    ```
 
 알아 둘 점:
 

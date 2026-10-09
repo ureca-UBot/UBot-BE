@@ -1,4 +1,4 @@
-# Ollama 환경의 모델 서버입니다. docker-compose.yml과 함께 씁니다.
+# AI_MODE=ollama일 때 쓰는 모델 서버입니다. docker-compose.yml과 함께 씁니다.
 services:
   ollama:
     image: ollama/ollama:0.34.0

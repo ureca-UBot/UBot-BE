@@ -249,19 +249,17 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 1. `.env`에서 `AI_MODE`(또는 모델 이름, `EMBEDDING_PROFILE_VERSION`)를 바꿉니다.
 2. 모델 서버를 띄웁니다(`.\tools\ubot.ps1 up`).
 3. 백엔드를 다시 시작합니다.
-4. 관리자 계정으로 로그인해 백필 두 개를 실행합니다.
+4. 백필 스크립트를 실행합니다. `ADMIN` 계정의 비밀번호를 물어본 뒤 두 API를 차례로 호출합니다.
 
 ```powershell
-$base = "http://localhost:8080"
-$body = @{ email = "<관리자 이메일>"; password = "<비밀번호>" } | ConvertTo-Json
-$login = Invoke-RestMethod -Method Post -Uri "$base/auth/login" -ContentType "application/json" -Body $body
-$headers = @{ Authorization = "Bearer $($login.data.accessToken)" }
-
-(Invoke-RestMethod -Method Post -Uri "$base/admin/faqs/embeddings/backfill" -Headers $headers -TimeoutSec 1800).data
-(Invoke-RestMethod -Method Post -Uri "$base/admin/unanswered-groups/embeddings/backfill" -Headers $headers -TimeoutSec 1800).data
+.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
 ```
 
-- 출력된 숫자가 새로 채운 건수입니다. `0`이면 채울 것이 없다는 뜻이고, 여러 번 실행해도 됩니다.
+- `newly embedded =` 뒤의 숫자가 새로 채운 건수입니다. `0`이면 채울 것이 없다는 뜻이고, 여러 번 실행해도 됩니다.
+- 스크립트는 API를 호출할 때마다 다시 로그인합니다. 백필이 access token 유효 시간보다 길어질 수 있기 때문입니다. 임베딩 서버 오류(`EM-*`)로 멈추면 최대 3번까지 이어서 시도합니다.
+- 다른 주소의 백엔드에는 `-BaseUrl http://<주소>`를 붙입니다. 요청 하나를 기다리는 시간은 `-TimeoutSec`(기본 3600초)로 바꿉니다.
+- 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
+- 스크립트 없이 하려면 Swagger UI(`/swagger-ui.html`)에서 `POST /auth/login`으로 받은 access token을 `Authorize`에 넣고 위 두 API를 차례로 실행합니다. macOS/Linux에서도 이 방법을 씁니다.
 - 요청은 백필이 끝난 뒤에 응답합니다. 한 건씩 임베딩하며, FAQ 1,024건 기준으로 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다. 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. Nginx를 거쳐 호출하면 응답 제한 시간 180초에 걸릴 수 있습니다.
 - 한 건씩 바로 저장하므로, 도중에 임베딩 서버 오류로 멈추거나 연결이 끊겨도 그때까지 저장한 벡터는 남습니다. 다시 실행하면 나머지를 채웁니다.
 

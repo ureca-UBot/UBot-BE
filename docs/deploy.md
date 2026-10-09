@@ -11,7 +11,7 @@
 - `push`·`pull_request` 자동 배포 트리거는 두지 않고 `workflow_dispatch` 수동 실행만 씁니다.
 - CD는 백엔드, Nginx, 공통 서비스(PostgreSQL, Redis, Prometheus)를 올립니다. 서버 `.env`의 `AI_RUNTIME_MANAGED`가 `true`면 모델 서버(Ollama 또는 vLLM)도 같은 서버에 함께 띄웁니다.
 - 무엇을 띄울지는 워크플로 입력이 아니라 서버의 `~/ubot/.env`가 정합니다. `AI_MODE`가 모델 서버 종류를, `AI_RUNTIME_MANAGED`가 모델 서버를 이 서버에 띄울지를 정합니다.
-- `develop`, `main`, `chore/152-runtime-env-split` 브랜치에서만 실행됩니다. 다른 브랜치로 실행하면 job이 건너뛰어집니다.
+- `develop`, `main` 브랜치에서만 실행됩니다. 다른 브랜치로 실행하면 job이 건너뛰어집니다.
 - 도메인·HTTPS 적용, 서버 자동 시작·중지는 후속 작업입니다(#60, #88). WebSocket용 Nginx 설정은 WebSocket endpoint가 정해진 뒤 적용합니다(#77).
 
 ## 구성 파일
@@ -116,7 +116,7 @@ GitHub → Actions → `Backend Manual CD` → `Run workflow`에서 브랜치를
 ### 워크플로우 단계
 
 1. `docker build`로 `ubot-be:<커밋 SHA>` 이미지를 만들고 `docker save`로 압축합니다.
-2. Compose 파일 4개(`docker-compose.yml`, `docker-compose.deploy.yml`, `docker-compose.ollama.yml`, `docker-compose.vllm.yml`)와 `infra/postgres/Dockerfile`, `infra/nginx/nginx.conf`, `infra/llm/docker-compose.yml`을 묶습니다.
+2. Compose 파일 4개(`docker-compose.yml`, `docker-compose.deploy.yml`, `docker-compose.ollama.yml`, `docker-compose.vllm.yml`)와 `infra/postgres/Dockerfile`, `infra/nginx/nginx.conf`, `infra/prometheus/prometheus.yml`, `infra/llm/docker-compose.yml`을 묶습니다.
 3. SSH 연결을 설정하고 확인합니다.
 4. 서버 환경을 검사합니다. Docker·Compose 버전을 출력하고, `~/ubot/.env`가 있는지, [필요한 키](#서버의-env)가 다 있는지, `SPRING_PROFILES_ACTIVE`가 `prod`인지 확인합니다. vLLM을 이 서버에 띄우는 구성이면 `nvidia-smi`도 실행합니다. 하나라도 맞지 않으면 여기서 실패합니다.
 5. 두 압축 파일을 `~/ubot-deploy/`로 복사합니다.

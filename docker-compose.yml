@@ -1,7 +1,7 @@
-# 두 실행 환경이 함께 쓰는 서비스입니다. 모델 서버는 환경별 파일에 있습니다.
-#   Ollama 환경: docker-compose.ollama.yml
-#   vLLM 환경:   docker-compose.vllm.yml
-# 어느 파일을 함께 쓸지는 .env의 COMPOSE_FILE로 정합니다(.env.example 참고).
+# Ollama와 vLLM 어느 쪽을 쓰든 함께 쓰는 서비스입니다. 모델 서버는 별도 파일에 있습니다.
+#   AI_MODE=ollama: docker-compose.ollama.yml
+#   AI_MODE=vllm:   docker-compose.vllm.yml
+# 어느 파일을 함께 쓸지는 .env의 AI_MODE로 정하고, tools/ubot.ps1이 골라서 띄웁니다.
 services:
   postgres:
     build:

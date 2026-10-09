@@ -426,6 +426,72 @@ jobs:
             up -d \
             backend
 
+          if [ "${AI_MODE}" = "vllm" ]; then
+            echo "== Validate vLLM from backend network =="
+
+            LLM_BASE_URL=$(read_env LLM_BASE_URL)
+            LLM_MODEL=$(read_env LLM_MODEL)
+            EMBEDDING_BASE_URL=$(read_env EMBEDDING_BASE_URL)
+            EMBEDDING_MODEL=$(read_env EMBEDDING_MODEL)
+
+            BACKEND_CONTAINER_ID="$("${COMPOSE[@]}" ps -q backend)"
+
+            if [ -z "${BACKEND_CONTAINER_ID}" ]; then
+              echo "ERROR: backend container was not found"
+              exit 1
+            fi
+
+            check_vllm_model() {
+              LABEL="$1"
+              BASE_URL="$2"
+              EXPECTED_MODEL="$3"
+
+              MODELS_URL="${BASE_URL%/}/models"
+
+              echo "Checking ${LABEL}"
+              echo "Expected model: ${EXPECTED_MODEL}"
+
+              for i in $(seq 1 12); do
+                RESPONSE="$(
+                  docker run --rm \
+                    --network "container:${BACKEND_CONTAINER_ID}" \
+                    curlimages/curl:8.10.1 \
+                    -fsS \
+                    --connect-timeout 5 \
+                    --max-time 15 \
+                    "${MODELS_URL}" \
+                    2>/dev/null \
+                    || true
+                )"
+
+                if [ -n "${RESPONSE}" ] && \
+                  printf '%s' "${RESPONSE}" | grep -Fq "\"${EXPECTED_MODEL}\""; then
+
+                  echo "${LABEL} is reachable"
+                  echo "${EXPECTED_MODEL} is available"
+                  return 0
+                fi
+
+                echo "${LABEL} readiness ${i}/12 failed"
+                sleep 5
+              done
+
+              echo "ERROR: ${LABEL} is not reachable from backend network"
+              echo "ERROR: expected model ${EXPECTED_MODEL} was not found"
+              exit 1
+            }
+
+            check_vllm_model \
+              "vLLM Chat" \
+              "${LLM_BASE_URL}" \
+              "${LLM_MODEL}"
+
+            check_vllm_model \
+              "vLLM Embedding" \
+              "${EMBEDDING_BASE_URL}" \
+              "${EMBEDDING_MODEL}"
+          fi
+
           echo "== Recreate nginx =="
 
           "${COMPOSE[@]}" \
