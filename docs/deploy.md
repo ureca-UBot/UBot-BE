@@ -84,15 +84,17 @@ EMBEDDING_BASE_URL=http://<GPU 서버 주소>:8001/v1
 
 ```powershell
 docker build -t ubot-be:local .
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml -f docker-compose.deploy.local.yml up -d
 ```
 
-빌드는 컨테이너 안에서 Gradle을 실행하므로 로컬에 Java가 없어도 됩니다. 대신 매번 의존성을 새로 받습니다. 호스트의 80 포트가 비어 있어야 합니다.
+- 마지막의 `docker-compose.deploy.local.yml`은 로컬 재현 전용입니다. 로컬 `.env`의 `OLLAMA_BASE_URL`은 `http://localhost:11435`인데, 컨테이너 안에서 `localhost`는 백엔드 자신이라 Ollama를 찾지 못합니다. 이 파일이 백엔드의 모델 서버 주소를 Compose 서비스 이름(`http://ollama:11434` 등)으로 바꾸고, 프로필을 서버와 같은 `prod`로 맞춥니다. `.env`는 고치지 않아도 됩니다.
+- 서버에서는 이 파일을 쓰지 않습니다. 서버의 `.env`에 처음부터 서비스 이름 주소를 적고, 배포 스크립트가 그 값을 검사합니다.
+- 빌드는 컨테이너 안에서 Gradle을 실행하므로 로컬에 Java가 없어도 됩니다. 대신 매번 의존성을 새로 받습니다. 호스트의 80 포트가 비어 있어야 합니다.
 
 확인 (Nginx를 거치므로 8080이 아니라 80 포트):
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml ps
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml -f docker-compose.deploy.yml -f docker-compose.deploy.local.yml ps
 curl.exe http://localhost/actuator/health
 ```
 

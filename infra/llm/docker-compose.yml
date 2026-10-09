@@ -1,6 +1,7 @@
 services:
   vllm:
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+    restart: unless-stopped
 
     ports:
       - "${LLM_PORT:-8000}:8000"
@@ -38,6 +39,7 @@ services:
 
   vllm-embedding:
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+    restart: unless-stopped
 
     ports:
       - "${EMBEDDING_PORT:-8001}:8000"
