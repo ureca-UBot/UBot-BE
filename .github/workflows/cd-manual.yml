@@ -292,26 +292,6 @@ jobs:
 
           "${COMPOSE[@]}" config >/dev/null
 
-          echo "== Remove previous managed AI runtime =="
-
-          ALL_COMPOSE=(
-            docker compose
-            -p ubot
-            --env-file .env
-            -f docker-compose.yml
-            -f docker-compose.deploy.yml
-            -f docker-compose.ollama.yml
-            -f docker-compose.vllm.yml
-          )
-
-          "${ALL_COMPOSE[@]}" \
-            rm -f -s \
-            ollama \
-            ollama-init \
-            vllm \
-            vllm-embedding \
-            || true
-
           echo "== Start common infrastructure =="
 
           "${COMPOSE[@]}" \
