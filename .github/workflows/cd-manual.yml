@@ -14,7 +14,8 @@ jobs:
   deploy:
     if: |
       github.ref == 'refs/heads/develop' ||
-      github.ref == 'refs/heads/main' 
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/chore/152-runtime-env-split'
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
