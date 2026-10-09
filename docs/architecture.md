@@ -154,7 +154,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 3. 상태가 `PENDING`·`ON_HOLD`인 묶음 중, 지금 Profile의 중심 벡터와의 코사인 유사도가 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`) 이상인 가장 가까운 묶음에 넣습니다. 없으면 이 질문을 대표 질문으로 새 묶음을 만듭니다. `APPROVED`·`REJECTED` 묶음에는 합류하지 않습니다.
 4. 묶음의 지금 Profile 중심 벡터(소속 질문 벡터의 평균)와 질문 수를 DB에서 다시 계산합니다.
 
-묶음과 소속은 Profile과 무관하게 하나이고, 질문 벡터와 중심 벡터만 Profile별로 `unanswered_question_embeddings`, `unanswered_group_embeddings`에 둡니다. 다른 Profile로 만든 중심과는 비교하지 않으므로, 임베딩 서버를 바꾼 직후에는 기존 묶음을 찾지 못합니다. [백필](how-to/llm-module.md#백필)을 실행하면 기존 질문의 벡터와 묶음 중심이 새 Profile로 채워집니다. 기존 컬럼(`question_vector`, `centroid`)은 `NOT NULL`이라 지금도 같은 값을 함께 씁니다.
+묶음과 소속은 Profile과 무관하게 하나이고, 질문 벡터와 중심 벡터만 Profile별로 `unanswered_question_embeddings`, `unanswered_group_embeddings`에 둡니다. 다른 Profile로 만든 중심과는 비교하지 않으므로, 임베딩 서버를 바꾼 직후에는 기존 묶음을 찾지 못합니다. [백필](how-to/llm-module.md#백필)을 실행하면 기존 질문의 벡터와 묶음 중심이 새 Profile로 채워집니다. 예전 벡터 컬럼(`question_vector`, `centroid`)은 `V25`에서 지웠습니다.
 
 - 기준 미달(`INSUFFICIENT_FAQ`)이면 가장 가까웠던 FAQ와 그 유사도를 함께 남깁니다.
 - 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
@@ -189,7 +189,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 ## FAQ 관리 흐름
 
 - **생성**: FAQ를 저장한 뒤 질문을 임베딩해 지금 Embedding Profile의 벡터로 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
-- **수정**: 현재 FAQ를 `old_faq`에 복사하고(지금 Profile의 벡터 포함) `version`을 1 올립니다. 질문이 바뀌었으면 다시 임베딩하고, 바뀌지 않았으면 기존 벡터의 `faq_version`만 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
+- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 질문이 바뀌었으면 다시 임베딩하고, 바뀌지 않았으면 기존 벡터의 `faq_version`만 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
 - **삭제·복구**: `deleted_at`으로 soft delete합니다. 삭제된 FAQ는 벡터 검색에서 제외되고, `/admin/faqs/restore`로 복구할 수 있습니다.
 - 벡터는 JPA 엔티티에 매핑하지 않고 `FaqVectorRepository`(JdbcTemplate)로만 읽고 씁니다.
 - 생성·수정 시 임베딩 HTTP 호출이 `@Transactional` 안에서 일어나므로, 임베딩 서버 응답을 기다리는 동안 DB 연결을 사용합니다.

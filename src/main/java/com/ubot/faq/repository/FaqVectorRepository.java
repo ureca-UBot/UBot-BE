@@ -2,7 +2,6 @@ package com.ubot.faq.repository;
 
 import java.util.List;
 
-import org.postgresql.util.PGobject;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -131,54 +130,6 @@ public class FaqVectorRepository {
         );
     }
 
-    public PGvector findVectorByFaqId(
-            Long faqId,
-            Long profileId
-    ) {
-        List<PGvector> vectors = jdbcTemplate.query(
-                """
-                SELECT fe.vector
-                FROM faq_embeddings fe
-                JOIN faq f
-                  ON f.id = fe.faq_id
-                WHERE fe.faq_id = ?
-                  AND fe.profile_id = ?
-                  AND fe.vector_type = 'QUESTION'
-                  AND fe.faq_version = f.version
-                """,
-                (rs, rowNum) -> {
-                    PGobject pgObject = (PGobject) rs.getObject("vector");
-
-                    if (pgObject == null) {
-                        return null;
-                    }
-
-                    return new PGvector(pgObject.getValue());
-                },
-                faqId,
-                profileId
-        );
-
-        return vectors.isEmpty() ? null : vectors.getFirst();
-    }
-
-    public void saveVectorForOldFaq(
-            Long faqId,
-            Integer version,
-            PGvector vector
-    ) {
-        jdbcTemplate.update(
-                """
-                UPDATE old_faq
-                SET vector = ?
-                WHERE faq_id = ?
-                  AND version = ?
-                """,
-                vector,
-                faqId,
-                version
-        );
-    }
     public void updateVectorVersionForFaq(
             Long faqId,
             Long profileId,

@@ -21,7 +21,6 @@ import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 @DisplayName("FAQ 벡터 서비스 테스트")
@@ -208,61 +207,6 @@ class FaqVectorServiceTest {
                 );
 
         verifyNoInteractions(embeddingService);
-    }
-
-    @Test
-    @DisplayName("현재 프로필의 FAQ 벡터를 이전 FAQ 이력에 저장한다")
-    void saveVectorForOldFaq_copiesCurrentProfileVector() {
-        Long profileId = 10L;
-        PGvector vector = vector();
-
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
-
-        when(repository.findVectorByFaqId(
-                1L,
-                profileId
-        )).thenReturn(vector);
-
-        service.saveVectorForOldFaq(
-                1L,
-                3
-        );
-
-        verify(repository)
-                .saveVectorForOldFaq(
-                        1L,
-                        3,
-                        vector
-                );
-    }
-
-    @Test
-    @DisplayName("현재 프로필의 FAQ 벡터가 없으면 이전 FAQ 벡터 저장을 실패한다")
-    void saveVectorForOldFaq_throwsWhenCurrentVectorMissing() {
-        Long profileId = 10L;
-
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
-
-        when(repository.findVectorByFaqId(
-                1L,
-                profileId
-        )).thenReturn(null);
-
-        assertThatThrownBy(
-                () -> service.saveVectorForOldFaq(
-                        1L,
-                        3
-                )
-        ).isInstanceOf(FaqException.class);
-
-        verify(repository, never())
-                .saveVectorForOldFaq(
-                        anyLong(),
-                        anyInt(),
-                        any()
-                );
     }
 
     private PGvector vector() {

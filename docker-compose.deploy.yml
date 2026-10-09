@@ -17,6 +17,8 @@ services:
 
     restart: unless-stopped
 
+    stop_grace_period: 35s
+
     # 모델 서버는 여기에 넣지 않습니다. AI_MODE=vllm에는 ollama 서비스가 없고, 백엔드는 모델 서버 없이도 기동합니다.
     # 모델 서버를 함께 띄울 때는 CD가 모델 서버를 먼저 띄우고 준비를 확인한 뒤 backend를 띄웁니다(docs/deploy.md).
     depends_on:

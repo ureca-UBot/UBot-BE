@@ -18,11 +18,13 @@ python tools/generate_faq_vectors.py --model bge-m3:567m --input-columns questio
 벡터 생성 스크립트는 `baseline-faqs.csv`에 `vector` 컬럼을 추가하거나 기존 값을
 갱신하고,
 `baseline-faqs.metadata.json`에 임베딩 모델·차원·FAQ 수·CSV SHA-256을 기록합니다.
-시드 작업은 이 벡터를 그대로 `faq.vector`에 저장하므로, DB 초기화 중에는 Ollama
-임베딩 요청을 수행하지 않습니다. 임베딩 대상 컬럼 또는 모델을 변경했다면 아래 명령으로
+시드 작업은 이 벡터를 그대로 `faq_embeddings`에 Ollama Profile(메타데이터의 모델, 버전 1)로
+저장하므로, DB 초기화 중에는 Ollama 임베딩 요청을 수행하지 않습니다. `AI_MODE=vllm`으로
+실행할 때는 시드 뒤에 `tools/backfill-embeddings.ps1`로 vLLM Profile의 벡터를 채웁니다. 임베딩 대상 컬럼 또는 모델을 변경했다면 아래 명령으로
 CSV의 벡터를 다시 생성합니다.
 
-질문과 답변을 함께 임베딩하려면 입력 컬럼을 추가합니다.
+질문과 답변을 함께 임베딩하려면 입력 컬럼을 추가합니다. 다만 백엔드는 질문만 임베딩한 벡터로
+검색하므로, 시드 스크립트는 `question`만으로 만든 벡터가 아니면 실행을 멈춥니다.
 
 ```powershell
 python tools/generate_faq_vectors.py --model bge-m3:567m --input-columns question answer

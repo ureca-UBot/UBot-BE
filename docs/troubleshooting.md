@@ -228,17 +228,17 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 - 컨테이너가 GPU 메모리 부족으로 종료되면 `.env`의 `VLLM_GPU_MEMORY_UTILIZATION`, `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`을 조정합니다. 두 값은 GPU 전체 메모리에 대한 비율이며, 기본값(0.6 + 0.2)은 12GB GPU에서 약 10.9GB를 썼습니다. 다른 프로그램이 GPU 메모리를 쓰고 있는지도 확인합니다.
 - `docker compose` 명령이 `docker-compose.vllm.yml`을 읽는 단계에서 실패하면 `docker compose version`을 확인합니다. 이 파일의 `!override` 문법은 Docker Compose 2.24.4 이상이 필요합니다.
 
-## AI_MODE를 바꾼 뒤 검색 결과가 없거나 FAQ 수정이 실패함
+## AI_MODE를 바꾼 뒤 검색 결과가 없음
 
 **증상**
 
-`AI_MODE`(또는 임베딩 모델, `EMBEDDING_PROFILE_VERSION`)를 바꾸고 백엔드를 다시 시작한 뒤부터, FAQ가 있는데도 채팅이 `CHAT-012`로 끝나고 관리자의 FAQ 수정이 `FAQ-002`로 실패합니다. 미응답 질문은 기존 묶음에 들어가지 않고 새 묶음을 만듭니다.
+`AI_MODE`(또는 임베딩 모델, `EMBEDDING_PROFILE_VERSION`)를 바꾸고 백엔드를 다시 시작한 뒤부터, FAQ가 있는데도 채팅이 `CHAT-012`로 끝납니다. 미응답 질문은 기존 묶음에 들어가지 않고 새 묶음을 만듭니다.
 
 **원인**
 
 벡터는 임베딩 서버·모델·버전의 조합(Embedding Profile)별로 따로 저장되고, 검색은 지금 Profile의 벡터만 씁니다. 설정을 바꾸면 새 Profile이 되는데 거기에는 아직 벡터가 없습니다. 기존 벡터는 지워지지 않고 남아 있습니다.
 
-설정을 바꾸지 않았더라도 시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 직후에는 같은 증상이 납니다. 스크립트는 `faq.vector` 컬럼에만 벡터를 넣고, 검색이 읽는 `faq_embeddings`는 채우지 않습니다.
+시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
 
 **해결**
 
@@ -291,7 +291,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `EM-001`, `EM-003` | 임베딩 서버 실행 여부. `AI_MODE=ollama`면 `OLLAMA_BASE_URL`, [모델 준비](#ollama-모델이-준비되지-않음). `vllm`이면 `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`, [vLLM 서버 준비](#vllm-서버가-준비되지-않음) |
 | `EM-002` | 임베딩 서버가 1024차원이 아닌 벡터를 돌려주는지(다른 모델이 설정됐는지) |
 | `CHAT-010`, `CHAT-008` | PostgreSQL 상태, 애플리케이션 로그 |
-| `CHAT-012` | `faq`에 삭제되지 않은 FAQ가 있는지 ([FAQ 준비](how-to/local-data.md#2-faq-등록)). FAQ가 있는데도 나오면 지금 Embedding Profile에 벡터가 있는지 ([AI_MODE를 바꾸거나 시드 스크립트를 실행한 뒤](#ai_mode를-바꾼-뒤-검색-결과가-없거나-faq-수정이-실패함)) |
+| `CHAT-012` | `faq`에 삭제되지 않은 FAQ가 있는지 ([FAQ 준비](how-to/local-data.md#2-faq-등록)). FAQ가 있는데도 나오면 지금 Embedding Profile에 벡터가 있는지 ([AI_MODE를 바꾼 뒤](#ai_mode를-바꾼-뒤-검색-결과가-없음)) |
 | `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
 | `CHAT-014` | `prompts/faq-*.txt`, `prompt.faq.*-location` |
 | `LLM-002` | `.env`의 `OLLAMA_CHAT_MODEL`. `AI_MODE=vllm`이면 `LLM_MODEL` |
@@ -299,7 +299,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `LLM-004`, `CHAT-016` | `LLM_READ_TIMEOUT`, `CHAT_RESPONSE_TIMEOUT_MILLIS`, 모델 크기·GPU 사용 여부 |
 | `LLM-005` | 모델 설정, 애플리케이션 로그 |
 
-FAQ를 SQL로 직접 넣었거나 시드 스크립트로 넣었다면 `faq_embeddings`에 벡터가 없어 검색에 나오지 않고, 그 FAQ를 수정하면 `FAQ-002`로 실패합니다. [백필](how-to/llm-module.md#백필)을 실행하면 벡터가 없는 FAQ만 임베딩합니다.
+FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_embeddings`에 벡터가 없어 검색에 나오지 않습니다. [백필](how-to/llm-module.md#백필)을 실행하면 벡터가 없는 FAQ만 임베딩합니다.
 
 채팅이 성공했는데 `answer`에 JSON 문자열이 그대로 보이는 것은 오류가 아닙니다([LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리-json-분리는-후속-작업)).
 

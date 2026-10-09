@@ -118,7 +118,6 @@ public class FaqService {
 
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
 		oldFaqRepository.saveAndFlush(oldFaq);
-		faqVectorService.saveVectorForOldFaq(faq.getId(), faq.getVersion());
 
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 

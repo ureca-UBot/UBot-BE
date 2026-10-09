@@ -188,7 +188,7 @@ Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 전체 API를 보고 �
 
 `POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 질문하면 `CHAT-012`(검색 결과 없음)가, 채팅 모델이 비어 있으면 `LLM-002`가 반환됩니다.
 
-- 기본 FAQ 1,000건과 기본 계정을 한 번에 넣으려면 `.\tools\reset-local-db.ps1`을 실행하고, 애플리케이션을 다시 시작한 뒤 임베딩 백필(`.\tools\backfill-embeddings.ps1`)을 실행합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
+- 기본 FAQ 1,000건과 기본 계정을 한 번에 넣으려면 `.\tools\reset-local-db.ps1`을 실행하고 애플리케이션을 다시 시작합니다. 벡터도 함께 들어가므로 `AI_MODE=ollama`에서는 바로 검색됩니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
 - 지금 DB를 유지하려면 계정을 직접 만들고 관리자 API로 FAQ를 등록합니다.
 
 두 방법 모두 [local-data.md](how-to/local-data.md)에 있습니다.
@@ -249,7 +249,7 @@ NVIDIA GPU가 있는 PC에서는 Ollama 대신 vLLM으로 답변 생성과 임�
 알아 둘 점:
 
 - **벡터는 임베딩 서버별로 따로 저장됩니다.** 같은 DB에 Ollama 벡터와 vLLM 벡터가 나란히 들어가고, 검색은 지금 서버의 벡터만 씁니다. 그래서 서버를 바꿔도 기존 벡터는 지워지지 않고, 되돌리면 그대로 다시 씁니다.
-- **백필 전에는 검색 결과가 없습니다.** 새 서버의 벡터가 없는 동안에는 채팅이 `CHAT-012`로 끝나고, FAQ 수정은 `FAQ-002`로 실패하며, 미응답 질문은 기존 묶음을 찾지 못해 새 묶음을 만듭니다. FAQ 1,024건 기준으로 백필은 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다.
+- **백필 전에는 검색 결과가 없습니다.** 새 서버의 벡터가 없는 동안에는 채팅이 `CHAT-012`로 끝나고, 미응답 질문은 기존 묶음을 찾지 못해 새 묶음을 만듭니다. FAQ 1,024건 기준으로 백필은 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다.
 - **처음 실행할 때 모델을 내려받습니다.** 스크립트는 서버마다 300초까지 기다리고, 그 안에 준비되지 않으면 실패로 끝납니다. 컨테이너는 계속 내려받고 있으므로 조금 뒤에 `.\tools\ubot.ps1 up`을 다시 실행합니다. 받은 모델은 `llm_hf-cache` 볼륨에 남습니다.
 - **실제 서버로 연결 확인**을 하려면 두 서버가 뜬 상태에서 `.\infra\llm\run-live-tests.ps1`을 실행합니다.
 - **모델 서버 설정**은 `.env`의 vLLM 묶음과 [infra/llm/README.md](../infra/llm/README.md)를 참고하세요. GPU 메모리가 부족하면 `VLLM_GPU_MEMORY_UTILIZATION`, `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`을 조정합니다.

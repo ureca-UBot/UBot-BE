@@ -29,7 +29,7 @@
 | `infra/nginx/nginx.conf` | 80 포트의 모든 요청을 `backend:8080`으로 프록시. `/api` 접두사 제거와 게스트 채팅 속도 제한 포함 |
 | `infra/prometheus/prometheus.deploy.yml` | 배포용 Prometheus 수집 설정. 같은 Compose 네트워크의 `backend:8080`을 수집 |
 | `src/main/resources/application-prod.yml` | 운영 프로필 설정. health 상세 숨김, Swagger 끔, graceful shutdown |
-| `tools/deploy/deploy.sh` | 서버에서 실행되는 배포 스크립트. `.env` 검사부터 벡터 검사까지 [아래 순서](#워크플로우-단계)를 실행 |
+| `tools/deploy/deploy.sh`, `tools/deploy/lib/` | 서버에서 실행되는 배포 스크립트. `deploy.sh`에는 [실행 순서](#워크플로우-단계)만 있고, 단계별 함수는 `lib/` 아래 다섯 파일에 있음 (`env.sh` 설정 검증, `compose.sh` Compose 구성, `ai-runtime.sh` 모델 서버, `embeddings.sh` 벡터 확인·백필, `backend.sh` 백엔드 교체) |
 | `.github/workflows/cd-manual.yml` | 이미지 빌드 → EC2 전송 → 서버에서 `deploy.sh` 실행 |
 
 ### 서비스 구성
@@ -140,8 +140,8 @@ GitHub → Actions → `Backend Manual CD` → `Run workflow`에서 브랜치를
 GitHub Actions에서 하는 일:
 
 1. `docker build`로 `ubot-be:<커밋 SHA>` 이미지를 만들고 `docker save`로 압축합니다.
-2. 배포에 필요한 파일이 저장소에 다 있는지 확인하고 `deploy.sh`의 문법을 검사합니다(`bash -n`).
-3. Compose 파일 4개(`docker-compose.yml`, `docker-compose.deploy.yml`, `docker-compose.ollama.yml`, `docker-compose.vllm.yml`)와 `infra/postgres/Dockerfile`, `infra/nginx/nginx.conf`, `infra/prometheus/prometheus.yml`, `infra/prometheus/prometheus.deploy.yml`, `infra/llm/docker-compose.yml`, `tools/deploy/deploy.sh`를 묶습니다.
+2. 배포에 필요한 파일이 저장소에 다 있는지 확인하고 `tools/deploy` 아래 스크립트의 문법을 검사합니다(`bash -n`).
+3. Compose 파일 4개(`docker-compose.yml`, `docker-compose.deploy.yml`, `docker-compose.ollama.yml`, `docker-compose.vllm.yml`)와 `infra/postgres/Dockerfile`, `infra/nginx/nginx.conf`, `infra/prometheus/prometheus.yml`, `infra/prometheus/prometheus.deploy.yml`, `infra/llm/docker-compose.yml`, `tools/deploy/` 폴더를 묶습니다.
 4. SSH 연결을 설정하고 확인한 뒤, 두 압축 파일을 서버의 `~/ubot-deploy/`로 복사합니다.
 5. 서버에서 구성 파일을 `~/ubot`에 풀고 `tools/deploy/deploy.sh`를 실행합니다.
 
@@ -157,11 +157,18 @@ GitHub Actions에서 하는 일:
    - 5초 간격으로 다시 시도합니다. 제한 시간은 이 서버에 띄운 모델 서버면 1200초, 다른 곳의 모델 서버면 60초입니다.
    - 이 서버에 띄운 모델 서버는 컨테이너가 종료됐거나 두 번 이상 재시작하면 제한 시간을 기다리지 않고 실패합니다.
    - 실패하면 그 컨테이너의 상태와 로그 200줄을 출력합니다.
-8. `backend`를 새 이미지로 올리고 `nginx`를 강제로 다시 만듭니다(`--no-deps --force-recreate`).
-9. `http://127.0.0.1/actuator/health`를 5초 간격으로 최대 30회 확인합니다. 실패하면 컨테이너 상태와 `backend`·`nginx` 로그 200줄을 출력하고 실패로 끝납니다.
-10. 오래된 백엔드 이미지를 지웁니다. 지금 이미지와 그 전 이미지 2개는 남깁니다.
-11. FAQ 벡터를 검사합니다. 삭제되지 않은 FAQ가 모두 지금 Embedding Profile의 벡터를 가지고 있는지 DB에서 확인합니다. FAQ가 없으면 통과합니다. Profile이 아직 없거나 벡터가 모자라면 실패로 끝납니다([주의할 점](#주의할-점)).
-12. 컨테이너 상태를 출력합니다.
+8. FAQ 벡터를 준비합니다. 삭제되지 않은 FAQ가 모두 지금 Embedding Profile의 벡터를 가지고 있는지 DB에서 확인하고, FAQ가 없거나 벡터가 다 있으면 그대로 넘어갑니다. 모자라면 새 이미지로 백필만 하고 끝나는 임시 백엔드를 띄웁니다(`docker compose run ... backend --app.embedding-backfill.run=true`).
+   - 임시 백엔드는 Nginx 트래픽을 받지 않고 DB 스키마도 바꾸지 않습니다. 이 동안 기존 백엔드가 계속 서비스합니다.
+   - 백필이 끝나면 다시 확인하고, 벡터가 다 있어야 다음으로 넘어갑니다.
+   - 백필이 실패하면 여기서 끝납니다. 기존 백엔드와 Nginx는 그대로입니다.
+   - 아직 적용되지 않은 마이그레이션이 있으면 임시 백엔드는 백필하지 않고 끝납니다. 이때는 교체를 먼저 하고 12번에서 백필합니다.
+9. `backend`를 새 이미지로 올리고 `nginx`를 강제로 다시 만듭니다(`--no-deps --force-recreate`).
+10. `http://127.0.0.1/actuator/health`를 5초 간격으로 최대 30회 확인합니다. 실패하면 컨테이너 상태와 `backend`·`nginx` 로그 200줄을 출력하고 실패로 끝납니다.
+11. 오래된 백엔드 이미지를 지웁니다. 지금 이미지와 그 전 이미지 2개는 남깁니다.
+12. 교체 뒤에 FAQ 벡터를 다시 확인합니다.
+    - 8번에서 백필을 미뤘다면 임시 백엔드를 다시 띄워 백필하고 확인합니다. 실패하면 배포를 실패로 끝냅니다.
+    - 그렇지 않으면 확인만 하고, 그 사이 등록·수정된 FAQ의 벡터가 모자라면 경고만 출력합니다.
+13. 컨테이너 상태를 출력합니다.
 
 ### 서버 사전 준비 (최초 1회)
 
@@ -207,7 +214,10 @@ BACKEND_IMAGE=ubot-be:<이전 커밋 SHA> docker compose -p ubot --env-file .env
 
 ## 주의할 점
 
-- **임베딩 설정을 바꾼 배포는 벡터 검사에서 실패로 끝납니다.** `AI_MODE`, 임베딩 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾸면 새 Embedding Profile에는 벡터가 없습니다. 이때 워크플로는 실패로 표시되지만 새 백엔드는 이미 떠 있고, 백필하기 전까지 채팅 검색 결과가 없습니다. 아래처럼 백필한 뒤 다시 배포하면 통과합니다([백필](how-to/llm-module.md#백필)). FAQ가 없는 빈 DB에서는 검사가 그냥 통과합니다.
+- **임베딩 설정을 바꾸면 배포가 교체 전에 벡터를 채웁니다.** `AI_MODE`, 임베딩 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾸면 새 Embedding Profile에는 벡터가 없으므로, 배포 스크립트가 임시 백엔드로 백필한 뒤에 교체합니다. FAQ 1,000건 기준으로 vLLM 약 24초, Ollama 약 80초가 더 걸립니다.
+    - 같은 배포에 아직 적용되지 않은 마이그레이션이 있으면 교체가 먼저입니다. 이때는 백필이 끝날 때까지 채팅 검색 결과가 없습니다. 피하려면 코드를 먼저 배포하고, 임베딩 설정은 그다음에 바꿔 다시 배포합니다.
+    - 모델 서버 종류를 바꾸는 배포에서는 기존 모델 서버를 먼저 멈추므로, 백필이 도는 동안 기존 백엔드의 채팅이 실패합니다.
+    - 교체 뒤 백필이 실패해 배포가 실패로 끝났다면 새 백엔드는 이미 떠 있습니다. 원인을 해결한 뒤 다시 배포하거나 아래 스크립트로 채웁니다([백필](how-to/llm-module.md#백필)).
 
 ```powershell
 .\tools\backfill-embeddings.ps1 -Email <관리자 이메일> -BaseUrl http://<서버 주소>

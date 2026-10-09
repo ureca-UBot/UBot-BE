@@ -222,22 +222,24 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 - vLLM의 `model_name`은 served model name(`ubot-embedding`)입니다. 서버가 불러오는 실제 모델(`EMBEDDING_HF_MODEL`)을 바꿔도 Profile은 그대로이므로, 그때는 `EMBEDDING_PROFILE_VERSION`을 올려 새 Profile을 만들고 백필합니다. Ollama는 모델 태그가 곧 `model_name`이라 태그를 바꾸면 Profile도 바뀝니다.
 - `profile_id`는 연속된 번호가 아닐 수 있습니다. 백엔드가 시작한 뒤 Profile을 처음 찾을 때 `INSERT ... ON CONFLICT DO NOTHING`을 실행하는데, 이미 있는 Profile이어도 번호를 하나 씁니다.
 
-| 대상 | Profile별 테이블 | 기존 컬럼 |
-|---|---|---|
-| FAQ 질문 벡터 | `faq_embeddings` (`vector_type = 'QUESTION'`) | `faq.vector`. 더 이상 읽지도 쓰지도 않음 |
-| 미응답 질문 벡터 | `unanswered_question_embeddings` | `unanswered_questions.question_vector`. `NOT NULL`이라 지금 Profile의 값을 함께 씀 |
-| 미응답 묶음 중심 벡터 | `unanswered_group_embeddings` | `unanswered_question_groups.centroid`. `NOT NULL`이라 지금 Profile의 값을 함께 씀 |
+| 대상 | Profile별 테이블 |
+|---|---|
+| FAQ 질문 벡터 | `faq_embeddings` (`vector_type = 'QUESTION'`) |
+| 미응답 질문 벡터 | `unanswered_question_embeddings` |
+| 미응답 묶음 중심 벡터 | `unanswered_group_embeddings` |
 
 - FAQ 벡터에는 만들 때의 FAQ 버전(`faq_version`)이 함께 저장되고, FAQ의 현재 `version`과 같은 벡터만 검색에 쓰입니다.
 - FAQ를 만들면 지금 Profile의 벡터만 만들어집니다. FAQ를 고치면 질문이 바뀐 경우 지금 Profile로 다시 임베딩하고, 바뀌지 않은 경우 지금 Profile 벡터의 `faq_version`만 새 버전으로 맞춥니다. 다른 Profile의 벡터는 옛 버전으로 남아 검색에서 빠지고, 그 Profile로 돌아갔을 때 백필이 다시 만듭니다.
 - `faq_embeddings.vector_type`은 `ANSWER`, `QUESTION_ANSWER`도 허용하지만 지금은 `QUESTION`만 만듭니다.
-- 기존 벡터 컬럼을 지우는 일은 후속 작업입니다.
+- 벡터는 위 테이블에만 있습니다. 예전 벡터 컬럼(`faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`)은 `V25`에서 지웠고, FAQ 수정 이력에는 벡터를 남기지 않습니다.
 
 ### 백필
 
-지금 Profile에 벡터가 없는 항목만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. 백엔드가 시작할 때 자동으로 실행되지 않습니다.
+지금 Profile에 벡터가 없는 항목만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. 로컬에서는 백엔드가 시작할 때 자동으로 실행되지 않으므로 직접 실행합니다.
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 뒤에도 실행합니다. 스크립트는 CSV의 벡터를 `faq.vector` 컬럼에만 넣고 `faq_embeddings`는 채우지 않아서, 백필 전에는 검색에 쓸 벡터가 없습니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
+배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
+
+시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)는 CSV의 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. 그래서 `AI_MODE=ollama`(기본)에서는 시드 뒤에 백필이 필요 없고, vLLM처럼 다른 Profile을 쓸 때만 실행합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|
@@ -268,7 +270,7 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 | 기능 | 백필 전 동작 |
 |---|---|
 | 채팅의 FAQ 검색 | 검색 결과가 없어 `CHAT-012`로 끝남 |
-| FAQ 수정 | 이력(`old_faq`)에 복사할 벡터가 없어 `FAQ-002`로 실패 |
+| FAQ 수정 | 질문을 바꾸면 지금 Profile의 벡터가 만들어져 그 FAQ는 검색됨. 질문을 그대로 두면 벡터가 없는 채로 남음 |
 | FAQ 생성 | 정상. 지금 Profile의 벡터가 만들어짐 |
 | 미응답 질문 묶기 | 지금 Profile의 중심 벡터가 없어 기존 묶음을 찾지 못하고 새 묶음을 만듦 |
 

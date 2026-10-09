@@ -22,12 +22,12 @@
 
 두 스크립트는 PostgreSQL만 다루므로 `AI_MODE`와 관계없이 실행할 수 있습니다.
 
-**스크립트를 실행한 뒤에는 임베딩 백필을 실행해야 채팅 검색이 됩니다.**
+스크립트는 CSV에 들어 있는 벡터를 `faq_embeddings`에 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다.
 
-- 스크립트는 CSV에 들어 있는 벡터를 `faq.vector` 컬럼에 넣습니다. 채팅 검색은 `faq_embeddings` 테이블만 읽는데, 스크립트는 이 테이블을 채우지 않습니다.
-- 그래서 백필 전에는 FAQ가 1,000건 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝나고, 관리자의 FAQ 수정이 `FAQ-002`로 실패합니다.
-- 애플리케이션을 다시 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`을 한 번 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
-- 백필은 지금 임베딩 서버로 FAQ를 다시 임베딩합니다. CSV의 벡터를 옮기는 것이 아닙니다. FAQ 1,024건으로 쟀을 때 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다.
+- **`AI_MODE=ollama`(기본)면 바로 검색됩니다.** 애플리케이션을 다시 시작하기만 하면 됩니다. 임베딩 요청도 하지 않습니다.
+- **`AI_MODE=vllm`이면 임베딩 백필을 한 번 실행합니다.** vLLM Profile에는 벡터가 없어서, 백필 전에는 FAQ가 1,000건 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝납니다. 애플리케이션을 다시 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`을 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
+- 백필은 지금 임베딩 서버로 FAQ를 다시 임베딩합니다. FAQ 1,024건으로 쟀을 때 vLLM(RTX 3060) 약 24초가 걸렸습니다.
+- `OLLAMA_EMBEDDING_MODEL`을 `bge-m3:567m`이 아닌 값으로 바꿨다면 Ollama에서도 백필이 필요합니다. CSV의 벡터를 만든 모델과 다른 Profile이 되기 때문입니다.
 
 이 방법을 썼다면 아래 1~2단계는 건너뛰고 [3. 채팅 모델](#3-채팅-모델)로 갑니다.
 
@@ -41,7 +41,7 @@
 
 ## 2. FAQ 등록
 
-FAQ는 SQL로 직접 넣지 말고 관리자 API로 등록합니다. API가 질문 임베딩을 `faq_embeddings`에 함께 저장합니다. SQL로 넣은 행은 벡터가 없어 채팅 검색에 쓰이지 않습니다. 이런 행은 [임베딩 백필](llm-module.md#백필)로 벡터를 채울 수 있습니다.
+FAQ는 SQL로 직접 넣지 말고 관리자 API로 등록합니다. API가 질문 임베딩을 `faq_embeddings`에 함께 저장합니다. SQL로 `faq`에만 넣은 행은 벡터가 없어 채팅 검색에 쓰이지 않습니다. 이런 행은 [임베딩 백필](llm-module.md#백필)로 벡터를 채울 수 있습니다.
 
 몇 건만 필요하면 Swagger UI(`/swagger-ui.html`)에서 `POST /admin/faq-categories`로 카테고리를 만든 뒤 `POST /admin/faqs`로 등록하면 됩니다.
 

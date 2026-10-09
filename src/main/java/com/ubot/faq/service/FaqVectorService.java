@@ -10,8 +10,6 @@ import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.faq.exception.FaqErrorCode;
-import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -81,37 +79,6 @@ public class FaqVectorService {
                 faqVersion,
                 profileId,
                 elapsedMillis(startedAt)
-        );
-    }
-
-    public void saveVectorForOldFaq(
-            Long faqId,
-            Integer version
-    ) {
-        Long profileId = embeddingProfileService.getCurrentProfileId();
-
-        PGvector vector = faqVectorRepository.findVectorByFaqId(
-                faqId,
-                profileId
-        );
-
-        if (vector == null) {
-            throw new FaqException(
-                    FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE
-            );
-        }
-
-        faqVectorRepository.saveVectorForOldFaq(
-                faqId,
-                version,
-                vector
-        );
-
-        log.info(
-                "이전 FAQ 벡터를 저장했습니다: FAQID={}, 버전={}, profileId={}",
-                faqId,
-                version,
-                profileId
         );
     }
 

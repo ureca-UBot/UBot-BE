@@ -51,15 +51,13 @@ public class UnansweredQuestionVectorRepository {
                 """
                 INSERT INTO unanswered_question_groups (
                     representative_question,
-                    centroid,
                     related_faq_id
                 )
-                VALUES (?, ?, ?)
+                VALUES (?, ?)
                 RETURNING id
                 """,
                 Long.class,
                 question,
-                vector,
                 relatedFaqId
         );
 
@@ -96,19 +94,17 @@ public class UnansweredQuestionVectorRepository {
                     attempt_id,
                     group_id,
                     question,
-                    question_vector,
                     reason,
                     best_faq_id,
                     best_similarity
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """,
                 Long.class,
                 attemptId,
                 groupId,
                 question,
-                vector,
                 reason.name(),
                 bestFaqId,
                 bestSimilarity
@@ -164,21 +160,16 @@ public class UnansweredQuestionVectorRepository {
         jdbcTemplate.update(
                 """
                 UPDATE unanswered_question_groups g
-                SET centroid = uge.centroid,
-                    question_count = (
+                SET question_count = (
                         SELECT COUNT(*)
                         FROM unanswered_questions uq
                         WHERE uq.group_id = g.id
                     ),
                     last_occurred_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP
-                FROM unanswered_group_embeddings uge
                 WHERE g.id = ?
-                  AND uge.group_id = g.id
-                  AND uge.profile_id = ?
                 """,
-                groupId,
-                profileId
+                groupId
         );
     }
 

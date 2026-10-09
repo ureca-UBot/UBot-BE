@@ -52,8 +52,8 @@ class UnansweredGroupFaqTest {
 				"INSERT INTO faq_category (name) VALUES (?) RETURNING id", Long.class, "로밍-" + UUID.randomUUID());
 		groupId = jdbcTemplate.queryForObject(
 				"""
-				INSERT INTO unanswered_question_groups (representative_question, centroid, question_count)
-				VALUES ('해외에서 데이터가 안 돼요', array_fill(0, ARRAY[1024])::vector, 3)
+				INSERT INTO unanswered_question_groups (representative_question, question_count)
+				VALUES ('해외에서 데이터가 안 돼요', 3)
 				RETURNING id
 				""",
 				Long.class);

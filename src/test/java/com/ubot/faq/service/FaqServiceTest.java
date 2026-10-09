@@ -229,12 +229,6 @@ class FaqServiceTest {
                 .isEqualTo("기존 질문");
 
         verify(vectorService)
-                .saveVectorForOldFaq(
-                        10L,
-                        3
-                );
-
-        verify(vectorService)
                 .saveVectorForFaq(
                         10L,
                         4,
@@ -293,12 +287,6 @@ class FaqServiceTest {
                                 Intent.GENERAL
                         ),
                         9L
-                );
-
-        verify(vectorService)
-                .saveVectorForOldFaq(
-                        10L,
-                        1
                 );
 
         verify(vectorService, never())
