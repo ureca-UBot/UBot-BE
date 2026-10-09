@@ -6,11 +6,8 @@ services:
       - .env
 
     environment:
-      SPRING_PROFILES_ACTIVE: local
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      # docker-compose.ollama.yml을 함께 쓸 때(AI_MODE=ollama)만 쓰이는 주소입니다.
-      OLLAMA_BASE_URL: http://ollama:11434
       REDIS_HOST: redis
       REDIS_PORT: 6379
 

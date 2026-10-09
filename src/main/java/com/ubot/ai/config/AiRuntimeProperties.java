@@ -15,6 +15,9 @@ public class AiRuntimeProperties implements InitializingBean {
     public int getEmbeddingProfileVersion() {
         return embeddingProfileVersion;
     }
+    public void setEmbeddingProfileVersion(int embeddingProfileVersion) {
+        this.embeddingProfileVersion = embeddingProfileVersion;
+    }
     
     @Override
     public void afterPropertiesSet() {

@@ -101,4 +101,21 @@ class AiRuntimePropertiesTest {
                         assertThat(context).hasFailed()
                 );
     }
+    @Test
+    void bindsEmbeddingProfileVersion() {
+        contextRunner
+                .withPropertyValues(
+                        "app.ai.mode=ollama",
+                        "app.ai.embedding-profile-version=2"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+
+                    AiRuntimeProperties properties =
+                            context.getBean(AiRuntimeProperties.class);
+
+                    assertThat(properties.getEmbeddingProfileVersion())
+                            .isEqualTo(2);
+                });
+    }
 }
