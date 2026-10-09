@@ -186,7 +186,12 @@ Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 전체 API를 보고 �
 
 ## 8. 챗봇까지 확인하려면 (선택)
 
-`POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, FAQ를 등록할 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 질문하면 `CHAT-012`(검색 결과 없음)가, 채팅 모델이 비어 있으면 `LLM-002`가 반환됩니다. 준비 방법은 [local-data.md](how-to/local-data.md)를 따르세요.
+`POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 질문하면 `CHAT-012`(검색 결과 없음)가, 채팅 모델이 비어 있으면 `LLM-002`가 반환됩니다.
+
+- 기본 FAQ 1,000건과 기본 계정을 한 번에 넣으려면 `.\tools\reset-local-db.ps1`을 실행하고, 애플리케이션을 다시 시작한 뒤 임베딩 백필을 실행합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
+- 지금 DB를 유지하려면 계정을 직접 만들고 관리자 API로 FAQ를 등록합니다.
+
+두 방법 모두 [local-data.md](how-to/local-data.md)에 있습니다.
 
 ## 테스트만 실행하려면
 
@@ -211,6 +216,7 @@ PR을 올리기 전에 CI와 같은 명령(`gradlew clean build --no-daemon`)으
 - 코드 구조와 흐름 → [architecture.md](architecture.md)
 - DB를 직접 조회하려면 → [how-to/db-access.md](how-to/db-access.md)
 - 채팅 테스트용 FAQ를 넣으려면 → [how-to/local-data.md](how-to/local-data.md)
+- 로컬 DB를 기본 데이터로 초기화하려면 → [how-to/reset-local-db.md](how-to/reset-local-db.md)
 - 프론트와 연동하려면 → [how-to/frontend-integration.md](how-to/frontend-integration.md)
 - LLM·프롬프트 연결 방식 → [how-to/llm-module.md](how-to/llm-module.md)
 - 설정값의 의미 → [reference/configuration.md](reference/configuration.md)

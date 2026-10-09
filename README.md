@@ -95,6 +95,7 @@ Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 �
 | 실행이 안 될 때 | [troubleshooting.md](docs/troubleshooting.md) |
 | DB 조회, ERD, 관리자 계정 만들기 | [db-access.md](docs/how-to/db-access.md) |
 | 로컬 FAQ 데이터와 채팅 모델 준비 | [local-data.md](docs/how-to/local-data.md) |
+| 로컬 DB 초기화, 기본 FAQ·계정 넣기 | [reset-local-db.md](docs/how-to/reset-local-db.md) |
 | 프론트엔드 연동 | [frontend-integration.md](docs/how-to/frontend-integration.md) |
 | LLM 호출과 프롬프트 | [llm-module.md](docs/how-to/llm-module.md) |
 | 프롬프트 파일 고치기 | [prompts/README.md](src/main/resources/prompts/README.md) |

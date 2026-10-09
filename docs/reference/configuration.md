@@ -195,7 +195,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V15` | `unanswered_question_groups`(대표 질문, 중심 벡터, 질문 수, 처리 상태 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED`), `unanswered_questions`(질문 벡터, 원인 `NO_FAQ`/`INSUFFICIENT_FAQ`, 가장 가까운 FAQ) |
 | `V23` | `embedding_profiles`(엔진·모델 이름·차원·버전의 조합), `faq_embeddings`(Profile별 FAQ 벡터, HNSW cosine 인덱스), `unanswered_question_embeddings`, `unanswered_group_embeddings`(Profile별 미응답 질문 벡터와 묶음 중심 벡터) |
 
-표에 없는 버전(`V16`~`V22`, `V24`)은 각 SQL 파일을 참고하세요. FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다.
+표에 없는 버전(`V16`~`V22`, `V24`)은 각 SQL 파일을 참고하세요. FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다. 로컬에서는 `tools/reset-local-db.ps1`이 기본 계정과 FAQ 1,000건을 넣습니다([안내](../how-to/reset-local-db.md)).
 
 `V23` 이후에도 기존 벡터 컬럼(`faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`)은 남아 있습니다. FAQ 검색과 저장은 `faq_embeddings`만 쓰고 `faq.vector`는 읽지도 쓰지도 않습니다. 미응답 쪽 두 컬럼은 `NOT NULL`이라 새 테이블과 함께 같은 값을 씁니다.
 

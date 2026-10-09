@@ -237,6 +237,8 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 
 지금 Profile에 벡터가 없는 항목만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. 백엔드가 시작할 때 자동으로 실행되지 않습니다.
 
+시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 뒤에도 실행합니다. 스크립트는 CSV의 벡터를 `faq.vector` 컬럼에만 넣고 `faq_embeddings`는 채우지 않아서, 백필 전에는 검색에 쓸 벡터가 없습니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
+
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|
 | `POST /admin/faqs/embeddings/backfill` | 삭제되지 않은 FAQ 중 지금 Profile에 현재 버전의 벡터가 없는 것 | 새로 임베딩한 FAQ 수 |
