@@ -21,6 +21,13 @@ public class AiRuntimeProperties implements InitializingBean {
     
     @Override
     public void afterPropertiesSet() {
+        if (embeddingProfileVersion < 1) {
+            throw new IllegalStateException(
+                    "EMBEDDING_PROFILE_VERSION은 1 이상이어야 합니다: "
+                            + embeddingProfileVersion
+            );
+        }
+
         AiMode aiMode = AiMode.from(mode);
 
         if (aiMode == AiMode.CUSTOM) {

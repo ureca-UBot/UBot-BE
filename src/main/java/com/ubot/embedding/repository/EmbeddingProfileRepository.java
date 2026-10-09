@@ -3,6 +3,7 @@ package com.ubot.embedding.repository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @RequiredArgsConstructor
@@ -10,6 +11,7 @@ public class EmbeddingProfileRepository {
 
     private final JdbcTemplate jdbcTemplate;
 
+    @Transactional
     public Long findOrCreate(
             String provider,
             String modelName,

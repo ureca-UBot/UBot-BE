@@ -118,4 +118,16 @@ class AiRuntimePropertiesTest {
                             .isEqualTo(2);
                 });
     }
+
+    @Test
+    void rejectsEmbeddingProfileVersionBelowOne() {
+        contextRunner
+                .withPropertyValues(
+                        "app.ai.mode=ollama",
+                        "app.ai.embedding-profile-version=0"
+                )
+                .run(context ->
+                        assertThat(context).hasFailed()
+                );
+    }
 }

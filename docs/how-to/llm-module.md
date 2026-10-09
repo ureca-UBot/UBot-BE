@@ -95,7 +95,7 @@ LLM_CONNECT_TIMEOUT=3s
 LLM_READ_TIMEOUT=120s
 ```
 
-서버 주소는 기존 `spring.ai.ollama.base-url`을 사용합니다. `local` 프로필에서는
+서버 주소는 임베딩과 같은 `ollama.base-url`을 사용합니다. `local`과 `prod` 프로필 모두
 `OLLAMA_BASE_URL`이 이 값에 연결되어 있습니다. 제한 시간은 양수여야 합니다.
 기존 `OLLAMA_CONNECT_TIMEOUT` / `OLLAMA_READ_TIMEOUT`은 임베딩용이며 서로 영향을 주지 않습니다.
 
@@ -215,12 +215,12 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 | `provider` | 임베딩 엔진이 `ollama`면 `ollama`, `vllm`이면 `openai-compatible` |
 | `model_name` | `ollama`면 `OLLAMA_EMBEDDING_MODEL`, `vllm`이면 `EMBEDDING_MODEL` |
 | `dimensions` | `1024` (고정) |
-| `profile_version` | `EMBEDDING_PROFILE_VERSION` (기본 `1`) |
+| `profile_version` | `EMBEDDING_PROFILE_VERSION` (기본 `1`, 1 이상) |
 
-- 어느 Profile을 쓸지는 DB에 저장하지 않고 설정이 정합니다. `EmbeddingProfileService`가 벡터를 저장하거나 검색할 때마다 위 네 값으로 `embedding_profiles`에서 Profile을 찾고, 없으면 만듭니다.
+- 어느 Profile을 쓸지는 DB에 저장하지 않고 설정이 정합니다. `EmbeddingProfileService`가 벡터를 처음 저장하거나 검색할 때 위 네 값으로 `embedding_profiles`에서 Profile을 찾고, 없으면 만듭니다. 그 뒤로는 실행 중에 기억해 둔 값을 씁니다.
 - 질문 임베딩과 벡터 검색에 항상 같은 Profile을 씁니다. 다른 Profile의 벡터는 검색에 쓰이지 않고 지워지지도 않습니다. 그래서 엔진을 되돌리면 전에 만든 벡터를 그대로 다시 씁니다.
 - vLLM의 `model_name`은 served model name(`ubot-embedding`)입니다. 서버가 불러오는 실제 모델(`EMBEDDING_HF_MODEL`)을 바꿔도 Profile은 그대로이므로, 그때는 `EMBEDDING_PROFILE_VERSION`을 올려 새 Profile을 만들고 백필합니다. Ollama는 모델 태그가 곧 `model_name`이라 태그를 바꾸면 Profile도 바뀝니다.
-- `profile_id`는 연속된 번호가 아닙니다. Profile을 찾을 때마다 `INSERT ... ON CONFLICT DO NOTHING`을 실행해서 번호가 건너뜁니다.
+- `profile_id`는 연속된 번호가 아닐 수 있습니다. 백엔드가 시작한 뒤 Profile을 처음 찾을 때 `INSERT ... ON CONFLICT DO NOTHING`을 실행하는데, 이미 있는 Profile이어도 번호를 하나 씁니다.
 
 | 대상 | Profile별 테이블 | 기존 컬럼 |
 |---|---|---|
@@ -260,7 +260,7 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 - 다른 주소의 백엔드에는 `-BaseUrl http://<주소>`를 붙입니다. 요청 하나를 기다리는 시간은 `-TimeoutSec`(기본 3600초)로 바꿉니다.
 - 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
 - 스크립트 없이 하려면 Swagger UI(`/swagger-ui.html`)에서 `POST /auth/login`으로 받은 access token을 `Authorize`에 넣고 위 두 API를 차례로 실행합니다. macOS/Linux에서도 이 방법을 씁니다.
-- 요청은 백필이 끝난 뒤에 응답합니다. 한 건씩 임베딩하며, FAQ 1,024건 기준으로 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다. 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. Nginx를 거쳐 호출하면 응답 제한 시간 180초에 걸릴 수 있습니다.
+- 요청은 백필이 끝난 뒤에 응답합니다. 한 건씩 임베딩하며, FAQ 1,024건 기준으로 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다. 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. 배포 서버의 Nginx는 백필 경로에만 응답 제한 시간 3600초를 적용합니다.
 - 한 건씩 바로 저장하므로, 도중에 임베딩 서버 오류로 멈추거나 연결이 끊겨도 그때까지 저장한 벡터는 남습니다. 다시 실행하면 나머지를 채웁니다.
 
 백필하기 전에는 지금 Profile에 벡터가 없어서 아래처럼 동작합니다. 사용자 요청을 받기 전에 백필을 끝내세요.

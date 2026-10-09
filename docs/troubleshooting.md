@@ -267,18 +267,14 @@ Docker Desktop의 Linux 컨테이너 엔진이 실행 중인지 확인합니다.
 
 `build.gradle`의 `test` 작업에 `maxHeapSize = '1024m'`가 들어 있는지 확인합니다. 없다면 작업 브랜치가 이 설정보다 오래된 것이므로 `develop`을 반영합니다.
 
-## 로컬 테스트에서 IntentClassificationAnalysis가 실패함
+## IntentClassificationAnalysis가 실행되지 않음
 
-**원인**
+`embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, 다른 테스트와 달리 `http://localhost:11435`의 실제 Ollama에 `bge-m3:567m` 임베딩을 요청합니다. 그래서 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되고, 평소의 `gradlew test`와 CI에서는 건너뜁니다.
 
-`embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, 다른 테스트와 달리 `http://localhost:11435`의 실제 Ollama에 `bge-m3:567m` 임베딩을 요청합니다. `CI=true` 환경변수가 있을 때만 건너뛰므로, 로컬에서 Ollama가 꺼져 있으면 `gradlew test` 전체가 이 테스트 때문에 실패할 수 있습니다.
-
-**해결**
-
-분석이 필요하면 Compose의 Ollama를 띄우고 모델을 준비한 뒤 실행합니다([quickstart 4단계](quickstart.md#4-embedding-모델-준비-확인)). 분석이 필요 없으면 건너뜁니다.
+분석을 돌리려면 Compose의 Ollama를 띄우고 모델을 준비한 뒤([quickstart 4단계](quickstart.md#4-embedding-모델-준비-확인)) 아래처럼 실행합니다.
 
 ```powershell
-$env:CI = 'true'; .\gradlew.bat test
+$env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embedding.analysis.IntentClassificationAnalysis'
 ```
 
 ## 채팅 요청이 실패함

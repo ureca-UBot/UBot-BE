@@ -20,7 +20,7 @@ src/main/resources/
 
 자동 테스트는 별도 DB 컨테이너의 임의 호스트 포트와 접속 정보를 사용합니다. 개발 `.env`, 고정 포트, 개발 DB·볼륨을 공유하지 않습니다. `test` 프로필만 지정해 `bootRun`을 실행하는 것은 Testcontainers 기반 테스트 실행과 다릅니다.
 
-`prod`는 `local`과 달리 접속 정보에 기본값이 없고(`POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`, `REDIS_HOST` 필수), health 상세를 숨기고, Swagger UI와 API 문서를 끄고, 종료할 때 처리 중인 요청을 최대 30초 기다립니다. 지금 배포 구성은 백엔드를 `local`로 띄우므로 `prod`는 아직 쓰이지 않습니다([deploy.md](../deploy.md#주의할-점)).
+`prod`는 `local`과 달리 접속 정보에 기본값이 없고(`POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`, `REDIS_HOST` 필수), health 상세를 숨기고, Swagger UI와 API 문서를 끄고, 종료할 때 처리 중인 요청을 최대 30초 기다립니다. 배포된 백엔드가 이 프로필로 실행됩니다. 배포 스크립트는 서버 `.env`의 `SPRING_PROFILES_ACTIVE`가 `prod`가 아니면 배포하지 않습니다([deploy.md](../deploy.md#서버의-env)).
 
 ## 실행 환경 (Docker Compose)
 
@@ -55,7 +55,7 @@ src/main/resources/
 | `AI_MODE` | `AiRuntimeProperties`(`app.ai.mode`), `tools/ubot.ps1`, CD: 답변 생성과 임베딩에 쓸 모델 서버. `ollama`, `vllm`, `custom` | `ollama` | 키가 없으면 `ollama`. 빈 값이거나 다른 값이면 기동되지 않음 |
 | `AI_CHAT_ENGINE` | `AiRuntimeProperties`: `AI_MODE=custom`일 때 답변 생성 엔진. `ollama` 또는 `vllm` | 주석 처리됨 | 빈 값. `custom`인데 비어 있거나 `custom`이 아닌데 값이 있으면 기동되지 않음 |
 | `AI_EMBEDDING_ENGINE` | `AiRuntimeProperties`: `AI_MODE=custom`일 때 임베딩 엔진. `ollama` 또는 `vllm` | 주석 처리됨 | 빈 값. 조건은 `AI_CHAT_ENGINE`과 같음 |
-| `EMBEDDING_PROFILE_VERSION` | `EmbeddingProfileService`: Embedding Profile의 버전. 엔진과 모델 이름이 그대로인데 벡터를 새로 만들어야 할 때 올림 | `1` | `1` |
+| `EMBEDDING_PROFILE_VERSION` | `EmbeddingProfileService`: Embedding Profile의 버전. 엔진과 모델 이름이 그대로인데 벡터를 새로 만들어야 할 때 올림 | `1` | `1`. 1보다 작으면 기동되지 않음 |
 | `AI_RUNTIME_MANAGED` | CD: 모델 서버를 배포 서버에 함께 띄울지 여부. `true` 또는 `false` ([deploy.md](../deploy.md#서버의-env)) | `true` | Spring에서 읽지 않음 |
 | `POSTGRES_HOST` | Spring | `localhost` | `localhost` |
 | `POSTGRES_PORT` | Docker, Spring | `15432` | `15432` |
@@ -165,7 +165,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 `.env`는 `local` 프로필 설정 안에서 읽히므로, 읽는 시점에는 이미 프로필이 결정되어 있습니다. 프로필을 바꾸려면 OS 환경변수나 실행 인자로 지정해야 합니다.
 
-컨테이너로 띄울 때는 다릅니다. `docker-compose.deploy.yml`이 `.env`를 `env_file`로 주입하므로 그 안의 값이 실제 환경변수가 됩니다. 다만 같은 파일의 `environment`가 `SPRING_PROFILES_ACTIVE`를 `local`로 다시 덮어쓰고 있어, 지금은 `.env`에 `prod`를 적어도 `local`로 뜹니다([deploy.md](../deploy.md#주의할-점)).
+컨테이너로 띄울 때는 다릅니다. `docker-compose.deploy.yml`이 `.env`를 `env_file`로 주입하므로 그 안의 값이 실제 환경변수가 됩니다. 그래서 `.env`에 적은 프로필이 그대로 적용됩니다.
 
 ## DB 스키마 (Flyway)
 
@@ -202,16 +202,16 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 ## Ollama 관련 설정 두 곳
 
-같은 환경변수를 서로 다른 설정 키가 각각 읽습니다.
+Ollama 설정 키는 두 묶음이 있고, 서비스가 실제로 쓰는 것은 `ollama.*`입니다.
 
 | 설정 키 | 읽는 주체 | 용도 |
 |---|---|---|
-| `spring.ai.ollama.*` | Spring AI 자동 구성, `LlmConfig` | LLM 채팅. 서비스 호출에는 `LlmConfig`의 전용 모델 인스턴스 사용. 답변 생성 엔진이 `ollama`일 때만 사용 |
-| `ollama.*` | `EmbeddingConfig` (`OllamaEmbeddingClient`) | 임베딩 생성 (`/api/embed` 직접 호출). 임베딩 엔진이 `ollama`일 때만 사용 |
+| `ollama.*` | `EmbeddingConfig`, `LlmConfig` | `base-url`은 임베딩(`/api/embed`)과 답변 생성(`/api/chat`)이 함께 씁니다. `embedding.model`, `connect-timeout`, `read-timeout`은 임베딩용입니다 |
+| `spring.ai.ollama.*` | Spring AI 자동 구성 | `local` 프로필에만 있습니다. 서비스는 자동 구성이 만든 빈을 호출하지 않습니다. `LlmConfig`는 이 중 `chat.options.model`만 읽고, 값이 있으면 `OLLAMA_CHAT_MODEL` 대신 모델 이름으로 씁니다 |
 
-`ollama.*`에는 `base-url`, `embedding.model`, `connect-timeout`, `read-timeout`이 있습니다. 왜 이렇게 나뉘어 있는지는 [architecture.md](../architecture.md#spring-ai를-쓰는-범위)를 참고하세요.
+왜 Spring AI 자동 구성과 따로 두는지는 [architecture.md](../architecture.md#spring-ai를-쓰는-범위)를 참고하세요.
 
-`application-prod.yml`에는 `ollama.*`만 있고 `spring.ai.ollama.*`가 없습니다. 그래서 `prod` 프로필에서 답변 생성 엔진을 `ollama`로 쓰면 `OLLAMA_BASE_URL`이 아니라 `LlmConfig`의 기본값 `http://localhost:11435`를 호출합니다. `prod`에서 Ollama로 답변을 만들려면 이 키를 추가해야 합니다.
+`application-prod.yml`에는 `ollama.*`만 있습니다. 답변 생성도 `ollama.base-url`을 읽으므로 `prod`에서도 `OLLAMA_BASE_URL`이 그대로 적용됩니다.
 
 ## Spring AI 현재 상태
 
@@ -241,7 +241,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | 채팅 답변 생성 Executor | 가상 스레드, 동시 처리 수 제한 없음, 종료 대기 150초 | `AsyncConfig` |
 | Ollama 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `OllamaEmbeddingClient` |
 | 임베딩 차원 | 1024 (DB 컬럼 `vector(1024)`와 같음). 다른 차원의 응답은 거절 | `EmbeddingClient` |
-| Nginx 프록시 응답 제한 시간 | `180s` | `infra/nginx/nginx.conf` |
+| Nginx 프록시 응답 제한 시간 | `180s`. 임베딩 백필 경로만 `3600s` | `infra/nginx/nginx.conf` |
 | Nginx `/chat/`·`/api/chat/` 게스트 요청 속도 제한 (IP별, `Authorization: Bearer …`가 없는 요청) | `CHAT_GUEST_RATE_LIMIT_RATE`(기본 `30r/m`), `CHAT_GUEST_RATE_LIMIT_BURST`(기본 `10`) | `.env`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` |
 | 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
 | 테스트 JVM 최대 힙 | `1024m` | `build.gradle` |
@@ -258,7 +258,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 - `application-test.yml`은 JWT 비밀 키, `kakao.local.api-key: test-key`, 임베딩 설정(`ollama.base-url: http://localhost:11434` 등)을 테스트 전용 값으로 고정합니다. `AI_MODE`는 지정하지 않으므로 기본값 `ollama`로 동작합니다.
 - 테스트 JVM의 최대 힙은 `1024m`입니다. Gradle 기본값(512MB)으로는 전체 테스트를 한 번에 돌릴 때 `Java heap space`로 실패했습니다.
 - `tools/ci.ps1`은 CI와 같은 명령(`gradlew clean build --no-daemon --console=plain`)을 로컬에서 실행합니다.
-- 예외적으로 `IntentClassificationAnalysis`는 `@TestPropertySource`로 Ollama 주소를 `http://localhost:11435`로 바꿔 실제 Ollama를 호출합니다([troubleshooting](../troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)).
+- 예외적으로 `IntentClassificationAnalysis`는 `@TestPropertySource`로 Ollama 주소를 `http://localhost:11435`로 바꿔 실제 Ollama를 호출합니다. 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되고, 평소의 `gradlew test`와 CI에서는 건너뜁니다([실행 방법](../troubleshooting.md#intentclassificationanalysis가-실행되지-않음)).
 
 ## LLM 호출 모듈 설정
 
@@ -266,7 +266,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 
 | 엔진 | 구현체 | 주소 | 모델 이름 |
 |---|---|---|---|
-| `ollama` | `OllamaClient` (Spring AI `OllamaChatModel`) | `spring.ai.ollama.base-url` (`OLLAMA_BASE_URL`) | `spring.ai.ollama.chat.options.model`이 있으면 그 값, 없으면 `OLLAMA_CHAT_MODEL` |
+| `ollama` | `OllamaClient` (Spring AI `OllamaChatModel`) | `ollama.base-url` (`OLLAMA_BASE_URL`) | `spring.ai.ollama.chat.options.model`이 있으면 그 값, 없으면 `OLLAMA_CHAT_MODEL` |
 | `vllm` | `OpenAiCompatibleLlmClient` | `LLM_BASE_URL` | `LLM_MODEL` |
 
 - 모듈을 만들 때는 외부 서버에 접속하지 않습니다. 모델을 자동으로 내려받거나 요청을 자동으로 재시도하지도 않습니다.
@@ -288,7 +288,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 - 두 구현체 모두 응답이 1024차원이 아니거나 유한하지 않은 값이 있으면 `EM-002`로 거절합니다.
 - 답변 시도 기록(`answer_attempts_history.embedding_model`)에는 선택된 엔진의 모델 이름이 남습니다.
 
-벡터를 저장하거나 검색할 때는 `EmbeddingProfileService`가 지금 설정에 해당하는 Embedding Profile을 찾아 그 Profile의 벡터만 다룹니다. Profile은 아래 네 값의 조합이고, 없으면 처음 쓸 때 `embedding_profiles`에 만들어집니다.
+벡터를 저장하거나 검색할 때는 `EmbeddingProfileService`가 지금 설정에 해당하는 Embedding Profile을 찾아 그 Profile의 벡터만 다룹니다. Profile은 아래 네 값의 조합이고, 없으면 처음 쓸 때 `embedding_profiles`에 만들어집니다. 설정은 실행 중에 바뀌지 않으므로 백엔드는 Profile을 한 번 조회한 뒤 기억합니다.
 
 | 값 | 출처 |
 |---|---|

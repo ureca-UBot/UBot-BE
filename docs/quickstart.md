@@ -205,8 +205,6 @@ Testcontainers가 Compose와 같은 Dockerfile로 테스트 전용 DB를 만들�
 
 PR을 올리기 전에 CI와 같은 명령(`gradlew clean build --no-daemon`)으로 확인하려면 `.\tools\ci.ps1`을 실행합니다.
 
-> 단, 실제 Ollama가 필요한 분석 테스트 하나가 로컬에서 함께 실행됩니다. Ollama 없이 돌리는 방법은 [troubleshooting](troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)을 참고하세요.
-
 ## 실패했다면
 
 증상별 해결 방법은 [troubleshooting.md](troubleshooting.md)에 있습니다.
