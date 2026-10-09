@@ -1,0 +1,10 @@
+{
+  "embeddingModel": "bge-m3:567m",
+  "dimensions": 1024,
+  "inputColumns": [
+    "question"
+  ],
+  "inputSeparator": "\n\n",
+  "faqCount": 1000,
+  "sha256": "e87703f107e2d39a620d628d32ef894721938e5128af2baff25a006b3b478890"
+}
