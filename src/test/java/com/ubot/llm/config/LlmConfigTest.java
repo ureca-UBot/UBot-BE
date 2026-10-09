@@ -38,7 +38,7 @@ class LlmConfigTest {
             )
             .withBean(RestClient.Builder.class, RestClient::builder)
             .withPropertyValues("OLLAMA_CHAT_MODEL=", "LLM_CONNECT_TIMEOUT=1s", "LLM_READ_TIMEOUT=3s",
-                    "spring.ai.ollama.base-url=http://127.0.0.1:1");
+                    "ollama.base-url=http://127.0.0.1:1");
 
     @Test
     void startsWithoutModelOrServerButRejectsGeneration() {
@@ -79,7 +79,7 @@ class LlmConfigTest {
 
         try {
             contextRunner.withPropertyValues("OLLAMA_CHAT_MODEL=environment-model",
-                    "spring.ai.ollama.base-url=http://127.0.0.1:" + server.getAddress().getPort())
+                    "ollama.base-url=http://127.0.0.1:" + server.getAddress().getPort())
                     .run(context -> {
                         assertThat(context).hasNotFailed();
                         assertThat(context.getBean(LlmService.class).generateAnswer(question()).answer())

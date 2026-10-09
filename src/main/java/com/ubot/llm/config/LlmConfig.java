@@ -16,7 +16,7 @@ public class LlmConfig {
             AiRuntimeProperties aiRuntimeProperties,
             RestClient.Builder restClientBuilder,
 
-            @Value("${spring.ai.ollama.base-url:http://localhost:11435}")
+            @Value("${ollama.base-url:http://localhost:11435}")
             String ollamaBaseUrl,
 
             @Value("${spring.ai.ollama.chat.options.model:${OLLAMA_CHAT_MODEL:}}")

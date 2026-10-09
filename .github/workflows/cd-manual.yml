@@ -16,6 +16,7 @@ jobs:
       github.ref == 'refs/heads/develop' ||
       github.ref == 'refs/heads/main' ||
       github.ref == 'refs/heads/chore/152-runtime-env-split'
+
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -32,17 +33,39 @@ jobs:
 
       - name: Build backend Docker image
         run: |
+          set -euo pipefail
+
           docker build \
             -t "${IMAGE_NAME}:${GITHUB_SHA}" \
             .
 
       - name: Save backend Docker image
         run: |
+          set -euo pipefail
+
           docker save "${IMAGE_NAME}:${GITHUB_SHA}" \
             | gzip > ubot-be.tar.gz
 
+      - name: Validate deployment files
+        run: |
+          set -euo pipefail
+
+          test -f docker-compose.yml
+          test -f docker-compose.deploy.yml
+          test -f docker-compose.ollama.yml
+          test -f docker-compose.vllm.yml
+          test -f infra/postgres/Dockerfile
+          test -f infra/nginx/nginx.conf
+          test -f infra/prometheus/prometheus.yml
+          test -f infra/llm/docker-compose.yml
+          test -f tools/deploy/deploy.sh
+
+          bash -n tools/deploy/deploy.sh
+
       - name: Package deploy configuration
         run: |
+          set -euo pipefail
+
           tar -czf ubot-deploy.tar.gz \
             docker-compose.yml \
             docker-compose.deploy.yml \
@@ -51,22 +74,25 @@ jobs:
             infra/postgres/Dockerfile \
             infra/nginx/nginx.conf \
             infra/prometheus/prometheus.yml \
-            infra/llm/docker-compose.yml
+            infra/llm/docker-compose.yml \
+            tools/deploy/deploy.sh
 
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "$EC2_SSH_KEY" \
+          printf '%s\n' "${EC2_SSH_KEY}" \
             | tr -d '\r' \
             > ~/.ssh/deploy_key
 
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -H "$EC2_HOST" \
+          ssh-keyscan -H "${EC2_HOST}" \
             >> ~/.ssh/known_hosts
 
           chmod 600 ~/.ssh/known_hosts
@@ -84,142 +110,22 @@ jobs:
 
       - name: Test SSH connection
         run: |
+          set -euo pipefail
+
           ssh ubot-staging '
-            set -e
+            set -euo pipefail
 
             echo "SSH connection successful"
             echo "user=$(whoami)"
             echo "host=$(hostname)"
-          '
-
-      - name: Check deployment environment
-        run: |
-          ssh ubot-staging '
-            set -e
-
-            echo "== Docker =="
-            docker version --format "{{.Server.Version}}"
-
-            echo "== Docker Compose =="
-            docker compose version
-
-            echo "== Environment file =="
-
-            if [ ! -f ~/ubot/.env ]; then
-              echo "ERROR: ~/ubot/.env does not exist"
-              exit 1
-            fi
-
-            echo "~/ubot/.env exists"
-
-            read_env() {
-              grep -E "^${1}=" ~/ubot/.env \
-                | tail -n 1 \
-                | cut -d= -f2- \
-                | tr -d "\r" \
-                | sed "s/^[[:space:]]*//;s/[[:space:]]*$//;s/^\"//;s/\"$//"
-            }
-
-            require_env() {
-              VALUE=$(read_env "$1")
-
-              if [ -z "${VALUE}" ]; then
-                echo "ERROR: $1 is required in ~/ubot/.env"
-                exit 1
-              fi
-            }
-
-            require_env SPRING_PROFILES_ACTIVE
-            require_env AI_MODE
-            require_env AI_RUNTIME_MANAGED
-            require_env POSTGRES_DB
-            require_env POSTGRES_USER
-            require_env POSTGRES_PASSWORD
-            require_env JWT_SECRET
-            require_env KAKAO_REST_API_KEY
-
-            SPRING_PROFILE=$(read_env SPRING_PROFILES_ACTIVE)
-            AI_MODE=$(read_env AI_MODE)
-            AI_RUNTIME_MANAGED=$(read_env AI_RUNTIME_MANAGED)
-
-            echo "SPRING_PROFILES_ACTIVE=${SPRING_PROFILE}"
-            echo "AI_MODE=${AI_MODE}"
-            echo "AI_RUNTIME_MANAGED=${AI_RUNTIME_MANAGED}"
-
-            if [ "${SPRING_PROFILE}" != "prod" ]; then
-              echo "ERROR: SPRING_PROFILES_ACTIVE must be prod"
-              exit 1
-            fi
-
-            case "${AI_MODE}" in
-              ollama)
-                require_env OLLAMA_BASE_URL
-                require_env OLLAMA_EMBEDDING_MODEL
-                ;;
-
-              vllm)
-                require_env LLM_BASE_URL
-                require_env LLM_MODEL
-                require_env EMBEDDING_BASE_URL
-                require_env EMBEDDING_MODEL
-                ;;
-
-              custom)
-                require_env AI_CHAT_ENGINE
-                require_env AI_EMBEDDING_ENGINE
-                ;;
-
-              *)
-                echo "ERROR: AI_MODE must be ollama, vllm, or custom"
-                exit 1
-                ;;
-            esac
-
-            case "${AI_RUNTIME_MANAGED}" in
-              true|false)
-                ;;
-              *)
-                echo "ERROR: AI_RUNTIME_MANAGED must be true or false"
-                exit 1
-                ;;
-            esac
-
-            if [ "${AI_RUNTIME_MANAGED}" = "true" ] && [ "${AI_MODE}" = "custom" ]; then
-              echo "ERROR: AI_MODE=custom cannot use AI_RUNTIME_MANAGED=true"
-              exit 1
-            fi
-
-            if [ "${AI_RUNTIME_MANAGED}" = "true" ]; then
-              case "${AI_MODE}" in
-                ollama)
-                  require_env OLLAMA_PORT
-                  ;;
-
-                vllm)
-                  require_env LLM_HF_MODEL
-                  require_env LLM_SERVED_MODEL_NAME
-                  require_env EMBEDDING_HF_MODEL
-                  require_env EMBEDDING_SERVED_MODEL_NAME
-                  ;;
-              esac
-            fi
-
-            if [ "${AI_RUNTIME_MANAGED}" = "true" ] && [ "${AI_MODE}" = "vllm" ]; then
-              echo "== NVIDIA GPU =="
-
-              if ! command -v nvidia-smi >/dev/null 2>&1; then
-                echo "ERROR: nvidia-smi was not found"
-                exit 1
-              fi
-
-              nvidia-smi
-            fi
 
             mkdir -p ~/ubot-deploy
           '
 
       - name: Upload deployment files
         run: |
+          set -euo pipefail
+
           scp \
             ubot-be.tar.gz \
             ubot-deploy.tar.gz \
@@ -227,17 +133,11 @@ jobs:
 
       - name: Deploy on EC2
         run: |
+          set -euo pipefail
+
           ssh ubot-staging \
             "IMAGE_NAME='${IMAGE_NAME}' GITHUB_SHA='${GITHUB_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
-
-          read_env() {
-            grep -E "^${1}=" ~/ubot/.env \
-              | tail -n 1 \
-              | cut -d= -f2- \
-              | tr -d '\r' \
-              | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//'
-          }
 
           echo "== Prepare deployment directory =="
 
@@ -247,291 +147,9 @@ jobs:
             ~/ubot-deploy/ubot-deploy.tar.gz \
             -C ~/ubot
 
-          echo "== Load backend Docker image =="
+          echo "== Run deployment =="
 
-          gunzip -c \
-            ~/ubot-deploy/ubot-be.tar.gz \
-            | docker load
-
-          cd ~/ubot
-
-          export BACKEND_IMAGE="${IMAGE_NAME}:${GITHUB_SHA}"
-
-          AI_MODE=$(read_env AI_MODE)
-          AI_RUNTIME_MANAGED=$(read_env AI_RUNTIME_MANAGED)
-
-          echo "AI_MODE=${AI_MODE}"
-          echo "AI_RUNTIME_MANAGED=${AI_RUNTIME_MANAGED}"
-          echo "BACKEND_IMAGE=${BACKEND_IMAGE}"
-
-          COMPOSE=(
-            docker compose
-            -p ubot
-            --env-file .env
-            -f docker-compose.yml
-            -f docker-compose.deploy.yml
-          )
-
-          if [ "${AI_RUNTIME_MANAGED}" = "true" ]; then
-            case "${AI_MODE}" in
-              ollama)
-                COMPOSE+=(
-                  -f docker-compose.ollama.yml
-                )
-                ;;
-
-              vllm)
-                COMPOSE+=(
-                  -f docker-compose.vllm.yml
-                )
-                ;;
-            esac
-          fi
-
-          echo "== Validate Compose =="
-
-          "${COMPOSE[@]}" config >/dev/null
-
-          echo "== Start common infrastructure =="
-
-          "${COMPOSE[@]}" \
-            up -d \
-            postgres \
-            redis \
-            prometheus
-
-          if [ "${AI_RUNTIME_MANAGED}" = "true" ]; then
-
-            if [ "${AI_MODE}" = "ollama" ]; then
-              echo "== Start Ollama =="
-
-              "${COMPOSE[@]}" \
-                up -d \
-                ollama \
-                ollama-init
-
-              OLLAMA_PORT=$(read_env OLLAMA_PORT)
-
-              if [ -z "${OLLAMA_PORT}" ]; then
-                OLLAMA_PORT=11435
-              fi
-
-              echo "Waiting for Ollama..."
-
-              for i in $(seq 1 60); do
-                if curl -fsS \
-                  "http://127.0.0.1:${OLLAMA_PORT}/api/tags" \
-                  >/dev/null; then
-
-                  echo "Ollama is ready"
-                  break
-                fi
-
-                if [ "${i}" -eq 60 ]; then
-                  echo "ERROR: Ollama did not become ready"
-                  "${COMPOSE[@]}" logs --tail=200 ollama ollama-init
-                  exit 1
-                fi
-
-                echo "Ollama readiness ${i}/60"
-                sleep 5
-              done
-            fi
-
-            if [ "${AI_MODE}" = "vllm" ]; then
-              echo "== Start vLLM =="
-
-              "${COMPOSE[@]}" \
-                up -d \
-                vllm \
-                vllm-embedding
-
-              LLM_PORT=$(read_env LLM_PORT)
-              EMBEDDING_PORT=$(read_env EMBEDDING_PORT)
-
-              if [ -z "${LLM_PORT}" ]; then
-                LLM_PORT=8000
-              fi
-
-              if [ -z "${EMBEDDING_PORT}" ]; then
-                EMBEDDING_PORT=8001
-              fi
-
-              echo "Waiting for vLLM Chat..."
-
-              for i in $(seq 1 120); do
-                if curl -fsS \
-                  "http://127.0.0.1:${LLM_PORT}/v1/models" \
-                  >/dev/null; then
-
-                  echo "vLLM Chat is ready"
-                  break
-                fi
-
-                if [ "${i}" -eq 120 ]; then
-                  echo "ERROR: vLLM Chat did not become ready"
-                  "${COMPOSE[@]}" logs --tail=200 vllm
-                  exit 1
-                fi
-
-                echo "vLLM Chat readiness ${i}/120"
-                sleep 5
-              done
-
-              echo "Waiting for vLLM Embedding..."
-
-              for i in $(seq 1 120); do
-                if curl -fsS \
-                  "http://127.0.0.1:${EMBEDDING_PORT}/v1/models" \
-                  >/dev/null; then
-
-                  echo "vLLM Embedding is ready"
-                  break
-                fi
-
-                if [ "${i}" -eq 120 ]; then
-                  echo "ERROR: vLLM Embedding did not become ready"
-                  "${COMPOSE[@]}" logs --tail=200 vllm-embedding
-                  exit 1
-                fi
-
-                echo "vLLM Embedding readiness ${i}/120"
-                sleep 5
-              done
-            fi
-          fi
-
-          echo "== Start backend =="
-
-          "${COMPOSE[@]}" \
-            up -d \
-            backend
-
-          if [ "${AI_MODE}" = "vllm" ]; then
-            echo "== Validate vLLM from backend network =="
-
-            LLM_BASE_URL=$(read_env LLM_BASE_URL)
-            LLM_MODEL=$(read_env LLM_MODEL)
-            EMBEDDING_BASE_URL=$(read_env EMBEDDING_BASE_URL)
-            EMBEDDING_MODEL=$(read_env EMBEDDING_MODEL)
-
-            BACKEND_CONTAINER_ID="$("${COMPOSE[@]}" ps -q backend)"
-
-            if [ -z "${BACKEND_CONTAINER_ID}" ]; then
-              echo "ERROR: backend container was not found"
-              exit 1
-            fi
-
-            check_vllm_model() {
-              LABEL="$1"
-              BASE_URL="$2"
-              EXPECTED_MODEL="$3"
-
-              MODELS_URL="${BASE_URL%/}/models"
-
-              echo "Checking ${LABEL}"
-              echo "Expected model: ${EXPECTED_MODEL}"
-
-              for i in $(seq 1 12); do
-                RESPONSE="$(
-                  docker run --rm \
-                    --network "container:${BACKEND_CONTAINER_ID}" \
-                    curlimages/curl:8.10.1 \
-                    -fsS \
-                    --connect-timeout 5 \
-                    --max-time 15 \
-                    "${MODELS_URL}" \
-                    2>/dev/null \
-                    || true
-                )"
-
-                if [ -n "${RESPONSE}" ] && \
-                  printf '%s' "${RESPONSE}" | grep -Fq "\"${EXPECTED_MODEL}\""; then
-
-                  echo "${LABEL} is reachable"
-                  echo "${EXPECTED_MODEL} is available"
-                  return 0
-                fi
-
-                echo "${LABEL} readiness ${i}/12 failed"
-                sleep 5
-              done
-
-              echo "ERROR: ${LABEL} is not reachable from backend network"
-              echo "ERROR: expected model ${EXPECTED_MODEL} was not found"
-              exit 1
-            }
-
-            check_vllm_model \
-              "vLLM Chat" \
-              "${LLM_BASE_URL}" \
-              "${LLM_MODEL}"
-
-            check_vllm_model \
-              "vLLM Embedding" \
-              "${EMBEDDING_BASE_URL}" \
-              "${EMBEDDING_MODEL}"
-          fi
-
-          echo "== Recreate nginx =="
-
-          "${COMPOSE[@]}" \
-            up -d \
-            --no-deps \
-            --force-recreate \
-            nginx
-
-          echo "== Container status =="
-
-          "${COMPOSE[@]}" ps -a
+          IMAGE_NAME="${IMAGE_NAME}" \
+          GITHUB_SHA="${GITHUB_SHA}" \
+            bash ~/ubot/tools/deploy/deploy.sh
           REMOTE
-
-      - name: Health check
-        run: |
-          ssh ubot-staging '
-            set -e
-
-            echo "Waiting for backend..."
-
-            for i in $(seq 1 30); do
-              if curl -fsS \
-                http://127.0.0.1/actuator/health; then
-
-                echo
-                echo "Backend is healthy"
-                exit 0
-              fi
-
-              echo "Health check attempt ${i}/30 failed"
-              sleep 5
-            done
-
-            echo
-            echo "Health check failed"
-
-            cd ~/ubot
-
-            echo "== Container status =="
-
-            docker compose \
-              -p ubot \
-              --env-file .env \
-              -f docker-compose.yml \
-              -f docker-compose.deploy.yml \
-              -f docker-compose.ollama.yml \
-              -f docker-compose.vllm.yml \
-              ps -a
-
-            echo "== Backend / nginx logs =="
-
-            docker compose \
-              -p ubot \
-              --env-file .env \
-              -f docker-compose.yml \
-              -f docker-compose.deploy.yml \
-              logs \
-              --tail=200 \
-              backend nginx
-
-            exit 1
-          '
