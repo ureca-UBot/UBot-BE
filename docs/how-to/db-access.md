@@ -52,12 +52,14 @@ ORDER BY extname;
 |---|---|
 | `users` | 회원. `role`은 `USER` 또는 `ADMIN`, `deleted_at`이 있으면 탈퇴 |
 | `refresh_tokens` | 사용자당 refresh token 1개 |
-| `faq_category`, `faq` | FAQ와 카테고리. `faq.vector`에 질문 임베딩(1024차원), `faq.intent`에 처리 의도 |
+| `faq_category`, `faq` | FAQ와 카테고리. `faq.intent`에 처리 의도. `faq.vector`는 더 이상 쓰지 않음 |
+| `embedding_profiles`, `faq_embeddings` | 임베딩 서버별 Profile과, Profile별 FAQ 질문 임베딩(1024차원) |
 | `old_faq` | FAQ 수정 전 버전 (`faq_id`, `version`) |
 | `answer_attempts_history` | 채팅 답변 시도 1회당 1행. `status`(`PENDING`/`SUCCESS`/`FAIL`), `error_code`, `idempotency_key` |
 | `question_log` | 성공한 질문과 생성 답변(`llm_question` 컬럼) |
 | `faq_log` | 성공한 답변에 사용한 FAQ와 순위·유사도 |
 | `unanswered_questions`, `unanswered_question_groups` | 답을 찾지 못한 질문(`NO_FAQ`/`INSUFFICIENT_FAQ`)과 비슷한 질문 묶음. 묶음 처리 상태는 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED` |
+| `unanswered_question_embeddings`, `unanswered_group_embeddings` | Profile별 미응답 질문 벡터와 묶음 중심 벡터. 묶음과 소속은 Profile과 무관하게 하나이고 벡터만 Profile별 |
 | `forbidden_words` | 금지어 (`ACTIVE`/`INACTIVE`) |
 | `stores`, `service_types`, `store_services` | 매장과 제공 서비스 |
 

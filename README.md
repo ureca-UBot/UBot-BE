@@ -50,12 +50,12 @@ API 경로와 인증 방식은 [architecture.md](docs/architecture.md)에, 오�
 | 서버 | Java 21, Spring Boot 4.1.1, Spring Security + JWT |
 | 데이터 | PostgreSQL 18 — pgvector(FAQ 벡터 검색, 미응답 질문 묶기), PostGIS(매장 위치 검색), Flyway |
 | 캐시·스케줄 | Redis 8 — FAQ 순위 스냅샷 저장, 스케줄러 중복 실행 방지(ShedLock) |
-| AI | Ollama — 임베딩 `bge-m3:567m`(REST 직접 호출), 채팅 모델은 환경변수로 지정(Spring AI 2.0.1로 호출, 매장 조회는 tool calling). 운영에서는 `LLM_PROVIDER=openai-compatible`로 vLLM을 호출할 수 있습니다. 임베딩도 `EMBEDDING_PROVIDER=openai-compatible`로 vLLM을 호출하는 구현이 있지만, 저장된 벡터가 Ollama 기준이라 아직 전환하지 않습니다. |
+| AI | `AI_MODE`로 Ollama와 vLLM 중 하나를 고릅니다(기본 Ollama). Ollama는 임베딩 `bge-m3:567m`(REST 직접 호출)과 환경변수로 지정한 채팅 모델(Spring AI 2.0.1로 호출)을 쓰고, vLLM은 OpenAI 호환 API로 답변 생성과 임베딩을 호출합니다. 매장 조회는 tool calling을 씁니다. 벡터는 임베딩 서버별(Embedding Profile)로 따로 저장해서 한 DB에서 두 서버를 오갈 수 있습니다. |
 | 외부 API | 카카오 로컬(주소·장소 검색), 카카오맵 길찾기(도보·대중교통), 카카오모빌리티 길찾기(자동차) |
 | 지역 판별 | MaxMind GeoLite2 — 접속 IP로 시도 판별 |
 | 모니터링 | Micrometer, Prometheus (`/actuator/prometheus`). 로컬 Compose에 Prometheus가 들어 있고, Nginx는 이 경로를 외부에 열지 않습니다. |
 | 배포 | Docker Compose, Nginx(`/api` 접두사 처리, 게스트 채팅 속도 제한), GitHub Actions(CI, 수동 CD) |
-| 테스트 인프라 | Terraform(AWS 네트워크, GPU 테스트 서버), vLLM·SGLang LLM 서빙 런타임, vLLM 임베딩 서버. 백엔드는 답변 생성과 임베딩 모두 vLLM에 연결할 수 있고, 임베딩의 기본값은 Ollama입니다. |
+| 테스트 인프라 | Terraform(AWS 네트워크, GPU 테스트 서버), vLLM·SGLang LLM 서빙 런타임, vLLM 임베딩 서버 |
 
 환경변수 전체 목록은 [.env.example](.env.example)에, 주요 설정의 설명은 [configuration.md](docs/reference/configuration.md)에 있습니다.
 
@@ -65,14 +65,14 @@ JDK 17 이상, 실행 중인 Docker Desktop, Git이 필요합니다.
 
 ```powershell
 Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 수정
-docker compose up -d --build
+.\tools\ubot.ps1 up
 .\gradlew.bat bootRun
 ```
 
 `http://localhost:8080/actuator/health`가 `"status":"UP"`이면 실행된 것입니다. API는 Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 볼 수 있습니다.
 
-- `docker compose up`은 PostgreSQL(15432), Ollama(11435), Redis(16379), Prometheus(19090)를 띄우고 임베딩 모델을 내려받습니다. `.env`의 `OLLAMA_CHAT_MODEL`에 값이 있으면 채팅 모델도 함께 받습니다. 괄호 안은 `.env.example` 기준 호스트 포트입니다.
-- 어떤 모델 서버를 띄울지는 `.env`의 `COMPOSE_FILE`이 정합니다. 기본은 Ollama이고, GPU가 있는 PC에서는 같은 명령으로 vLLM 환경을 띄울 수 있습니다([quickstart](docs/quickstart.md#vllm-환경으로-실행하기)).
+- `.\tools\ubot.ps1 up`은 `.env`의 `AI_MODE`를 읽어 필요한 컨테이너를 띄웁니다. 기본값 `ollama`면 PostgreSQL(15432), Ollama(11435), Redis(16379), Prometheus(19090)를 띄우고 임베딩 모델을 내려받습니다. `OLLAMA_CHAT_MODEL`에 값이 있으면 채팅 모델도 함께 받습니다. 괄호 안은 `.env.example` 기준 호스트 포트입니다.
+- GPU가 있는 PC에서는 `AI_MODE=vllm`으로 바꾸고 같은 명령을 실행하면 Ollama 대신 vLLM 서버 두 개가 뜹니다([quickstart](docs/quickstart.md#vllm으로-바꿔-실행하기)).
 - `JWT_SECRET`을 바꾸지 않으면 기동되지 않습니다([quickstart](docs/quickstart.md#2-env-만들기)).
 - 챗봇 답변까지 보려면 채팅 모델과 FAQ 데이터가 필요합니다([local-data.md](docs/how-to/local-data.md)).
 - 길찾기와 위치 검색, 채팅에서 장소 이름으로 매장을 찾는 기능은 `KAKAO_REST_API_KEY`가 있어야 동작합니다.

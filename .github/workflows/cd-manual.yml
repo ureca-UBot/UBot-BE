@@ -50,6 +50,7 @@ jobs:
             docker-compose.vllm.yml \
             infra/postgres/Dockerfile \
             infra/nginx/nginx.conf \
+            infra/prometheus/prometheus.yml \
             infra/llm/docker-compose.yml
 
       - name: Configure SSH

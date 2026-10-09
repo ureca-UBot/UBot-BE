@@ -14,7 +14,7 @@
 
 ## 2. FAQ 등록
 
-FAQ는 SQL로 직접 넣지 말고 관리자 API로 등록합니다. API가 질문 임베딩을 `faq.vector`에 함께 저장합니다. SQL로 넣은 행은 벡터가 비어 채팅 검색에 쓰이지 않습니다.
+FAQ는 SQL로 직접 넣지 말고 관리자 API로 등록합니다. API가 질문 임베딩을 `faq_embeddings`에 함께 저장합니다. SQL로 넣은 행은 벡터가 없어 채팅 검색에 쓰이지 않습니다. 이런 행은 [임베딩 백필](llm-module.md#백필)로 벡터를 채울 수 있습니다.
 
 몇 건만 필요하면 Swagger UI(`/swagger-ui.html`)에서 `POST /admin/faq-categories`로 카테고리를 만든 뒤 `POST /admin/faqs`로 등록하면 됩니다.
 
