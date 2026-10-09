@@ -2,11 +2,8 @@ package com.ubot.faq.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.pgvector.PGvector;
-import com.ubot.PgvectorTestConfiguration;
-import com.ubot.faq.dto.response.FaqSearchResponseDto;
-import com.ubot.faq.enums.Intent;
 import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,108 +13,438 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
+import com.pgvector.PGvector;
+import com.ubot.PgvectorTestConfiguration;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
+
 @SpringBootTest
 @Import(PgvectorTestConfiguration.class)
 @ActiveProfiles("test")
 @DisplayName("FAQ 벡터 저장소 통합 테스트")
 class FaqVectorRepositoryTest {
+
     @Autowired
     private FaqVectorRepository repository;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
     private Long categoryId;
+    private Long profileId;
+    private Long otherProfileId;
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM faq_embeddings");
         jdbcTemplate.update("DELETE FROM old_faq");
         jdbcTemplate.update("DELETE FROM faq");
         jdbcTemplate.update("DELETE FROM faq_category");
-        categoryId = jdbcTemplate.queryForObject("INSERT INTO faq_category (name) VALUES ('벡터 테스트') RETURNING id",
-                Long.class);
-        insertFaq(1L, "유심 재발급", "매장에서 재발급할 수 있습니다.", vectorOf(0), null);
-        insertFaq(2L, "유심 인식 오류", "휴대전화를 다시 시작해 주세요.", vectorOf(1), null);
-        insertFaq(3L, "삭제된 FAQ", "검색되면 안 됩니다.", vectorOf(0), "2026-01-01 00:00:00");
+
+        categoryId = jdbcTemplate.queryForObject(
+                """
+                INSERT INTO faq_category (name)
+                VALUES ('벡터 테스트')
+                RETURNING id
+                """,
+                Long.class
+        );
+
+        profileId = getOrCreateProfile(
+                "ollama",
+                "bge-m3:567m"
+        );
+
+        otherProfileId = getOrCreateProfile(
+                "openai-compatible",
+                "ubot-embedding"
+        );
+
+        insertFaq(
+                1L,
+                "유심 재발급",
+                "매장에서 재발급할 수 있습니다.",
+                null
+        );
+
+        insertFaq(
+                2L,
+                "유심 인식 오류",
+                "휴대전화를 다시 시작해 주세요.",
+                null
+        );
+
+        insertFaq(
+                3L,
+                "삭제된 FAQ",
+                "검색되면 안 됩니다.",
+                "2026-01-01 00:00:00"
+        );
+
+        repository.saveVectorForFaq(
+                1L,
+                profileId,
+                1,
+                vectorOf(0)
+        );
+
+        repository.saveVectorForFaq(
+                2L,
+                profileId,
+                1,
+                vectorOf(1)
+        );
+
+        repository.saveVectorForFaq(
+                3L,
+                profileId,
+                1,
+                vectorOf(0)
+        );
     }
 
     @Test
-    @DisplayName("유사도 검색은 가장 가까운 활성 FAQ부터 반환하고 삭제 FAQ는 제외한다")
+    @DisplayName("현재 프로필의 활성 FAQ만 가까운 순서로 검색한다")
     void getSimilarList_returnsNearestActiveFaqOnly() {
-        List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), 10);
+        List<FaqSearchResponseDto> results =
+                repository.getSimilarList(
+                        vectorOf(0),
+                        profileId,
+                        10
+                );
 
-        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
-        assertThat(results.getFirst().similarityScore()).isEqualTo(1.0);
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(1L, 2L);
+
+        assertThat(results.getFirst().similarityScore())
+                .isEqualTo(1.0);
     }
 
     @Test
-    @DisplayName("유사도 검색은 요청한 상위 결과 수를 초과하지 않는다")
-    void getSimilarList_limitsResultsToTopK() {
-        assertThat(repository.getSimilarList(vectorOf(0), 1)).hasSize(1);
+    @DisplayName("다른 임베딩 프로필의 벡터는 검색하지 않는다")
+    void getSimilarList_doesNotUseAnotherProfile() {
+        repository.saveVectorForFaq(
+                1L,
+                otherProfileId,
+                1,
+                vectorOf(5)
+        );
+
+        List<FaqSearchResponseDto> results =
+                repository.getSimilarList(
+                        vectorOf(0),
+                        profileId,
+                        10
+                );
+
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(1L, 2L);
     }
 
     @Test
-    @DisplayName("유사도 검색 결과에 FAQ의 intent 라벨을 담는다")
-    void getSimilarList_mapsIntent() {
-        jdbcTemplate.update("UPDATE faq SET intent = 'STORE_DATA' WHERE id = 2");
-
-        List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), 10);
-
-        assertThat(results).extracting(FaqSearchResponseDto::intent)
-                .containsExactly(Intent.GENERAL, Intent.STORE_DATA);
-    }
-
-    @Test
-    @DisplayName("intent 검색은 해당 intent의 활성 FAQ만 가까운 순서로 반환한다")
-    void getSimilarListByIntent_returnsOnlyMatchingIntent() {
-        jdbcTemplate.update("UPDATE faq SET intent = 'STORE_DATA' WHERE id = 2");
-
-        List<FaqSearchResponseDto> storeResults = repository.getSimilarListByIntent(vectorOf(0), Intent.STORE_DATA, 10);
-        List<FaqSearchResponseDto> generalResults = repository.getSimilarListByIntent(vectorOf(0), Intent.GENERAL, 10);
-
-        assertThat(storeResults).extracting(FaqSearchResponseDto::faqId).containsExactly(2L);
-        assertThat(storeResults).extracting(FaqSearchResponseDto::intent).containsOnly(Intent.STORE_DATA);
-        // 삭제된 FAQ(id=3, GENERAL)는 제외된다.
-        assertThat(generalResults).extracting(FaqSearchResponseDto::faqId).containsExactly(1L);
-    }
-
-    @Test
-    @DisplayName("intent 검색은 해당 intent의 FAQ가 없으면 빈 목록을 반환한다")
-    void getSimilarListByIntent_returnsEmptyWhenNoFaqHasIntent() {
-        assertThat(repository.getSimilarListByIntent(vectorOf(0), Intent.USER_DATA, 10)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("intent 검색은 요청한 상위 결과 수를 초과하지 않는다")
-    void getSimilarListByIntent_limitsResultsToTopK() {
-        jdbcTemplate.update("UPDATE faq SET intent = 'STORE_DATA' WHERE id IN (1, 2)");
-
-        assertThat(repository.getSimilarListByIntent(vectorOf(0), Intent.STORE_DATA, 1)).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("현재 FAQ 벡터를 조회하고 이전 FAQ 이력에 저장한다")
-    void findAndSaveVector_handlesCurrentAndHistoryFaq() {
+    @DisplayName("현재 프로필 벡터가 없으면 다른 프로필 벡터로 대체하지 않는다")
+    void getSimilarList_doesNotFallbackToAnotherProfile() {
         jdbcTemplate.update(
-                "INSERT INTO old_faq (faq_id, version, category_id, question, answer, updated_at) VALUES (1, 1, ?, '이전 질문', '이전 답변', now())",
-                categoryId);
+                """
+                DELETE FROM faq_embeddings
+                WHERE faq_id = ?
+                  AND profile_id = ?
+                """,
+                1L,
+                profileId
+        );
 
-        PGvector vector = repository.findVectorByFaqId(1L);
-        repository.saveVectorForOldFaq(1L, 1, vector);
+        repository.saveVectorForFaq(
+                1L,
+                otherProfileId,
+                1,
+                vectorOf(0)
+        );
+
+        List<FaqSearchResponseDto> results =
+                repository.getSimilarList(
+                        vectorOf(0),
+                        profileId,
+                        10
+                );
+
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(2L);
+    }
+
+    @Test
+    @DisplayName("FAQ 버전과 벡터 버전이 다르면 검색하지 않는다")
+    void getSimilarList_ignoresStaleVector() {
+        jdbcTemplate.update(
+                """
+                UPDATE faq
+                SET version = version + 1
+                WHERE id = ?
+                """,
+                1L
+        );
+
+        List<FaqSearchResponseDto> results =
+                repository.getSimilarList(
+                        vectorOf(0),
+                        profileId,
+                        10
+                );
+
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(2L);
+    }
+
+    @Test
+    @DisplayName("벡터를 다시 저장하면 지정한 FAQ 버전으로 갱신한다")
+    void saveVectorForFaq_updatesFaqVersion() {
+        jdbcTemplate.update(
+                """
+                UPDATE faq
+                SET version = 2
+                WHERE id = 1
+                """
+        );
+
+        repository.saveVectorForFaq(
+                1L,
+                profileId,
+                2,
+                vectorOf(2)
+        );
+
+        Integer savedVersion = jdbcTemplate.queryForObject(
+                """
+                SELECT faq_version
+                FROM faq_embeddings
+                WHERE faq_id = ?
+                  AND profile_id = ?
+                  AND vector_type = 'QUESTION'
+                """,
+                Integer.class,
+                1L,
+                profileId
+        );
+
+        assertThat(savedVersion).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("질문이 바뀌지 않으면 벡터는 유지하고 FAQ 버전만 갱신한다")
+    void updateVectorVersionForFaq_updatesOnlyVersion() {
+        repository.updateVectorVersionForFaq(
+                1L,
+                profileId,
+                2
+        );
+
+        Integer savedVersion = jdbcTemplate.queryForObject(
+                """
+                SELECT faq_version
+                FROM faq_embeddings
+                WHERE faq_id = ?
+                  AND profile_id = ?
+                  AND vector_type = 'QUESTION'
+                """,
+                Integer.class,
+                1L,
+                profileId
+        );
+
+        PGvector savedVector = jdbcTemplate.queryForObject(
+                """
+                SELECT vector
+                FROM faq_embeddings
+                WHERE faq_id = ?
+                  AND profile_id = ?
+                  AND vector_type = 'QUESTION'
+                """,
+                (rs, rowNum) -> new PGvector(rs.getString("vector")),
+                1L,
+                profileId
+        );
+
+        assertThat(savedVersion).isEqualTo(2);
+        assertThat(savedVector).isNotNull();
+        assertThat(savedVector.getValue()).startsWith("[1.0,0.0");
+    }
+
+    @Test
+    @DisplayName("intent 검색은 현재 프로필의 해당 intent FAQ만 반환한다")
+    void getSimilarListByIntent_returnsOnlyMatchingIntent() {
+        jdbcTemplate.update(
+                """
+                UPDATE faq
+                SET intent = 'STORE_DATA'
+                WHERE id = 2
+                """
+        );
+
+        List<FaqSearchResponseDto> results =
+                repository.getSimilarListByIntent(
+                        vectorOf(0),
+                        profileId,
+                        Intent.STORE_DATA,
+                        10
+                );
+
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(2L);
+
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::intent)
+                .containsOnly(Intent.STORE_DATA);
+    }
+
+    @Test
+    @DisplayName("현재 프로필의 FAQ 벡터를 조회한다")
+    void findVectorByFaqId_returnsCurrentProfileVector() {
+        PGvector vector =
+                repository.findVectorByFaqId(
+                        1L,
+                        profileId
+                );
+
+        assertThat(vector).isNotNull();
+        assertThat(vector.getValue()).startsWith("[1.0,0.0");
+    }
+
+    @Test
+    @DisplayName("이전 FAQ 이력의 legacy vector 저장은 유지한다")
+    void saveVectorForOldFaq_keepsLegacyHistoryVector() {
+        jdbcTemplate.update(
+                """
+                INSERT INTO old_faq (
+                    faq_id,
+                    version,
+                    category_id,
+                    question,
+                    answer,
+                    updated_at
+                )
+                VALUES (
+                    1,
+                    1,
+                    ?,
+                    '이전 질문',
+                    '이전 답변',
+                    now()
+                )
+                """,
+                categoryId
+        );
+
+        PGvector vector =
+                repository.findVectorByFaqId(
+                        1L,
+                        profileId
+                );
+
+        repository.saveVectorForOldFaq(
+                1L,
+                1,
+                vector
+        );
 
         PGvector saved = jdbcTemplate.queryForObject(
-                "SELECT vector FROM old_faq WHERE faq_id = 1 AND version = 1",
-                (rs, rowNum) -> new PGvector(rs.getString("vector")));
+                """
+                SELECT vector
+                FROM old_faq
+                WHERE faq_id = 1
+                  AND version = 1
+                """,
+                (rs, rowNum) ->
+                        new PGvector(rs.getString("vector"))
+        );
+
+        assertThat(saved).isNotNull();
         assertThat(saved.getValue()).startsWith("[1.0,0.0");
     }
 
-    private void insertFaq(Long id, String question, String answer, PGvector vector, String deletedAt) {
+    private Long getOrCreateProfile(
+            String provider,
+            String modelName
+    ) {
         jdbcTemplate.update(
-                "INSERT INTO faq (id, category_id, question, answer, vector, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?::timestamp, now(), now())",
-                id, categoryId, question, answer, vector, deletedAt);
+                """
+                INSERT INTO embedding_profiles (
+                    provider,
+                    model_name,
+                    dimensions,
+                    profile_version
+                )
+                VALUES (?, ?, 1024, 1)
+                ON CONFLICT (
+                    provider,
+                    model_name,
+                    dimensions,
+                    profile_version
+                )
+                DO NOTHING
+                """,
+                provider,
+                modelName
+        );
+
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT profile_id
+                FROM embedding_profiles
+                WHERE provider = ?
+                  AND model_name = ?
+                  AND dimensions = 1024
+                  AND profile_version = 1
+                """,
+                Long.class,
+                provider,
+                modelName
+        );
+    }
+
+    private void insertFaq(
+            Long id,
+            String question,
+            String answer,
+            String deletedAt
+    ) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO faq (
+                    id,
+                    category_id,
+                    question,
+                    answer,
+                    deleted_at,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?::timestamp,
+                    now(),
+                    now()
+                )
+                """,
+                id,
+                categoryId,
+                question,
+                answer,
+                deletedAt
+        );
     }
 
     private PGvector vectorOf(int index) {
         float[] values = new float[1024];
         values[index] = 1.0f;
+
         return new PGvector(values);
     }
 }

@@ -71,9 +71,36 @@ class UnansweredGroupFaqTest {
 		assertThat(result.status()).isEqualTo(UnansweredGroupStatus.APPROVED);
 		assertThat(result.resolvedFaqId()).isNotNull();
 		assertThat(jdbcTemplate.queryForObject(
-				"SELECT question || '|' || answer || '|' || intent || '|' || (vector IS NOT NULL) FROM faq WHERE id = ?",
-				String.class, result.resolvedFaqId()))
-				.isEqualTo("해외에서 데이터가 안 돼요|로밍 요금제를 확인해 주세요.|GENERAL|true");
+				"""
+				SELECT question || '|' || answer || '|' || intent
+				FROM faq
+				WHERE id = ?
+				""",
+				String.class,
+				result.resolvedFaqId()
+		))
+				.isEqualTo(
+						"해외에서 데이터가 안 돼요|로밍 요금제를 확인해 주세요.|GENERAL"
+				);
+
+		Boolean embeddingStored = jdbcTemplate.queryForObject(
+				"""
+				SELECT EXISTS (
+				    SELECT 1
+				    FROM faq_embeddings fe
+				    JOIN faq f
+				      ON f.id = fe.faq_id
+				    WHERE fe.faq_id = ?
+				      AND fe.vector_type = 'QUESTION'
+				      AND fe.faq_version = f.version
+				      AND fe.vector IS NOT NULL
+				)
+				""",
+				Boolean.class,
+				result.resolvedFaqId()
+		);
+
+		assertThat(embeddingStored).isTrue();
 		assertThat(jdbcTemplate.queryForObject(
 				"SELECT resolved_faq_id FROM unanswered_question_groups WHERE id = ?", Long.class, groupId))
 				.isEqualTo(result.resolvedFaqId());

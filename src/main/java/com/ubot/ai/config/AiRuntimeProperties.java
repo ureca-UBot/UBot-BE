@@ -10,7 +10,12 @@ public class AiRuntimeProperties implements InitializingBean {
     private String mode = "ollama";
     private String chatEngine;
     private String embeddingEngine;
-
+    private int embeddingProfileVersion = 1;
+    
+    public int getEmbeddingProfileVersion() {
+        return embeddingProfileVersion;
+    }
+    
     @Override
     public void afterPropertiesSet() {
         AiMode aiMode = AiMode.from(mode);

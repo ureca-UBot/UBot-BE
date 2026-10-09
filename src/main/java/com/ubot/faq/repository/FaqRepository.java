@@ -40,6 +40,7 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 """)
 	Page<Faq> findAllDeletedFaq(Pageable pageable);
 
+	Page<Faq> findAllByDeletedAtIsNull(Pageable pageable);
 	Page<Faq> findAllByFaqCategoryIdAndDeletedAtIsNull(Long faqCategoryId, Pageable pageable);
 
 	boolean existsAllByFaqCategoryIdAndDeletedAtIsNull(Long faqCategoryId);
