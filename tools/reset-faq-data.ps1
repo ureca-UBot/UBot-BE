@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $faqCsvPath = Join-Path $PSScriptRoot '..\src\main\resources\seed\baseline-faqs.csv'
+$metadataPath = Join-Path $PSScriptRoot '..\src\main\resources\seed\baseline-faqs.metadata.json'
 
 function Invoke-Checked {
     param([Parameter(Mandatory)] [scriptblock] $Command, [Parameter(Mandatory)] [string] $FailureMessage)
@@ -26,6 +27,14 @@ foreach ($row in $faqRows) {
     }
     if ($row.vector[0] -ne '[' -or $row.vector[-1] -ne ']') { throw 'FAQ CSV의 vector 값은 pgvector 배열 형식이어야 합니다.' }
 }
+
+if (-not (Test-Path -LiteralPath $metadataPath)) { throw "FAQ 벡터 메타데이터를 찾을 수 없습니다: $metadataPath" }
+$metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($metadata.dimensions -ne 1024 -or (@($metadata.inputColumns) -join ',') -ne 'question') {
+    throw 'FAQ 벡터는 question 컬럼만으로 만든 1024차원이어야 합니다. generate_faq_vectors.py 를 --input-columns question 으로 다시 실행하세요.'
+}
+if ([string]::IsNullOrWhiteSpace([string] $metadata.embeddingModel)) { throw 'FAQ 벡터 메타데이터에 embeddingModel 값이 없습니다.' }
+$embeddingModel = Escape-SqlLiteral ([string] $metadata.embeddingModel)
 
 Invoke-Checked { docker compose up -d postgres } 'PostgreSQL 컨테이너를 시작하지 못했습니다.'
 $postgresContainerId = (& docker compose ps --quiet postgres).Trim()
@@ -70,11 +79,21 @@ CREATE TEMP TABLE baseline_faq_seed (
     }
     [void] $sql.AppendLine(@"
 INSERT INTO faq_category (name) SELECT DISTINCT category FROM baseline_faq_seed ORDER BY category;
-INSERT INTO faq (category_id, question, answer, intent, vector, admin_id)
-SELECT category.id, seed.question, seed.answer, seed.intent, seed.vector, admin.user_id
+INSERT INTO faq (category_id, question, answer, intent, admin_id)
+SELECT category.id, seed.question, seed.answer, seed.intent, admin.user_id
 FROM baseline_faq_seed seed
 JOIN faq_category category ON category.name = seed.category
 JOIN users admin ON admin.email = 'admin@admin.com';
+INSERT INTO embedding_profiles (provider, model_name, dimensions, profile_version)
+VALUES ('ollama', '$embeddingModel', 1024, 1)
+ON CONFLICT (provider, model_name, dimensions, profile_version) DO NOTHING;
+INSERT INTO faq_embeddings (faq_id, profile_id, vector_type, faq_version, vector)
+SELECT faq.id, profile.profile_id, 'QUESTION', faq.version, seed.vector
+FROM baseline_faq_seed seed
+JOIN faq ON faq.question = seed.question
+JOIN embedding_profiles profile
+  ON profile.provider = 'ollama' AND profile.model_name = '$embeddingModel'
+ AND profile.dimensions = 1024 AND profile.profile_version = 1;
 COMMIT;
 "@)
     [System.IO.File]::WriteAllText($temporarySqlPath, $sql.ToString(), [System.Text.UTF8Encoding]::new($false))
@@ -89,11 +108,12 @@ $verificationOutput = & docker compose exec -T postgres psql --no-psqlrc -v ON_E
     -U $databaseUser -d $databaseName -At -F '|' -c @"
 SELECT
   (SELECT count(*) = 17 FROM faq_category) AS categories_ok,
-  (SELECT count(*) = 1000 AND count(vector) = 1000
-    AND min(vector_dims(vector)) = 1024 AND max(vector_dims(vector)) = 1024 FROM faq) AS faqs_and_vectors_ok,
+  (SELECT count(*) = 1000 FROM faq) AS faqs_ok,
   (SELECT count(*) = 0 FROM faq_log) AS faq_logs_cleared,
   (SELECT count(*) = 0 FROM old_faq) AS faq_history_cleared,
-  (SELECT count(*) = 0 FROM faq_embeddings) AS faq_embeddings_cleared,
+  (SELECT count(*) = 1000
+    AND min(vector_dims(vector)) = 1024 AND max(vector_dims(vector)) = 1024
+   FROM faq_embeddings WHERE vector_type = 'QUESTION') AS faq_vectors_ok,
   (SELECT count(*) = 0 FROM unanswered_question_groups
     WHERE related_faq_id IS NOT NULL OR resolved_faq_id IS NOT NULL) AS unanswered_groups_unlinked,
   (SELECT count(*) = 0 FROM unanswered_questions WHERE best_faq_id IS NOT NULL) AS unanswered_questions_unlinked;

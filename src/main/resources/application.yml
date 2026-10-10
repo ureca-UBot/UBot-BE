@@ -18,6 +18,11 @@ management:
           - prometheus
 
 app:
+  ai:
+    mode: ${AI_MODE:ollama}
+    chat-engine: ${AI_CHAT_ENGINE:}
+    embedding-engine: ${AI_EMBEDDING_ENGINE:}
+    embedding-profile-version: ${EMBEDDING_PROFILE_VERSION:1}
   jwt:
     secret: ${JWT_SECRET}
     access-token-expiration-millis: ${JWT_ACCESS_TOKEN_EXPIRATION_MILLIS:3600000}

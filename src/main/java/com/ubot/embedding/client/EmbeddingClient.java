@@ -3,7 +3,7 @@ package com.ubot.embedding.client;
 import com.pgvector.PGvector;
 import java.util.List;
 
-/** 임베딩 서버와의 통신을 맡습니다. 구현체는 EMBEDDING_PROVIDER에 따라 하나만 빈으로 등록됩니다. */
+/** 임베딩 서버와의 통신을 맡습니다. 구현체는 AI_MODE에 따라 하나만 빈으로 등록됩니다. */
 public interface EmbeddingClient {
 
 	/** DB 벡터 컬럼(vector(1024))과 같은 차원입니다. 서버가 다른 차원을 돌려주면 실패로 처리합니다. */

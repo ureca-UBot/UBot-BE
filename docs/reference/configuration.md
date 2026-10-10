@@ -6,17 +6,45 @@
 
 ```text
 src/main/resources/
-├── application.yml         # 모든 환경 공통 (Flyway, JWT, actuator)
+├── application.yml         # 모든 환경 공통 (Flyway, JWT, actuator, AI 실행 엔진)
 ├── application-local.yml   # 로컬 개발 (기본 프로필)
+├── application-prod.yml    # 운영
 └── application-test.yml    # 로컬·CI의 자동 테스트
 ```
 
 | 프로필 | 사용 환경 | 활성화 방법 | 접속 정보 공급원 |
 |---|---|---|---|
 | `local` | 개발자 PC (`bootRun`, Eclipse) | 기본값 (`spring.profiles.default: local`) | 프로젝트 루트의 `.env` 또는 OS 환경변수 |
+| `prod` | 운영 서버 | OS 환경변수 `SPRING_PROFILES_ACTIVE=prod` | 컨테이너에 주입된 환경변수. `.env` 파일을 직접 읽지 않음 |
 | `test` | 로컬·GitHub Actions의 자동 테스트 | `gradlew test`는 `build.gradle`에서 `spring.profiles.active=test`를 강제. IDE에서 JUnit을 직접 실행하면 테스트 클래스의 `@ActiveProfiles("test")`가 적용 | Testcontainers + `@ServiceConnection` |
 
 자동 테스트는 별도 DB 컨테이너의 임의 호스트 포트와 접속 정보를 사용합니다. 개발 `.env`, 고정 포트, 개발 DB·볼륨을 공유하지 않습니다. `test` 프로필만 지정해 `bootRun`을 실행하는 것은 Testcontainers 기반 테스트 실행과 다릅니다.
+
+`prod`는 `local`과 달리 접속 정보에 기본값이 없고(`POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`, `REDIS_HOST` 필수), health 상세를 숨기고, Swagger UI와 API 문서를 끄고, 종료할 때 처리 중인 요청을 최대 30초 기다립니다. 배포된 백엔드가 이 프로필로 실행됩니다. 배포 스크립트는 서버 `.env`의 `SPRING_PROFILES_ACTIVE`가 `prod`가 아니면 배포하지 않습니다([deploy.md](../deploy.md#서버의-env)).
+
+## 실행 환경 (Docker Compose)
+
+개발용 컨테이너는 공통 파일에 모델 서버 파일 하나를 더해서 띄웁니다. 어느 파일을 쓸지는 `.env`의 `AI_MODE`가 정하고, `tools/ubot.ps1`이 그 값에 맞는 파일을 골라 줍니다. 실행 순서는 [quickstart](../quickstart.md#실행-환경-선택)에 있습니다.
+
+| 파일 | 서비스 | 쓰는 경우 |
+|---|---|---|
+| `docker-compose.yml` | `postgres`, `redis`, `prometheus` | 항상 |
+| `docker-compose.ollama.yml` | `ollama`, `ollama-init` | `AI_MODE=ollama` (기본) |
+| `docker-compose.vllm.yml` | `vllm`(답변 생성), `vllm-embedding`(임베딩) | `AI_MODE=vllm`. NVIDIA GPU 필요 |
+
+| 명령 | 하는 일 |
+|---|---|
+| `.\tools\ubot.ps1 up` | 다른 쪽 모델 서버 컨테이너를 내린 뒤, 공통 서비스와 `AI_MODE`에 맞는 모델 서버를 띄웁니다. `vllm`이면 두 서버의 `/v1/models`에 `LLM_MODEL`, `EMBEDDING_MODEL`이 보일 때까지 서버마다 최대 300초 기다립니다 |
+| `.\tools\ubot.ps1 down` | 세 파일의 컨테이너를 모두 내립니다. 볼륨은 남깁니다 |
+| `.\tools\ubot.ps1 status` | 세 파일의 컨테이너 상태를 보여 줍니다 |
+| `.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>` | 실행 중인 백엔드에 임베딩 백필 API 두 개를 호출합니다. `AI_MODE`나 임베딩 모델을 바꾼 뒤에 씁니다([백필](../how-to/llm-module.md#백필)) |
+
+- 스크립트는 `docker compose -f <공통 파일> -f <모델 서버 파일> --env-file .env ...`를 실행합니다. 직접 실행할 때도 `-f`로 두 파일을 함께 지정합니다. `-f` 없이 실행하면 `docker-compose.yml`만 읽습니다. 그래서 `up`은 공통 서비스만 띄우고, `logs ollama`나 `run ollama-init`처럼 모델 서버를 지정한 명령은 `no such service`로 실패합니다.
+- 두 모드는 같은 Compose 프로젝트(폴더 이름을 따름. 보통 `ubot-be`)와 같은 PostgreSQL 볼륨을 씁니다. 한 DB에 두 서버의 벡터가 Profile별로 따로 저장됩니다([Embedding Profile](../how-to/llm-module.md#embedding-profile)).
+- `.env`에 `AI_MODE`가 없으면 스크립트는 실행되지 않습니다. `AI_MODE=custom`도 지원하지 않으므로, 그때는 필요한 모델 서버를 직접 띄웁니다.
+- `docker-compose.vllm.yml`은 `infra/llm/docker-compose.yml`의 서비스 정의를 `extends`로 가져옵니다. 이때 값은 `infra/llm/.env`가 아니라 루트 `.env`에서 읽습니다. 루트 `.env`에 없는 값은 `infra/llm/docker-compose.yml`의 기본값을 씁니다.
+- 받아 둔 vLLM 모델은 `llm_hf-cache` 볼륨에 있습니다. `infra/llm`에서 따로 띄운 서버와 같은 볼륨이라 모델을 다시 받지 않습니다.
+- 배포는 `-p ubot`과 `-f`로 프로젝트 이름과 파일을 직접 지정합니다([deploy.md](../deploy.md)).
 
 ## 개발 환경변수
 
@@ -24,6 +52,11 @@ src/main/resources/
 
 | 변수 | 사용처 | `.env.example` 값 | Spring fallback |
 |---|---|---|---|
+| `AI_MODE` | `AiRuntimeProperties`(`app.ai.mode`), `tools/ubot.ps1`, CD: 답변 생성과 임베딩에 쓸 모델 서버. `ollama`, `vllm`, `custom` | `ollama` | 키가 없으면 `ollama`. 빈 값이거나 다른 값이면 기동되지 않음 |
+| `AI_CHAT_ENGINE` | `AiRuntimeProperties`: `AI_MODE=custom`일 때 답변 생성 엔진. `ollama` 또는 `vllm` | 주석 처리됨 | 빈 값. `custom`인데 비어 있거나 `custom`이 아닌데 값이 있으면 기동되지 않음 |
+| `AI_EMBEDDING_ENGINE` | `AiRuntimeProperties`: `AI_MODE=custom`일 때 임베딩 엔진. `ollama` 또는 `vllm` | 주석 처리됨 | 빈 값. 조건은 `AI_CHAT_ENGINE`과 같음 |
+| `EMBEDDING_PROFILE_VERSION` | `EmbeddingProfileService`: Embedding Profile의 버전. 엔진과 모델 이름이 그대로인데 벡터를 새로 만들어야 할 때 올림 | `1` | `1`. 1보다 작으면 기동되지 않음 |
+| `AI_RUNTIME_MANAGED` | CD: 모델 서버를 배포 서버에 함께 띄울지 여부. `true` 또는 `false` ([deploy.md](../deploy.md#서버의-env)) | `true` | Spring에서 읽지 않음 |
 | `POSTGRES_HOST` | Spring | `localhost` | `localhost` |
 | `POSTGRES_PORT` | Docker, Spring | `15432` | `15432` |
 | `POSTGRES_DB` | Docker, Spring | `ubot` | `ubot` |
@@ -32,12 +65,18 @@ src/main/resources/
 | `OLLAMA_PORT` | Docker의 호스트 포트 | `11435` | Spring에서 읽지 않음 |
 | `OLLAMA_BASE_URL` | Spring (`spring.ai.ollama`, `ollama`) | `http://localhost:11435` | `http://localhost:11435` |
 | `OLLAMA_EMBEDDING_MODEL` | Spring, `ollama-init` | `bge-m3:567m` | `bge-m3:567m` |
-| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig` | 빈 값 (사용할 모델 지정) | YAML에는 없음. `LlmConfig`는 빈 값 허용 |
+| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig`, `ollama-init`(값이 있으면 채팅 모델도 내려받음) | 빈 값 (사용할 모델 지정) | 빈 값. 줄이 없어도 기동되며 `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
-| `LLM_PROVIDER` | `LlmConfig`: 채팅 답변을 만들 LLM 서버. `ollama`(개발) 또는 `openai-compatible`(운영 vLLM) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
-| `LLM_BASE_URL` | `LlmConfig`: `LLM_PROVIDER=openai-compatible`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
-| `LLM_MODEL` | `LlmConfig`: `LLM_PROVIDER=openai-compatible`일 때 요청에 넣는 모델 이름. vLLM의 served model name과 같아야 함 | `ubot-chat` | `ubot-chat` |
+| `LLM_BASE_URL` | `LlmConfig`: 답변 생성 엔진이 `vllm`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
+| `LLM_MODEL` | `LlmConfig`: 답변 생성 엔진이 `vllm`일 때 요청에 넣는 모델 이름. `LLM_SERVED_MODEL_NAME`과 같아야 함. `tools/ubot.ps1`의 준비 확인에도 사용 | `ubot-chat` | `ubot-chat` |
+| `LLM_PORT` | Docker Compose: vLLM 답변 생성 서버의 호스트 포트. `tools/ubot.ps1`의 준비 확인에도 사용 | `8000` | Spring에서 읽지 않음 |
+| `LLM_HF_MODEL` | Docker Compose: vLLM이 Hugging Face에서 불러올 답변 생성 모델 | `Qwen/Qwen3-4B-AWQ` | Spring에서 읽지 않음 |
+| `LLM_SERVED_MODEL_NAME` | Docker Compose: vLLM이 API에 내보이는 답변 생성 모델 이름 | `ubot-chat` | Spring에서 읽지 않음 |
+| `LLM_MAX_MODEL_LEN` | Docker Compose: vLLM 답변 생성 서버가 받는 최대 토큰 길이(`--max-model-len`) | `4096` | Spring에서 읽지 않음 |
+| `VLLM_GPU_MEMORY_UTILIZATION` | Docker Compose: vLLM 답변 생성 서버가 쓸 GPU 메모리 비율 | `0.6` | Spring에서 읽지 않음 |
+| `VLLM_TOOL_CALL_PARSER` | Docker Compose: vLLM 답변 생성 서버의 tool call parser | `hermes` | Spring에서 읽지 않음 |
+| `VLLM_ENABLE_THINKING` | Docker Compose: vLLM 답변 생성 서버의 thinking 모드 기본값 | `false` | Spring에서 읽지 않음 |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
@@ -45,18 +84,30 @@ src/main/resources/
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 응답 제한 시간 | `10s` | `10s` |
-| `EMBEDDING_PROVIDER` | `EmbeddingConfig`: 임베딩 서버. `ollama`(개발) 또는 `openai-compatible`(운영 vLLM) | `ollama` | 키가 없으면 `ollama`. 다른 값이면 기동되지 않음 |
-| `EMBEDDING_BASE_URL` | `EmbeddingConfig`: `EMBEDDING_PROVIDER=openai-compatible`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8001/v1` | `http://localhost:8001/v1` |
-| `EMBEDDING_MODEL` | `EmbeddingConfig`: `EMBEDDING_PROVIDER=openai-compatible`일 때 요청에 넣는 모델 이름. 서버의 served model name과 같아야 함 | `ubot-embedding` | `ubot-embedding` |
-| `EMBEDDING_CONNECT_TIMEOUT` | `EmbeddingConfig`: `openai-compatible` 임베딩 연결 제한 시간 | `3s` | `3s` |
-| `EMBEDDING_READ_TIMEOUT` | `EmbeddingConfig`: `openai-compatible` 임베딩 응답 제한 시간 | `30s` | `30s` |
+| `EMBEDDING_BASE_URL` | `EmbeddingConfig`: 임베딩 엔진이 `vllm`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8001/v1` | `http://localhost:8001/v1` |
+| `EMBEDDING_MODEL` | `EmbeddingConfig`: 임베딩 엔진이 `vllm`일 때 요청에 넣는 모델 이름. `EMBEDDING_SERVED_MODEL_NAME`과 같아야 함. Embedding Profile의 모델 이름으로도 기록됨 | `ubot-embedding` | `ubot-embedding` |
+| `EMBEDDING_PORT` | Docker Compose: vLLM 임베딩 서버의 호스트 포트. `tools/ubot.ps1`의 준비 확인에도 사용 | `8001` | Spring에서 읽지 않음 |
+| `EMBEDDING_HF_MODEL` | Docker Compose: vLLM이 Hugging Face에서 불러올 임베딩 모델 | `BAAI/bge-m3` | Spring에서 읽지 않음 |
+| `EMBEDDING_SERVED_MODEL_NAME` | Docker Compose: vLLM이 API에 내보이는 임베딩 모델 이름 | `ubot-embedding` | Spring에서 읽지 않음 |
+| `EMBEDDING_MAX_MODEL_LEN` | Docker Compose: vLLM 임베딩 서버가 받는 최대 토큰 길이 | `8192` | Spring에서 읽지 않음 |
+| `EMBEDDING_DTYPE` | Docker Compose: vLLM 임베딩 모델의 dtype | `float16` | Spring에서 읽지 않음 |
+| `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION` | Docker Compose: vLLM 임베딩 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
+| `EMBEDDING_CONNECT_TIMEOUT` | `EmbeddingConfig`: vLLM 임베딩 연결 제한 시간 | `3s` | `3s` |
+| `EMBEDDING_READ_TIMEOUT` | `EmbeddingConfig`: vLLM 임베딩 응답 제한 시간 | `30s` | `30s` |
+| `HF_TOKEN` | Docker Compose: vLLM이 모델을 받을 때 쓰는 Hugging Face 토큰. 공개 모델만 쓰면 비워 둠 | 빈 값 | Spring에서 읽지 않음 |
+| `VLLM_IMAGE` | Docker Compose: vLLM 이미지 | `vllm/vllm-openai:v0.31.0` | Spring에서 읽지 않음 |
+| `BACKEND_IMAGE` | Docker Compose(`docker-compose.deploy.yml`): 백엔드 이미지. CD는 `ubot-be:<커밋 SHA>`로 덮어씀 | `ubot-be:local` | Spring에서 읽지 않음 |
 | `KAKAO_REST_API_KEY` | `KakaoLocalClient`(주소 검색), `KakaoDirectionsClient`(길찾기) | 빈 값 | 없음 |
 | `JWT_SECRET` | `JwtUtil` | 안내 문구 (**변경 필수**) | 없음 |
 | `JWT_ACCESS_TOKEN_EXPIRATION_MILLIS` | `JwtUtil` | `600000` (10분) | `3600000` (1시간) |
 | `JWT_REFRESH_TOKEN_EXPIRATION_DAYS` | `RefreshTokenService` | `14` | `14` |
-| `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
+| `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택. CD는 서버 `.env`의 이 값이 `prod`인지 검사 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.
+
+`AI_MODE=vllm`에서는 Ollama 대신 답변 생성 서버를 `127.0.0.1:8000`, 임베딩 서버를 `127.0.0.1:8001`로 노출합니다. `LLM_PORT`, `EMBEDDING_PORT`를 바꾸면 `LLM_BASE_URL`, `EMBEDDING_BASE_URL`의 포트도 함께 바꿔야 합니다.
+
+`LLM_MODEL`과 `LLM_SERVED_MODEL_NAME`, `EMBEDDING_MODEL`과 `EMBEDDING_SERVED_MODEL_NAME`은 각각 같은 값이어야 합니다. 앞의 것은 백엔드가 요청에 넣는 이름이고 뒤의 것은 vLLM이 내보이는 이름입니다. 불러올 실제 모델을 바꿀 때는 이 이름을 그대로 두고 `LLM_HF_MODEL`, `EMBEDDING_HF_MODEL`만 바꿉니다. 다만 임베딩 모델을 바꾸면 이름이 같아도 벡터가 달라지므로 `EMBEDDING_PROFILE_VERSION`을 올리고 백필합니다([Embedding Profile](../how-to/llm-module.md#embedding-profile)).
 
 `CHAT_CONFIDENCE_THRESHOLD`의 기본값 `0.75`는 threshold 보고서의 채택값 `0.73`과 다릅니다. 배경은 [architecture.md](../architecture.md#현재-상태와-남은-작업)를 참고하세요. 보고서 값을 쓰려면 `.env`에서 `CHAT_CONFIDENCE_THRESHOLD=0.73`으로 지정합니다.
 
@@ -74,10 +125,15 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 | `prompt.faq.system-location` | `classpath:prompts/faq-system.txt` | `PromptService` |
 | `prompt.faq.user-location` | `classpath:prompts/faq-user.txt` | `PromptService` |
 | `spring.ai.ollama.chat.options.model` | 없음 (`OLLAMA_CHAT_MODEL`로 대체) | `LlmConfig` |
+| `app.embedding-backfill.run` | `false` | `EmbeddingBackfillRunner`. `true`면 임베딩 백필만 실행하고 종료하며 DB 마이그레이션을 적용하지 않음. 배포 스크립트가 실행 인자로만 켬. `.env`에 넣지 않음 |
 
 ### 키가 있지만 값이 비어 있을 때
 
-`OLLAMA_CHAT_MODEL`과 `KAKAO_REST_API_KEY`는 `.env.example`에서 빈 값입니다. 빈 값이면 기동은 되지만 해당 기능이 실패합니다(채팅 모델 미지정, 카카오 API 인증 실패). 키 줄 자체를 지우면 기동이 실패합니다.
+`OLLAMA_CHAT_MODEL`과 `KAKAO_REST_API_KEY`는 `.env.example`에서 빈 값입니다. 빈 값이면 기동은 되지만 해당 기능이 실패합니다(채팅 모델 미지정, 카카오 API 인증 실패).
+
+- `KAKAO_REST_API_KEY`는 키 줄 자체를 지우면 기동이 실패합니다.
+- `OLLAMA_CHAT_MODEL`은 줄이 없어도 빈 값으로 처리되어 기동됩니다. 답변 생성 엔진이 `vllm`이면 이 값을 쓰지 않으므로 비워 둬도 됩니다.
+- `AI_MODE`는 줄이 없으면 `ollama`로 기동되지만, `AI_MODE=`처럼 값만 비워 두면 기동이 실패합니다.
 
 ### `JWT_SECRET`은 반드시 교체해야 합니다
 
@@ -110,11 +166,13 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 `.env`는 `local` 프로필 설정 안에서 읽히므로, 읽는 시점에는 이미 프로필이 결정되어 있습니다. 프로필을 바꾸려면 OS 환경변수나 실행 인자로 지정해야 합니다.
 
+컨테이너로 띄울 때는 다릅니다. `docker-compose.deploy.yml`이 `.env`를 `env_file`로 주입하므로 그 안의 값이 실제 환경변수가 됩니다. 그래서 `.env`에 적은 프로필이 그대로 적용됩니다.
+
 ## DB 스키마 (Flyway)
 
 | 설정 | 값 | 위치 |
 |---|---|---|
-| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V15`) | — |
+| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V25`) | — |
 | `baseline-on-migrate` | `true` | `application.yml` |
 | `baseline-version` | `0` | `application.yml` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
@@ -137,31 +195,38 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V13` | `faq`, `old_faq`에 `intent` (`GENERAL`/`STORE_DATA`/`USER_DATA`, 기본 `GENERAL`) |
 | `V14` | `forbidden_words` (`ACTIVE`/`INACTIVE`) |
 | `V15` | `unanswered_question_groups`(대표 질문, 중심 벡터, 질문 수, 처리 상태 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED`), `unanswered_questions`(질문 벡터, 원인 `NO_FAQ`/`INSUFFICIENT_FAQ`, 가장 가까운 FAQ) |
+| `V23` | `embedding_profiles`(엔진·모델 이름·차원·버전의 조합), `faq_embeddings`(Profile별 FAQ 벡터, HNSW cosine 인덱스), `unanswered_question_embeddings`, `unanswered_group_embeddings`(Profile별 미응답 질문 벡터와 묶음 중심 벡터) |
+| `V25` | 예전 벡터 컬럼 삭제 (`faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`) |
 
-FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다.
+표에 없는 버전(`V16`~`V22`, `V24`)은 각 SQL 파일을 참고하세요. FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다. 로컬에서는 `tools/reset-local-db.ps1`이 기본 계정과 FAQ 1,000건, 그 벡터를 넣습니다([안내](../how-to/reset-local-db.md)).
+
+벡터는 `V23`의 Profile 테이블에만 있습니다. `V15`까지 쓰던 벡터 컬럼은 `V25`에서 지웠습니다.
 
 ## Ollama 관련 설정 두 곳
 
-같은 환경변수를 서로 다른 설정 키가 각각 읽습니다.
+Ollama 설정 키는 두 묶음이 있고, 서비스가 실제로 쓰는 것은 `ollama.*`입니다.
 
 | 설정 키 | 읽는 주체 | 용도 |
 |---|---|---|
-| `spring.ai.ollama.*` | Spring AI 자동 구성, `LlmConfig` | LLM 채팅. 서비스 호출에는 `LlmConfig`의 전용 모델 인스턴스 사용 |
-| `ollama.*` | `EmbeddingConfig` (`OllamaEmbeddingClient`) | 임베딩 생성 (`/api/embed` 직접 호출). `EMBEDDING_PROVIDER=ollama`일 때만 사용 |
+| `ollama.*` | `EmbeddingConfig`, `LlmConfig` | `base-url`은 임베딩(`/api/embed`)과 답변 생성(`/api/chat`)이 함께 씁니다. `embedding.model`, `connect-timeout`, `read-timeout`은 임베딩용입니다 |
+| `spring.ai.ollama.*` | Spring AI 자동 구성 | `local` 프로필에만 있습니다. 서비스는 자동 구성이 만든 빈을 호출하지 않습니다. `LlmConfig`는 이 중 `chat.options.model`만 읽고, 값이 있으면 `OLLAMA_CHAT_MODEL` 대신 모델 이름으로 씁니다 |
 
-`ollama.*`에는 `base-url`, `embedding.model`, `connect-timeout`, `read-timeout`이 있습니다. 왜 이렇게 나뉘어 있는지는 [architecture.md](../architecture.md#spring-ai를-쓰는-범위)를 참고하세요.
+왜 Spring AI 자동 구성과 따로 두는지는 [architecture.md](../architecture.md#spring-ai를-쓰는-범위)를 참고하세요.
+
+`application-prod.yml`에는 `ollama.*`만 있습니다. 답변 생성도 `ollama.base-url`을 읽으므로 `prod`에서도 `OLLAMA_BASE_URL`이 그대로 적용됩니다.
 
 ## Spring AI 현재 상태
 
-| 설정 | `local` | `test` |
-|---|---|---|
-| `spring.ai.model.chat` | `ollama` | `none` |
-| `spring.ai.model.embedding` | `none` | `none` |
-| `spring.ai.vectorstore.type` | `none` | 지정하지 않음 (pgvector 사용) |
-| pgvector 차원 / 인덱스 / 거리 | 주석 처리됨 | `1024` / `HNSW` / `COSINE_DISTANCE` |
-| pgvector `initialize-schema` | 주석 처리됨 | `true` |
+| 설정 | `local` | `prod` | `test` |
+|---|---|---|---|
+| `spring.ai.model.chat` | `ollama` | `none` | `none` |
+| `spring.ai.model.embedding` | `none` | `none` | `none` |
+| `spring.ai.vectorstore.type` | `none` | `none` | 지정하지 않음 (pgvector 사용) |
+| pgvector 차원 / 인덱스 / 거리 | 주석 처리됨 | 없음 | `1024` / `HNSW` / `COSINE_DISTANCE` |
+| pgvector `initialize-schema` | 주석 처리됨 | 없음 | `true` |
 
-- `local`에서는 Spring AI의 `PgVectorStore`를 쓰지 않습니다. 임베딩과 검색은 `EmbeddingService`와 `FaqVectorRepository`가 직접 처리합니다.
+- `spring.ai.model.chat`은 Spring AI가 자동으로 만드는 채팅 모델 빈을 정합니다. 서비스가 실제로 호출하는 클라이언트는 이 값과 관계없이 `LlmConfig`가 `AI_MODE`에 따라 만듭니다.
+- `local`과 `prod`에서는 Spring AI의 `PgVectorStore`를 쓰지 않습니다. 임베딩과 검색은 `EmbeddingService`와 `FaqVectorRepository`가 직접 처리합니다.
 - `test`에서는 테스트 전용 임베딩 구현을 등록해 `PgVectorStore`가 만들어지고, 그 스키마(1024·HNSW·cosine)와 저장·검색을 검증합니다.
 - 따라서 **pgvector 관련 설정값을 검증하는 것은 테스트 프로필뿐**입니다. Spring AI 벡터 스토어를 정식 채택하면 `local`의 주석을 되살리고 두 프로필을 맞춰야 합니다.
 
@@ -172,15 +237,16 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | 설정 | 값 | 파일 |
 |---|---|---|
 | Actuator 노출 endpoint | `health`만 | `application.yml` |
-| Health 상세 표시 | `always` | `application-local.yml` |
+| Health 상세 표시 | `local`은 `always`, `prod`는 `never` | `application-local.yml`, `application-prod.yml` |
 | 인증 없이 호출 가능한 경로, `ADMIN` 경로 | [architecture.md#인증](../architecture.md#인증) | `SecurityConfig` |
 | 채팅 질문 최대 길이 | 4000자 | `ChatRequestDto`, `ChatService` |
 | 채팅 답변 생성 Executor | 가상 스레드, 동시 처리 수 제한 없음, 종료 대기 150초 | `AsyncConfig` |
 | Ollama 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `OllamaEmbeddingClient` |
 | 임베딩 차원 | 1024 (DB 컬럼 `vector(1024)`와 같음). 다른 차원의 응답은 거절 | `EmbeddingClient` |
-| Nginx 프록시 응답 제한 시간 | `180s` | `infra/nginx/nginx.conf` |
+| Nginx 프록시 응답 제한 시간 | `180s`. 임베딩 백필 경로만 `3600s` | `infra/nginx/nginx.conf` |
 | Nginx `/chat/`·`/api/chat/` 게스트 요청 속도 제한 (IP별, `Authorization: Bearer …`가 없는 요청) | `CHAT_GUEST_RATE_LIMIT_RATE`(기본 `30r/m`), `CHAT_GUEST_RATE_LIMIT_BURST`(기본 `10`) | `.env`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` |
 | 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
+| 테스트 JVM 최대 힙 | `1024m` | `build.gradle` |
 | DB 타임존 | `V6__set_database_timezone.sql` | 마이그레이션 |
 
 `CHAT_RESPONSE_TIMEOUT_MILLIS`를 바꿀 때는 Nginx 제한 시간과의 관계를 [deploy.md](../deploy.md#주의할-점)에서 확인하세요.
@@ -191,44 +257,49 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 - 테스트 DB: `ubot_test`. 사용자 `ubot_test`, 비밀번호는 실행마다 임의 생성. 호스트 포트는 Testcontainers가 할당하고 `@ServiceConnection`으로 Spring에 연결합니다.
 - 개발 DB와 볼륨을 공유하지 않고 컨테이너를 재사용하지 않습니다. 테스트 클래스가 끝나면 컨텍스트와 컨테이너를 정리합니다.
 - 사전 요구사항은 JDK 17 이상과 실행 중인 Docker입니다. Java 21 toolchain은 없으면 Gradle이 자동으로 내려받습니다. `.env`와 개발 Compose는 필요하지 않습니다.
-- `application-test.yml`은 JWT 비밀 키, `kakao.local.api-key: test-key`, 임베딩 설정(`ollama.base-url: http://localhost:11434` 등)을 테스트 전용 값으로 고정합니다.
-- 예외적으로 `IntentClassificationAnalysis`는 `@TestPropertySource`로 Ollama 주소를 `http://localhost:11435`로 바꿔 실제 Ollama를 호출합니다([troubleshooting](../troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)).
+- `application-test.yml`은 JWT 비밀 키, `kakao.local.api-key: test-key`, 임베딩 설정(`ollama.base-url: http://localhost:11434` 등)을 테스트 전용 값으로 고정합니다. `AI_MODE`는 지정하지 않으므로 기본값 `ollama`로 동작합니다.
+- 테스트 JVM의 최대 힙은 `1024m`입니다. Gradle 기본값(512MB)으로는 전체 테스트를 한 번에 돌릴 때 `Java heap space`로 실패했습니다.
+- `tools/ci.ps1`은 CI와 같은 명령(`gradlew clean build --no-daemon --console=plain`)을 로컬에서 실행합니다.
+- 예외적으로 `IntentClassificationAnalysis`는 `@TestPropertySource`로 Ollama 주소를 `http://localhost:11435`로 바꿔 실제 Ollama를 호출합니다. 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되고, 평소의 `gradlew test`와 CI에서는 건너뜁니다([실행 방법](../troubleshooting.md#intentclassificationanalysis가-실행되지-않음)).
 
 ## LLM 호출 모듈 설정
 
-`LlmConfig`는 기존 `spring.ai.ollama.base-url`과 `OLLAMA_CHAT_MODEL`을 사용해
-LLM 호출 전용 Spring AI `OllamaChatModel`을 구성합니다. `spring.ai.ollama.chat.options.model`을
-명시한 경우에는 그 값이 `OLLAMA_CHAT_MODEL`보다 우선합니다. `application-local.yml`의
-`spring.ai.ollama.chat.model` 대신 이 우선순위에 따라 모델명을 읽습니다. 기존 임베딩 클라이언트와
-Spring AI 자동 구성 빈을 수정하지 않고, LLM의 연결·응답 제한 시간만 별도로 적용합니다.
+`LlmConfig`는 답변 생성 엔진에 따라 `LlmClient` 구현체 하나만 등록합니다. 엔진은 `AI_MODE`가 `ollama`·`vllm`이면 그 값이고, `custom`이면 `AI_CHAT_ENGINE`입니다. 클라이언트는 `LlmClientFactory`가 만들고, 두 엔진 모두 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
 
-모델명이 비어 있어도 모듈 생성 시 외부 서버에 접속하지 않습니다. 실제 호출 시에는
-`LLM_MODEL_NOT_CONFIGURED` 오류를 반환합니다. 사용할 모델을 Ollama에 미리 준비하고
-모델명을 설정하세요. 이 모듈은 모델을 자동 다운로드하거나 요청을 자동 재시도하지 않습니다.
+| 엔진 | 구현체 | 주소 | 모델 이름 |
+|---|---|---|---|
+| `ollama` | `OllamaClient` (Spring AI `OllamaChatModel`) | `ollama.base-url` (`OLLAMA_BASE_URL`) | `spring.ai.ollama.chat.options.model`이 있으면 그 값, 없으면 `OLLAMA_CHAT_MODEL` |
+| `vllm` | `OpenAiCompatibleLlmClient` | `LLM_BASE_URL` | `LLM_MODEL` |
 
-`LLM_PROVIDER=openai-compatible`이면 `LlmConfig`가 `OllamaClient` 대신 `OpenAiCompatibleLlmClient`를 등록해
-`LLM_BASE_URL`의 OpenAI 호환 API를 `LLM_MODEL`로 호출합니다. 제한 시간은 같은 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다.
-임베딩 서버는 이 값과 관계없이 `EMBEDDING_PROVIDER`로 따로 고릅니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#llm-provider-선택)에 있습니다.
+- 모듈을 만들 때는 외부 서버에 접속하지 않습니다. 모델을 자동으로 내려받거나 요청을 자동으로 재시도하지도 않습니다.
+- Ollama에서 모델 이름이 비어 있으면 기동은 되고, 실제 호출 때 `LLM_MODEL_NOT_CONFIGURED`(`LLM-002`) 오류를 반환합니다. 사용할 모델을 Ollama에 미리 준비하고 모델 이름을 설정하세요.
+- 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 엔진의 모델 이름이 남습니다. `ollama`면 `OLLAMA_CHAT_MODEL`, `vllm`이면 `LLM_MODEL` 값입니다.
 
-`infra/llm/.env`에도 `LLM_MODEL`이 있지만 뜻이 다릅니다. 그쪽은 vLLM이 불러올 Hugging Face 모델(`Qwen/Qwen3-4B-AWQ`)이고,
-백엔드의 `LLM_MODEL`은 그 서버가 API에 내보이는 이름(`LLM_SERVED_MODEL_NAME`, 기본 `ubot-chat`)입니다.
-
-답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 provider의 모델 이름이 남습니다.
-`ollama`면 `OLLAMA_CHAT_MODEL`, `openai-compatible`이면 `LLM_MODEL` 값입니다.
+자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#ai-실행-엔진-선택)에 있습니다.
 
 ## 임베딩 호출 모듈 설정
 
-`EmbeddingConfig`는 `EMBEDDING_PROVIDER`에 따라 `EmbeddingClient` 구현체 하나만 등록합니다.
-`ollama`(기본)면 `OllamaEmbeddingClient`가 기존과 같이 `ollama.*` 설정으로 `/api/embed`를 호출하고,
-`openai-compatible`이면 `OpenAiCompatibleEmbeddingClient`가 `EMBEDDING_BASE_URL`의 `/embeddings`를 `EMBEDDING_MODEL`로 호출합니다.
-모듈을 만들 때는 외부 서버에 접속하지 않습니다.
+`EmbeddingConfig`는 임베딩 엔진에 따라 `EmbeddingClient` 구현체 하나만 등록합니다. 엔진은 `AI_MODE`가 `ollama`·`vllm`이면 그 값이고, `custom`이면 `AI_EMBEDDING_ENGINE`입니다. 클라이언트는 `EmbeddingClientFactory`가 만듭니다.
 
-두 구현체 모두 응답이 1024차원이 아니거나 유한하지 않은 값이 있으면 `EM-002`로 거절합니다.
-답변 시도 기록(`answer_attempts_history.embedding_model`)에는 선택된 provider의 모델 이름이 남습니다.
-`ollama`면 `OLLAMA_EMBEDDING_MODEL`, `openai-compatible`이면 `EMBEDDING_MODEL` 값입니다.
+| 엔진 | 구현체 | 호출 | 모델 이름 | 제한 시간 |
+|---|---|---|---|---|
+| `ollama` | `OllamaEmbeddingClient` | `ollama.base-url`(`OLLAMA_BASE_URL`)의 `/api/embed` | `OLLAMA_EMBEDDING_MODEL` | `OLLAMA_CONNECT_TIMEOUT`, `OLLAMA_READ_TIMEOUT` |
+| `vllm` | `OpenAiCompatibleEmbeddingClient` | `EMBEDDING_BASE_URL`의 `/embeddings` | `EMBEDDING_MODEL` | `EMBEDDING_CONNECT_TIMEOUT`, `EMBEDDING_READ_TIMEOUT` |
 
-저장된 벡터는 Ollama로 만든 값입니다. 기존 DB에서 `EMBEDDING_PROVIDER`를 바꾸면 다른 서버로 만든 질문 벡터와 섞이므로,
-벡터 관리 작업이 끝나기 전에는 바꾸지 않습니다. 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#embedding-provider-선택)에 있습니다.
+- 모듈을 만들 때는 외부 서버에 접속하지 않습니다.
+- 두 구현체 모두 응답이 1024차원이 아니거나 유한하지 않은 값이 있으면 `EM-002`로 거절합니다.
+- 답변 시도 기록(`answer_attempts_history.embedding_model`)에는 선택된 엔진의 모델 이름이 남습니다.
+
+벡터를 저장하거나 검색할 때는 `EmbeddingProfileService`가 지금 설정에 해당하는 Embedding Profile을 찾아 그 Profile의 벡터만 다룹니다. Profile은 아래 네 값의 조합이고, 없으면 처음 쓸 때 `embedding_profiles`에 만들어집니다. 설정은 실행 중에 바뀌지 않으므로 백엔드는 Profile을 한 번 조회한 뒤 기억합니다.
+
+| 값 | 출처 |
+|---|---|
+| `provider` | 임베딩 엔진이 `ollama`면 `ollama`, `vllm`이면 `openai-compatible` |
+| `model_name` | 위 표의 모델 이름 |
+| `dimensions` | `1024` (고정) |
+| `profile_version` | `EMBEDDING_PROFILE_VERSION` |
+
+이 중 하나라도 바뀌면 다른 Profile이 되어 기존 벡터가 검색에 쓰이지 않습니다. 그때는 백필로 새 Profile의 벡터를 채웁니다. 절차는 [LLM 모듈 안내](../how-to/llm-module.md#백필)에 있습니다.
 
 현재 구현은 채팅에서 검색한 FAQ와 원래 질문을 `AiService` → `PromptService` → `LlmService`로
 전달하고, 완성된 답변을 한 번에 반환합니다. 기본 프롬프트 파일인 `prompts/faq-system.txt`,

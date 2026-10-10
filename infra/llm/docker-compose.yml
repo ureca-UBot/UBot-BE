@@ -1,8 +1,7 @@
 services:
   vllm:
-    profiles: ["vllm"]
-
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+    restart: unless-stopped
 
     ports:
       - "${LLM_PORT:-8000}:8000"
@@ -25,27 +24,22 @@ services:
 
     command:
       - --model
-      - ${LLM_MODEL:-Qwen/Qwen3-4B-AWQ}
+      - ${LLM_HF_MODEL:-Qwen/Qwen3-4B-AWQ}
       - --served-model-name
       - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
       - --max-model-len
-      - ${LLM_MAX_MODEL_LEN:-2048}
+      - ${LLM_MAX_MODEL_LEN:-4096}
       - --gpu-memory-utilization
       - ${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
-      # Backend의 Tool Calling(매장 조회)에 필요합니다. parser는 모델에 맞춰야 합니다.
       - --enable-auto-tool-choice
       - --tool-call-parser
       - ${VLLM_TOOL_CALL_PARSER:-hermes}
-      # Qwen3 Thinking Mode의 기본값입니다. 요청마다 chat_template_kwargs로 바꿀 수도 있습니다.
       - --default-chat-template-kwargs
       - '{"enable_thinking": ${VLLM_ENABLE_THINKING:-false}}'
 
-
-  # Backend의 EMBEDDING_PROVIDER=openai-compatible이 호출하는 임베딩 서버입니다.
   vllm-embedding:
-    profiles: ["embedding"]
-
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+    restart: unless-stopped
 
     ports:
       - "${EMBEDDING_PORT:-8001}:8000"
@@ -68,13 +62,11 @@ services:
 
     command:
       - --model
-      - ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      - ${EMBEDDING_HF_MODEL:-BAAI/bge-m3}
       - --served-model-name
       - ${EMBEDDING_SERVED_MODEL_NAME:-ubot-embedding}
-      # 답변 생성 모델이 아니라 임베딩 모델로 실행합니다.
       - --runner
       - pooling
-      # bge-m3의 dense 임베딩을 쓰도록 모델 구조와 출력 종류를 지정합니다.
       - --hf-overrides
       - '{"architectures":["BgeM3EmbeddingModel"]}'
       - --pooler-config.task
@@ -86,10 +78,7 @@ services:
       - --gpu-memory-utilization
       - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.2}
 
-
   sglang:
-    profiles: ["sglang"]
-
     image: ${SGLANG_IMAGE:-lmsysorg/sglang:latest-runtime}
 
     ports:
@@ -116,7 +105,7 @@ services:
       - -m
       - sglang.launch_server
       - --model-path
-      - ${LLM_MODEL:-Qwen/Qwen3-4B-AWQ}
+      - ${LLM_HF_MODEL:-Qwen/Qwen3-4B-AWQ}
       - --served-model-name
       - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
       - --host
@@ -124,10 +113,9 @@ services:
       - --port
       - "8000"
       - --context-length
-      - ${LLM_MAX_MODEL_LEN:-2048}
+      - ${LLM_MAX_MODEL_LEN:-4096}
       - --mem-fraction-static
       - ${SGLANG_MEM_FRACTION_STATIC:-0.6}
-
 
 volumes:
   hf-cache:

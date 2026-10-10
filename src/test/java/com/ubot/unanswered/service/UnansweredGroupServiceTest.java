@@ -124,8 +124,8 @@ class UnansweredGroupServiceTest {
 	private Long group(String question, int count, String status, String lastOccurredAt) {
 		return jdbcTemplate.queryForObject(
 				"""
-				INSERT INTO unanswered_question_groups (representative_question, centroid, question_count, status, last_occurred_at)
-				VALUES (?, array_fill(0, ARRAY[1024])::vector, ?, ?, ?::timestamp)
+				INSERT INTO unanswered_question_groups (representative_question, question_count, status, last_occurred_at)
+				VALUES (?, ?, ?, ?::timestamp)
 				RETURNING id
 				""",
 				Long.class, question, count, status, lastOccurredAt);
@@ -137,8 +137,8 @@ class UnansweredGroupServiceTest {
 				Long.class, userId, question, UUID.randomUUID().toString());
 		jdbcTemplate.update(
 				"""
-				INSERT INTO unanswered_questions (attempt_id, group_id, question, question_vector, reason, created_at)
-				VALUES (?, ?, ?, array_fill(0, ARRAY[1024])::vector, 'NO_FAQ', ?::timestamp)
+				INSERT INTO unanswered_questions (attempt_id, group_id, question, reason, created_at)
+				VALUES (?, ?, ?, 'NO_FAQ', ?::timestamp)
 				""",
 				attemptId, groupId, question, createdAt);
 	}

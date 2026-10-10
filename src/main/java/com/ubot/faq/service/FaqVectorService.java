@@ -3,14 +3,13 @@ package com.ubot.faq.service;
 import java.util.List;
 import java.util.Objects;
 
-import com.ubot.faq.enums.Intent;
-import com.ubot.faq.exception.FaqErrorCode;
-import com.ubot.faq.exception.FaqException;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
+import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -20,54 +19,82 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class FaqVectorService {
-	private final EmbeddingService embeddingService;
-	private final FaqVectorRepository faqVectorRepository;
 
-	public List<FaqSearchResponseDto> getSimilarList(String userQuestion, int topK) {
-		long startedAt = System.nanoTime();
-		PGvector queryVector = embeddingService.embedText(userQuestion);
-		List<FaqSearchResponseDto> results = faqVectorRepository.getSimilarList(queryVector, topK);
-		return results;
-	}
+    private final EmbeddingService embeddingService;
+    private final EmbeddingProfileService embeddingProfileService;
+    private final FaqVectorRepository faqVectorRepository;
 
-	public List<FaqSearchResponseDto> getSimilarListByIntent(String userQuestion, Intent intent, int topK) {
-		Objects.requireNonNull(intent, "intent는 필수입니다.");
-		PGvector queryVector = embeddingService.embedText(userQuestion);
-		return faqVectorRepository.getSimilarListByIntent(queryVector, intent, topK);
-	}
+    public List<FaqSearchResponseDto> getSimilarList(
+            String userQuestion,
+            int topK
+    ) {
+        PGvector queryVector = embeddingService.embedText(userQuestion);
+        Long profileId = embeddingProfileService.getCurrentProfileId();
 
-	public void saveVectorForFaq(Long faqId, String question) {
-		long startedAt = System.nanoTime();
-		PGvector vector = embeddingService.embedText(question);
-		faqVectorRepository.saveVectorForFaq(faqId, vector);
-		log.info("FAQ 벡터를 저장했습니다: FAQID={}, 처리시간={}ms", faqId, elapsedMillis(startedAt));
-	}
+        return faqVectorRepository.getSimilarList(
+                queryVector,
+                profileId,
+                topK
+        );
+    }
 
-	public void saveVectorForOldFaq(Long faqId, Integer version) {
-		PGvector vector = faqVectorRepository.findVectorByFaqId(faqId);
-		if (vector == null) {
-			throw new FaqException(FaqErrorCode.FAQ_VECTOR_CREATE_FAILURE);
-		}
-		faqVectorRepository.saveVectorForOldFaq(faqId, version, vector);
-		log.info("이전 FAQ 벡터를 저장했습니다: FAQID={}, 버전={}", faqId, version);
-	}
+    public List<FaqSearchResponseDto> getSimilarListByIntent(
+            String userQuestion,
+            Intent intent,
+            int topK
+    ) {
+        Objects.requireNonNull(intent, "intent는 필수입니다.");
 
-	private long elapsedMillis(long startedAt) {
-		return (System.nanoTime() - startedAt) / 1_000_000;
-	}
+        PGvector queryVector = embeddingService.embedText(userQuestion);
+        Long profileId = embeddingProfileService.getCurrentProfileId();
 
-	private String formatSearchResults(List<FaqSearchResponseDto> results) {
-		if (results == null || results.isEmpty()) {
-			return "없음";
-		}
-		return results.stream()
-				.map(result -> "FAQ ID=" + result.faqId()
-						+ ", FAQ 질문=" + normalizeForLog(result.question())
-						+ ", 유사도=" + result.similarityScore())
-				.collect(java.util.stream.Collectors.joining(" | "));
-	}
+        return faqVectorRepository.getSimilarListByIntent(
+                queryVector,
+                profileId,
+                intent,
+                topK
+        );
+    }
 
-	private String normalizeForLog(String value) {
-		return value == null ? "없음" : value.replaceAll("[\\r\\n\\t]+", " ");
-	}
+    public void saveVectorForFaq(
+            Long faqId,
+            Integer faqVersion,
+            String question
+    ) {
+        long startedAt = System.nanoTime();
+
+        PGvector vector = embeddingService.embedText(question);
+        Long profileId = embeddingProfileService.getCurrentProfileId();
+
+        faqVectorRepository.saveVectorForFaq(
+                faqId,
+                profileId,
+                faqVersion,
+                vector
+        );
+
+        log.info(
+                "FAQ 벡터를 저장했습니다: FAQID={}, version={}, profileId={}, 처리시간={}ms",
+                faqId,
+                faqVersion,
+                profileId,
+                elapsedMillis(startedAt)
+        );
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+    public void updateVectorVersionForFaq(
+            Long faqId,
+            Integer faqVersion
+    ) {
+        Long profileId = embeddingProfileService.getCurrentProfileId();
+
+        faqVectorRepository.updateVectorVersionForFaq(
+                faqId,
+                profileId,
+                faqVersion
+        );
+    }
 }

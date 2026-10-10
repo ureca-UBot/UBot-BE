@@ -2,15 +2,17 @@ package com.ubot.embedding.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.ubot.embedding.config.EmbeddingConfig;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
+
+import com.ubot.embedding.config.EmbeddingClientFactory;
+
 import tools.jackson.databind.JsonNode;
 
-/** OllamaEmbeddingClient가 공통 계약을 지키는지 Ollama의 /api/embed 응답 형식으로 확인합니다. */
 class OllamaEmbeddingClientContractTest extends EmbeddingClientContractTest {
 
 	@Override
@@ -20,7 +22,7 @@ class OllamaEmbeddingClientContractTest extends EmbeddingClientContractTest {
 
 	@Override
 	protected EmbeddingClient createClient(String serverUrl, String modelName, Duration readTimeout) {
-		return new EmbeddingConfig().ollamaEmbeddingClient(RestClient.builder(), serverUrl, modelName,
+		return new EmbeddingClientFactory().createOllama(RestClient.builder(), serverUrl, modelName,
 				Duration.ofSeconds(1), readTimeout);
 	}
 

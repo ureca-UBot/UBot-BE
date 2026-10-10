@@ -4,24 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
-import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.AiToolRegistry;
-import com.ubot.ai.tool.NearbyStoreSearcher;
-import com.ubot.ai.tool.StoreSearchRecorder;
-import com.ubot.ai.tool.StoreTools;
-import com.ubot.llm.config.LlmConfig;
-import com.ubot.llm.dto.request.LlmMessageRequestDto;
-import com.ubot.llm.dto.request.LlmRequestDto;
-import com.ubot.llm.enums.LlmMessageRole;
-import com.ubot.llm.exception.LlmErrorCode;
-import com.ubot.llm.exception.LlmException;
-import com.ubot.location.service.LocationService;
-import com.ubot.store.service.StoreService;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +19,21 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.web.client.RestClient;
+
+import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.StoreSearchRecorder;
+import com.ubot.ai.tool.StoreTools;
+import com.ubot.llm.config.LlmClientFactory;
+import com.ubot.llm.dto.request.LlmMessageRequestDto;
+import com.ubot.llm.dto.request.LlmRequestDto;
+import com.ubot.llm.enums.LlmMessageRole;
+import com.ubot.llm.exception.LlmErrorCode;
+import com.ubot.llm.exception.LlmException;
+import com.ubot.location.service.LocationService;
+import com.ubot.store.service.StoreService;
+
 import tools.jackson.databind.JsonNode;
 
 /** 공통 계약에 없는, OpenAI 호환 API의 요청·응답 형식 변환을 확인합니다. */
@@ -44,8 +47,13 @@ class OpenAiCompatibleLlmClientHttpTest {
 	@BeforeEach
 	void startServer() throws IOException {
 		server = new StubLlmServer("/v1/chat/completions");
-		client = new LlmConfig().openAiCompatibleLlmClient(RestClient.builder(), server.url() + "/v1", MODEL_NAME,
-				Duration.ofSeconds(1), Duration.ofSeconds(3));
+		client = new LlmClientFactory().createOpenAiCompatible(
+		        RestClient.builder(),
+		        server.url() + "/v1",
+		        MODEL_NAME,
+		        Duration.ofSeconds(1),
+		        Duration.ofSeconds(3)
+		);
 	}
 
 	@AfterEach

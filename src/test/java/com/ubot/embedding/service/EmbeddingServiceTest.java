@@ -2,7 +2,7 @@ package com.ubot.embedding.service;
 
 import com.sun.net.httpserver.HttpServer;
 import com.ubot.embedding.client.EmbeddingClient;
-import com.ubot.embedding.config.EmbeddingConfig;
+import com.ubot.embedding.config.EmbeddingClientFactory;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
 import com.pgvector.PGvector;
@@ -33,7 +33,6 @@ class EmbeddingServiceTest {
         }
     }
 
-    /** JDK 내장 HttpServer로 가짜 Ollama 서버를 띄우고, 그 주소로 EmbeddingService를 생성한다. */
     private EmbeddingService createServiceWithFakeServer(
             HttpHandlerFunction handler, Duration readTimeout) throws IOException {
 
@@ -48,13 +47,22 @@ class EmbeddingServiceTest {
         return createService(baseUrl, Duration.ofSeconds(3), readTimeout);
     }
 
-    /** 기본 설정(EMBEDDING_PROVIDER 없음)과 같이 Ollama 구현체를 붙인 EmbeddingService를 만든다. */
-    private EmbeddingService createService(String baseUrl, Duration connectTimeout, Duration readTimeout) {
-        return new EmbeddingService(new EmbeddingConfig().ollamaEmbeddingClient(
-                RestClient.builder(), baseUrl, MODEL_NAME, connectTimeout, readTimeout));
+    private EmbeddingService createService(
+            String baseUrl,
+            Duration connectTimeout,
+            Duration readTimeout) {
+
+        var client = new EmbeddingClientFactory().createOllama(
+                RestClient.builder(),
+                baseUrl,
+                MODEL_NAME,
+                connectTimeout,
+                readTimeout
+        );
+
+        return new EmbeddingService(client);
     }
 
-    /** 앞쪽 값만 지정하고 나머지는 0으로 채운 1024차원 벡터의 JSON. 1024차원이 아닌 응답은 거절되기 때문이다. */
     private static String vectorJson(double... head) {
         StringBuilder json = new StringBuilder("[");
         for (int index = 0; index < EmbeddingClient.DIMENSIONS; index++) {

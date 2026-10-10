@@ -20,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import com.ubot.faq.service.FaqEmbeddingBackfillService;
 
 @RestController
 @RequestMapping("/admin")
@@ -30,6 +31,7 @@ public class AdminFaqController {
 	private final FaqCategoryService faqCategoryService;
 	private final FaqLogService faqLogService;
 	private final OldFaqService oldFaqService;
+	private final FaqEmbeddingBackfillService faqEmbeddingBackfillService;
 
 //	FaqService 관련 컨트롤러들
 
@@ -163,5 +165,12 @@ public class AdminFaqController {
 			@RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
 	){
 		return ApiResponse.success(oldFaqService.getOldFaqByFaqId(page, size, faqId));
+	}
+	@PostMapping("/faqs/embeddings/backfill")
+	public ApiResponse<Integer> backfillFaqEmbeddings() {
+	    int updatedCount =
+	            faqEmbeddingBackfillService.backfillCurrentProfile();
+
+	    return ApiResponse.success(updatedCount);
 	}
 }

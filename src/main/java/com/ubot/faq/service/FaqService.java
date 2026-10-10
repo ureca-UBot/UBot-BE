@@ -59,7 +59,12 @@ public class FaqService {
 				.build();
 
 		Faq savedFaq = faqRepository.save(faq);
-		faqVectorService.saveVectorForFaq(savedFaq.getId(), requestDto.question());
+
+		faqVectorService.saveVectorForFaq(
+		        savedFaq.getId(),
+		        savedFaq.getVersion(),
+		        requestDto.question()
+		);
 		log.info("FAQ를 생성했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 
 		return FaqResponseDto.from(savedFaq);
@@ -113,21 +118,33 @@ public class FaqService {
 
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
 		oldFaqRepository.saveAndFlush(oldFaq);
-		faqVectorService.saveVectorForOldFaq(faq.getId(), faq.getVersion());
 
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
 
-		if(!faq.getQuestion().equals(requestDto.question())) {
-			faqVectorService.saveVectorForFaq(faq.getId(), requestDto.question());
-		}
+		boolean questionChanged =
+		        !faq.getQuestion().equals(requestDto.question());
 
 		faq.update(
-				category,
-				requestDto.question(),
-				requestDto.answer(),
-				requestDto.intent()
+		        category,
+		        requestDto.question(),
+		        requestDto.answer(),
+		        requestDto.intent()
 		);
+
 		Faq savedFaq = faqRepository.save(faq);
+
+		if (questionChanged) {
+		    faqVectorService.saveVectorForFaq(
+		            savedFaq.getId(),
+		            savedFaq.getVersion(),
+		            savedFaq.getQuestion()
+		    );
+		} else {
+		    faqVectorService.updateVectorVersionForFaq(
+		            savedFaq.getId(),
+		            savedFaq.getVersion()
+		    );
+		}
 		log.info("FAQ를 수정했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 		return FaqResponseDto.from(savedFaq);
 	}

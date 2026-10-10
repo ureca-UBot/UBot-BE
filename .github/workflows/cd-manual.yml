@@ -12,10 +12,13 @@ concurrency:
 
 jobs:
   deploy:
-  # 당장은 develop만 배포 허용
-    if: github.ref == 'refs/heads/develop'
+    if: |
+      github.ref == 'refs/heads/develop' ||
+      github.ref == 'refs/heads/main' 
+
+
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     environment: staging
 
@@ -28,55 +31,77 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
-      # --------------------------------------------------
-      # 1. Backend image build
-      # --------------------------------------------------
       - name: Build backend Docker image
         run: |
+          set -euo pipefail
+
           docker build \
             -t "${IMAGE_NAME}:${GITHUB_SHA}" \
             .
 
       - name: Save backend Docker image
         run: |
+          set -euo pipefail
+
           docker save "${IMAGE_NAME}:${GITHUB_SHA}" \
             | gzip > ubot-be.tar.gz
 
-      # --------------------------------------------------
-      # 2. Package deployment configuration
-      # --------------------------------------------------
+      - name: Validate deployment files
+        run: |
+          set -euo pipefail
+
+          test -f docker-compose.yml
+          test -f docker-compose.deploy.yml
+          test -f docker-compose.ollama.yml
+          test -f docker-compose.vllm.yml
+          test -f infra/postgres/Dockerfile
+          test -f infra/nginx/nginx.conf
+          test -f infra/prometheus/prometheus.yml
+          test -f infra/prometheus/prometheus.deploy.yml
+          test -f infra/llm/docker-compose.yml
+          test -f tools/deploy/deploy.sh
+
+          # deploy.sh가 불러오는 lib 파일이 모두 있는지 확인합니다.
+          grep -o 'lib/[a-z-]*\.sh' tools/deploy/deploy.sh | sort -u | while read -r lib; do
+            test -f "tools/deploy/${lib}"
+          done
+
+          for script in tools/deploy/deploy.sh tools/deploy/lib/*.sh; do
+            bash -n "${script}"
+          done
+
       - name: Package deploy configuration
         run: |
+          set -euo pipefail
+
           tar -czf ubot-deploy.tar.gz \
             docker-compose.yml \
             docker-compose.deploy.yml \
+            docker-compose.ollama.yml \
+            docker-compose.vllm.yml \
             infra/postgres/Dockerfile \
-            infra/nginx/nginx.conf
+            infra/nginx/nginx.conf \
+            infra/prometheus/prometheus.yml \
+            infra/prometheus/prometheus.deploy.yml \
+            infra/llm/docker-compose.yml \
+            tools/deploy
 
-      # --------------------------------------------------
-      # 3. SSH configuration
-      # --------------------------------------------------
       - name: Configure SSH
         env:
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "$EC2_SSH_KEY" \
+          printf '%s\n' "${EC2_SSH_KEY}" \
             | tr -d '\r' \
             > ~/.ssh/deploy_key
 
           chmod 600 ~/.ssh/deploy_key
 
-          ssh-keygen -y \
-            -f ~/.ssh/deploy_key \
-            > /tmp/deploy_key.pub
-
-          echo "Deploy key fingerprint:"
-          ssh-keygen -lf /tmp/deploy_key.pub
-
-          ssh-keyscan -H "$EC2_HOST" \
+          ssh-keyscan -H "${EC2_HOST}" \
             >> ~/.ssh/known_hosts
 
           chmod 600 ~/.ssh/known_hosts
@@ -92,151 +117,48 @@ jobs:
 
           chmod 600 ~/.ssh/config
 
-      # --------------------------------------------------
-      # 4. SSH connection test
-      # --------------------------------------------------
       - name: Test SSH connection
         run: |
+          set -euo pipefail
+
           ssh ubot-staging '
+            set -euo pipefail
+
             echo "SSH connection successful"
             echo "user=$(whoami)"
             echo "host=$(hostname)"
-          '
-
-      # --------------------------------------------------
-      # 5. Server preflight
-      # --------------------------------------------------
-      - name: Check deployment environment
-        run: |
-          ssh ubot-staging '
-            set -e
-
-            echo "== Docker =="
-            docker version --format "{{.Server.Version}}"
-
-            echo "== Docker Compose =="
-            docker compose version
-
-            echo "== Environment file =="
-
-            if [ ! -f ~/ubot/.env ]; then
-              echo "ERROR: ~/ubot/.env does not exist"
-              exit 1
-            fi
-
-            echo "~/ubot/.env exists"
 
             mkdir -p ~/ubot-deploy
           '
 
-      # --------------------------------------------------
-      # 6. Upload
-      # --------------------------------------------------
       - name: Upload deployment files
         run: |
+          set -euo pipefail
+
           scp \
             ubot-be.tar.gz \
             ubot-deploy.tar.gz \
             ubot-staging:~/ubot-deploy/
 
-      # --------------------------------------------------
-      # 7. Deploy
-      # --------------------------------------------------
       - name: Deploy on EC2
         run: |
-          ssh ubot-staging "
-            set -e
+          set -euo pipefail
 
-            echo '== Prepare deployment directory =='
+          ssh ubot-staging \
+            "IMAGE_NAME='${IMAGE_NAME}' GITHUB_SHA='${GITHUB_SHA}' bash -s" <<'REMOTE'
+          set -euo pipefail
 
-            mkdir -p ~/ubot
+          echo "== Prepare deployment directory =="
 
-            tar -xzf \
-              ~/ubot-deploy/ubot-deploy.tar.gz \
-              -C ~/ubot
+          mkdir -p ~/ubot
 
-            echo '== Load backend Docker image =='
+          tar -xzf \
+            ~/ubot-deploy/ubot-deploy.tar.gz \
+            -C ~/ubot
 
-            gunzip -c \
-              ~/ubot-deploy/ubot-be.tar.gz \
-              | docker load
+          echo "== Run deployment =="
 
-            cd ~/ubot
-
-            echo '== Start backend stack =='
-
-            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
-              docker compose \
-                -p ubot \
-                -f docker-compose.yml \
-                -f docker-compose.deploy.yml \
-                up -d backend
-
-            echo '== Recreate nginx =='
-
-            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
-              docker compose \
-                -p ubot \
-                -f docker-compose.yml \
-                -f docker-compose.deploy.yml \
-                up -d \
-                --no-deps \
-                --force-recreate \
-                nginx
-
-            echo '== Container status =='
-
-            BACKEND_IMAGE='${IMAGE_NAME}:${GITHUB_SHA}' \
-              docker compose \
-                -p ubot \
-                -f docker-compose.yml \
-                -f docker-compose.deploy.yml \
-                ps
-          "
-
-      # --------------------------------------------------
-      # 8. Health check
-      # --------------------------------------------------
-      - name: Health check
-        run: |
-          ssh ubot-staging '
-            echo "Waiting for backend..."
-
-            for i in $(seq 1 30); do
-              if curl -fsS \
-                http://127.0.0.1/actuator/health; then
-
-                echo
-                echo "Backend is healthy"
-                exit 0
-              fi
-
-              echo "Health check attempt ${i}/30 failed"
-              sleep 5
-            done
-
-            echo
-            echo "Health check failed"
-
-            cd ~/ubot
-
-            echo "== Container status =="
-
-            docker compose \
-              -p ubot \
-              -f docker-compose.yml \
-              -f docker-compose.deploy.yml \
-              ps -a
-
-            echo "== Backend / nginx logs =="
-
-            docker compose \
-              -p ubot \
-              -f docker-compose.yml \
-              -f docker-compose.deploy.yml \
-              logs \
-                --tail=200 \
-                backend nginx
-
-            exit 1
-          '
+          IMAGE_NAME="${IMAGE_NAME}" \
+          GITHUB_SHA="${GITHUB_SHA}" \
+            bash ~/ubot/tools/deploy/deploy.sh
+          REMOTE

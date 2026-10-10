@@ -90,7 +90,7 @@ git merge origin/develop
 .\gradlew.bat build
 ```
 
-JDK 17 이상과 실행 중인 Docker가 필요합니다. Java 21은 없으면 Gradle이 자동으로 내려받습니다. 테스트는 Testcontainers로 전용 PostgreSQL 18 + pgvector 0.8.6 + PostGIS 3.6.4 컨테이너를 생성하고 종료 시 정리합니다. 개발용 `.env`는 필요하지 않으며 개발 DB·볼륨은 사용하지 않습니다. 첫 실행에는 DB 이미지 빌드와 패키지 다운로드가 필요할 수 있습니다. 단, 실제 Ollama가 필요한 분석 테스트 하나가 로컬에서 함께 실행됩니다([troubleshooting](docs/troubleshooting.md#로컬-테스트에서-intentclassificationanalysis가-실패함)).
+JDK 17 이상과 실행 중인 Docker가 필요합니다. Java 21은 없으면 Gradle이 자동으로 내려받습니다. 테스트는 Testcontainers로 전용 PostgreSQL 18 + pgvector 0.8.6 + PostGIS 3.6.4 컨테이너를 생성하고 종료 시 정리합니다. 개발용 `.env`는 필요하지 않으며 개발 DB·볼륨은 사용하지 않습니다. 첫 실행에는 DB 이미지 빌드와 패키지 다운로드가 필요할 수 있습니다. 실제 Ollama가 필요한 분석 테스트 하나는 따로 켤 때만 실행됩니다([troubleshooting](docs/troubleshooting.md#intentclassificationanalysis가-실행되지-않음)).
 
 애플리케이션을 직접 실행하는 `bootRun`은 별도입니다. 이때는 [quickstart](docs/quickstart.md)의 개발 환경을 준비하세요.
 
@@ -212,7 +212,7 @@ Checkout → Java 21 설정 → gradlew test (Testcontainers DB 생성·정리) 
 - 로컬과 CI 모두 테스트 코드가 `test` 프로필과 Testcontainers의 DB 접속 정보를 적용합니다. CI에 별도 PostgreSQL 서비스를 띄우거나 개발 DB 비밀번호를 주입하지 않습니다.
 - `UbotBeApplicationTests`는 전용 DB 연결, Flyway로 만든 vector·postgis extension 버전, 1024차원/HNSW/COSINE 스키마와 벡터 저장·검색을 검증합니다. 나머지 도메인 테스트(인증·채팅·FAQ·금지어·매장·길찾기 등)도 함께 실행됩니다.
 - 임베딩과 LLM은 테스트 전용 구현·모의 객체를 사용하므로 실제 Ollama/BGE-M3 경로의 통합 검증을 대신하지 않습니다.
-- 실제 Ollama를 호출하는 `IntentClassificationAnalysis`는 GitHub Actions가 설정하는 `CI=true` 때문에 CI에서는 건너뜁니다.
+- 실제 Ollama를 호출하는 `IntentClassificationAnalysis`는 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되므로 CI에서는 건너뜁니다.
 
 ## 팀 Notion 규칙
 

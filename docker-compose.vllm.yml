@@ -1,0 +1,18 @@
+services:
+  vllm:
+    extends:
+      file: ./infra/llm/docker-compose.yml
+      service: vllm
+    ports: !override
+      - "127.0.0.1:${LLM_PORT:-8000}:8000"
+
+  vllm-embedding:
+    extends:
+      file: ./infra/llm/docker-compose.yml
+      service: vllm-embedding
+    ports: !override
+      - "127.0.0.1:${EMBEDDING_PORT:-8001}:8000"
+
+volumes:
+  hf-cache:
+    name: llm_hf-cache

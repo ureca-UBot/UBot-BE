@@ -53,6 +53,7 @@ infra/llm/
 ├─ .env.example
 ├─ .env
 ├─ llm-runtime.ps1
+├─ run-live-tests.ps1
 └─ README.md
 ```
 
@@ -71,6 +72,9 @@ docker-compose.yml
 
 llm-runtime.ps1
 → vLLM / SGLang 시작·종료·전환 Wrapper
+
+run-live-tests.ps1
+→ 떠 있는 서버로 Backend 연결 테스트(답변 생성·임베딩)를 한 번에 실행
 ```
 
 ---
@@ -119,7 +123,7 @@ Copy-Item `
 예:
 
 ```dotenv
-LLM_MODEL=Qwen/Qwen3-4B-AWQ
+LLM_HF_MODEL=Qwen/Qwen3-4B-AWQ
 LLM_SERVED_MODEL_NAME=ubot-chat
 LLM_PORT=8000
 LLM_MAX_MODEL_LEN=4096
@@ -146,13 +150,15 @@ infra/llm/.env
 
 ## 주요 환경 변수
 
-### LLM_MODEL
+### LLM_HF_MODEL
 
 실제로 Hugging Face에서 로딩할 모델입니다.
 
 ```dotenv
-LLM_MODEL=Qwen/Qwen3-4B-AWQ
+LLM_HF_MODEL=Qwen/Qwen3-4B-AWQ
 ```
+
+예전 이름은 `LLM_MODEL`이었습니다. Backend `.env`의 `LLM_MODEL`(요청에 넣는 served model name)과 뜻이 달라서 이름을 나눴습니다. 임베딩 서버의 `EMBEDDING_HF_MODEL`(예전 `EMBEDDING_MODEL`)도 같습니다. 이미 만들어 둔 `infra/llm/.env`가 있으면 변수 이름을 바꿔야 값이 적용됩니다.
 
 ---
 
@@ -234,7 +240,15 @@ Private/Gated Model을 사용하거나 Hugging Face Rate Limit을 높여야 하�
 .\infra\llm\llm-runtime.ps1 start vllm
 ```
 
-vLLM을 UBot의 기본 Serving Engine으로 사용합니다.
+vLLM을 UBot의 기본 Serving Engine으로 사용합니다. 답변 생성 서버(`vllm`, Port `8000`)와 임베딩 서버(`vllm-embedding`, Port `8001`)를 함께 띄웁니다.
+
+임베딩 서버만 띄우려면 `start embedding`을 씁니다.
+
+```powershell
+.\infra\llm\llm-runtime.ps1 start embedding
+```
+
+`start`는 실행 중인 서버를 모두 종료한 뒤에 지정한 것만 띄웁니다.
 
 ---
 
@@ -260,10 +274,16 @@ vLLM과 SGLang은 같은 GPU와 같은 Port `8000`을 사용하므로 동시에 
 
 ## 로그 확인
 
-vLLM:
+vLLM(답변 생성과 임베딩):
 
 ```powershell
 .\infra\llm\llm-runtime.ps1 logs vllm
+```
+
+임베딩 서버만:
+
+```powershell
+.\infra\llm\llm-runtime.ps1 logs embedding
 ```
 
 SGLang:
@@ -284,16 +304,15 @@ SGLang:
 
 # Docker Compose 직접 실행
 
-Wrapper를 사용하지 않고 Docker Compose를 직접 실행할 수도 있습니다.
+Wrapper를 사용하지 않고 Docker Compose를 직접 실행할 수도 있습니다. 이 Compose 파일은 Profile을 쓰지 않으므로 띄울 서비스 이름을 명령에 적습니다.
 
-vLLM:
+vLLM(답변 생성과 임베딩):
 
 ```powershell
 docker compose `
   -f .\infra\llm\docker-compose.yml `
   --env-file .\infra\llm\.env `
-  --profile vllm `
-  up
+  up vllm vllm-embedding
 ```
 
 SGLang:
@@ -302,8 +321,7 @@ SGLang:
 docker compose `
   -f .\infra\llm\docker-compose.yml `
   --env-file .\infra\llm\.env `
-  --profile sglang `
-  up
+  up sglang
 ```
 
 종료:
@@ -312,9 +330,65 @@ docker compose `
 docker compose `
   -f .\infra\llm\docker-compose.yml `
   --env-file .\infra\llm\.env `
-  --profile vllm `
-  --profile sglang `
   down
+```
+
+서비스 이름 없이 `up`만 실행하면 `vllm`, `vllm-embedding`, `sglang`을 모두 띄우려고 합니다. `vllm`과 `sglang`이 같은 Port `8000`을 쓰므로 이 방식은 실패합니다.
+
+---
+
+# Backend와 함께 실행
+
+Repository 루트의 `docker-compose.vllm.yml`은 이 폴더의 `vllm`, `vllm-embedding` 서비스 정의를 그대로 가져와(`extends`) PostgreSQL 같은 공통 서비스와 함께 띄웁니다.
+
+루트 `.env`에서 `AI_MODE=vllm`으로 둔 뒤 Repository 루트에서 실행합니다. 스크립트가 Ollama 컨테이너를 내리고 두 서버를 띄운 뒤, 준비될 때까지 기다립니다.
+
+```powershell
+.\tools\ubot.ps1 up
+```
+
+이 방식에서 달라지는 점:
+
+```text
+설정 파일
+→ infra/llm/.env가 아니라 루트 .env를 읽음
+→ 루트 .env에 없는 값은 docker-compose.yml의 기본값 사용
+
+Port
+→ 127.0.0.1에만 열림 (같은 PC의 Backend 전용)
+
+서비스
+→ vllm, vllm-embedding만 실행 (sglang은 포함하지 않음)
+
+Model Cache
+→ 같은 볼륨(llm_hf-cache)을 써서 받아 둔 모델을 다시 받지 않음
+```
+
+같은 Port를 쓰므로 이 폴더의 Compose로 띄운 서버와 동시에 실행하지 않습니다.
+
+Backend는 같은 `AI_MODE`를 읽어 답변 생성과 임베딩을 이 서버로 보냅니다. Ollama에서 바꾼 경우에는 벡터 백필이 필요합니다. 실행 순서는 [로컬 실행 안내](../../docs/quickstart.md#vllm으로-바꿔-실행하기)에 있습니다.
+
+---
+
+# Backend 연결 테스트 한 번에 실행
+
+답변 생성 서버(`:8000`)와 임베딩 서버(`:8001`)가 떠 있을 때 Repository 루트에서 실행합니다.
+
+```powershell
+.\infra\llm\run-live-tests.ps1
+```
+
+두 서버의 `/v1/models`가 응답할 때까지 기다린 뒤 `OpenAiCompatibleLlmClientLiveTest`와 `OpenAiCompatibleEmbeddingClientLiveTest`를 실행합니다.
+
+이전 결과를 재사용하지 않도록 `cleanTest`를 함께 실행합니다.
+
+주소나 대기 시간을 바꿀 때:
+
+```powershell
+.\infra\llm\run-live-tests.ps1 `
+  -LlmBaseUrl http://<GPU_HOST>:8000/v1 `
+  -EmbeddingBaseUrl http://<GPU_HOST>:8001/v1 `
+  -WaitSeconds 1800
 ```
 
 ---
@@ -699,7 +773,7 @@ Concurrency 예:
 
 # Embedding 서버
 
-Backend의 `EMBEDDING_PROVIDER=openai-compatible`이 호출하는 임베딩 서버입니다. 답변 생성 서버와 별도 Compose Profile(`embedding`)로 실행합니다.
+Backend의 임베딩 엔진이 vLLM일 때(`AI_MODE=vllm`) 호출하는 임베딩 서버입니다. Compose 서비스 이름은 `vllm-embedding`이고, `llm-runtime.ps1 start vllm`으로 답변 생성 서버와 함께 뜹니다. 아래는 임베딩 서버만 따로 띄우는 방법입니다.
 
 ```text
 Model
@@ -719,21 +793,22 @@ OpenAI Compatible API
 시작:
 
 ```powershell
-docker compose `
-  -f .\infra\llm\docker-compose.yml `
-  --env-file .\infra\llm\.env `
-  --profile embedding `
-  up -d
+.\infra\llm\llm-runtime.ps1 start embedding
 ```
 
 종료:
 
 ```powershell
+.\infra\llm\llm-runtime.ps1 stop
+```
+
+Docker Compose로 직접 띄울 때는 서비스 이름을 적습니다.
+
+```powershell
 docker compose `
   -f .\infra\llm\docker-compose.yml `
   --env-file .\infra\llm\.env `
-  --profile embedding `
-  down
+  up -d vllm-embedding
 ```
 
 확인:
@@ -763,19 +838,26 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 → 8192 토큰을 넘는 입력은 잘라서 처리하지 않고 400으로 거절
 ```
 
-주의:
+변수:
 
 ```text
-EMBEDDING_MODEL (infra/llm/.env)
-→ vLLM이 불러올 Hugging Face 모델
+EMBEDDING_HF_MODEL
+→ vLLM이 불러올 Hugging Face 모델 (BAAI/bge-m3)
 
-EMBEDDING_MODEL (Backend .env)
-→ 요청에 넣는 Served Model Name (ubot-embedding)
+EMBEDDING_SERVED_MODEL_NAME
+→ 서버가 내보이는 이름 (ubot-embedding)
+
+EMBEDDING_MODEL (Backend)
+→ 요청에 넣는 이름. EMBEDDING_SERVED_MODEL_NAME과 같아야 함
+
+값을 읽는 곳
+→ 이 폴더에서 띄우면 infra/llm/.env
+→ Repository 루트에서 띄우면 루트 .env (세 변수 모두 루트 .env.example에 있음)
 ```
 
 답변 생성 서버와 같은 GPU에 띄울 때는 `VLLM_GPU_MEMORY_UTILIZATION`과 `VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION`의 합이 GPU 여유 메모리를 넘지 않게 조정합니다.
 
-Backend 설정은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-provider-선택)에 있습니다.
+Backend 설정은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#임베딩-엔진)에 있습니다.
 
 ---
 
@@ -846,6 +928,6 @@ ubot-reranker
 
 `8002` 서비스는 아직 구성하지 않았습니다.
 
-Backend는 기본값으로 Ollama 임베딩을 씁니다. 운영 DB의 벡터는 Ollama로 만든 값이므로, 벡터 관리 작업이 끝나기 전에는 Backend의 `EMBEDDING_PROVIDER`를 바꾸지 않습니다.
+Backend는 `AI_MODE`로 Ollama와 vLLM 중 하나를 고르고, 기본값은 Ollama입니다. 벡터는 임베딩 서버별 Embedding Profile로 따로 저장되므로 한 DB에서 두 서버를 오갈 수 있고, 서버를 바꾼 뒤에는 백필로 새 Profile의 벡터를 채웁니다.
 
-Backend 설정 이름과 전환 계획은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-provider-선택)에 있습니다.
+Backend 설정 이름과 백필 방법은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#embedding-profile)에 있습니다.

@@ -1,11 +1,13 @@
 package com.ubot.llm.client;
 
-import com.ubot.llm.config.LlmConfig;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.springframework.web.client.RestClient;
+
+import com.ubot.llm.config.LlmClientFactory;
 
 /** OllamaClient가 공통 계약을 지키는지 Ollama의 /api/chat 응답 형식으로 확인합니다. */
 class OllamaClientContractTest extends LlmClientContractTest {
@@ -17,7 +19,7 @@ class OllamaClientContractTest extends LlmClientContractTest {
 
 	@Override
 	protected LlmClient createClient(String serverUrl, String modelName, Duration readTimeout) {
-		return new LlmConfig().llmClient(RestClient.builder(), serverUrl, modelName,
+		return new LlmClientFactory().createOllama(RestClient.builder(), serverUrl, modelName,
 				Duration.ofSeconds(1), readTimeout);
 	}
 

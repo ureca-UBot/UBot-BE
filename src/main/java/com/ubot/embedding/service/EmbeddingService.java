@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-/** 임베딩이 필요한 서비스가 쓰는 창구입니다. 실제 서버 호출은 EMBEDDING_PROVIDER로 선택된 EmbeddingClient가 합니다. */
+/** 임베딩이 필요한 서비스가 쓰는 창구입니다. 실제 서버 호출은 AI_MODE로 선택된 EmbeddingClient가 합니다. */
 @Service
 @RequiredArgsConstructor
 public class EmbeddingService {

@@ -5,12 +5,21 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.springframework.web.client.RestClient;
+
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
-import com.ubot.llm.config.LlmConfig;
+import com.ubot.llm.config.LlmClientFactory;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
@@ -18,13 +27,6 @@ import com.ubot.location.dto.LocationSearchResponse;
 import com.ubot.location.service.LocationService;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.store.service.StoreService;
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.web.client.RestClient;
 
 /**
  * 실제 OpenAI 호환 서버(vLLM)에 연결해 일반 답변과 Tool Calling을 확인합니다.
@@ -36,12 +38,18 @@ class OpenAiCompatibleLlmClientLiveTest {
 
 	private static final String STORE_QUESTION = "강남역 근처 매장 알려줘";
 
-	private final LlmClient client = new LlmConfig().openAiCompatibleLlmClient(
-			RestClient.builder(),
-			System.getenv("LLM_LIVE_BASE_URL"),
-			System.getenv().getOrDefault("LLM_LIVE_MODEL", "ubot-chat"),
-			Duration.ofSeconds(3),
-			Duration.ofSeconds(120));
+	private final LlmClient client =
+	        new LlmClientFactory().createOpenAiCompatible(
+	                RestClient.builder(),
+	                System.getenv("LLM_LIVE_BASE_URL"),
+	                System.getenv()
+	                        .getOrDefault(
+	                                "LLM_LIVE_MODEL",
+	                                "ubot-chat"
+	                        ),
+	                Duration.ofSeconds(3),
+	                Duration.ofSeconds(120)
+	        );
 
 	@Test
 	void answersPlainQuestionWithoutThinkingText() {

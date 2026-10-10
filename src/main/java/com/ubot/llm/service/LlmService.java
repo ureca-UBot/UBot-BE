@@ -39,7 +39,7 @@ public class LlmService {
 		}
     }
 
-	/** LLM_PROVIDER로 선택된 구현체가 답변 생성에 쓰는 모델 이름을 반환합니다. */
+	/** AI_MODE로 선택된 구현체가 답변 생성에 쓰는 모델 이름을 반환합니다. */
 	public String getModelName() {
 		return llmClient.getModelName();
 	}

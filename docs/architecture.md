@@ -14,7 +14,7 @@ com.ubot
 ├── ai             FAQ 프롬프트 구성과 LLM 호출 연결 (AiService)
 ├── prompt         질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
 ├── llm            LLM 요청 검증·Ollama 호출·오류 변환
-├── embedding      임베딩 서버 호출 (EmbeddingService → EmbeddingClient, 기본은 Ollama /api/embed)
+├── embedding      임베딩 서버 호출(EmbeddingService → EmbeddingClient)과 Embedding Profile 조회
 ├── faq            FAQ·카테고리 CRUD, 수정 이력(old_faq)·참고 로그(faq_log), FAQ 벡터 검색
 ├── forbiddenword  금지어 관리 API, 채팅 입력 금지어 필터 (메모리 캐시)
 ├── unanswered     답을 찾지 못한 질문 저장과 유사 질문 묶기
@@ -31,7 +31,7 @@ com.ubot
 | 매장 조회 SQL | `src/main/resources/sql/store/*.sql` |
 | FAQ 프롬프트 | `src/main/resources/prompts/faq-system.txt`, `faq-user.txt` |
 | DB 이미지 | `infra/postgres/Dockerfile` |
-| 개발용 컨테이너 | `docker-compose.yml` |
+| 개발용 컨테이너 | `docker-compose.yml`(공통), `docker-compose.ollama.yml`, `docker-compose.vllm.yml`. `tools/ubot.ps1`이 `AI_MODE`에 맞는 파일을 골라 띄움 ([실행 환경](reference/configuration.md#실행-환경-docker-compose)) |
 | 배포용 | `Dockerfile`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` ([deploy.md](deploy.md)) |
 | GitHub Actions | `.github/workflows/ci.yml`, `commit-message.yml`, `cd-manual.yml` |
 | 응답·예외 작성 규칙 | `src/main/java/com/ubot/common/manual/*.md` |
@@ -50,6 +50,7 @@ com.ubot
 | 길찾기 | `GET /stores/{storeId}/directions?mode=WALK\|CAR\|TRANSIT`, `POST /stores/{storeId}/directions/transit-detail` | 불필요 |
 | 위치 | `GET /locations/search?query=` | 불필요 |
 | 관리자 FAQ | `/admin/faqs`, `/admin/deleted-faqs`, `/admin/faqs/restore`, `/admin/faq-categories/**`, `/admin/faq-logs/**`, `/admin/old-faqs/faq` | JWT + `ADMIN` |
+| 임베딩 백필 | `POST /admin/faqs/embeddings/backfill`, `POST /admin/unanswered-groups/embeddings/backfill` (지금 Profile에 없는 벡터 채우기) | JWT + `ADMIN` |
 | 관리자 금지어 | `/admin/forbidden-words/**` | JWT + `ADMIN` |
 | 관리자 게스트 설정 | `GET`, `PATCH /admin/guest-chat-settings` (게스트 최대 질문 횟수) | JWT + `ADMIN` |
 | 관리자 매장 | `/admin/stores/**` (등록·수정·삭제·활성화·목록·삭제 목록) | JWT + `ADMIN` |
@@ -89,7 +90,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
               → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
                  → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
               → ChatContextCollector : 남은 FAQ의 intent별로 답변 자료 수집
-              → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 LLM_PROVIDER로 선택)
+              → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 AI_MODE로 선택)
           → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
           → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
   → CHAT_RESPONSE_TIMEOUT_MILLIS 초과 시 시도를 FAIL(CHAT-016)로 저장하고 작업을 취소
@@ -149,9 +150,11 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 `CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
-2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 Ollama를 한 번 더 호출합니다.
-3. 상태가 `PENDING`·`ON_HOLD`인 묶음 중 중심 벡터와의 코사인 유사도가 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`) 이상인 가장 가까운 묶음에 넣습니다. 없으면 이 질문을 대표 질문으로 새 묶음을 만듭니다. `APPROVED`·`REJECTED` 묶음에는 합류하지 않습니다.
-4. 묶음의 중심 벡터(소속 질문 벡터의 평균)와 질문 수를 DB에서 다시 계산합니다.
+2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.
+3. 상태가 `PENDING`·`ON_HOLD`인 묶음 중, 지금 Profile의 중심 벡터와의 코사인 유사도가 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`) 이상인 가장 가까운 묶음에 넣습니다. 없으면 이 질문을 대표 질문으로 새 묶음을 만듭니다. `APPROVED`·`REJECTED` 묶음에는 합류하지 않습니다.
+4. 묶음의 지금 Profile 중심 벡터(소속 질문 벡터의 평균)와 질문 수를 DB에서 다시 계산합니다.
+
+묶음과 소속은 Profile과 무관하게 하나이고, 질문 벡터와 중심 벡터만 Profile별로 `unanswered_question_embeddings`, `unanswered_group_embeddings`에 둡니다. 다른 Profile로 만든 중심과는 비교하지 않으므로, 임베딩 서버를 바꾼 직후에는 기존 묶음을 찾지 못합니다. [백필](how-to/llm-module.md#백필)을 실행하면 기존 질문의 벡터와 묶음 중심이 새 Profile로 채워집니다. 예전 벡터 컬럼(`question_vector`, `centroid`)은 `V25`에서 지웠습니다.
 
 - 기준 미달(`INSUFFICIENT_FAQ`)이면 가장 가까웠던 FAQ와 그 유사도를 함께 남깁니다.
 - 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
@@ -164,7 +167,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 ### 동시성·트랜잭션 원칙
 
 - 시도 기록 저장은 `ChatAttemptsService`의 `REQUIRES_NEW` 트랜잭션으로만 짧게 수행합니다. `ChatAnswerProcessor`는 FAQ 검색용 임베딩과 LLM 호출 중에 DB 연결이나 행 잠금을 잡지 않습니다.
-- 예외: 미응답 질문 저장(`UnansweredQuestionService`)은 한 트랜잭션 안에서 질문을 다시 임베딩하므로, 그 Ollama 호출 동안 DB 연결을 사용합니다.
+- 예외: 미응답 질문 저장(`UnansweredQuestionService`)은 한 트랜잭션 안에서 질문을 다시 임베딩하므로, 그 임베딩 서버 호출 동안 DB 연결을 사용합니다.
 - `ChatAnswerTask`는 lock으로 "저장 커밋 → 응답 확정"을 한 단위로 묶어, 답변 저장과 타임아웃이 겹쳐도 둘 중 먼저 확정된 결과 하나만 응답합니다.
 - 결과 저장은 시도 행을 잠근 뒤 아직 `PENDING`일 때만 상태를 바꿉니다. 타임아웃이 먼저 `FAIL`로 바꾸면 늦게 도착한 답변은 저장하지 않습니다.
 - `chatExecutor`는 동시 처리 수 제한이 없는 가상 스레드 Executor입니다(`global/config/AsyncConfig`). 종료 시 최대 150초까지 작업 완료를 기다립니다. 작업 제출은 `ChatAnswerExecutor`만 합니다.
@@ -185,11 +188,11 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 ## FAQ 관리 흐름
 
-- **생성**: FAQ를 저장한 뒤 질문을 임베딩해 `faq.vector`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
-- **수정**: 현재 FAQ를 `old_faq`에 복사하고(벡터 포함), 질문이 바뀌었을 때만 다시 임베딩한 뒤 `version`을 1 올립니다.
+- **생성**: FAQ를 저장한 뒤 질문을 임베딩해 지금 Embedding Profile의 벡터로 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
+- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 질문이 바뀌었으면 다시 임베딩하고, 바뀌지 않았으면 기존 벡터의 `faq_version`만 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
 - **삭제·복구**: `deleted_at`으로 soft delete합니다. 삭제된 FAQ는 벡터 검색에서 제외되고, `/admin/faqs/restore`로 복구할 수 있습니다.
 - 벡터는 JPA 엔티티에 매핑하지 않고 `FaqVectorRepository`(JdbcTemplate)로만 읽고 씁니다.
-- 생성·수정 시 임베딩 HTTP 호출이 `@Transactional` 안에서 일어나므로, Ollama 응답을 기다리는 동안 DB 연결을 사용합니다.
+- 생성·수정 시 임베딩 HTTP 호출이 `@Transactional` 안에서 일어나므로, 임베딩 서버 응답을 기다리는 동안 DB 연결을 사용합니다.
 - 중복 FAQ 검사는 아직 없습니다(`FaqService`의 TODO).
 
 ## 매장·길찾기
@@ -204,13 +207,14 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 
 | 기능 | 현재 구현 | 설정 |
 |---|---|---|
-| 임베딩 생성 | `EmbeddingService` → `EmbeddingClient` (RestClient로 직접 호출). 기본은 `OllamaEmbeddingClient`, `EMBEDDING_PROVIDER=openai-compatible`이면 `OpenAiCompatibleEmbeddingClient`(vLLM) | `spring.ai.model.embedding: none`, `EmbeddingConfig`: provider 선택 |
+| 임베딩 생성 | `EmbeddingService` → `EmbeddingClient` (RestClient로 직접 호출). `AI_MODE`가 `ollama`(기본)면 `OllamaEmbeddingClient`, `vllm`이면 `OpenAiCompatibleEmbeddingClient` | `spring.ai.model.embedding: none`, `EmbeddingConfig`와 `EmbeddingClientFactory` |
+| Embedding Profile | `EmbeddingProfileService`가 지금 엔진·모델·버전에 해당하는 Profile을 찾거나 만들고, 벡터 저장과 검색이 그 Profile만 사용 | `AI_MODE`, 모델 이름, `EMBEDDING_PROFILE_VERSION` |
 | 벡터 검색 | `FaqVectorRepository` (JdbcTemplate + `PGvector`) | `spring.ai.vectorstore.type: none` |
-| LLM 채팅 | `AiService` → `PromptService` → `LlmService` → `LlmClient`. 기본은 `OllamaClient`(Spring AI), `LLM_PROVIDER=openai-compatible`이면 `OpenAiCompatibleLlmClient`(vLLM) | `LlmConfig`: provider 선택, 서버 주소·모델명·LLM 전용 제한 시간 |
+| LLM 채팅 | `AiService` → `PromptService` → `LlmService` → `LlmClient`. `AI_MODE`가 `ollama`(기본)면 `OllamaClient`(Spring AI), `vllm`이면 `OpenAiCompatibleLlmClient` | `LlmConfig`와 `LlmClientFactory`: 서버 주소·모델명·LLM 전용 제한 시간 |
 
 `spring.ai.model.embedding: none`으로 `OllamaEmbeddingModel` 빈을 만들지 않기 때문에, 그 빈에 의존하는 `PgVectorStore`도 생성되지 않습니다. 그래서 Spring AI가 `vector_store` 테이블을 자동으로 만들지 않습니다. `application-local.yml`의 pgvector 설정은 주석으로 남아 있고, Spring AI 벡터 스토어 채택이 확정되면 되살릴 예정입니다. 자세한 설정값은 [configuration.md](reference/configuration.md)를 참고하세요.
 
-`EmbeddingConfig`의 Ollama 구현체는 `spring.ai.ollama`와 별개인 `ollama.*` 설정(`base-url`, `embedding.model`, `connect-timeout`, `read-timeout`)을 직접 읽습니다. 같은 환경변수를 두 곳에서 각각 읽는 구조입니다. 저장된 벡터는 Ollama로 만든 값이라, 벡터 관리 작업 전에는 `EMBEDDING_PROVIDER`를 바꾸지 않습니다([LLM 모듈 안내](how-to/llm-module.md#embedding-provider-선택)).
+`EmbeddingConfig`의 Ollama 구현체는 `spring.ai.ollama`와 별개인 `ollama.*` 설정(`base-url`, `embedding.model`, `connect-timeout`, `read-timeout`)을 직접 읽습니다. 같은 환경변수를 두 곳에서 각각 읽는 구조입니다. 벡터는 임베딩 서버별 Profile로 나눠 저장하므로 한 DB에서 Ollama와 vLLM을 오갈 수 있고, 바꾼 뒤에는 백필로 새 Profile의 벡터를 채웁니다([LLM 모듈 안내](how-to/llm-module.md#embedding-profile)).
 
 ## 테스트 구성
 
@@ -218,7 +222,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 - 도메인 테스트: `auth`·`user`(통합), `chat`(컨트롤러·서비스·취소·금지어·LLM 연결 통합·오류 코드 컨버터), `ai`, `prompt`, `llm`, `embedding`, `faq`(서비스·벡터 저장소), `forbiddenword`(단위·통합·E2E), `unanswered`(서비스, 채팅 연결), `store`(컨트롤러·보안·서비스·저장소), `direction`, `location`
 - LLM 관련 테스트는 모의 모델과 로컬 HTTP 서버로 호출 흐름·요청 검증·오류 처리를 확인합니다. 실제 Ollama 모델의 답변 품질을 검증하지는 않습니다.
 - 테스트 프로필에서는 Ollama 자동 구성을 끄고 결정적인 테스트용 임베딩 구현을 사용합니다. 실제 BGE-M3 품질이나 Ollama 연결은 검증하지 않습니다.
-- 예외: `embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, `localhost:11435`의 실제 Ollama를 호출합니다. `CI=true`이면 건너뛰므로 GitHub Actions에서는 실행되지 않습니다. 결과는 [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)에 정리되어 있습니다.
+- 예외: `embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, `localhost:11435`의 실제 Ollama를 호출합니다. 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되므로 평소의 `gradlew test`와 GitHub Actions에서는 건너뜁니다. 결과는 [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)에 정리되어 있습니다.
 
 ## 진행 중인 작업
 

@@ -8,6 +8,7 @@ import com.ubot.unanswered.dto.request.UnansweredGroupStatusUpdateRequestDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupDetailResponseDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupResponseDto;
 import com.ubot.unanswered.enums.UnansweredGroupStatus;
+import com.ubot.unanswered.service.UnansweredEmbeddingBackfillService;
 import com.ubot.unanswered.service.UnansweredGroupService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 @Validated
 public class AdminUnansweredGroupController {
 	private final UnansweredGroupService unansweredGroupService;
+	private final UnansweredEmbeddingBackfillService unansweredEmbeddingBackfillService;
 
 	@GetMapping
 	public ApiResponse<PageResponseDto<UnansweredGroupResponseDto>> getUnansweredGroupList(
@@ -59,5 +61,13 @@ public class AdminUnansweredGroupController {
 			@Valid @RequestBody UnansweredGroupStatusUpdateRequestDto requestDto
 	){
 		return ApiResponse.success(unansweredGroupService.updateUnansweredGroupStatus(groupId, requestDto));
+	}
+
+	@PostMapping("/embeddings/backfill")
+	public ApiResponse<Integer> backfillUnansweredEmbeddings() {
+		int updatedCount =
+				unansweredEmbeddingBackfillService.backfillCurrentProfile();
+
+		return ApiResponse.success(updatedCount);
 	}
 }
