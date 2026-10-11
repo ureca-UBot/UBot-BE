@@ -4,6 +4,7 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.monitoring.dto.model.usagelayer.FaqUsageByIntent;
 import com.ubot.monitoring.dto.model.usagelayer.FaqUsageItem;
 import com.ubot.monitoring.dto.model.usagelayer.FaqUsageRanking;
+import com.ubot.monitoring.dto.model.UnansweredQuestionSummary;
 import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityByIntent;
 import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityItem;
 import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityRanking;
@@ -20,6 +21,46 @@ import org.springframework.stereotype.Repository;
 public class FaqMonitoringRankingQueryRepository {
 
 	private final NamedParameterJdbcTemplate jdbcTemplate;
+
+	/**
+	 * 기간 내 question_log를 전체 질문으로, 아직 처리 대기 중인 미응답 질문을 미처리 질문으로 집계합니다.
+	 */
+	public UnansweredQuestionSummary findUnansweredQuestionSummary(
+			LocalDateTime startAt,
+			LocalDateTime endAt
+	) {
+		String sql = """
+				WITH total_questions AS (
+					SELECT COUNT(*) AS total_question_count
+					FROM question_log ql
+					WHERE ql.created_at >= :startAt
+						AND ql.created_at < :endAt
+				), pending_unanswered_questions AS (
+					SELECT COUNT(*) AS unanswered_question_count
+					FROM unanswered_questions uq
+					JOIN unanswered_question_groups uqg ON uqg.id = uq.group_id
+					WHERE uqg.status = 'PENDING'
+						AND uq.created_at >= :startAt
+						AND uq.created_at < :endAt
+				)
+				SELECT t.total_question_count, u.unanswered_question_count,
+					CASE
+						WHEN t.total_question_count = 0 THEN 0.0
+						ELSE u.unanswered_question_count::double precision / t.total_question_count
+					END AS unanswered_rate
+				FROM total_questions t
+				CROSS JOIN pending_unanswered_questions u
+				""";
+
+		MapSqlParameterSource parameters = new MapSqlParameterSource()
+				.addValue("startAt", startAt)
+				.addValue("endAt", endAt);
+		return jdbcTemplate.queryForObject(sql, parameters, (rs, rowNum) -> new UnansweredQuestionSummary(
+				rs.getLong("total_question_count"),
+				rs.getLong("unanswered_question_count"),
+				rs.getDouble("unanswered_rate")
+		));
+	}
 
 	/**
 	 * PostgreSQL 전용 구현입니다. 집계, 전체·의도별 범위, Top/Low 순위를

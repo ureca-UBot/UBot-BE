@@ -37,6 +37,7 @@ public class FaqMonitoringService {
 		}
 
 		return new FaqMonitoringResponse(
+				rankingQueryRepository.findUnansweredQuestionSummary(startAt, endAt),
 				rankingQueryRepository.findUsageRanking(startAt, endAt, RANKING_LIMIT),
 				rankingQueryRepository.findSimilarityRanking(startAt, endAt, RANKING_LIMIT)
 		);
