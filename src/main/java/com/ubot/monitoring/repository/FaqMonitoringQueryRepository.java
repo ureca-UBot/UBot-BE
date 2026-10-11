@@ -4,6 +4,9 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.monitoring.dto.model.usagelayer.FaqUsageByIntent;
 import com.ubot.monitoring.dto.model.usagelayer.FaqUsageItem;
 import com.ubot.monitoring.dto.model.usagelayer.FaqUsageRanking;
+import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityByIntent;
+import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityItem;
+import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityRanking;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -84,12 +87,113 @@ public class FaqMonitoringQueryRepository {
 		);
 	}
 
+	/**
+	 * 기간 내 실제로 기록된 유사도를 FAQ별 평균으로 집계합니다.
+	 * 유사도 값이 없는 FAQ는 평균을 계산할 수 없으므로 Top/Low 순위에서 제외합니다.
+	 */
+	public FaqSimilarityRanking findSimilarityRanking(
+			LocalDateTime startAt,
+			LocalDateTime endAt,
+			int limit
+	) {
+		String sql = """
+				WITH similarity_counts AS (
+					SELECT f.id AS faq_id, f.question, f.intent,
+						AVG(fl.similarity) AS average_similarity
+					FROM faq f
+					JOIN faq_log fl ON fl.faq_id = f.id
+					JOIN question_log ql ON ql.id = fl.question_log_id
+					WHERE f.deleted_at IS NULL
+						AND ql.created_at >= :startAt
+						AND ql.created_at < :endAt
+						AND fl.similarity IS NOT NULL
+					GROUP BY f.id, f.question, f.intent
+				), scoped_counts AS (
+					SELECT 'ALL' AS scope, faq_id, question, intent, average_similarity FROM similarity_counts
+					UNION ALL
+					SELECT intent::text AS scope, faq_id, question, intent, average_similarity FROM similarity_counts
+				), ranked AS (
+					SELECT *,
+						ROW_NUMBER() OVER (PARTITION BY scope ORDER BY average_similarity DESC, faq_id ASC) AS top_rank,
+						ROW_NUMBER() OVER (PARTITION BY scope ORDER BY average_similarity ASC, faq_id ASC) AS low_rank
+					FROM scoped_counts
+				), overall AS (
+					SELECT COALESCE(AVG(fl.similarity), 0.0) AS overall_average_similarity
+					FROM faq f
+					JOIN faq_log fl ON fl.faq_id = f.id
+					JOIN question_log ql ON ql.id = fl.question_log_id
+					WHERE f.deleted_at IS NULL
+						AND ql.created_at >= :startAt
+						AND ql.created_at < :endAt
+						AND fl.similarity IS NOT NULL
+				)
+				SELECT 'SUMMARY' AS row_type, NULL::text AS scope, NULL::text AS ranking_type,
+					NULL::bigint AS faq_id, NULL::text AS question, NULL::text AS intent,
+					NULL::double precision AS average_similarity, overall_average_similarity, 0 AS rank_in_type
+				FROM overall
+				UNION ALL
+				SELECT 'RANKING' AS row_type, scope, 'TOP' AS ranking_type,
+					faq_id, question, intent, average_similarity, NULL::double precision, top_rank
+				FROM ranked WHERE top_rank <= :limit
+				UNION ALL
+				SELECT 'RANKING' AS row_type, scope, 'LOW' AS ranking_type,
+					faq_id, question, intent, average_similarity, NULL::double precision, low_rank
+				FROM ranked WHERE low_rank <= :limit
+				ORDER BY row_type, scope, ranking_type, rank_in_type
+				""";
+
+		MapSqlParameterSource parameters = new MapSqlParameterSource()
+				.addValue("startAt", startAt)
+				.addValue("endAt", endAt)
+				.addValue("limit", limit);
+		Map<String, SimilarityScopeRows> rows = new java.util.HashMap<>();
+		double[] overallAverage = {0.0};
+		jdbcTemplate.query(sql, parameters, rs -> {
+			if ("SUMMARY".equals(rs.getString("row_type"))) {
+				overallAverage[0] = rs.getDouble("overall_average_similarity");
+				return;
+			}
+
+			SimilarityScopeRows scopeRows = rows.computeIfAbsent(
+					rs.getString("scope"), ignored -> new SimilarityScopeRows());
+			FaqSimilarityItem item = new FaqSimilarityItem(
+					rs.getLong("faq_id"),
+					rs.getString("question"),
+					Intent.valueOf(rs.getString("intent")),
+					rs.getDouble("average_similarity")
+			);
+			if ("TOP".equals(rs.getString("ranking_type"))) {
+				scopeRows.top.add(item);
+			} else {
+				scopeRows.low.add(item);
+			}
+		});
+
+
+		return new FaqSimilarityRanking(
+				overallAverage[0],
+				toSimilarityDto(rows.get("ALL")),
+				toSimilarityDto(rows.get(Intent.GENERAL.name())),
+				toSimilarityDto(rows.get(Intent.USER_DATA.name())),
+				toSimilarityDto(rows.get(Intent.STORE_DATA.name()))
+		);
+	}
+
 	private FaqUsageByIntent toDto(Intent intent, ScopeRows rows) {
 		return new FaqUsageByIntent(intent, rows == null ? List.of() : rows.top, rows == null ? List.of() : rows.low);
+	}
+
+	private FaqSimilarityByIntent toSimilarityDto(SimilarityScopeRows rows) {
+		return new FaqSimilarityByIntent(rows == null ? List.of() : rows.top, rows == null ? List.of() : rows.low);
 	}
 
 	private static final class ScopeRows {
 		private final List<FaqUsageItem> top = new java.util.ArrayList<>();
 		private final List<FaqUsageItem> low = new java.util.ArrayList<>();
+	}
+
+	private static final class SimilarityScopeRows {
+		private final List<FaqSimilarityItem> top = new java.util.ArrayList<>();
+		private final List<FaqSimilarityItem> low = new java.util.ArrayList<>();
 	}
 }
