@@ -62,7 +62,6 @@ class AdminNoticeServiceTest {
                 .isInstanceOf(NoticeException.class)
                 .extracting(e -> ((NoticeException) e).getErrorCode())
                 .isEqualTo(NoticeErrorCode.INVALID_ENDS_AT);
-        // rejectsPastEndsAtOnCreate() 안
         verify(noticeRepository, never()).save(any(Notice.class));
     }
 

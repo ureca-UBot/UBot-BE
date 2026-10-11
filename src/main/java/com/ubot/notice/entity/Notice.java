@@ -43,6 +43,7 @@ public class Notice extends AdminManagedEntity {
     @Column(name = "content")
     private String content;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "target_region")
     private RegionSido targetRegion;
 
