@@ -1,5 +1,7 @@
 package com.ubot.addon.service;
 
+import java.util.Objects;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -8,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.common.repository.ProductSpecification;
+import com.ubot.common.repository.ProductSubscriptionRepository;
 import com.ubot.common.repository.ProductWriteSupport;
 import com.ubot.common.dto.request.ProductStatusUpdateRequestDto;
 import com.ubot.addon.dto.request.AdminAddonServiceCreateRequestDto;
@@ -30,6 +33,7 @@ public class AdminAddonService {
 
     private final AddonServiceRepository productRepository;
     private final UserRepository userRepository;
+    private final ProductSubscriptionRepository subscriptionRepository;
 
     public AdminAddonServiceResponseDto createAddonService(Long administratorId, AdminAddonServiceCreateRequestDto request) {
         if (productRepository.existsByCode(request.code())) {
@@ -70,6 +74,9 @@ public class AdminAddonService {
             Long administratorId, Long addonServiceId, AdminAddonServiceUpdateRequestDto request
     ) {
         AddonService product = getUndeletedProduct(addonServiceId);
+        if (changesConditions(product, request) && subscriptionRepository.existsByAddonServiceId(addonServiceId)) {
+            throw new AddonServiceException(AddonServiceErrorCode.PRODUCT_IN_USE);
+        }
         product.update(
                 userRepository.getReferenceById(administratorId),
                 request.name().trim(),
@@ -89,7 +96,11 @@ public class AdminAddonService {
     }
 
     public void deleteAddonService(Long administratorId, Long addonServiceId) {
-        getUndeletedProduct(addonServiceId).delete(userRepository.getReferenceById(administratorId));
+        AddonService product = getUndeletedProduct(addonServiceId);
+        if (subscriptionRepository.existsByAddonServiceId(addonServiceId)) {
+            throw new AddonServiceException(AddonServiceErrorCode.PRODUCT_IN_USE);
+        }
+        product.delete(userRepository.getReferenceById(administratorId));
         log.info("부가서비스 상품을 삭제했습니다: 상품ID={}", addonServiceId);
     }
 
@@ -100,5 +111,10 @@ public class AdminAddonService {
 
     private String normalizeDescription(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private boolean changesConditions(AddonService product, AdminAddonServiceUpdateRequestDto request) {
+        return !Objects.equals(product.getDescription(), normalizeDescription(request.description()))
+                || !Objects.equals(product.getMonthlyFee(), request.monthlyFee());
     }
 }
