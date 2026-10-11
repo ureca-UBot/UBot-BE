@@ -51,8 +51,9 @@ public class FaqMonitoringService {
 	) {
 		Faq faq = faqRepository.findActiveById(faqId)
 				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
-		FaqTrendWindow window = FaqTrendWindow.from(period, asOf, LocalDateTime.now(SERVICE_ZONE));
-		List<FaqUsageTrendPoint> points = detailQueryRepository.findUsageTrend(faqId, window);
+		LocalDateTime now = LocalDateTime.now(SERVICE_ZONE);
+		FaqTrendWindow window = FaqTrendWindow.from(period, asOf, now);
+		List<FaqUsageTrendPoint> points = detailQueryRepository.findUsageTrend(faqId, window, now);
 
 		return new FaqDetailResponse(
 				toBasicInfo(faq),

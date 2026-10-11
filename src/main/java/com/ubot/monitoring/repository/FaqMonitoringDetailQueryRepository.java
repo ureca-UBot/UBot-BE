@@ -7,6 +7,7 @@ import com.ubot.monitoring.dto.model.detail.FaqTop1Summary;
 import com.ubot.monitoring.dto.model.detail.FaqTopGapSummary;
 import com.ubot.monitoring.dto.model.detail.FaqTrendWindow;
 import com.ubot.monitoring.dto.model.detail.FaqUsageTrendPoint;
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -20,15 +21,35 @@ public class FaqMonitoringDetailQueryRepository {
 	private static final int CO_OCCURRENCE_LIMIT = 5;
 	private final NamedParameterJdbcTemplate jdbcTemplate;
 
-	public List<FaqUsageTrendPoint> findUsageTrend(Long faqId, FaqTrendWindow window) {
+	public List<FaqUsageTrendPoint> findUsageTrend(
+			Long faqId,
+			FaqTrendWindow window,
+			LocalDateTime versionReferenceAt
+	) {
 		String sql = """
-				WITH buckets AS (
+				WITH faq_versions AS (
+					SELECT old_version.version, old_version.updated_at AS effective_from
+					FROM old_faq old_version
+					WHERE old_version.faq_id = :faqId
+					UNION ALL
+					SELECT f.version, f.updated_at AS effective_from
+					FROM faq f
+					WHERE f.id = :faqId
+				), buckets AS (
 					SELECT
 						:startAt + (n * interval '%s') AS bucket_start,
 						:startAt + ((n + 1) * interval '%s') AS bucket_end
 					FROM generate_series(0, :bucketCount - 1) AS n
 				)
-				SELECT b.bucket_start, b.bucket_end, COUNT(fl.id) AS usage_count
+				SELECT b.bucket_start, b.bucket_end,
+					(
+						SELECT fv.version
+						FROM faq_versions fv
+						WHERE fv.effective_from < LEAST(b.bucket_end, :versionReferenceAt)
+						ORDER BY fv.effective_from DESC, fv.version DESC
+						LIMIT 1
+					) AS faq_version,
+					COUNT(fl.id) AS usage_count
 				FROM buckets b
 				LEFT JOIN question_log ql
 					ON ql.created_at >= b.bucket_start
@@ -40,9 +61,12 @@ public class FaqMonitoringDetailQueryRepository {
 				ORDER BY b.bucket_start
 				""".formatted(bucketInterval(window), bucketInterval(window));
 
-		return jdbcTemplate.query(sql, parameters(faqId, window), (rs, rowNum) -> new FaqUsageTrendPoint(
+		MapSqlParameterSource parameters = parameters(faqId, window)
+				.addValue("versionReferenceAt", versionReferenceAt);
+		return jdbcTemplate.query(sql, parameters, (rs, rowNum) -> new FaqUsageTrendPoint(
 				rs.getTimestamp("bucket_start").toLocalDateTime(),
 				rs.getTimestamp("bucket_end").toLocalDateTime(),
+				rs.getObject("faq_version", Integer.class),
 				rs.getLong("usage_count")
 		));
 	}
