@@ -53,6 +53,10 @@ public class Conversation {
 		return new Conversation(null, ConversationType.GUEST);
 	}
 
+	public static Conversation createMember(Long userId) {
+		return new Conversation(userId, ConversationType.MEMBER);
+	}
+
 	public boolean isGuest() {
 		return type == ConversationType.GUEST;
 	}
