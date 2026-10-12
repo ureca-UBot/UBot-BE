@@ -1,5 +1,6 @@
 package com.ubot.chat.controller;
 
+import com.ubot.conversation.service.ConversationService;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -49,7 +50,7 @@ class ChatControllerResearchTest {
 
     @BeforeEach
     void setup() {
-        var controller = new ChatController(service, clientIpResolver, guestConversationService);
+        var controller = new ChatController(service, clientIpResolver, guestConversationService, mock(ConversationService.class));
         ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())

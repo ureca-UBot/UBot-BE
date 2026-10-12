@@ -11,9 +11,13 @@ import com.ubot.chat.service.ChatAnswerTask;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.ApiResponse;
+import com.ubot.conversation.entity.Conversation;
+import com.ubot.conversation.service.ConversationService;
 import com.ubot.guest.session.GuestConversationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -35,6 +39,7 @@ public class ChatController {
 	private final ChatService chatService;
 	private final ClientIpResolver clientIpResolver;
 	private final GuestConversationService guestConversationService;
+	private final ConversationService conversationService;
 
 	@PostMapping(value = "/questions", produces = MediaType.APPLICATION_JSON_VALUE)
 	public DeferredResult<ApiResponse<ChatResponseDto>> createChat(
@@ -45,11 +50,19 @@ public class ChatController {
 		// 내 위치 기준 재요청일 때만 좌표를 씁니다. 회원·비회원 모두 같습니다.
 		Location myLocation = request.myLocation();
 		if (user != null) {
-			guestConversationService.claimConversation(httpRequest, user.getUserId());
-			return createResponse(chatService.createChat(user.getUserId(), request.question(), myLocation, userIp));
+			Optional<Long> claimedConversationId = guestConversationService.claimConversation(httpRequest, user.getUserId());
+			UUID requestedConversationId = request.conversationId() != null || claimedConversationId.isEmpty()
+					? request.conversationId()
+					: conversationService.getPublicId(claimedConversationId.get());
+			Conversation conversation = conversationService.getOrCreateMemberConversation(
+					user.getUserId(), requestedConversationId);
+			return createResponse(chatService.createChat(
+					user.getUserId(), conversation.getId(), request.question(), myLocation, userIp),
+					conversation.getPublicId());
 		}
 		Long conversationId = guestConversationService.getOrCreateConversationId(httpRequest);
-		return createResponse(chatService.createGuestChat(conversationId, request.question(), myLocation, userIp));
+		return createResponse(chatService.createGuestChat(conversationId, request.question(), myLocation, userIp),
+				conversationService.getPublicId(conversationId));
 	}
 
 	@PostMapping(value = "/questions/retries", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -85,13 +98,22 @@ public class ChatController {
 	}
 
 	private DeferredResult<ApiResponse<ChatResponseDto>> createResponse(ChatAnswerTask answer) {
+		return createResponse(answer, null);
+	}
+
+	private DeferredResult<ApiResponse<ChatResponseDto>> createResponse(ChatAnswerTask answer, UUID conversationId) {
 		DeferredResult<ApiResponse<ChatResponseDto>> response = new DeferredResult<>(responseTimeoutMillis);
 		response.onTimeout(answer::timeout);
 		answer.result().whenComplete((result, exception) -> {
-			if (exception != null) {
+			if (exception instanceof ChatException chatException && chatException.getResponse() != null
+					&& conversationId != null) {
+				response.setErrorResult(new ChatException(chatException.getErrorCode(),
+						chatException.getResponse().withConversationId(conversationId)));
+			} else if (exception != null) {
 				response.setErrorResult(exception);
 			} else {
-				response.setResult(ApiResponse.success(result));
+				response.setResult(ApiResponse.success(
+						conversationId == null ? result : result.withConversationId(conversationId)));
 			}
 		});
 		return response;

@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,7 @@ import com.ubot.bundle.dto.request.AdminBundleProductUpdateRequestDto;
 import com.ubot.bundle.service.AdminBundleProductService;
 import com.ubot.common.dto.request.ProductStatusUpdateRequestDto;
 import com.ubot.common.enums.MasterStatus;
+import com.ubot.common.GlobalException;
 import com.ubot.plan.dto.request.AdminPlanStatusUpdateRequestDto;
 import com.ubot.plan.dto.request.AdminPlanUpdateRequestDto;
 import com.ubot.plan.enums.NetworkType;
@@ -90,6 +92,73 @@ class ProductConcurrencyIntegrationTest {
     static Stream<Arguments> mutations() {
         return Stream.of(Product.values()).flatMap(product ->
                 Stream.of("update", "status", "delete").map(action -> Arguments.of(product, action)));
+    }
+
+    static Stream<Arguments> historyMutations() {
+        return Stream.of(Product.values()).flatMap(product ->
+                Stream.of("update", "delete").map(action -> Arguments.of(product, action)));
+    }
+
+    @ParameterizedTest(name = "{0} {1} 신규 가입과 경합")
+    @MethodSource("historyMutations")
+    @DisplayName("진행 중인 가입의 FK 잠금을 기다린 뒤 커밋된 이력을 확인하여 조건 수정·삭제를 거절한다")
+    void protectsHistoryCommittedByConcurrentSubscription(Product product, String action) throws Exception {
+        long id = create(product);
+        String pk = ProductSubscriptionTestSupport.primaryKey(product);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        CountDownLatch inserted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch attemptingMutation = new CountDownLatch(1);
+        CountDownLatch mutationReturned = new CountDownLatch(1);
+        AtomicReference<ProductSubscriptionTestSupport.History> history = new AtomicReference<>();
+
+        try {
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                var first = executor.submit(() -> transaction.executeWithoutResult(state -> {
+                    history.set(ProductSubscriptionTestSupport.insertHistory(
+                            jdbcTemplate, product, id, administrator.getId(), "ACTIVE"));
+                    inserted.countDown();
+                    await(release);
+                }));
+                try {
+                    assertThat(inserted.await(5, TimeUnit.SECONDS)).isTrue();
+                    var second = executor.submit(() -> {
+                        attemptingMutation.countDown();
+                        try {
+                            mutate(product, action, id);
+                            return null;
+                        } catch (GlobalException exception) {
+                            return exception;
+                        } finally {
+                            mutationReturned.countDown();
+                        }
+                    });
+                    try {
+                        assertThat(attemptingMutation.await(5, TimeUnit.SECONDS)).isTrue();
+                        assertThat(mutationReturned.await(300, TimeUnit.MILLISECONDS)).isFalse();
+                    } finally {
+                        release.countDown();
+                    }
+                    first.get(10, TimeUnit.SECONDS);
+                    GlobalException rejection = second.get(10, TimeUnit.SECONDS);
+                    assertThat(rejection).isNotNull();
+                    assertThat(rejection.getErrorCode().getCode()).isEqualTo(product.errorPrefix + "-004");
+                } finally {
+                    release.countDown();
+                }
+            }
+            var row = jdbcTemplate.queryForMap("SELECT name, description, deleted_at FROM " + product.table
+                    + " WHERE " + pk + " = ?", id);
+            assertThat(row.get("name")).isEqualTo("상품");
+            assertThat(row.get("description")).isEqualTo("설명");
+            assertThat(row.get("deleted_at")).isNull();
+        } finally {
+            if (history.get() != null) {
+                ProductSubscriptionTestSupport.deleteHistory(jdbcTemplate, product, history.get());
+            }
+            jdbcTemplate.update("DELETE FROM " + product.table + " WHERE " + pk + " = ?", id);
+            userRepository.deleteById(administrator.getId());
+        }
     }
 
     @ParameterizedTest(name = "{0} {1} 행 잠금")
