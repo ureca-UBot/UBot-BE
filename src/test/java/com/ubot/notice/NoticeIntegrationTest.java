@@ -1,10 +1,13 @@
 package com.ubot.notice;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -15,10 +18,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.notice.entity.Notice;
 import com.ubot.notice.enums.NoticeType;
 import com.ubot.notice.repository.NoticeRepository;
@@ -42,6 +47,10 @@ class NoticeIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
+    // 테스트 환경에서는 IP로 지역을 알 수 없으므로 판별 결과를 직접 정합니다.
+    @MockitoBean
+    private IpRegionResolver ipRegionResolver;
+
     private User administrator;
 
     @BeforeEach
@@ -58,8 +67,9 @@ class NoticeIntegrationTest {
     }
 
     @Test
-    @DisplayName("지역을 지정하면 전체 공지와 해당 지역 공지만 배너에 나오고 만료·삭제된 공지는 제외된다")
+    @DisplayName("요청 IP의 지역이 서울이면 전체 공지와 서울 공지만 배너에 나오고 만료·삭제된 공지는 제외된다")
     void filtersBannerByRegionExpiryAndDeletion() throws Exception {
+        when(ipRegionResolver.resolve(any())).thenReturn(Optional.of(RegionSido.SEOUL));
         save(NoticeType.NOTICE, "전체 공지", null, null);
         save(NoticeType.NOTICE, "서울 공지", RegionSido.SEOUL, null);
         save(NoticeType.NOTICE, "부산 공지", RegionSido.BUSAN, null);
@@ -70,7 +80,7 @@ class NoticeIntegrationTest {
         noticeRepository.saveAndFlush(deleted);
         save(NoticeType.OUTAGE, "서울 장애", RegionSido.SEOUL, null);
 
-        mockMvc.perform(get("/notices/banners").param("region", "SEOUL"))
+        mockMvc.perform(get("/notices/banners"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notices.length()").value(3))
                 .andExpect(jsonPath("$.data.notices[0].title").value("미래 종료 공지"))
@@ -83,6 +93,7 @@ class NoticeIntegrationTest {
     @Test
     @DisplayName("지역을 판별하지 못하면 전체 공지만 배너에 나온다")
     void returnsOnlyGlobalNoticesWithoutRegion() throws Exception {
+        when(ipRegionResolver.resolve(any())).thenReturn(Optional.empty());
         save(NoticeType.NOTICE, "전체 공지", null, null);
         save(NoticeType.NOTICE, "서울 공지", RegionSido.SEOUL, null);
 
@@ -95,11 +106,12 @@ class NoticeIntegrationTest {
     @Test
     @DisplayName("배너는 종류별로 최대 10개만 내려준다")
     void limitsBannerToTen() throws Exception {
+        when(ipRegionResolver.resolve(any())).thenReturn(Optional.of(RegionSido.SEOUL));
         for (int i = 0; i < 12; i++) {
             save(NoticeType.NOTICE, "공지 " + i, null, null);
         }
 
-        mockMvc.perform(get("/notices/banners").param("region", "SEOUL"))
+        mockMvc.perform(get("/notices/banners"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.notices.length()").value(10))
                 .andExpect(jsonPath("$.data.notices[0].title").value("공지 11"));

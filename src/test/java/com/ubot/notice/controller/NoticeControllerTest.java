@@ -2,8 +2,8 @@ package com.ubot.notice.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -53,30 +53,33 @@ class NoticeControllerTest {
     private JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Test
-    @DisplayName("region 파라미터가 있으면 IP 판별 없이 해당 지역으로 배너를 조회한다")
-    void usesRegionParameter() throws Exception {
-        when(noticeService.getBanners(RegionSido.SEOUL)).thenReturn(banner());
-
-        mockMvc.perform(get("/notices/banners").param("region", "SEOUL"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.notices[0].noticeId").value(1))
-                .andExpect(jsonPath("$.data.outages").isEmpty());
-
-        verify(noticeService).getBanners(RegionSido.SEOUL);
-        verifyNoInteractions(clientIpResolver, ipRegionResolver);
-    }
-
-    @Test
-    @DisplayName("region 파라미터가 없으면 요청 IP로 지역을 판별한다")
+    @DisplayName("요청 IP로 지역을 판별해 배너를 조회한다")
     void resolvesRegionFromIp() throws Exception {
         when(clientIpResolver.resolve(any())).thenReturn("1.2.3.4");
         when(ipRegionResolver.resolve("1.2.3.4")).thenReturn(Optional.of(RegionSido.BUSAN));
         when(noticeService.getBanners(RegionSido.BUSAN)).thenReturn(banner());
 
-        mockMvc.perform(get("/notices/banners")).andExpect(status().isOk());
+        mockMvc.perform(get("/notices/banners"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.notices[0].noticeId").value(1))
+                .andExpect(jsonPath("$.data.outages").isEmpty());
 
         verify(noticeService).getBanners(RegionSido.BUSAN);
+    }
+
+    @Test
+    @DisplayName("클라이언트가 region을 보내도 무시하고 요청 IP로만 지역을 판별한다")
+    void ignoresRegionParameter() throws Exception {
+        when(clientIpResolver.resolve(any())).thenReturn("1.2.3.4");
+        when(ipRegionResolver.resolve("1.2.3.4")).thenReturn(Optional.of(RegionSido.BUSAN));
+        when(noticeService.getBanners(RegionSido.BUSAN)).thenReturn(banner());
+
+        mockMvc.perform(get("/notices/banners").param("region", "SEOUL"))
+                .andExpect(status().isOk());
+
+        verify(noticeService).getBanners(RegionSido.BUSAN);
+        verify(noticeService, never()).getBanners(RegionSido.SEOUL);
     }
 
     @Test
@@ -91,16 +94,6 @@ class NoticeControllerTest {
                 .andExpect(jsonPath("$.data.notices").isEmpty());
 
         verify(noticeService).getBanners(null);
-    }
-
-    @Test
-    @DisplayName("지원하지 않는 region 값이면 400 응답을 반환한다")
-    void rejectsInvalidRegion() throws Exception {
-        mockMvc.perform(get("/notices/banners").param("region", "ATLANTIS"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("G-002"));
-
-        verifyNoInteractions(noticeService);
     }
 
     @Test

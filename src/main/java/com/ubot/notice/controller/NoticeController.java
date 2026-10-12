@@ -41,12 +41,8 @@ public class NoticeController {
      * region을 지정하지 않으면 요청 IP로 지역을 판단하고, 판단할 수 없으면 전체 공지만 반환합니다.
      */
     @GetMapping("/banners")
-    public ApiResponse<NoticeBannerResponseDto> getBanners(
-            @RequestParam(name = "region", required = false) RegionSido region,
-            HttpServletRequest httpRequest) {
-        RegionSido targetRegion = region != null
-                ? region
-                : ipRegionResolver.resolve(clientIpResolver.resolve(httpRequest)).orElse(null);
+    public ApiResponse<NoticeBannerResponseDto> getBanners(HttpServletRequest httpRequest) {
+        RegionSido targetRegion = ipRegionResolver.resolve(clientIpResolver.resolve(httpRequest)).orElse(null);
         return ApiResponse.success(noticeService.getBanners(targetRegion));
     }
 
