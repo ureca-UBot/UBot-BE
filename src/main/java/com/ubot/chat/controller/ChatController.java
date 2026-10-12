@@ -105,7 +105,11 @@ public class ChatController {
 		DeferredResult<ApiResponse<ChatResponseDto>> response = new DeferredResult<>(responseTimeoutMillis);
 		response.onTimeout(answer::timeout);
 		answer.result().whenComplete((result, exception) -> {
-			if (exception != null) {
+			if (exception instanceof ChatException chatException && chatException.getResponse() != null
+					&& conversationId != null) {
+				response.setErrorResult(new ChatException(chatException.getErrorCode(),
+						chatException.getResponse().withConversationId(conversationId)));
+			} else if (exception != null) {
 				response.setErrorResult(exception);
 			} else {
 				response.setResult(ApiResponse.success(
