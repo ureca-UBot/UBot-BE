@@ -5,12 +5,12 @@ import static org.mockito.Mockito.mock;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
-import com.ubot.user.service.UserService;
 import java.util.List;
 
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
@@ -27,7 +27,7 @@ final class ChatTestFixtures {
 	static ChatContextCollector collector(NearbyStoreSearcher nearbyStoreSearcher) {
 		return new ChatContextCollector(List.of(
 				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
-				new UserIntentHandler(mock(UserService.class))));
+				new UserIntentHandler(mock(UserDataSummarizer.class))));
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

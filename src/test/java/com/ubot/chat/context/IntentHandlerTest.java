@@ -9,17 +9,15 @@ import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.user.dto.response.UserResponseDto;
-import com.ubot.user.enums.UserRole;
 import com.ubot.user.exception.UserErrorCode;
 import com.ubot.user.exception.UserException;
-import com.ubot.user.service.UserService;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -89,43 +87,60 @@ class IntentHandlerTest {
 	}
 
 	@Test
-	void USER_DATA는_이메일_없이_사용자_정보_섹션을_넣는다() {
-		UserService userService = mock(UserService.class);
-		when(userService.getActiveUser(1L)).thenReturn(new UserResponseDto(1L, "user@example.com", "홍길동",
-				LocalDate.of(2000, 1, 1), null, "서울 강남구", UserRole.USER, LocalDateTime.of(2026, 3, 2, 10, 0)));
+	void USER_DATA는_미리_조회한_사용자_정보를_넣고_가입_정보_도구를_켠다() {
+		UserDataSummarizer summarizer = mock(UserDataSummarizer.class);
+		UserDataSummary summary = new UserDataSummary(LocalDate.of(2026, 10, 12), null, List.of(), 0);
+		when(summarizer.summarize(1L)).thenReturn(summary);
+		when(summarizer.format(summary)).thenReturn("조회 기준일: 2026-10-12");
 		var materials = AnswerMaterials.builder("질문");
 
-		new UserIntentHandler(userService).contribute(context, results, materials);
+		new UserIntentHandler(summarizer).contribute(context, results, materials);
 
-		ContextSection section = materials.build().sections().getFirst();
-		assertThat(section.title()).isEqualTo(UserIntentHandler.SECTION_TITLE);
-		assertThat(section.content())
-				.contains("이름: 홍길동", "거주 지역: 서울 강남구", "가입일: 2026-03-02")
-				.endsWith(UserIntentHandler.UNAVAILABLE_NOTICE)
-				.doesNotContain("user@example.com");
+		AnswerMaterials built = materials.build();
+		assertThat(built.sections()).containsExactly(
+				new ContextSection(UserIntentHandler.SECTION_TITLE, "조회 기준일: 2026-10-12"));
+		assertThat(built.tools()).containsExactly(AiTool.USER_DATA_LOOKUP);
 	}
 
 	@Test
-	void USER_DATA는_사용자가_없으면_예외_대신_안내_섹션을_넣는다() {
-		UserService userService = mock(UserService.class);
-		when(userService.getActiveUser(1L)).thenThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+	void USER_DATA는_사용자가_없으면_예외_대신_안내_섹션을_넣고_도구를_켜지_않는다() {
+		UserDataSummarizer summarizer = mock(UserDataSummarizer.class);
+		when(summarizer.summarize(1L)).thenThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 		var materials = AnswerMaterials.builder("질문");
 
-		new UserIntentHandler(userService).contribute(context, results, materials);
+		new UserIntentHandler(summarizer).contribute(context, results, materials);
 
-		assertThat(materials.build().sections()).containsExactly(
+		AnswerMaterials built = materials.build();
+		assertThat(built.sections()).containsExactly(
 				new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.NOT_FOUND_CONTENT));
+		assertThat(built.tools()).isEmpty();
 	}
 
 	@Test
-	void USER_DATA는_사용자_ID가_없으면_조회하지_않는다() {
-		UserService userService = mock(UserService.class);
+	void USER_DATA는_미리_조회가_실패하면_안내_섹션을_넣고_도구로_다시_조회하게_한다() {
+		UserDataSummarizer summarizer = mock(UserDataSummarizer.class);
+		when(summarizer.summarize(1L)).thenThrow(new IllegalStateException("db down"));
 		var materials = AnswerMaterials.builder("질문");
 
-		new UserIntentHandler(userService).contribute(new ChatContext(null, "질문", null), results, materials);
+		new UserIntentHandler(summarizer).contribute(context, results, materials);
 
-		assertThat(materials.build().sections()).extracting(ContextSection::content)
-				.containsExactly(UserIntentHandler.NOT_FOUND_CONTENT);
-		verifyNoInteractions(userService);
+		AnswerMaterials built = materials.build();
+		assertThat(built.sections()).containsExactly(
+				new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.LOOKUP_FAILED_CONTENT));
+		assertThat(built.tools()).containsExactly(AiTool.USER_DATA_LOOKUP);
+	}
+
+	@Test
+	void USER_DATA는_비회원이면_조회하지_않고_로그인_안내만_넣는다() {
+		UserDataSummarizer summarizer = mock(UserDataSummarizer.class);
+		var materials = AnswerMaterials.builder("질문");
+
+		new UserIntentHandler(summarizer).contribute(new ChatContext(null, "질문", null), results, materials);
+
+		AnswerMaterials built = materials.build();
+		assertThat(built.sections()).extracting(ContextSection::content)
+				.containsExactly(UserIntentHandler.LOGIN_REQUIRED_CONTENT);
+		assertThat(built.tools()).isEmpty();
+		verifyNoInteractions(summarizer);
 	}
 }
