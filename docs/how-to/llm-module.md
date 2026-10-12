@@ -34,27 +34,38 @@ POST /chat/questions
 LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않았습니다.`)로 실패합니다.
 작성 방법은 [프롬프트 안내](../../src/main/resources/prompts/README.md)를 참고하세요.
 
-### 출력 형식과 서버 처리 (JSON 분리는 후속 작업)
+### 출력 형식과 서버 처리
 
-현재 시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 표의 키 순서대로 출력하도록 요구합니다.
-이 JSON의 `status`·`answer`·`evidence_ids`를 분리하는 처리는 이슈 #81에서 후속 작업으로 정해 두었습니다.
+시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 표의 키 순서대로 출력하도록 요구합니다.
 
 | 키 | 값 |
 |---|---|
+| `answer` | 한국어 답변 문자열 |
 | `evidence_ids` | 질문의 답을 담은 FAQ ID 문자열 배열. 답을 담은 문서가 없으면(API·도구 결과만으로 답하거나 보류) 빈 배열 |
 | `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기는 `answer` 안에서 하고 `ABSTAIN`/`PARTIAL`) |
-| `answer` | 한국어 답변 문자열 |
 
-그러나 서버(`OllamaClient` → `ChatAnswerProcessor`)는 이 JSON을 파싱하지 않습니다. 모델이 반환한 문자열 전체를
-`LlmResponseDto.answer`로 받아 `question_log.llm_question`에 저장하고, 채팅 응답의 `answer`로 그대로 반환합니다.
-따라서 클라이언트에는 JSON 문자열이 그대로 전달되고, 모델이 `ABSTAIN`·`OUT_OF_SCOPE` 등으로 판단해도
-서버 기준 상태는 `SUCCESS`입니다. `evidence_ids`와 관계없이 `faq_log`에는 모델에 전달한 FAQ 전체가 기록됩니다.
-Ollama의 `format`(JSON 모드) 옵션도 지정하지 않으므로 모델이 JSON 형식을 지키는지는 보장되지 않습니다.
-실제로 `exaone3.5:7.8b`로 확인했을 때(2026-09-30) 모델이 JSON을 마크다운 코드 블록(```` ```json … ``` ````)으로 감싸 반환했고,
-서버는 이 문자열을 그대로 `answer`에 넣었습니다.
-현재는 UBot-FE가 화면에 표시할 때 이 문자열을 JSON으로 파싱해 안쪽 `answer`만 보여 주지만,
-코드 블록으로 감싸져 있으면 파싱에 실패해 코드 블록이 그대로 보입니다.
-#81을 구현해 응답 형식을 바꿀 때는 프론트와 함께 맞춰야 합니다([프론트엔드 연동 가이드](frontend-integration.md#알아-둘-점)).
+**출력 강제.** `PromptService`가 같은 형식의 JSON Schema(`FaqAnswerFormat.schema()`)를 `LlmRequestDto.responseSchema`에 싣고,
+각 클라이언트가 이를 모델 서버에 넘깁니다. Ollama는 요청의 `format`, vLLM은 `response_format`(`json_schema`, `strict`)입니다.
+스키마의 키 순서가 출력 키 순서이며, answer를 먼저 둔 이유는 [프롬프트 안내](../../src/main/resources/prompts/README.md)에 있습니다.
+**매장 조회 도구가 붙은 요청에는 스키마를 걸지 않습니다.** 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없기 때문입니다.
+이 경우 형식은 프롬프트로만 요구하므로, 모델이 JSON을 코드 블록으로 감싸거나 일반 문장으로 답할 수 있습니다.
+
+**생성 옵션.** temperature는 `LlmClient.TEMPERATURE`(0)로 고정해 두 엔진 모두 보냅니다. 지정하지 않으면 모델 기본값
+(`qwen3:4b-instruct-2507-q4_K_M`은 0.7)이 쓰여 같은 질문에도 답이 달라집니다. LLM_Test 평가도 temperature 0입니다.
+
+**서버 파싱.** `AiService`가 모델 출력을 `FaqAnswerFormat.parse()`로 읽어 `answer`만 채팅으로 넘깁니다.
+따라서 `question_log.llm_question`과 채팅 응답의 `answer`에는 답변 문장만 들어갑니다. `status`·`evidence_ids`는
+`AiService`의 INFO 로그(`LLM 답변을 파싱했습니다`)로만 남고 저장하지 않습니다. 모델이 `ABSTAIN`·`OUT_OF_SCOPE`로 판단해도
+서버 기준 상태는 `SUCCESS`이며, `faq_log`에는 `evidence_ids`와 관계없이 모델에 전달한 FAQ 전체가 기록됩니다.
+
+| 모델 출력 | 처리 |
+|---|---|
+| JSON 객체 (코드 블록으로 감싼 것 포함) | `answer` 값을 답변으로 사용. 키 순서는 따지지 않음 |
+| `{`로 시작하지 않는 일반 문장 | 문장 전체를 답변으로 사용 (도구 경로 등 스키마를 걸지 않은 경우) |
+| JSON처럼 보이지만 읽을 수 없음, `answer`가 없거나 빈 문자열 | `LLM-005`(`LLM_RESPONSE_INVALID`)로 실패. 원문 JSON을 사용자에게 보여 주지 않음 |
+
+2026-10-12 이전에 저장된 답변은 JSON 문자열 그대로입니다. UBot-FE의 `getAnswerText`는 JSON이면 안쪽 `answer`를,
+일반 문장이면 그대로 표시하므로 이전 기록과 새 기록 모두 화면에 정상으로 보입니다.
 
 ## 입력과 출력
 
@@ -86,11 +97,13 @@ String answer = response.answer();
 ## 설정
 
 프로젝트 `.env` 또는 실행 환경에 설치된 모델의 정확한 태그를 지정합니다.
+로컬 기본값(`.env.example`)은 LLM_Test model_test_v5로 프롬프트와 함께 검증한 `qwen3:4b-instruct-2507-q4_K_M`
+(`ollama list`의 ID `0edcdef34593`)입니다. 다른 모델로 바꾸면 프롬프트 검증 결과가 그대로 적용되지 않습니다.
 `OLLAMA_CHAT_MODEL`에 값이 있으면 Ollama를 띄울 때(`.\tools\ubot.ps1 up`) `ollama-init`이 임베딩 모델과 함께 채팅 모델도 받습니다.
 값을 나중에 채웠다면 `ollama-init`을 다시 실행하거나 직접 받습니다([명령](../quickstart.md#4-embedding-모델-준비-확인)).
 
 ```properties
-OLLAMA_CHAT_MODEL=사용할_모델_태그
+OLLAMA_CHAT_MODEL=qwen3:4b-instruct-2507-q4_K_M
 LLM_CONNECT_TIMEOUT=3s
 LLM_READ_TIMEOUT=120s
 ```

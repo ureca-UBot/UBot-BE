@@ -10,6 +10,7 @@ import io.micrometer.observation.ObservationRegistry;
 
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.List;
 import java.util.Set;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.ToolCallingAdvisor;
@@ -23,6 +24,8 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallLimitBehavior;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.util.StringUtils;
 
@@ -64,13 +67,14 @@ public class OllamaClient implements LlmClient {
             // 완성된 답변을 한 번에 받습니다. 현재 채팅 API는 SSE 스트리밍을 사용하지 않습니다.
             // chatModel.call()은 도구 정의만 보내고 실행하지 않으므로, 도구가 있으면 ChatClient의
             // ToolCallingAdvisor가 도구 실행과 재호출을 반복하게 합니다.
+            // 도구가 있는 요청에는 출력 스키마를 걸지 않습니다. 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없습니다.
             response = request.hasTools()
                     ? chatClient.prompt(new Prompt(messages))
                             .tools(request.toolCallbacks())
                             .toolContext(request.toolContext())
                             .call()
                             .chatResponse()
-                    : chatModel.call(new Prompt(messages));
+                    : chatModel.call(createPrompt(messages, request));
         } catch (RuntimeException exception) {
             throw translateException(exception);
         }
@@ -93,6 +97,18 @@ public class OllamaClient implements LlmClient {
     @Override
     public String getModelName() {
         return modelName;
+    }
+
+    private Prompt createPrompt(List<Message> messages, LlmRequestDto request) {
+        // 요청에 옵션을 넣으면 OllamaChatModel은 기본 옵션과 합치지 않고 요청 옵션만 씁니다.
+        // 그래서 기본 옵션(모델·temperature)을 복사한 뒤 출력 스키마(format)만 더합니다.
+        if (request.hasResponseSchema() && chatModel instanceof OllamaChatModel ollamaChatModel) {
+            OllamaChatOptions options = ollamaChatModel.getOptions().mutate()
+                    .format(request.responseSchema())
+                    .build();
+            return new Prompt(messages, options);
+        }
+        return new Prompt(messages);
     }
 
     private Message toMessage(LlmMessageRequestDto message) {

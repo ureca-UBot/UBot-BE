@@ -76,7 +76,7 @@ openssl rand -base64 32
 | 변수 | 비워 두면 | 채우면 |
 |---|---|---|
 | `KAKAO_REST_API_KEY` | 기동은 되지만 위치 검색·길찾기 API 호출이 실패합니다 (위치 검색은 `500 G-005`) | 카카오 개발자 사이트의 REST API 키 |
-| `OLLAMA_CHAT_MODEL` | 기동은 되지만 Ollama로 채팅 답변을 만들 때 `LLM-002`로 실패합니다 | 사용할 채팅 모델 태그. 값이 있으면 3단계에서 `ollama-init`이 임베딩 모델과 함께 내려받습니다 |
+| `OLLAMA_CHAT_MODEL` | 기동은 되지만 Ollama로 채팅 답변을 만들 때 `LLM-002`로 실패합니다 | 채팅 모델 태그. `.env.example` 기본값은 `qwen3:4b-instruct-2507-q4_K_M`이며, 값이 있으면 3단계에서 `ollama-init`이 임베딩 모델과 함께 내려받습니다 |
 
 `KAKAO_REST_API_KEY` 줄은 지우지 마세요. 키 자체가 없으면 기동 시점에 `Could not resolve placeholder` 오류가 납니다.
 
