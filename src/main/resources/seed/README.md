@@ -23,8 +23,10 @@ python tools/generate_faq_vectors.py --model bge-m3:567m --input-columns questio
 실행할 때는 시드 뒤에 `tools/backfill-embeddings.ps1`로 vLLM Profile의 벡터를 채웁니다. 임베딩 대상 컬럼 또는 모델을 변경했다면 아래 명령으로
 CSV의 벡터를 다시 생성합니다.
 
-질문과 답변을 함께 임베딩하려면 입력 컬럼을 추가합니다. 다만 백엔드는 질문만 임베딩한 벡터로
-검색하므로, 시드 스크립트는 `question`만으로 만든 벡터가 아니면 실행을 멈춥니다.
+질문과 답변을 함께 임베딩하려면 입력 컬럼을 추가합니다. 다만 시드 스크립트는 CSV의 벡터를
+질문 벡터(`vector_type = 'QUESTION'`)로 저장하므로, `question`만으로 만든 벡터가 아니면 실행을 멈춥니다.
+질문+답변 벡터(`QUESTION_ANSWER`)는 시드에 없습니다. 필요하면 시드 뒤에
+`tools/backfill-embeddings.ps1`로 채웁니다.
 
 ```powershell
 python tools/generate_faq_vectors.py --model bge-m3:567m --input-columns question answer

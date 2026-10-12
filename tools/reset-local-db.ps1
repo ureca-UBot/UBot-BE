@@ -145,3 +145,4 @@ if ($verification -ne 't|t|t|t') {
 }
 
 Write-Host 'DB Reset Completed.'
+Write-Host 'FAQ 벡터는 QUESTION 유형만 넣었습니다. QUESTION_ANSWER 벡터는 백엔드를 시작한 뒤 tools\backfill-embeddings.ps1로 채웁니다.'
