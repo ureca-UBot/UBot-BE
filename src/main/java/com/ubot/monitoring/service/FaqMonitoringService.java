@@ -67,7 +67,7 @@ public class FaqMonitoringService {
 	public FaqMonitoringResponse getMonitoringData(LocalDateTime startAt, LocalDateTime endAt) {
 		if (!startAt.isBefore(endAt)) {
 			log.warn("FAQ 모니터링 조회 기간이 유효하지 않습니다. startAt={}, endAt={}", startAt, endAt);
-			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, "startAt은 endAt보다 이전이어야 합니다.");
+			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, String.format("FAQ 모니터링 조회 기간이 유효하지 않습니다. startAt=%s, endAt=%s", startAt, endAt));
 		}
 
 		FaqMonitoringResponse response = new FaqMonitoringResponse(
