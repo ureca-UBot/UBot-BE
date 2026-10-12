@@ -27,8 +27,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -49,8 +51,11 @@ public class UserDataSummarizer {
     static final String FEE_GUIDE =
             "'이번 달 요금'은 가장 최근 청구서 기준으로 답하고 몇 월 청구분인지 밝히세요. "
                     + "아직 청구되지 않은 이번 달 사용분 요금은 계산하지 말고, 요금제 월정액과 현재까지 사용량만 참고로 안내하세요.";
-    static final String TOOL_GUIDE = "가장 최근 달의 사용량·청구서는 위에 있으니 도구로 다시 조회하지 마세요. "
-            + "그보다 이전 달의 사용량·청구서, 부가서비스, 결합, 로밍 정보는 이 자료에 없으니 필요하면 도구로 조회하세요.";
+    // "도구로 조회하지 마세요" 같은 금지형 문장은 작은 모델이 도구 전체를 쓰지 말라는 뜻으로 받아들여 도구를 호출하지 않습니다.
+    // 그래서 이 자료에 무엇이 있는지 알려 주고, 없는 정보는 도구로 조회하라고 긍정형으로만 안내합니다.
+    // 가장 최근 달을 다시 조회하지 않게 하는 것은 UserDataTools가 코드로 막습니다.
+    static final String TOOL_GUIDE =
+            "그보다 이전 달의 사용량·청구서, 부가서비스, 결합, 로밍을 물으면 답하기 전에 반드시 도구를 호출해 조회하세요.";
     // DB에 없는 값을 LLM이 지어내지 않고 확인할 수 없다고 답하게 합니다.
     static final String UNAVAILABLE_NOTICE =
             "제공되지 않는 정보: 소액결제, 포인트·멤버십, 할인반환금(위약금), 요금제 변경 가능 여부, "
@@ -93,9 +98,32 @@ public class UserDataSummarizer {
         }
         return text.append('\n')
                 .append(FEE_GUIDE).append('\n')
-                .append(TOOL_GUIDE).append('\n')
+                .append(coverageNotice(summary)).append(TOOL_GUIDE).append('\n')
                 .append(UNAVAILABLE_NOTICE)
                 .toString();
+    }
+
+    /** 이 자료에 들어 있는 사용량·청구서의 달을 알려 줍니다. 예: "이 자료에는 가장 최근 달(사용량 2026-10, 청구서 2026-10 청구분)만 있습니다. " */
+    private String coverageNotice(UserDataSummary summary) {
+        String usageMonths = summary.subscriptions().stream()
+                .filter(subscription -> subscription.latestUsage() != null)
+                .map(subscription -> subscription.latestUsage().billingMonth().toString())
+                .distinct().sorted(Comparator.reverseOrder()).collect(Collectors.joining("·"));
+        String billingMonths = summary.subscriptions().stream()
+                .filter(subscription -> subscription.latestBilling() != null)
+                .map(subscription -> subscription.latestBilling().billingMonth().toString())
+                .distinct().sorted(Comparator.reverseOrder()).collect(Collectors.joining("·"));
+        List<String> parts = new ArrayList<>();
+        if (!usageMonths.isEmpty()) {
+            parts.add("사용량 " + usageMonths);
+        }
+        if (!billingMonths.isEmpty()) {
+            parts.add("청구서 " + billingMonths + " 청구분");
+        }
+        if (parts.isEmpty()) {
+            return "이 자료에는 사용량·청구서 기록이 없습니다. ";
+        }
+        return "이 자료에는 가장 최근 달(" + String.join(", ", parts) + ")만 있습니다. ";
     }
 
     /** 해지되지 않은(이용 중·일시정지) 회선을 최근 개통 순으로 돌려줍니다. */

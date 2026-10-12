@@ -170,7 +170,10 @@ class UserDataSummarizerTest {
                 .contains("- 미납: 2026-10 청구분 미납액 78,000원(납부 기한 2026-10-25, 미납)")
                 .contains("- 약정·할부: 선택약정 2024-03-02~2026-03-01 | 약정 할인 18,750원"
                         + " | 단말 할부: iPhone 15, 월 50,000원, 24개월 중 19개월 납부, 잔여 250,000원, 만료 2026-03-01")
-                .contains(UserDataSummarizer.FEE_GUIDE, UserDataSummarizer.TOOL_GUIDE)
+                .contains(UserDataSummarizer.FEE_GUIDE,
+                        "이 자료에는 가장 최근 달(사용량 2026-10, 청구서 2026-10 청구분)만 있습니다. " + UserDataSummarizer.TOOL_GUIDE)
+                // 금지형 안내는 작은 모델이 도구를 아예 호출하지 않게 만듭니다.
+                .doesNotContain("조회하지 마세요")
                 .endsWith(UserDataSummarizer.UNAVAILABLE_NOTICE)
                 .doesNotContain("010-1234-5678", "01012345678", SIM_IDENTIFIER, "USIM");
     }
