@@ -28,7 +28,7 @@ vLLM 또는 SGLang
 → SGLang
 
 기본 Model
-→ Qwen/Qwen3-4B-AWQ
+→ RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
 
 Served Model Name
 → ubot-chat
@@ -123,7 +123,7 @@ Copy-Item `
 예:
 
 ```dotenv
-LLM_HF_MODEL=Qwen/Qwen3-4B-AWQ
+LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
 LLM_SERVED_MODEL_NAME=ubot-chat
 LLM_PORT=8000
 LLM_MAX_MODEL_LEN=4096
@@ -155,7 +155,7 @@ infra/llm/.env
 실제로 Hugging Face에서 로딩할 모델입니다.
 
 ```dotenv
-LLM_HF_MODEL=Qwen/Qwen3-4B-AWQ
+LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
 ```
 
 예전 이름은 `LLM_MODEL`이었습니다. Backend `.env`의 `LLM_MODEL`(요청에 넣는 served model name)과 뜻이 달라서 이름을 나눴습니다. 임베딩 서버의 `EMBEDDING_HF_MODEL`(예전 `EMBEDDING_MODEL`)도 같습니다. 이미 만들어 둔 `infra/llm/.env`가 있으면 변수 이름을 바꿔야 값이 적용됩니다.
@@ -173,7 +173,7 @@ LLM_SERVED_MODEL_NAME=ubot-chat
 실제 모델이 바뀌어도 Backend에서는 계속 `ubot-chat`을 사용할 수 있습니다.
 
 ```text
-Qwen/Qwen3-4B-AWQ
+RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
         ↓
     ubot-chat
 ```

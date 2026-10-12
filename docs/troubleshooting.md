@@ -301,7 +301,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 
 FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_embeddings`에 벡터가 없어 검색에 나오지 않습니다. [백필](how-to/llm-module.md#백필)을 실행하면 벡터가 없는 FAQ만 임베딩합니다.
 
-채팅이 성공했는데 `answer`에 JSON 문자열이 그대로 보이는 것은 오류가 아닙니다([LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리-json-분리는-후속-작업)).
+채팅 응답의 `answer`에는 답변 문장만 들어갑니다. 2026-10-12 이전에 저장된 대화 기록은 JSON 문자열 그대로일 수 있습니다. 모델 출력 JSON을 읽을 수 없으면 `LLM-005`로 실패합니다([LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리)).
 
 ## 관리자 API가 403을 반환함
 

@@ -45,6 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class OpenAiCompatibleLlmClient implements LlmClient {
 
 	private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
+	private static final String RESPONSE_SCHEMA_NAME = "faq_answer";
 
 	// OllamaClient와 같은 한도입니다. 한도를 넘으면 도구를 실행하지 않고 "한도 초과"를 도구 결과로 알려,
 	// LLM이 그걸 보고 답변을 마무리하게 합니다.
@@ -83,9 +84,10 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
 		Completion completion;
 		try {
+			// 도구가 있는 요청에는 출력 스키마를 걸지 않습니다. 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없습니다.
 			completion = request.hasTools()
 					? completeWithTools(messages, request)
-					: complete(messages, List.of());
+					: complete(messages, List.of(), request.responseSchema());
 		} catch (RuntimeException exception) {
 			throw translateException(exception);
 		}
@@ -116,7 +118,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 				.build();
 
 		List<Message> conversation = messages;
-		Completion completion = complete(conversation, request.toolCallbacks());
+		Completion completion = complete(conversation, request.toolCallbacks(), null);
 		while (completion != null && completion.hasToolCalls()) {
 			ToolExecutionResult result = toolCallingManager.executeToolCalls(
 					new Prompt(conversation, options), completion.toChatResponse());
@@ -126,12 +128,12 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 						ToolExecutionResult.buildGenerations(result).getFirst().getOutput().getText());
 			}
 			conversation = result.conversationHistory();
-			completion = complete(conversation, request.toolCallbacks());
+			completion = complete(conversation, request.toolCallbacks(), null);
 		}
 		return completion;
 	}
 
-	private Completion complete(List<Message> conversation, List<ToolCallback> tools) {
+	private Completion complete(List<Message> conversation, List<ToolCallback> tools, Map<String, Object> responseSchema) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("model", modelName);
 		body.put("messages", conversation.stream()
@@ -140,8 +142,15 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 		if (!tools.isEmpty()) {
 			body.put("tools", tools.stream().map(this::toRequestTool).toList());
 		}
+		if (responseSchema != null) {
+			// vLLM의 구조화 출력입니다. 스키마의 키 순서대로 출력이 강제됩니다.
+			body.put("response_format", Map.of(
+					"type", "json_schema",
+					"json_schema", Map.of("name", RESPONSE_SCHEMA_NAME, "strict", true, "schema", responseSchema)));
+		}
+		// 같은 질문에 같은 답을 내도록 Ollama와 같은 temperature를 보냅니다. Thinking Mode는 서버 설정을 따릅니다.
+		body.put("temperature", LlmClient.TEMPERATURE);
 		// 완성된 답변을 한 번에 받습니다. 현재 채팅 API는 SSE 스트리밍을 사용하지 않습니다.
-		// temperature나 Thinking Mode 같은 생성 옵션은 보내지 않고 서버 기본 설정을 따릅니다.
 		body.put("stream", false);
 
 		ChatCompletion response = restClient.post()

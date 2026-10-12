@@ -32,6 +32,7 @@ import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.location.service.LocationService;
+import com.ubot.prompt.format.FaqAnswerFormat;
 import com.ubot.store.service.StoreService;
 
 import tools.jackson.databind.JsonNode;
@@ -82,11 +83,43 @@ class OpenAiCompatibleLlmClientHttpTest {
 		assertThat(body.get("messages").get(2).get("role").asString()).isEqualTo("assistant");
 		assertThat(body.get("messages").get(3).get("content").asString())
 				.isEqualTo(request.messages().getLast().content());
-		// 도구가 없는 요청에는 tools를 보내지 않고, 생성 옵션은 서버 기본 설정에 맡깁니다.
+		// 도구가 없는 요청에는 tools를 보내지 않습니다. temperature는 항상 0으로 보내고, Thinking Mode는 서버 설정에 맡깁니다.
 		assertThat(body.has("tools")).isFalse();
-		assertThat(body.has("temperature")).isFalse();
+		assertThat(body.get("temperature").asDouble()).isEqualTo(LlmClient.TEMPERATURE);
 		assertThat(body.has("chat_template_kwargs")).isFalse();
+		// 출력 스키마가 없는 요청에는 response_format을 보내지 않습니다.
+		assertThat(body.has("response_format")).isFalse();
 		assertThat(result.answer()).isEqualTo("가까운 매장에서 재발급할 수 있습니다.");
+	}
+
+	@Test
+	void sendsResponseSchemaAsJsonSchemaResponseFormatInKeyOrder() {
+		server.respond(completion("\"{\\\"answer\\\":\\\"답변\\\",\\\"evidence_ids\\\":[],\\\"status\\\":\\\"ANSWER\\\"}\"", "stop"));
+
+		client.generateAnswer(question("유심 재발급 방법").withResponseSchema(schema()));
+
+		JsonNode format = server.requests().getFirst().get("response_format");
+		assertThat(format.get("type").asString()).isEqualTo("json_schema");
+		assertThat(format.get("json_schema").get("strict").asBoolean()).isTrue();
+		JsonNode properties = format.get("json_schema").get("schema").get("properties");
+		// vLLM은 스키마의 키 순서대로 출력을 강제하므로, 요청의 순서가 그대로 실려야 합니다.
+		assertThat(properties.propertyNames()).containsExactly("answer", "evidence_ids", "status");
+	}
+
+	@Test
+	void doesNotSendResponseSchemaWhenToolsAreOffered() {
+		var recorder = new StoreSearchRecorder();
+		server.respond(toolCall("findNearbyStores", ""));
+		server.respond(completion("\"위치를 알려 주세요.\"", "stop"));
+
+		client.generateAnswer(storeQuestion(recorder).withResponseSchema(schema()));
+
+		// 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없으므로, 도구가 있는 요청에는 보내지 않습니다.
+		assertThat(server.requests()).hasSize(2)
+				.allSatisfy(body -> {
+					assertThat(body.has("response_format")).isFalse();
+					assertThat(body.get("temperature").asDouble()).isEqualTo(LlmClient.TEMPERATURE);
+				});
 	}
 
 	@Test
@@ -211,6 +244,10 @@ class OpenAiCompatibleLlmClientHttpTest {
 
 	private LlmRequestDto question(String content) {
 		return new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, content)));
+	}
+
+	private Map<String, Object> schema() {
+		return FaqAnswerFormat.schema();
 	}
 
 	private LlmRequestDto storeQuestion(StoreSearchRecorder recorder) {
