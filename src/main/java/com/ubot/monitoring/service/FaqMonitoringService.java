@@ -14,6 +14,8 @@ import com.ubot.monitoring.dto.model.detail.FaqTrendWindow;
 import com.ubot.monitoring.dto.model.improvelayer.FaqImprovementItem;
 import com.ubot.monitoring.dto.model.improvelayer.FaqImprovementMetric;
 import com.ubot.monitoring.dto.model.improvelayer.FaqImprovementType;
+import com.ubot.monitoring.dto.model.similaritylayer.FaqSimilarityRanking;
+import com.ubot.monitoring.dto.model.usagelayer.FaqUsageRanking;
 import com.ubot.monitoring.dto.response.FaqDetailResponse;
 import com.ubot.monitoring.dto.response.FaqImprovementResponse;
 import com.ubot.monitoring.dto.response.FaqMonitoringResponse;
@@ -26,12 +28,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FaqMonitoringService {
 
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
@@ -62,14 +66,26 @@ public class FaqMonitoringService {
 	@Transactional(readOnly = true)
 	public FaqMonitoringResponse getMonitoringData(LocalDateTime startAt, LocalDateTime endAt) {
 		if (!startAt.isBefore(endAt)) {
+			log.warn("FAQ 모니터링 조회 기간이 유효하지 않습니다. startAt={}, endAt={}", startAt, endAt);
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, "startAt은 endAt보다 이전이어야 합니다.");
 		}
 
-		return new FaqMonitoringResponse(
+		FaqMonitoringResponse response = new FaqMonitoringResponse(
 				rankingQueryRepository.findUnansweredQuestionSummary(startAt, endAt),
 				rankingQueryRepository.findUsageRanking(startAt, endAt, RANKING_LIMIT),
 				rankingQueryRepository.findSimilarityRanking(startAt, endAt, RANKING_LIMIT)
 		);
+
+		log.info(
+				"FAQ 모니터링 집계를 조회했습니다. startAt={}, endAt={}, 전체 질문 수={}, 미처리 질문 수={}, 사용량 Top/Low FAQ 수={}, Similarity Top/Low FAQ 수={}",
+				startAt,
+				endAt,
+				response.unansweredQuestionSummary().totalQuestionCount(),
+				response.unansweredQuestionSummary().unansweredQuestionCount(),
+				formatUsageRankingCounts(response.faqUsageRanking()),
+				formatSimilarityRankingCounts(response.faqSimilarityRanking())
+		);
+		return response;
 	}
 
 	@Transactional(readOnly = true)
@@ -87,6 +103,14 @@ public class FaqMonitoringService {
 						.thenComparingDouble(FaqImprovementItem::averageSimilarity))
 				.toList();
 
+		log.info(
+				"개선 필요 FAQ를 조회했습니다. evaluatedAt={}, 결과 수={}, 유사도 기준={}, 낮은 Gap 비율 기준={}, 미사용 기간={}일",
+				evaluatedAt,
+				items.size(),
+				lowSimilarityThreshold,
+				lowGapRateThreshold,
+				unusedDays
+		);
 		return new FaqImprovementResponse(evaluatedAt, items);
 	}
 
@@ -102,7 +126,7 @@ public class FaqMonitoringService {
 		FaqTrendWindow window = FaqTrendWindow.from(period, asOf, now);
 		List<FaqUsageTrendPoint> points = detailQueryRepository.findUsageTrend(faqId, window, now);
 
-		return new FaqDetailResponse(
+		FaqDetailResponse response = new FaqDetailResponse(
 				toBasicInfo(faq),
 				new FaqUsageTrend(
 						window.period(), window.startAt(), window.endAt(),
@@ -112,6 +136,41 @@ public class FaqMonitoringService {
 				detailQueryRepository.findTop1Summary(faqId, window),
 				detailQueryRepository.findTopGapSummary(faqId, window),
 				detailQueryRepository.findCooccurringFaqs(faqId, window)
+		);
+
+		log.info(
+				"FAQ 상세 모니터링을 조회했습니다. faqId={}, period={}, asOf={}, windowStartAt={}, windowEndAt={}, 사용량={}, 유사도 표본 수={}, Top-1 횟수={}, Gap 표본 수={}, 함께 등장한 FAQ 수={}",
+				faqId,
+				period,
+				asOf,
+				window.startAt(),
+				window.endAt(),
+				response.usageTrend().totalCount(),
+				response.similarity().sampleCount(),
+				response.top1().top1Count(),
+				response.topGap().sampleCount(),
+				response.cooccurringFaqs().size()
+		);
+		return response;
+	}
+
+	private String formatUsageRankingCounts(FaqUsageRanking ranking) {
+		return String.format(
+				"전체=%d/%d, GENERAL=%d/%d, USER_DATA=%d/%d, STORE_DATA=%d/%d",
+				ranking.all().top().size(), ranking.all().low().size(),
+				ranking.general().top().size(), ranking.general().low().size(),
+				ranking.userData().top().size(), ranking.userData().low().size(),
+				ranking.storeData().top().size(), ranking.storeData().low().size()
+		);
+	}
+
+	private String formatSimilarityRankingCounts(FaqSimilarityRanking ranking) {
+		return String.format(
+				"전체=%d/%d, GENERAL=%d/%d, USER_DATA=%d/%d, STORE_DATA=%d/%d",
+				ranking.all().top().size(), ranking.all().low().size(),
+				ranking.general().top().size(), ranking.general().low().size(),
+				ranking.userData().top().size(), ranking.userData().low().size(),
+				ranking.storeData().top().size(), ranking.storeData().low().size()
 		);
 	}
 
