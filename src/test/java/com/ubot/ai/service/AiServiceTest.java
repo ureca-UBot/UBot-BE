@@ -14,10 +14,11 @@ import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
+import com.ubot.ai.tool.UserDataTools;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
@@ -55,7 +56,7 @@ class AiServiceTest {
 
     @BeforeEach
     void setUp() {
-        var registry = new AiToolRegistry(
+        var registry = AiToolFixtures.registry(
                 new StoreTools(new NearbyStoreSearcher(mock(StoreService.class), 3.0, 5), mock(LocationService.class)));
         aiService = new AiService(promptService, llmService, registry);
     }
@@ -92,6 +93,35 @@ class AiServiceTest {
                 .hasEntrySatisfying(StoreTools.RECORDER,
                         recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
                 .hasSize(2);
+    }
+
+    @Test
+    void 가입_정보_도구가_켜지면_로그인_사용자_ID를_toolContext로만_전달한다() {
+        var materials = AnswerMaterials.builder("지난달 요금").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L).build();
+        when(promptService.createPrompt("지난달 요금", List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolCallbacks())
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth", "getAddons", "getBundles", "getRoamings");
+        assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.USER_ID, 7L);
+    }
+
+    @Test
+    void 비회원이면_toolContext에_사용자_ID를_넣지_않는다() {
+        var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).userId(null).build();
+        when(promptService.createPrompt("근처 매장", List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolContext()).doesNotContainKey(UserDataTools.USER_ID);
     }
 
     @Test

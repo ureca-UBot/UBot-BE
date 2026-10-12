@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
@@ -43,7 +44,7 @@ class OllamaClientToolCallingTest {
     private final StoreService storeService = mock(StoreService.class);
     private final LocationService locationService = mock(LocationService.class);
     private final AiToolRegistry registry =
-            new AiToolRegistry(new StoreTools(new NearbyStoreSearcher(storeService, 3.0, 5), locationService));
+            AiToolFixtures.registry(new StoreTools(new NearbyStoreSearcher(storeService, 3.0, 5), locationService));
 
     private final StoreSearchRecorder recorder = new StoreSearchRecorder();
 

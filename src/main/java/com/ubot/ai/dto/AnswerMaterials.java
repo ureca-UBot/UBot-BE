@@ -11,14 +11,15 @@ import java.util.Set;
 /** 
  * intent별 핸들러가 모은 답변 자료입니다. AiService로 넘어간 뒤에는 바뀌지 않습니다. 
  * faqs, sections, tools는 비어 있을 수는 있어도 null이 아닙니다.
- * storeMap만 매장을 조회하지 않았으면 null입니다.
+ * storeMap은 매장을 조회하지 않았으면 null이고, userId는 비회원이면 null입니다.
  */
 public record AnswerMaterials(
         String question,
         List<FaqSearchResponseDto> faqs,
         List<ContextSection> sections,
         Set<AiTool> tools,
-        StoreMapResult storeMap) {
+        StoreMapResult storeMap,
+        Long userId) {
 
     public AnswerMaterials {
         // Builder를 거치지 않고 만들어도 컬렉션은 null 없이 불변으로 고정합니다.
@@ -39,6 +40,7 @@ public record AnswerMaterials(
         private final List<ContextSection> sections = new ArrayList<>();
         private final Set<AiTool> tools = EnumSet.noneOf(AiTool.class);
         private StoreMapResult storeMap;
+        private Long userId;
 
         private Builder(String question) {
             this.question = question;
@@ -64,9 +66,15 @@ public record AnswerMaterials(
             return this;
         }
 
+        /** 도구가 서버 문맥(ToolContext)으로 받을 로그인 사용자 ID입니다. LLM에는 보이지 않습니다. */
+        public Builder userId(Long value) {
+            userId = value;
+            return this;
+        }
+
         public AnswerMaterials build() {
         	// 복사와 불변 처리는 생성자가 맡습니다.
-            return new AnswerMaterials(question, faqs, sections, tools, storeMap);
+            return new AnswerMaterials(question, faqs, sections, tools, storeMap, userId);
         }
     }
 }

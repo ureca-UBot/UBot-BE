@@ -36,6 +36,7 @@ class AnswerMaterialsTest {
         assertThat(materials.sections()).isEmpty();
         assertThat(materials.tools()).isEmpty();
         assertThat(materials.storeMap()).isNull();
+        assertThat(materials.userId()).isNull();
     }
 
     @Test

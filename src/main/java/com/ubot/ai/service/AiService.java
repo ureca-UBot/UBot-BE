@@ -6,6 +6,7 @@ import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
+import com.ubot.ai.tool.UserDataTools;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.service.LlmService;
@@ -58,7 +59,10 @@ public class AiService {
         // 비어 있으면 Spring AI가 도구 실행 시 예외를 던지므로 질문 원문은 항상 넣습니다. (place 검증에도 사용)
         context.put(StoreTools.QUESTION, materials.question());
         context.put(StoreTools.RECORDER, storeRecorder);
-        
+        // 가입 정보 도구는 LLM이 아니라 서버가 넣은 사용자 ID로만 조회합니다. 비회원이면 넣지 않습니다.
+        if (materials.userId() != null) {
+            context.put(UserDataTools.USER_ID, materials.userId());
+        }
         return context;
     }
 }

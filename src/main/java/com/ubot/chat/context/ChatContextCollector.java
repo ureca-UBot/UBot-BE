@@ -37,7 +37,8 @@ public class ChatContextCollector {
 		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = filteredResults.stream()
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
 
-		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question());
+		// 사용자 ID는 핸들러가 아니라 수집기가 서버 문맥에서 넣습니다.
+		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question()).userId(context.userId());
 		resultsByIntent.forEach((intent, results) -> handlers.get(intent).contribute(context, results, materials));
 		return materials.build();
 	}

@@ -15,9 +15,10 @@ public class AiToolRegistry {
 
     private final Map<AiTool, List<ToolCallback>> callbacks = new EnumMap<>(AiTool.class);
 
-    public AiToolRegistry(StoreTools storeTools) {
+    public AiToolRegistry(StoreTools storeTools, UserDataTools userDataTools) {
         // @Tool 메서드를 ToolCallback으로 변환합니다. 리플렉션이라 기동 시 한 번만 합니다.
         callbacks.put(AiTool.STORE_SEARCH, List.of(ToolCallbacks.from(storeTools)));
+        callbacks.put(AiTool.USER_DATA_LOOKUP, List.of(ToolCallbacks.from(userDataTools)));
 
         // 새 AiTool을 추가하고 등록을 빠뜨리면 요청 중이 아니라 기동 시 실패하게 합니다.
         List<AiTool> missing = Arrays.stream(AiTool.values()).filter(tool -> !callbacks.containsKey(tool)).toList();

@@ -21,7 +21,7 @@ import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.web.client.RestClient;
 
 import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -214,7 +214,7 @@ class OpenAiCompatibleLlmClientHttpTest {
 	}
 
 	private LlmRequestDto storeQuestion(StoreSearchRecorder recorder) {
-		var registry = new AiToolRegistry(new StoreTools(
+		var registry = AiToolFixtures.registry(new StoreTools(
 				new NearbyStoreSearcher(mock(StoreService.class), 3.0, 5), mock(LocationService.class)));
 		return new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, "시스템"),

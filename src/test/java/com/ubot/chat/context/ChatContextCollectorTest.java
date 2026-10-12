@@ -34,6 +34,7 @@ class ChatContextCollectorTest {
 		assertThat(storeHandler.calls).containsExactly(List.of(store));
 		assertThat(user.calls).isEmpty();
 		assertThat(materials.question()).isEqualTo("질문");
+		assertThat(materials.userId()).isEqualTo(1L);
 		assertThat(materials.sections()).extracting(ContextSection::title).containsExactly("GENERAL", "STORE_DATA");
 	}
 
