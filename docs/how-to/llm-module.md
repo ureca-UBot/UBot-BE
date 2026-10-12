@@ -36,14 +36,14 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 
 ### 출력 형식과 서버 처리 (JSON 분리는 후속 작업)
 
-현재 시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**만 출력하도록 요구합니다.
+현재 시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 표의 키 순서대로 출력하도록 요구합니다.
 이 JSON의 `status`·`answer`·`evidence_ids`를 분리하는 처리는 이슈 #81에서 후속 작업으로 정해 두었습니다.
 
 | 키 | 값 |
 |---|---|
-| `status` | `ANSWER`, `PARTIAL`, `CLARIFY`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 |
+| `evidence_ids` | 질문의 답을 담은 FAQ ID 문자열 배열. 답을 담은 문서가 없으면(API·도구 결과만으로 답하거나 보류) 빈 배열 |
+| `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기는 `answer` 안에서 하고 `ABSTAIN`/`PARTIAL`) |
 | `answer` | 한국어 답변 문자열 |
-| `evidence_ids` | 실제로 사용한 FAQ ID 문자열 배열 |
 
 그러나 서버(`OllamaClient` → `ChatAnswerProcessor`)는 이 JSON을 파싱하지 않습니다. 모델이 반환한 문자열 전체를
 `LlmResponseDto.answer`로 받아 `question_log.llm_question`에 저장하고, 채팅 응답의 `answer`로 그대로 반환합니다.
