@@ -24,22 +24,22 @@ public class SecurityConfig {
 	private final JwtAccessDeniedHandler jwtAccessDeniedHandler;
 
 	@Bean
-	public PasswordEncoder passwordEncoder(){
+	public PasswordEncoder passwordEncoder() {
 		return new BCryptPasswordEncoder();
 	}
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 		return http
-				// Spring Security 인증은 STATELESS로 유지하며, HttpSession은 인증 상태가 아닌 게스트 Conversation 식별 용도로만 사용합니다.
+				// Spring Security 인증은 STATELESS로 유지하며, HttpSession은 인증 상태가 아닌 게스트 Conversation
+				// 식별 용도로만 사용합니다.
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.formLogin(form -> form.disable())
 				.httpBasic(basic -> basic.disable())
 				.csrf(csrf -> csrf.disable())
 				.exceptionHandling(exception -> exception
 						.authenticationEntryPoint(jwtAuthenticationEntryPoint)
-						.accessDeniedHandler(jwtAccessDeniedHandler)
-				)
+						.accessDeniedHandler(jwtAccessDeniedHandler))
 				.authorizeHttpRequests(auth -> auth
 						// 최초 HTTP 요청은 JWT 인증, 비동기 응답 완료를 위한 내부 ASYNC 재디스패치는 허용합니다.
 						.requestMatchers(request -> request.getDispatcherType() == DispatcherType.ASYNC
@@ -55,22 +55,21 @@ public class SecurityConfig {
 								"/actuator/prometheus",
 								"/v3/api-docs/**",
 								"/swagger-ui/**",
-								"/swagger-ui.html"
-						).permitAll()
+								"/swagger-ui.html")
+						.permitAll()
 						.requestMatchers(HttpMethod.GET,
 								"/plans", "/plans/**",
 								"/bundle-products", "/bundle-products/**",
 								"/addon-services", "/addon-services/**",
-								"/roaming-products", "/roaming-products/**"
-						).permitAll()
+								"/roaming-products", "/roaming-products/**",
+								"/notices", "/notices/**")
+						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
-						.anyRequest().authenticated()
-				)
+						.anyRequest().authenticated())
 				.addFilterBefore(
 						jwtAuthenticationFilter,
-						UsernamePasswordAuthenticationFilter.class
-				)
+						UsernamePasswordAuthenticationFilter.class)
 				.build();
 	}
 }

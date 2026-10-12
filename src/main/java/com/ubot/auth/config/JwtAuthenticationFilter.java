@@ -33,23 +33,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private final UserRepository userRepository;
 	private final HandlerExceptionResolver handlerExceptionResolver;
 
+	// 사용자 정보를 쓰지 않는 공개 조회 경로입니다. 토큰 상태와 상관없이 처리하려고 토큰 검사를 건너뜁니다.
+	private static final String TOKEN_FREE_GET_PATH = "/notices";
+
 	public JwtAuthenticationFilter(
-            JwtUtil jwtUtil,
-            UserRepository userRepository,
-            @Qualifier("handlerExceptionResolver")
-            HandlerExceptionResolver handlerExceptionResolver
-    ) {
-        this.jwtUtil = jwtUtil;
-        this.userRepository = userRepository;
-        this.handlerExceptionResolver = handlerExceptionResolver;
-    }
+			JwtUtil jwtUtil,
+			UserRepository userRepository,
+			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
+		this.jwtUtil = jwtUtil;
+		this.userRepository = userRepository;
+		this.handlerExceptionResolver = handlerExceptionResolver;
+	}
+
+	@Override
+	protected boolean shouldNotFilter(HttpServletRequest request) {
+		if (!"GET".equals(request.getMethod())) {
+			return false;
+		}
+		String path = request.getRequestURI().substring(request.getContextPath().length());
+		return path.equals(TOKEN_FREE_GET_PATH) || path.startsWith(TOKEN_FREE_GET_PATH + "/");
+	}
 
 	@Override
 	protected void doFilterInternal(
 			HttpServletRequest request,
 			HttpServletResponse response,
-			FilterChain filterChain
-	) throws ServletException, IOException {
+			FilterChain filterChain) throws ServletException, IOException {
 		String token = resolveToken(request);
 
 		if (token == null) {
@@ -61,11 +70,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 		try {
 			userId = jwtUtil.getUserId(token);
-		}catch( ExpiredJwtException e ) {
+		} catch (ExpiredJwtException e) {
 			log.info("만료된 접근 토큰이 전달되었습니다: 경로={}", request.getRequestURI());
 			resolveException(request, response, new MyJwtException(JwtErrorCode.EXPIRED_ACCESS_TOKEN));
 			return;
-		} catch (JwtException | IllegalArgumentException e){
+		} catch (JwtException | IllegalArgumentException e) {
 			log.warn("유효하지 않은 접근 토큰이 전달되었습니다: 경로={}", request.getRequestURI());
 			resolveException(request, response, new MyJwtException(JwtErrorCode.INVALID_ACCESS_TOKEN));
 			return;
@@ -73,7 +82,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 		User user = userRepository.findByIdAndDeletedAtIsNull(userId).orElse(null);
 
-		if(user == null) {
+		if (user == null) {
 			log.warn("접근 토큰의 사용자를 찾지 못했습니다: 사용자ID={}, 경로={}", userId, request.getRequestURI());
 			resolveException(request, response, new UserException(UserErrorCode.USER_NOT_FOUND));
 			return;
@@ -81,12 +90,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 		CustomUserDetails userDetails = new CustomUserDetails(user);
 
-		UsernamePasswordAuthenticationToken authentication =
-				new UsernamePasswordAuthenticationToken(
-						userDetails,
-						null,
-						userDetails.getAuthorities()
-				);
+		UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+				userDetails,
+				null,
+				userDetails.getAuthorities());
 
 		SecurityContextHolder.getContext().setAuthentication(authentication);
 		log.debug("접근 토큰 인증에 성공했습니다: 사용자ID={}, 경로={}", userId, request.getRequestURI());
@@ -97,7 +104,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private String resolveToken(HttpServletRequest request) {
 		String authorization = request.getHeader("Authorization");
 
-		if(authorization == null || !authorization.startsWith("Bearer ")) {
+		if (authorization == null || !authorization.startsWith("Bearer ")) {
 			return null;
 		}
 
@@ -107,15 +114,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private void resolveException(
 			HttpServletRequest request,
 			HttpServletResponse response,
-			Exception exception
-	) {
+			Exception exception) {
 		SecurityContextHolder.clearContext();
 
 		handlerExceptionResolver.resolveException(
 				request,
 				response,
 				null,
-				exception
-		);
+				exception);
 	}
 }
