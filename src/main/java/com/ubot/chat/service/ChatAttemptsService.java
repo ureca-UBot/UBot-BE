@@ -80,12 +80,16 @@ public class ChatAttemptsService {
 	}
 
 	public AnswerAttemptsHistory createAnswerAttempt(Long userId, String question) {
+		return createAnswerAttempt(userId, null, question);
+	}
+
+	public AnswerAttemptsHistory createAnswerAttempt(Long userId, Long conversationId, String question) {
 		String input = question.strip();
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createIdempotencyKey(userId, input, createdAt);
 		return transactionTemplate
 				.execute(transactionStatus -> answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-						userId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel)));
+						userId, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel)));
 	}
 
 	public AnswerAttemptsHistory createGuestAnswerAttempt(Long conversationId, String question) {

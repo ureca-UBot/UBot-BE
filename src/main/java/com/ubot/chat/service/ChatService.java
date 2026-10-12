@@ -41,6 +41,15 @@ public class ChatService {
 		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
 	}
 
+	public ChatAnswerTask createChat(
+			Long userId, Long conversationId, String question, Location myLocation, String userIp) {
+		validateQuestion(question);
+
+		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, conversationId, question);
+		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 대화ID={}", attempt.getId(), userId, conversationId);
+		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
+	}
+
 	/** 위치 없이 질문합니다. */
 	public ChatAnswerTask createGuestChat(Long conversationId, String question, String userIp) {
 		return createGuestChat(conversationId, question, null, userIp);

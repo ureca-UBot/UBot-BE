@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface QuestionLogRepository extends JpaRepository<QuestionLog, Long> {
 	@Query ("""
@@ -39,4 +40,6 @@ public interface QuestionLogRepository extends JpaRepository<QuestionLog, Long> 
 			nativeQuery = true
 	)
 	void acquireAdvisoryLock(@Param("lockKey") long lockKey);
+
+	List<QuestionLog> findAllByConversationIdOrderByCreatedAtAscIdAsc(Long conversationId);
 }

@@ -46,6 +46,7 @@ class ForbiddenWordE2ETest {
 	void cleanUp() {
 		jdbcTemplate.update("DELETE FROM forbidden_words");
 		jdbcTemplate.update("DELETE FROM answer_attempts_history");
+		jdbcTemplate.update("DELETE FROM conversations");
 		jdbcTemplate.update("DELETE FROM refresh_tokens");
 		jdbcTemplate.update("DELETE FROM users");
 	}

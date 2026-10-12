@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.conversation.service.ConversationService;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
@@ -119,7 +120,9 @@ class ChatServiceTest {
 				new ChatAnswerExecutor(processor, attemptsService, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
-		var controller = new ChatController(service, mock(ClientIpResolver.class), mock(GuestConversationService.class));
+		var conversationService = mock(ConversationService.class);
+		when(conversationService.getOrCreateMemberConversation(eq(1L), any())).thenReturn(Conversation.createMember(1L));
+		var controller = new ChatController(service, mock(ClientIpResolver.class), mock(GuestConversationService.class), conversationService);
 		ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
