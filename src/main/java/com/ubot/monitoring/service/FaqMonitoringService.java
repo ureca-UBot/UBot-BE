@@ -1,5 +1,7 @@
 package com.ubot.monitoring.service;
 
+import com.ubot.common.GlobalException;
+import com.ubot.common.exception.CommonErrorCode;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
@@ -60,7 +62,7 @@ public class FaqMonitoringService {
 	@Transactional(readOnly = true)
 	public FaqMonitoringResponse getMonitoringData(LocalDateTime startAt, LocalDateTime endAt) {
 		if (!startAt.isBefore(endAt)) {
-			throw new IllegalArgumentException("startAt은 endAt보다 이전이어야 합니다.");
+			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, "startAt은 endAt보다 이전이어야 합니다.");
 		}
 
 		return new FaqMonitoringResponse(
