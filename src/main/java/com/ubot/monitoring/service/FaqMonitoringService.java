@@ -77,13 +77,11 @@ public class FaqMonitoringService {
 		);
 
 		log.info(
-				"FAQ 모니터링 집계를 조회했습니다. startAt={}, endAt={}, 전체 질문 수={}, 미처리 질문 수={}, 사용량 Top/Low FAQ 수={}, Similarity Top/Low FAQ 수={}",
+				"FAQ 모니터링 집계를 조회했습니다. startAt={}, endAt={}, 전체 질문 수={}, 미처리 질문 수={}",
 				startAt,
 				endAt,
 				response.unansweredQuestionSummary().totalQuestionCount(),
 				response.unansweredQuestionSummary().unansweredQuestionCount(),
-				formatUsageRankingCounts(response.faqUsageRanking()),
-				formatSimilarityRankingCounts(response.faqSimilarityRanking())
 		);
 		return response;
 	}
@@ -152,26 +150,6 @@ public class FaqMonitoringService {
 				response.cooccurringFaqs().size()
 		);
 		return response;
-	}
-
-	private String formatUsageRankingCounts(FaqUsageRanking ranking) {
-		return String.format(
-				"전체=%d/%d, GENERAL=%d/%d, USER_DATA=%d/%d, STORE_DATA=%d/%d",
-				ranking.all().top().size(), ranking.all().low().size(),
-				ranking.general().top().size(), ranking.general().low().size(),
-				ranking.userData().top().size(), ranking.userData().low().size(),
-				ranking.storeData().top().size(), ranking.storeData().low().size()
-		);
-	}
-
-	private String formatSimilarityRankingCounts(FaqSimilarityRanking ranking) {
-		return String.format(
-				"전체=%d/%d, GENERAL=%d/%d, USER_DATA=%d/%d, STORE_DATA=%d/%d",
-				ranking.all().top().size(), ranking.all().low().size(),
-				ranking.general().top().size(), ranking.general().low().size(),
-				ranking.userData().top().size(), ranking.userData().low().size(),
-				ranking.storeData().top().size(), ranking.storeData().low().size()
-		);
 	}
 
 	private FaqBasicInfo toBasicInfo(Faq faq) {
