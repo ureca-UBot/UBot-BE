@@ -47,6 +47,7 @@
 | 출력은 JSON 객체 하나이며 evidence_ids, status, answer 키만 사용합니다. | 출력은 JSON 객체 하나이며 answer, evidence_ids, status 키만 사용합니다. | 출력 키 순서를 answer 먼저로 바꿨습니다(아래 "출력 순서" 행) |
 | (`status_rules.md` 주의 5) status를 정했으면 answer는 그 status에 맞게 씁니다. | status는 answer에 쓴 내용과 맞게 정합니다. | answer를 status보다 먼저 쓰므로 방향을 바꿨습니다 |
 | (`output_order.md`) JSON 키를 evidence_ids, status, answer 순서로 씁니다. 먼저 … evidence_ids에 고릅니다. … 다음으로 … status를 정합니다. … 마지막으로 … answer를 씁니다. … | JSON 키를 answer, evidence_ids, status 순서로 씁니다. 먼저 … answer를 씁니다. … 다음으로 answer에 쓴 답을 담은 문서의 ID만 evidence_ids에 적습니다. … 마지막으로 … status를 정합니다. … | 출력 JSON Schema(`FaqAnswerFormat`)의 키 순서와 맞췄습니다. vLLM 구조화 출력은 스키마 키 순서를 강제합니다. model_test_v5에서 Qwen3-Instruct는 스키마를 evidence_ids 먼저로 줘도 2,800건 모두 answer를 먼저 썼으므로, 측정된 생성 순서를 그대로 고정한 것입니다 |
+| evidence_ids는 "문서 ID 문자열"이라고만 설명합니다. | evidence_ids에는 "[FAQ ID: 12]"의 숫자만 적으라고 명시합니다(예: "12"). | #174 리뷰 지적: 백엔드는 FAQ를 `[FAQ ID: 12]` 형식으로 넣는데 프롬프트가 "문서 ID 문자열"이라고만 하면 모델이 "12"로 쓸지 "FAQ ID: 12"로 쓸지 알 수 없음. evidence_ids는 현재 로그용이라 영향은 제한적이지만, 포맷 모호성만 해소 |
 
 ### LLM_Test와 다른 입력·생성 조건
 
