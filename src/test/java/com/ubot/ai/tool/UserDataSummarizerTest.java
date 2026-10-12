@@ -106,7 +106,7 @@ class UserDataSummarizerTest {
     }
 
     @Test
-    void 해지_회선은_빼고_최근_개통_순으로_최대_3개만_자세히_조회한다() {
+    void 해지_회선은_빼고_이용_중인_회선을_최근_개통_순으로_모두_조회한다() {
         givenUser(LocalDate.of(2000, 1, 1));
         List<SubscriptionResponseDto> subscriptions = List.of(
                 subscription(1L, "010-1111-1111", SubscriptionStatus.ACTIVE),
@@ -122,13 +122,11 @@ class UserDataSummarizerTest {
         UserDataSummary summary = summarizer.summarize(USER_ID);
 
         assertThat(summary.subscriptions()).extracting(s -> s.subscription().subscriptionId())
-                .containsExactly(1L, 3L, 4L);
-        assertThat(summary.inUseSubscriptionCount()).isEqualTo(4);
+                .containsExactly(1L, 3L, 4L, 5L);
         verify(subscriptionService, never()).getMyPlan(USER_ID, 2L);
-        verify(subscriptionService, never()).getMyPlan(USER_ID, 5L);
         assertThat(summarizer.format(summary))
                 .contains("이용 중인 회선: 4개", "[회선 1] 010-****-1111 (이용 중", "[회선 2] 010-****-3333 (일시정지",
-                        "외 1개 회선은 자세한 정보를 넣지 않았습니다.",
+                        "[회선 4] 010-****-5555 (이용 중",
                         "최근 사용량: 기록 없음", "최근 청구: 기록 없음", "미납: 없음(최근 6개월 청구 기준)", "이용 중인 약정 없음")
                 .doesNotContain("010-2222", "2222-2222");
     }

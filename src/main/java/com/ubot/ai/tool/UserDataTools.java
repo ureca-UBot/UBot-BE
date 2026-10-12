@@ -1,5 +1,6 @@
 package com.ubot.ai.tool;
 
+import com.ubot.billing.dto.response.BillingRecordResponseDto;
 import com.ubot.billing.service.BillingService;
 import com.ubot.subscription.dto.response.SubscriptionAddonResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionBundleResponseDto;
@@ -9,6 +10,7 @@ import com.ubot.subscription.enums.SubscriptionAddonStatus;
 import com.ubot.subscription.enums.SubscriptionBundleStatus;
 import com.ubot.subscription.enums.SubscriptionRoamingStatus;
 import com.ubot.subscription.service.SubscriptionService;
+import com.ubot.usage.dto.response.UsageRecordResponseDto;
 import com.ubot.usage.service.UsageService;
 
 import java.time.Clock;
@@ -18,6 +20,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +32,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * UserDataSummarizer가 미리 넣지 않은 사용자 가입 정보를 LLM이 필요할 때 조회하는 도구입니다.
+ * 미리 넣은 정보와 겹치지 않게, 월별 조회는 요약에 들어간 가장 최근 달을 다시 돌려주지 않습니다.
  * 사용자 ID는 LLM이 아니라 서버가 ToolContext로 넣고, 회선 소유권은 각 서비스가 다시 확인합니다.
  */
 @Slf4j
@@ -52,6 +56,8 @@ public class UserDataTools {
     static final String INVALID_MONTH_MESSAGE = "'%s'은(는) 올바른 월이 아닙니다. month를 YYYY-MM 형식으로 넣어 다시 호출하세요.";
     static final String FUTURE_MONTH_MESSAGE = "%s은(는) 아직 오지 않은 달이라 기록이 없습니다. 조회 기준일은 %s입니다.";
     static final String TOO_OLD_MONTH_MESSAGE = "최근 12개월(%s~%s) 기록만 조회할 수 있습니다.";
+    static final String ALREADY_PROVIDED_MESSAGE =
+            "%s %s은(는) 가장 최근 기록이라 사용자 정보 섹션에 이미 있습니다. 도구를 다시 호출하지 말고 그 내용으로 답하세요.";
 
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("uuuu-M");
 
@@ -60,26 +66,29 @@ public class UserDataTools {
     private final BillingService billingService;
     private final Clock clock;
 
-    @Tool(description = "사용자 회선의 특정 월 데이터·음성·문자 사용량과 잔여량을 조회한다. "
-            + "미리 제공된 사용자 정보에 없는 달(예: 지난달)을 물을 때만 호출한다.")
+    @Tool(description = "사용자 회선의 지난 월 데이터·음성·문자 사용량과 잔여량을 조회한다. "
+            + "가장 최근 달의 사용량은 미리 제공된 사용자 정보에 있으므로 호출하지 않는다. 그보다 이전 달을 물을 때만 호출한다.")
     public String getUsageByMonth(
             @ToolParam(description = "사용한 달. YYYY-MM 형식. 예: 2026-09") String month,
             @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
             ToolContext toolContext) {
-        return lookupByMonth(month, phoneLast4, toolContext, "사용량", (userId, subscription, yearMonth) ->
-                usageService.getMyUsageRecordList(userId, subscription.subscriptionId(), yearMonth, 0, 1).content()
-                        .stream().findFirst().map(UserDataSummarizer::formatUsage).orElse(null));
+        return lookupByMonth(month, phoneLast4, toolContext, "사용량",
+                (userId, subscription) -> usageService.getMyUsageRecordList(
+                        userId, subscription.subscriptionId(), null, 0, LOOKUP_MONTHS).content(),
+                UsageRecordResponseDto::billingMonth, UserDataSummarizer::formatUsage);
     }
 
-    @Tool(description = "사용자 회선의 특정 월 청구서(청구 금액, 항목별 요금, 납부 기한, 납부 상태)를 조회한다. "
-            + "청구서는 전월 사용분을 그달에 청구한다. 미리 제공된 사용자 정보에 없는 청구 월을 물을 때만 호출한다.")
+    @Tool(description = "사용자 회선의 지난 청구서(청구 금액, 항목별 요금, 납부 기한, 납부 상태)를 조회한다. "
+            + "청구서는 전월 사용분을 그달에 청구한다. 가장 최근 청구서와 미납 내역은 미리 제공된 사용자 정보에 있으므로 호출하지 않는다. "
+            + "그보다 이전 청구 월의 상세 내역을 물을 때만 호출한다.")
     public String getBillingByMonth(
             @ToolParam(description = "청구서가 나온 달. YYYY-MM 형식. 예: 2026-09") String month,
             @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
             ToolContext toolContext) {
-        return lookupByMonth(month, phoneLast4, toolContext, "청구서", (userId, subscription, yearMonth) ->
-                billingService.getMyBillingRecordList(userId, subscription.subscriptionId(), yearMonth, 0, 1).content()
-                        .stream().findFirst().map(UserDataSummarizer::formatBilling).orElse(null));
+        return lookupByMonth(month, phoneLast4, toolContext, "청구서",
+                (userId, subscription) -> billingService.getMyBillingRecordList(
+                        userId, subscription.subscriptionId(), null, 0, LOOKUP_MONTHS).content(),
+                BillingRecordResponseDto::billingMonth, UserDataSummarizer::formatBilling);
     }
 
     @Tool(description = "사용자 회선에 가입된 부가서비스 목록과 월 요금을 조회한다.")
@@ -148,13 +157,13 @@ public class UserDataTools {
         });
     }
 
-    @FunctionalInterface
-    private interface MonthlyQuery {
-        /** 해당 월 기록을 문자열로 돌려줍니다. 기록이 없으면 null입니다. */
-        String find(Long userId, SubscriptionResponseDto subscription, YearMonth month);
-    }
-
-    private String lookupByMonth(String month, String phoneLast4, ToolContext toolContext, String recordName, MonthlyQuery query) {
+    /**
+     * recentRecords는 최신 월부터 정렬된 최근 기록입니다. 첫 건은 UserDataSummarizer가 미리 넣은 기록이므로 다시 돌려주지 않습니다.
+     * 기록은 한 달에 한 건이라 최근 12건이면 조회 가능한 12개월을 모두 덮습니다.
+     */
+    private <T> String lookupByMonth(String month, String phoneLast4, ToolContext toolContext, String recordName,
+            BiFunction<Long, SubscriptionResponseDto, List<T>> recentRecords,
+            Function<T, YearMonth> monthOf, Function<T, String> formatter) {
         YearMonth current = YearMonth.from(LocalDate.now(clock));
         YearMonth requested;
         try {
@@ -170,8 +179,15 @@ public class UserDataTools {
             return String.format(TOO_OLD_MONTH_MESSAGE, oldest, current);
         }
         return lookup(phoneLast4, toolContext, (userId, subscription) -> {
-            String record = query.find(userId, subscription, requested);
-            return record != null ? record : requested + " " + recordName + " 기록이 없습니다.";
+            List<T> records = recentRecords.apply(userId, subscription);
+            if (!records.isEmpty() && monthOf.apply(records.getFirst()).equals(requested)) {
+                return String.format(ALREADY_PROVIDED_MESSAGE, requested, recordName);
+            }
+            return records.stream()
+                    .filter(record -> monthOf.apply(record).equals(requested))
+                    .findFirst()
+                    .map(formatter)
+                    .orElse(requested + " " + recordName + " 기록이 없습니다.");
         });
     }
 

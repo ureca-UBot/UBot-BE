@@ -42,7 +42,6 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class UserDataSummarizer {
 
-    static final int MAX_SUBSCRIPTIONS = 3;
     // 청구서는 한 달에 한 건이므로 최근 6개월 안의 미납을 찾습니다.
     static final int RECENT_BILLING_COUNT = 6;
 
@@ -50,7 +49,8 @@ public class UserDataSummarizer {
     static final String FEE_GUIDE =
             "'이번 달 요금'은 가장 최근 청구서 기준으로 답하고 몇 월 청구분인지 밝히세요. "
                     + "아직 청구되지 않은 이번 달 사용분 요금은 계산하지 말고, 요금제 월정액과 현재까지 사용량만 참고로 안내하세요.";
-    static final String TOOL_GUIDE = "지난 달 사용량·청구, 부가서비스, 결합, 로밍 정보는 이 자료에 없으니 필요하면 도구로 조회하세요.";
+    static final String TOOL_GUIDE = "가장 최근 달의 사용량·청구서는 위에 있으니 도구로 다시 조회하지 마세요. "
+            + "그보다 이전 달의 사용량·청구서, 부가서비스, 결합, 로밍 정보는 이 자료에 없으니 필요하면 도구로 조회하세요.";
     // DB에 없는 값을 LLM이 지어내지 않고 확인할 수 없다고 답하게 합니다.
     static final String UNAVAILABLE_NOTICE =
             "제공되지 않는 정보: 소액결제, 포인트·멤버십, 할인반환금(위약금), 요금제 변경 가능 여부, "
@@ -65,17 +65,16 @@ public class UserDataSummarizer {
     private final ContractService contractService;
     private final Clock clock;
 
-    /** 사용자가 없으면 UserException을 그대로 던집니다. 회선은 최근 개통 순으로 최대 3개만 자세히 조회합니다. */
+    /** 사용자가 없으면 UserException을 그대로 던집니다. 이용 중인 회선을 최근 개통 순으로 모두 조회합니다. */
     public UserDataSummary summarize(Long userId) {
         LocalDate baseDate = LocalDate.now(clock);
         Profile profile = toProfile(userService.getActiveUser(userId), baseDate);
 
-        List<SubscriptionResponseDto> inUse = getInUseSubscriptionList(subscriptionService, userId);
-        List<SubscriptionSummary> subscriptions = inUse.stream()
-                .limit(MAX_SUBSCRIPTIONS)
+        // 요약에서 빠진 회선은 도구로도 요금제·약정을 조회할 수 없으므로 이용 중인 회선은 모두 담습니다.
+        List<SubscriptionSummary> subscriptions = getInUseSubscriptionList(subscriptionService, userId).stream()
                 .map(subscription -> summarizeSubscription(userId, subscription))
                 .toList();
-        return new UserDataSummary(baseDate, profile, subscriptions, inUse.size());
+        return new UserDataSummary(baseDate, profile, subscriptions);
     }
 
     /** 조회 결과를 LLM이 읽을 문자열로 만듭니다. */
@@ -87,13 +86,9 @@ public class UserDataSummarizer {
         if (summary.subscriptions().isEmpty()) {
             text.append(NO_SUBSCRIPTION_MESSAGE).append('\n');
         } else {
-            text.append("이용 중인 회선: ").append(summary.inUseSubscriptionCount()).append("개\n");
+            text.append("이용 중인 회선: ").append(summary.subscriptions().size()).append("개\n");
             for (int i = 0; i < summary.subscriptions().size(); i++) {
                 text.append(formatSubscriptionSummary(i + 1, summary.subscriptions().get(i)));
-            }
-            int omitted = summary.inUseSubscriptionCount() - summary.subscriptions().size();
-            if (omitted > 0) {
-                text.append("외 ").append(omitted).append("개 회선은 자세한 정보를 넣지 않았습니다.\n");
             }
         }
         return text.append('\n')

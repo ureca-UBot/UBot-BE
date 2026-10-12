@@ -10,13 +10,12 @@ import java.util.List;
 
 /**
  * USER_DATA 질문에서 도구 호출 없이 답할 수 있도록 LLM에 미리 넣는 사용자 정보입니다.
- * subscriptions는 이용 중인 회선 중 앞에서부터 일부만 담고, 전체 개수는 inUseSubscriptionCount에 둡니다.
+ * subscriptions는 이용 중인(해지되지 않은) 회선을 최근 개통 순으로 모두 담습니다.
  */
 public record UserDataSummary(
         LocalDate baseDate,
         Profile profile,
-        List<SubscriptionSummary> subscriptions,
-        int inUseSubscriptionCount) {
+        List<SubscriptionSummary> subscriptions) {
 
     public UserDataSummary {
         subscriptions = subscriptions == null ? List.of() : List.copyOf(subscriptions);

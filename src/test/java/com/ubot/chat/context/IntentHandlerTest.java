@@ -89,7 +89,7 @@ class IntentHandlerTest {
 	@Test
 	void USER_DATA는_미리_조회한_사용자_정보를_넣고_가입_정보_도구를_켠다() {
 		UserDataSummarizer summarizer = mock(UserDataSummarizer.class);
-		UserDataSummary summary = new UserDataSummary(LocalDate.of(2026, 10, 12), null, List.of(), 0);
+		UserDataSummary summary = new UserDataSummary(LocalDate.of(2026, 10, 12), null, List.of());
 		when(summarizer.summarize(1L)).thenReturn(summary);
 		when(summarizer.format(summary)).thenReturn("조회 기준일: 2026-10-12");
 		var materials = AnswerMaterials.builder("질문");

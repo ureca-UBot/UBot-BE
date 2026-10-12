@@ -24,7 +24,8 @@ public class UserIntentHandler implements IntentHandler {
 	static final String LOGIN_REQUIRED_CONTENT =
 			"로그인한 사용자만 가입 정보를 확인할 수 있습니다. 로그인 후 다시 질문하도록 안내하세요.";
 	static final String NOT_FOUND_CONTENT = "사용자 정보를 찾을 수 없습니다.";
-	static final String LOOKUP_FAILED_CONTENT = "사용자 정보를 불러오지 못했습니다.";
+	static final String LOOKUP_FAILED_CONTENT = "사용자 정보를 불러오지 못했습니다. "
+			+ "프로필, 요금제, 최근 사용량·청구, 미납, 약정 정보는 지금 확인할 수 없다고 안내하세요.";
 
 	private final UserDataSummarizer userDataSummarizer;
 
@@ -48,7 +49,8 @@ public class UserIntentHandler implements IntentHandler {
 			materials.addSection(new ContextSection(SECTION_TITLE, NOT_FOUND_CONTENT));
 			return;
 		} catch (RuntimeException exception) {
-			// 미리 조회가 실패해도 답변 전체를 실패시키지 않고, 도구로 다시 조회할 수 있게 합니다.
+			// 미리 조회가 실패해도 답변 전체를 실패시키지 않습니다. 도구는 요약에 없는 정보(지난 달 기록, 부가서비스, 결합, 로밍)만
+			// 조회하므로 실패한 요약을 대신하지 못하고, 그 밖의 질문에 답할 수 있도록만 켜 둡니다.
 			log.warn("사용자 정보 미리 조회 실패: userId={}", context.userId(), exception);
 			materials.addSection(new ContextSection(SECTION_TITLE, LOOKUP_FAILED_CONTENT));
 		}

@@ -70,10 +70,10 @@ class UserDataToolsTest {
     }
 
     @Test
-    void 회선이_하나면_번호_없이도_그_회선의_월_사용량을_조회한다() {
+    void 회선이_하나면_번호_없이도_그_회선의_지난_월_사용량을_조회한다() {
         givenSubscriptions();
-        when(usageService.getMyUsageRecordList(USER_ID, 1L, YearMonth.of(2026, 9), 0, 1))
-                .thenReturn(page(List.of(usage(YearMonth.of(2026, 9)))));
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(usage(YearMonth.of(2026, 10)), usage(YearMonth.of(2026, 9)))));
 
         String result = tools.getUsageByMonth("2026-09", null, LOGGED_IN);
 
@@ -81,17 +81,34 @@ class UserDataToolsTest {
     }
 
     @Test
-    void 월_청구서를_조회하고_기록이_없으면_그_사실만_알린다() {
+    void 지난_청구서를_조회하고_기록이_없으면_그_사실만_알린다() {
         givenSubscriptions();
-        when(billingService.getMyBillingRecordList(USER_ID, 1L, YearMonth.of(2026, 9), 0, 1))
-                .thenReturn(page(List.of(billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
-        when(billingService.getMyBillingRecordList(USER_ID, 1L, YearMonth.of(2026, 8), 0, 1))
-                .thenReturn(page(List.of()));
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(
+                        billing(YearMonth.of(2026, 10), PaymentStatus.UNPAID),
+                        billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
 
         assertThat(tools.getBillingByMonth("2026-9", null, LOGGED_IN))
                 .contains("2026-09 청구분(전월 사용분): 총 78,000원", "납부 완료(2026-09-20, 자동이체)");
         assertThat(tools.getBillingByMonth("2026-08", null, LOGGED_IN))
                 .isEqualTo("010-****-5678 회선\n2026-08 청구서 기록이 없습니다.");
+    }
+
+    @Test
+    void 요약에_들어간_가장_최근_달은_다시_돌려주지_않는다() {
+        givenSubscriptions();
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(usage(YearMonth.of(2026, 10)))));
+        // 월초라 이번 달 청구서가 아직 없으면 요약에는 지난달 청구서가 들어가므로 지난달을 막습니다.
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(billing(YearMonth.of(2026, 9), PaymentStatus.UNPAID))));
+
+        assertThat(tools.getUsageByMonth("2026-10", null, LOGGED_IN))
+                .isEqualTo("010-****-5678 회선\n" + String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-10", "사용량"));
+        assertThat(tools.getBillingByMonth("2026-09", null, LOGGED_IN))
+                .isEqualTo("010-****-5678 회선\n" + String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-09", "청구서"));
+        assertThat(tools.getBillingByMonth("2026-10", null, LOGGED_IN))
+                .isEqualTo("010-****-5678 회선\n2026-10 청구서 기록이 없습니다.");
     }
 
     @Test
@@ -150,7 +167,7 @@ class UserDataToolsTest {
     @Test
     void 조회_중_예외가_나면_안내_문구로_돌려준다() {
         givenSubscriptions();
-        when(usageService.getMyUsageRecordList(USER_ID, 1L, YearMonth.of(2026, 10), 0, 1))
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
                 .thenThrow(new SubscriptionException(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND));
 
         assertThat(tools.getUsageByMonth("2026-10", null, LOGGED_IN)).isEqualTo(UserDataTools.LOOKUP_FAILED_MESSAGE);
