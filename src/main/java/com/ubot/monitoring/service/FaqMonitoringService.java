@@ -81,7 +81,7 @@ public class FaqMonitoringService {
 				startAt,
 				endAt,
 				response.unansweredQuestionSummary().totalQuestionCount(),
-				response.unansweredQuestionSummary().unansweredQuestionCount(),
+				response.unansweredQuestionSummary().unansweredQuestionCount()
 		);
 		return response;
 	}
