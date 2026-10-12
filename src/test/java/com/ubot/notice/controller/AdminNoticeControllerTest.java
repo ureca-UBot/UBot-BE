@@ -67,7 +67,8 @@ class AdminNoticeControllerTest {
                     }
 
                     @Override
-                    public Object resolveArgument(MethodParameter parameter, ModelAndViewContainer container,
+                    public Object resolveArgument(MethodParameter parameter,
+                            ModelAndViewContainer container,
                             NativeWebRequest request, WebDataBinderFactory factory) {
                         return administrator;
                     }
@@ -78,7 +79,8 @@ class AdminNoticeControllerTest {
     @Test
     @DisplayName("공지를 등록하면 201 응답과 생성된 자원 위치를 반환한다")
     void createsNotice() throws Exception {
-        when(adminNoticeService.createNotice(eq(7L), any(AdminNoticeRequestDto.class))).thenReturn(response(5L));
+        when(adminNoticeService.createNotice(eq(7L), any(AdminNoticeRequestDto.class)))
+                .thenReturn(response(5L));
 
         mockMvc.perform(post("/admin/notices").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isCreated())
@@ -101,7 +103,24 @@ class AdminNoticeControllerTest {
                 .andExpect(jsonPath("$.code").value("G-001"));
 
         mockMvc.perform(post("/admin/notices").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"type\":\"NOTICE\",\"title\":\"" + "가".repeat(101) + "\",\"content\":\"내용\"}"))
+                .content("{\"type\":\"NOTICE\",\"title\":\"" + "가".repeat(101)
+                        + "\",\"content\":\"내용\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("G-001"));
+
+        verifyNoInteractions(adminNoticeService);
+    }
+
+    @Test
+    @DisplayName("제목이나 본문이 전각 공백 같은 유니코드 공백뿐이면 400 응답을 반환한다")
+    void rejectsUnicodeBlankText() throws Exception {
+        mockMvc.perform(post("/admin/notices").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"type\":\"NOTICE\",\"title\":\"\\u3000\\u2003\",\"content\":\"내용\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("G-001"));
+
+        mockMvc.perform(post("/admin/notices").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"type\":\"NOTICE\",\"title\":\"제목\",\"content\":\"\\u3000\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("G-001"));
 
@@ -163,7 +182,8 @@ class AdminNoticeControllerTest {
     private AdminNoticeResponseDto response(Long noticeId) {
         return new AdminNoticeResponseDto(
                 new NoticeResponseDto(noticeId, NoticeType.OUTAGE, "서울 통신 장애", "복구 중입니다.",
-                        com.ubot.ranking.enums.RegionSido.SEOUL, LocalDateTime.of(2099, 1, 1, 0, 0),
+                        com.ubot.ranking.enums.RegionSido.SEOUL,
+                        LocalDateTime.of(2099, 1, 1, 0, 0),
                         LocalDateTime.of(2026, 1, 1, 0, 0)),
                 null);
     }

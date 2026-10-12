@@ -19,4 +19,13 @@ public record AdminNoticeRequestDto(
         @NotBlank @Size(max = 10000) String content,
         RegionSido targetRegion,
         LocalDateTime endsAt) {
+
+    public AdminNoticeRequestDto {
+        title = strip(title);
+        content = strip(content);
+    }
+
+    private static String strip(String value) {
+        return value == null ? null : value.strip();
+    }
 }

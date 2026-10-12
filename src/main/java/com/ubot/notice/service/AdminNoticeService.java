@@ -41,8 +41,8 @@ public class AdminNoticeService {
         Notice notice = noticeRepository.save(Notice.create(
                 userRepository.getReferenceById(administratorId),
                 request.type(),
-                request.title().strip(),
-                request.content().strip(),
+                request.title(),
+                request.content(),
                 request.targetRegion(),
                 request.endsAt()));
         log.info("공지를 등록했습니다: 공지ID={}, 유형={}", notice.getNoticeId(), notice.getType());
@@ -79,8 +79,8 @@ public class AdminNoticeService {
         notice.update(
                 userRepository.getReferenceById(administratorId),
                 request.type(),
-                request.title().strip(),
-                request.content().strip(),
+                request.title(),
+                request.content(),
                 request.targetRegion(),
                 request.endsAt());
         log.info("공지를 수정했습니다: 공지ID={}", noticeId);
