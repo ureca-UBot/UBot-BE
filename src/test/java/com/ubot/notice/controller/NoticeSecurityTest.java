@@ -27,6 +27,9 @@ import com.ubot.notice.dto.response.NoticeBannerResponseDto;
 import com.ubot.notice.service.NoticeService;
 import com.ubot.user.repository.UserRepository;
 
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.MalformedJwtException;
+
 @WebMvcTest(NoticeController.class)
 @AutoConfigureMockMvc
 @Import({
@@ -68,6 +71,34 @@ class NoticeSecurityTest {
     @DisplayName("비회원도 공지 목록을 조회할 수 있다")
     void allowsAnonymousList() throws Exception {
         mockMvc.perform(get("/notices")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("만료된 토큰을 보내도 공지 조회는 성공한다")
+    void allowsExpiredToken() throws Exception {
+        when(jwtUtil.getUserId("expired-token")).thenThrow(new ExpiredJwtException(null, null, "expired"));
+        when(noticeService.getBanners(null)).thenReturn(new NoticeBannerResponseDto(List.of(), List.of()));
+
+        mockMvc.perform(get("/notices/banners").header("Authorization", "Bearer expired-token"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/notices").header("Authorization", "Bearer expired-token"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/notices/1").header("Authorization", "Bearer expired-token"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("잘못된 토큰을 보내도 공지 조회는 성공한다")
+    void allowsInvalidToken() throws Exception {
+        when(jwtUtil.getUserId("broken-token")).thenThrow(new MalformedJwtException("invalid"));
+        when(noticeService.getBanners(null)).thenReturn(new NoticeBannerResponseDto(List.of(), List.of()));
+
+        mockMvc.perform(get("/notices/banners").header("Authorization", "Bearer broken-token"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/notices").header("Authorization", "Bearer broken-token"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/notices/1").header("Authorization", "Bearer broken-token"))
+                .andExpect(status().isOk());
     }
 
     @Test
