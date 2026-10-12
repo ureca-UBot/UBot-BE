@@ -6,6 +6,7 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.UUID;
 
 // 질문자 ID는 요청 본문 대신 로그인 인증 정보에서 확인합니다.
 // 좌표는 위치 필요 응답(locationRequired)을 받은 화면이 useMyLocation과 함께 다시 보낼 때만 사용합니다.
@@ -19,8 +20,13 @@ public record ChatRequestDto(
 		@DecimalMin("-180.0")
 		@DecimalMax("180.0")
 		Double longitude,
-		Boolean useMyLocation
+		Boolean useMyLocation,
+		UUID conversationId
 ) {
+	public ChatRequestDto(String question, Double latitude, Double longitude, Boolean useMyLocation) {
+		this(question, latitude, longitude, useMyLocation, null);
+	}
+
 	public ChatRequestDto {
 		// Jackson 3은 boolean 필드가 요청에 없으면 오류를 내므로 Boolean으로 받고, 없으면 false로 둡니다.
 		useMyLocation = Boolean.TRUE.equals(useMyLocation);

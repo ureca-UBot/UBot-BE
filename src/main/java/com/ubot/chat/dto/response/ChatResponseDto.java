@@ -1,6 +1,7 @@
 package com.ubot.chat.dto.response;
 
 import com.ubot.chat.entity.AnswerAttemptsHistory;
+import java.util.UUID;
 
 // store는 매장 질문의 성공 답변에만 담기며(위치 필요 또는 지도 결과), 그 외 답변과 실패 응답에서는 null입니다.
 public record ChatResponseDto(
@@ -9,10 +10,21 @@ public record ChatResponseDto(
 		String idempotencyKey,
 		int attemptCount,
 		boolean retryable,
-		ChatStoreDto store
+		ChatStoreDto store,
+		UUID conversationId
 ) {
 	public ChatResponseDto(String answer, String status, String idempotencyKey, int attemptCount, boolean retryable) {
 		this(answer, status, idempotencyKey, attemptCount, retryable, null);
+	}
+
+	public ChatResponseDto(
+			String answer, String status, String idempotencyKey, int attemptCount, boolean retryable, ChatStoreDto store
+	) {
+		this(answer, status, idempotencyKey, attemptCount, retryable, store, null);
+	}
+
+	public ChatResponseDto withConversationId(UUID conversationId) {
+		return new ChatResponseDto(answer, status, idempotencyKey, attemptCount, retryable, store, conversationId);
 	}
 
 	public static ChatResponseDto from(AnswerAttemptsHistory attempt, String answer, boolean retryable) {

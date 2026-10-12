@@ -48,3 +48,11 @@ faq-semantic-cache:
   min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
   min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
   embedding-model: ${FAQ_CACHE_EMBEDDING_MODEL:bge-m3:567m}
+faq-monitoring:
+  improvement:
+    top-k: ${CHAT_TOP_K:3}
+    low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
+    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.30}
+    unused-days: ${FAQ_IMPROVEMENT_UNUSED_DAYS:7}
+    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:20}
+    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}

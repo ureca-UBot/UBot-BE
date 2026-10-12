@@ -22,13 +22,14 @@ public class GuestConversationService {
 		}
 	}
 
-	public void claimConversation(HttpServletRequest request, Long userId) {
+	public Optional<Long> claimConversation(HttpServletRequest request, Long userId) {
 		Optional<Long> conversationId = findConversationId(request);
 		if (conversationId.isEmpty()) {
-			return;
+			return Optional.empty();
 		}
-		conversationService.claimGuestConversation(conversationId.get(), userId);
+		boolean claimed = conversationService.claimGuestConversation(conversationId.get(), userId);
 		guestSessionService.clearGuestSession(request);
+		return claimed ? conversationId : Optional.empty();
 	}
 
 	public Optional<Long> findConversationId(HttpServletRequest request) {
