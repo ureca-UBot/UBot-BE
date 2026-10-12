@@ -36,10 +36,7 @@ public class NoticeController {
     private final ClientIpResolver clientIpResolver;
     private final IpRegionResolver ipRegionResolver;
 
-    /**
-     * 접속 시 보여 줄 공지 배너와 장애 배너를 반환합니다. 비회원도 호출할 수 있습니다.
-     * region을 지정하지 않으면 요청 IP로 지역을 판단하고, 판단할 수 없으면 전체 공지만 반환합니다.
-     */
+    // 접속 시 보여 줄 공지 배너와 장애 배너를 반환합니다. 비회원도 호출할 수 있습니다.
     @GetMapping("/banners")
     public ApiResponse<NoticeBannerResponseDto> getBanners(HttpServletRequest httpRequest) {
         RegionSido targetRegion = ipRegionResolver.resolve(clientIpResolver.resolve(httpRequest)).orElse(null);
