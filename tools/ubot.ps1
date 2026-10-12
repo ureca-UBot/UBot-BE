@@ -12,6 +12,7 @@ $EnvFile = Join-Path $RepoRoot ".env"
 
 $CommonCompose = Join-Path $RepoRoot "docker-compose.yml"
 $OllamaCompose = Join-Path $RepoRoot "docker-compose.ollama.yml"
+$OllamaGpuCompose = Join-Path $RepoRoot "docker-compose.ollama.gpu.yml"
 $VllmCompose = Join-Path $RepoRoot "docker-compose.vllm.yml"
 
 $AllComposeFiles = @(
@@ -164,14 +165,22 @@ switch ($Command) {
                         "vllm-embedding"
                     )
 
+                # OLLAMA_GPU=true면 Ollama가 NVIDIA GPU를 쓰도록 GPU 설정 파일을 덧붙입니다.
+                $OllamaFiles = @(
+                    $CommonCompose,
+                    $OllamaCompose
+                )
+                $OllamaGpu = Get-EnvValue "OLLAMA_GPU" "false"
+                if ($OllamaGpu.ToLowerInvariant() -eq "true") {
+                    $OllamaFiles += $OllamaGpuCompose
+                    Write-Host "OLLAMA_GPU=true (NVIDIA GPU)"
+                }
+
                 Write-Host ""
                 Write-Host "Starting UBot with Ollama..."
 
                 Invoke-Compose `
-                    -Files @(
-                        $CommonCompose,
-                        $OllamaCompose
-                    ) `
+                    -Files $OllamaFiles `
                     -Arguments @(
                         "up",
                         "-d"

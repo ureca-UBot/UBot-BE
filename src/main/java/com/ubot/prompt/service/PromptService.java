@@ -7,6 +7,7 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
+import com.ubot.prompt.format.FaqAnswerFormat;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -63,9 +64,11 @@ public class PromptService {
                     default -> contextText;
                 }));
 
+        // 시스템 지침이 요구하는 출력 JSON 형식을 스키마로도 함께 넘겨, 모델이 형식을 벗어나지 못하게 합니다.
         return new LlmRequestDto(List.of(
                 new LlmMessageRequestDto(LlmMessageRole.SYSTEM, systemPrompt),
-                new LlmMessageRequestDto(LlmMessageRole.USER, userPrompt)));
+                new LlmMessageRequestDto(LlmMessageRole.USER, userPrompt)))
+                .withResponseSchema(FaqAnswerFormat.schema());
     }
 
     private String[] readTemplates() {

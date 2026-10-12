@@ -30,6 +30,7 @@ src/main/resources/
 |---|---|---|
 | `docker-compose.yml` | `postgres`, `redis`, `prometheus` | 항상 |
 | `docker-compose.ollama.yml` | `ollama`, `ollama-init` | `AI_MODE=ollama` (기본) |
+| `docker-compose.ollama.gpu.yml` | `ollama`에 NVIDIA GPU 연결 | `AI_MODE=ollama`이고 `.env`의 `OLLAMA_GPU=true`일 때 `ubot.ps1 up`이 덧붙임. 배포 워크플로는 쓰지 않음 |
 | `docker-compose.vllm.yml` | `vllm`(답변 생성), `vllm-embedding`(임베딩) | `AI_MODE=vllm`. NVIDIA GPU 필요 |
 
 | 명령 | 하는 일 |
@@ -63,15 +64,16 @@ src/main/resources/
 | `POSTGRES_USER` | Docker, Spring | `ubot` | `ubot` |
 | `POSTGRES_PASSWORD` | Docker, Spring | `change-me` (**변경 필수**) | 없음 |
 | `OLLAMA_PORT` | Docker의 호스트 포트 | `11435` | Spring에서 읽지 않음 |
+| `OLLAMA_GPU` | `tools/ubot.ps1`: `true`면 Ollama 컨테이너에 NVIDIA GPU 연결 | `false` | Spring에서 읽지 않음. 줄이 없으면 `false` |
 | `OLLAMA_BASE_URL` | Spring (`spring.ai.ollama`, `ollama`) | `http://localhost:11435` | `http://localhost:11435` |
 | `OLLAMA_EMBEDDING_MODEL` | Spring, `ollama-init` | `bge-m3:567m` | `bge-m3:567m` |
-| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig`, `ollama-init`(값이 있으면 채팅 모델도 내려받음) | 빈 값 (사용할 모델 지정) | 빈 값. 줄이 없어도 기동되며 `LlmConfig`는 빈 값 허용 |
+| `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig`, `ollama-init`(값이 있으면 채팅 모델도 내려받음) | `qwen3:4b-instruct-2507-q4_K_M` (프롬프트와 함께 검증한 모델) | 빈 값. 줄이 없어도 기동되며 `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
 | `LLM_BASE_URL` | `LlmConfig`: 답변 생성 엔진이 `vllm`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
 | `LLM_MODEL` | `LlmConfig`: 답변 생성 엔진이 `vllm`일 때 요청에 넣는 모델 이름. `LLM_SERVED_MODEL_NAME`과 같아야 함. `tools/ubot.ps1`의 준비 확인에도 사용 | `ubot-chat` | `ubot-chat` |
 | `LLM_PORT` | Docker Compose: vLLM 답변 생성 서버의 호스트 포트. `tools/ubot.ps1`의 준비 확인에도 사용 | `8000` | Spring에서 읽지 않음 |
-| `LLM_HF_MODEL` | Docker Compose: vLLM이 Hugging Face에서 불러올 답변 생성 모델 | `Qwen/Qwen3-4B-AWQ` | Spring에서 읽지 않음 |
+| `LLM_HF_MODEL` | Docker Compose: vLLM이 Hugging Face에서 불러올 답변 생성 모델 | `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16` (Qwen3-4B-Instruct-2507 GPTQ W4A16) | Spring에서 읽지 않음 |
 | `LLM_SERVED_MODEL_NAME` | Docker Compose: vLLM이 API에 내보이는 답변 생성 모델 이름 | `ubot-chat` | Spring에서 읽지 않음 |
 | `LLM_MAX_MODEL_LEN` | Docker Compose: vLLM 답변 생성 서버가 받는 최대 토큰 길이(`--max-model-len`) | `4096` | Spring에서 읽지 않음 |
 | `VLLM_GPU_MEMORY_UTILIZATION` | Docker Compose: vLLM 답변 생성 서버가 쓸 GPU 메모리 비율 | `0.6` | Spring에서 읽지 않음 |
@@ -129,7 +131,7 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 
 ### 키가 있지만 값이 비어 있을 때
 
-`OLLAMA_CHAT_MODEL`과 `KAKAO_REST_API_KEY`는 `.env.example`에서 빈 값입니다. 빈 값이면 기동은 되지만 해당 기능이 실패합니다(채팅 모델 미지정, 카카오 API 인증 실패).
+`KAKAO_REST_API_KEY`는 `.env.example`에서 빈 값입니다. `OLLAMA_CHAT_MODEL`을 비우는 경우도 같습니다. 빈 값이면 기동은 되지만 해당 기능이 실패합니다(채팅 모델 미지정, 카카오 API 인증 실패).
 
 - `KAKAO_REST_API_KEY`는 키 줄 자체를 지우면 기동이 실패합니다.
 - `OLLAMA_CHAT_MODEL`은 줄이 없어도 빈 값으로 처리되어 기동됩니다. 답변 생성 엔진이 `vllm`이면 이 값을 쓰지 않으므로 비워 둬도 됩니다.
