@@ -1,5 +1,7 @@
 package com.ubot.roaming.service;
 
+import java.util.Objects;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -8,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.common.repository.ProductSpecification;
+import com.ubot.common.repository.ProductSubscriptionRepository;
 import com.ubot.common.repository.ProductWriteSupport;
 import com.ubot.common.dto.request.ProductStatusUpdateRequestDto;
 import com.ubot.roaming.dto.request.AdminRoamingProductCreateRequestDto;
@@ -30,6 +33,7 @@ public class AdminRoamingProductService {
 
     private final RoamingProductRepository productRepository;
     private final UserRepository userRepository;
+    private final ProductSubscriptionRepository subscriptionRepository;
 
     public AdminRoamingProductResponseDto createRoamingProduct(Long administratorId, AdminRoamingProductCreateRequestDto request) {
         if (productRepository.existsByCode(request.code())) {
@@ -72,6 +76,9 @@ public class AdminRoamingProductService {
             Long administratorId, Long roamingProductId, AdminRoamingProductUpdateRequestDto request
     ) {
         RoamingProduct product = getUndeletedProduct(roamingProductId);
+        if (changesConditions(product, request) && subscriptionRepository.existsByRoamingProductId(roamingProductId)) {
+            throw new RoamingProductException(RoamingProductErrorCode.PRODUCT_IN_USE);
+        }
         product.update(
                 userRepository.getReferenceById(administratorId),
                 request.name().trim(),
@@ -93,7 +100,11 @@ public class AdminRoamingProductService {
     }
 
     public void deleteRoamingProduct(Long administratorId, Long roamingProductId) {
-        getUndeletedProduct(roamingProductId).delete(userRepository.getReferenceById(administratorId));
+        RoamingProduct product = getUndeletedProduct(roamingProductId);
+        if (subscriptionRepository.existsByRoamingProductId(roamingProductId)) {
+            throw new RoamingProductException(RoamingProductErrorCode.PRODUCT_IN_USE);
+        }
+        product.delete(userRepository.getReferenceById(administratorId));
         log.info("로밍 상품을 삭제했습니다: 상품ID={}", roamingProductId);
     }
 
@@ -104,5 +115,12 @@ public class AdminRoamingProductService {
 
     private String normalizeDescription(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private boolean changesConditions(RoamingProduct product, AdminRoamingProductUpdateRequestDto request) {
+        return !Objects.equals(product.getDescription(), normalizeDescription(request.description()))
+                || !Objects.equals(product.getDailyFee(), request.dailyFee())
+                || !Objects.equals(product.getDataAmountMb(), request.dataAmountMb())
+                || !Objects.equals(product.getCountry(), request.country().trim());
     }
 }

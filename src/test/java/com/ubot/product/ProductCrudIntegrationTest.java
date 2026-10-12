@@ -222,7 +222,8 @@ class ProductCrudIntegrationTest {
             "\"dataUnlimited\":false=>\"dataUnlimited\":true",
             "\"voiceUnlimited\":false=>\"voiceUnlimited\":true",
             "\"smsUnlimited\":false=>\"smsUnlimited\":true",
-            "\"minAge\":null,\"maxAge\":null=>\"minAge\":20,\"maxAge\":10"
+            "\"minAge\":null,\"maxAge\":null=>\"minAge\":20,\"maxAge\":10",
+            "\"tetheringAmountMb\":1000=>\"tetheringAmountMb\":2000"
     })
     @DisplayName("무제한·제공량 및 나이 조합이 잘못되면 저장하지 않는다")
     void rejectsInvalidPlanCombination(String replacement) throws Exception {
@@ -246,6 +247,31 @@ class ProductCrudIntegrationTest {
         mockMvc.perform(get("/plans/" + id))
                 .andExpect(jsonPath("$.data.summary.name").value("상품"))
                 .andExpect(jsonPath("$.data.summary.dataUnlimited").value(false));
+    }
+
+    @Test
+    @DisplayName("유한 데이터보다 많은 테더링 제공량으로 수정하면 기존 제공량이 유지된다")
+    void rejectsTetheringAboveFiniteDataOnUpdate() throws Exception {
+        long id = create(Product.PLAN, Product.PLAN.createBody);
+        mockMvc.perform(put("/admin/plans/" + id).with(administrator())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ProductSubscriptionTestSupport.unchangedUpdateBody(Product.PLAN)
+                                .replace("\"tetheringAmountMb\":1000", "\"tetheringAmountMb\":2000")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PLAN-003"));
+        assertThat(jdbcTemplate.queryForObject("SELECT tethering_amount_mb FROM plans WHERE plan_id = ?",
+                Long.class, id)).isEqualTo(1000L);
+    }
+
+    @Test
+    @DisplayName("무제한 데이터는 독립적인 테더링 제공량을 설정할 수 있다")
+    void acceptsTetheringWithUnlimitedData() throws Exception {
+        long id = create(Product.PLAN, Product.PLAN.createBody
+                .replace("\"dataAmountMb\":1000", "\"dataAmountMb\":null")
+                .replace("\"dataUnlimited\":false", "\"dataUnlimited\":true")
+                .replace("\"tetheringAmountMb\":1000", "\"tetheringAmountMb\":2000"));
+        assertThat(jdbcTemplate.queryForObject("SELECT tethering_amount_mb FROM plans WHERE plan_id = ?",
+                Long.class, id)).isEqualTo(2000L);
     }
 
     @Test

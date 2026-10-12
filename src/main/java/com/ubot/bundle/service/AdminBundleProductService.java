@@ -1,5 +1,7 @@
 package com.ubot.bundle.service;
 
+import java.util.Objects;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -8,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.common.repository.ProductSpecification;
+import com.ubot.common.repository.ProductSubscriptionRepository;
 import com.ubot.common.repository.ProductWriteSupport;
 import com.ubot.common.dto.request.ProductStatusUpdateRequestDto;
 import com.ubot.bundle.dto.request.AdminBundleProductCreateRequestDto;
@@ -30,6 +33,7 @@ public class AdminBundleProductService {
 
     private final BundleProductRepository productRepository;
     private final UserRepository userRepository;
+    private final ProductSubscriptionRepository subscriptionRepository;
 
     public AdminBundleProductResponseDto createBundleProduct(Long administratorId, AdminBundleProductCreateRequestDto request) {
         if (productRepository.existsByCode(request.code())) {
@@ -70,6 +74,9 @@ public class AdminBundleProductService {
             Long administratorId, Long bundleProductId, AdminBundleProductUpdateRequestDto request
     ) {
         BundleProduct product = getUndeletedProduct(bundleProductId);
+        if (changesConditions(product, request) && subscriptionRepository.existsByBundleProductId(bundleProductId)) {
+            throw new BundleProductException(BundleProductErrorCode.PRODUCT_IN_USE);
+        }
         product.update(
                 userRepository.getReferenceById(administratorId),
                 request.name().trim(),
@@ -89,7 +96,11 @@ public class AdminBundleProductService {
     }
 
     public void deleteBundleProduct(Long administratorId, Long bundleProductId) {
-        getUndeletedProduct(bundleProductId).delete(userRepository.getReferenceById(administratorId));
+        BundleProduct product = getUndeletedProduct(bundleProductId);
+        if (subscriptionRepository.existsByBundleProductId(bundleProductId)) {
+            throw new BundleProductException(BundleProductErrorCode.PRODUCT_IN_USE);
+        }
+        product.delete(userRepository.getReferenceById(administratorId));
         log.info("결합 상품을 삭제했습니다: 상품ID={}", bundleProductId);
     }
 
@@ -100,5 +111,10 @@ public class AdminBundleProductService {
 
     private String normalizeDescription(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private boolean changesConditions(BundleProduct product, AdminBundleProductUpdateRequestDto request) {
+        return !Objects.equals(product.getDescription(), normalizeDescription(request.description()))
+                || !Objects.equals(product.getDiscountAmount(), request.discountAmount());
     }
 }
