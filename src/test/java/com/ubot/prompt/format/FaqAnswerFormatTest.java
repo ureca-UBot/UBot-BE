@@ -52,6 +52,13 @@ class FaqAnswerFormatTest {
     }
 
     @Test
+    void 코드_블록_언어_태그가_대문자여도_읽는다() {
+        FaqAnswer parsed = FaqAnswerFormat.parse("```JSON\n{\"answer\":\"답변\",\"evidence_ids\":[],\"status\":\"ANSWER\"}\n```");
+
+        assertThat(parsed.answer()).isEqualTo("답변");
+    }
+
+    @Test
     void JSON이_아닌_일반_문장은_그대로_답변으로_쓴다() {
         FaqAnswer parsed = FaqAnswerFormat.parse("  위치를 알려 주시면 가까운 매장을 찾아 드릴게요.  ");
 

@@ -24,7 +24,7 @@ public final class FaqAnswerFormat {
     public static final List<String> STATUSES = List.of("ANSWER", "PARTIAL", "ABSTAIN", "CONFLICT", "OUT_OF_SCOPE");
 
     // 모델이 JSON을 마크다운 코드 블록으로 감싸 보내는 경우(스키마를 강제하지 못하는 도구 호출 요청 등)를 벗겨 냅니다.
-    private static final Pattern CODE_BLOCK = Pattern.compile("(?s)^```(?:json)?\\s*(.*?)\\s*```$");
+    private static final Pattern CODE_BLOCK = Pattern.compile("(?si)^```(?:json)?\\s*(.*?)\\s*```$");
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
     private static final Map<String, Object> SCHEMA = createSchema();
 
