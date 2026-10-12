@@ -185,6 +185,31 @@ class ConversationIntegrationTest {
 				.andExpect(jsonPath("$.data.length()").value(2));
 	}
 
+	@Test
+	@DisplayName("답변에 실패해도 응답에 대화방 ID를 주고, 그 ID로 이어 질문하면 같은 대화방을 쓴다")
+	void failedAnswerStillReturnsConversationId() throws Exception {
+		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(List.of());
+		var pending = mvc.perform(question("결과 없는 질문", null).header("Authorization", bearer(member)))
+				.andExpect(request().asyncStarted()).andReturn();
+		pending.getAsyncResult(10_000);
+		String body = mvc.perform(asyncDispatch(pending))
+				.andExpect(jsonPath("$.data.status").value("FAIL"))
+				.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+		UUID conversationId = UUID.fromString(objectMapper.readTree(body).path("data").path("conversationId").asString());
+
+		assertThat(jdbc.queryForObject(
+				"select count(*) from conversations where public_id = ?", Long.class, conversationId)).isEqualTo(1);
+		mvc.perform(get("/conversations/me").header("Authorization", bearer(member)))
+				.andExpect(jsonPath("$.data.totalElements").value(0));
+		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(List.of(
+				new FaqSearchResponseDto(jdbc.queryForObject("select max(id) from faq", Long.class), "q", "a", 0.9, Intent.GENERAL)));
+		assertThat(askAsMember(member, "다시 질문", conversationId)).isEqualTo(conversationId);
+		assertThat(jdbc.queryForObject("select count(*) from conversations", Long.class)).isEqualTo(1);
+		mvc.perform(get("/conversations/me").header("Authorization", bearer(member)))
+				.andExpect(jsonPath("$.data.totalElements").value(1))
+				.andExpect(jsonPath("$.data.content[0].title").value("다시 질문"));
+	}
+
 	private UUID askAsMember(User user, String question, UUID conversationId) throws Exception {
 		return complete(question(question, conversationId).header("Authorization", bearer(user)));
 	}
