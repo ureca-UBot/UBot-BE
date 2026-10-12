@@ -17,6 +17,22 @@ class ReviewedFaqPolicyTest {
             "기기만 변경하는 경우 기존 전화번호는 그대로 유지됩니다.",.90,true,true);
     private final Offer competitor = new Offer(322,"eSIM은 어디에서 발급받나요?","매장에서 신청하세요.",.70,false,true);
 
+    @Test
+    void negatedPortingAndNewNumberRequestsCannotUseTheNumberRetentionAnswer() {
+        for (String question : List.of(
+                "번호이동 없이 통신사를 옮겨도 같은 전화번호를 쓸 수 있는지 설명 부탁드립니다.",
+                "번호 이동을 하지 않고 다른 통신사에서 기존 번호를 사용할 수 있나요?",
+                "번호이동을 안 해도 전화번호를 유지할 수 있어요?",
+                "번호이동이 아닌 경우에도 기존 번호를 쓸 수 있나요?",
+                "통신사를 바꾸고 새 전화번호로 가입할 수 있나요?",
+                "다른 통신사로 옮길 때 다른 번호를 받을 수 있어요?")) {
+            assertThat(policy.supports(question)).as(question).isFalse();
+            assertThat(policy.decide(question, List.of(port, competitor)).faqId()).as(question).isNull();
+        }
+        assertThat(policy.decide("번호이동을 해도 지금 전화번호를 유지할 수 있어요?",
+                List.of(port, competitor)).faqId()).isEqualTo(3);
+    }
+
     @Test void extraRequestsAndHistoricalFalseCacheDoNotMatch() {
         for (String q : List.of(
                 "실물 유심과 이심을 동시에 사용할 수 있는지 궁금해요. 지원 단말 목록도 부탁드립니다.",

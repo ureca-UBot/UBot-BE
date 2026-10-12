@@ -11,6 +11,9 @@ import com.ubot.faq.dto.response.OldFaqResponseDto;
 import com.ubot.faq.service.FaqCategoryService;
 import com.ubot.faq.service.FaqLogService;
 import com.ubot.faq.service.FaqService;
+import com.ubot.faq.service.FaqCacheQuestionService;
+import com.ubot.faq.dto.response.FaqCacheQuestionResponseDto;
+import java.util.List;
 import com.ubot.faq.service.OldFaqService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -27,6 +30,7 @@ import com.ubot.faq.service.FaqEmbeddingBackfillService;
 @RequiredArgsConstructor
 @Validated
 public class AdminFaqController {
+	private final FaqCacheQuestionService faqCacheQuestionService;
 	private final FaqService faqService;
 	private final FaqCategoryService faqCategoryService;
 	private final FaqLogService faqLogService;
@@ -82,6 +86,27 @@ public class AdminFaqController {
 	){
 		faqService.deleteFaq(faqId);
 		return ApiResponse.success("해당 FAQ가 삭제되었습니다.", null);
+	}
+
+	@PostMapping("/faqs/{faqId}/cache-questions")
+	public ApiResponse<List<FaqCacheQuestionResponseDto>> registerFaqCacheQuestions(
+			@Positive @PathVariable Long faqId,
+			@Valid @RequestBody FaqCacheQuestionCreateRequestDto request) {
+		return ApiResponse.success(faqCacheQuestionService.registerFaqCacheQuestions(faqId, request));
+	}
+
+	@GetMapping("/faqs/{faqId}/cache-questions")
+	public ApiResponse<List<FaqCacheQuestionResponseDto>> getFaqCacheQuestionList(
+			@Positive @PathVariable Long faqId) {
+		return ApiResponse.success(faqCacheQuestionService.getFaqCacheQuestionList(faqId));
+	}
+
+	@DeleteMapping("/faqs/{faqId}/cache-questions/{questionId}")
+	public ApiResponse<Void> deactivateFaqCacheQuestion(
+			@Positive @PathVariable Long faqId,
+			@Positive @PathVariable Long questionId) {
+		faqCacheQuestionService.deactivateFaqCacheQuestion(faqId, questionId);
+		return ApiResponse.success("해당 질문 표현이 비활성화되었습니다.", null);
 	}
 
 	@PostMapping("/faqs/restore")

@@ -55,31 +55,38 @@ FAQ_CACHE_EMBEDDING_MODEL=bge-m3:567m
 
 PATCH에는 id·categoryId·question·answer·intent 등 기존 필수 필드도 보내야 해요. FAQ 내용·버전이 바뀌면 과거 표현은 검색에서 제외돼요. 다시 검토해 등록해야 해요.
 
-## 5. 표현 등록
+## 5. 표현 등록·조회·비활성화
 
-`scripts/semantic-cache/`는 백엔드가 호출하는 런타임 구성 요소가 아니라 수동 등록·검증 도구예요.
+운영에서 표현은 Java 관리자 API로 관리해요. Python 프로세스를 실행할 필요는 없어요. `/admin/**`의 기존 관리자 인증을 사용해요.
 
-| 파일 | 용도 |
+| API | 역할 |
 |---|---|
-| `catalog-reviewed.json` | 대표 질문 5개와 추가 표현 44개. DB의 ID와 공식 내용이 일치하는지 검토 필요 |
-| `register-reviewed-expressions.py` | 현재 프로필로 표현을 임베딩하고 DB에 등록 |
-| `test-registration.py` | 별도 임시 DB·가짜 임베딩 서버를 사용하는 등록 도구 테스트 |
+| `POST /admin/faqs/{faqId}/cache-questions` | 현재 프로필로 표현을 임베딩해 추가·갱신 |
+| `GET /admin/faqs/{faqId}/cache-questions` | 해당 FAQ의 모든 프로필 표현과 유효 상태 조회 |
+| `DELETE /admin/faqs/{faqId}/cache-questions/{questionId}` | 표현 한 개를 `enabled=false`로 비활성화 |
 
-아래 컨테이너 이름과 프로필 ID를 사용할 DB의 실제 값으로 바꿔요. 예시의 `TEST_DB`도 실제 DB 이름으로 바꿔요.
+등록 요청 예시:
 
-```text
-python -X utf8 scripts/semantic-cache/register-reviewed-expressions.py --container POSTGRES_CONTAINER --database TEST_DB --profile-id PROFILE_ID
+```json
+{
+  "questions": [
+    "esim이 뭐야?",
+    "esim이 어떤 건지 설명해줘."
+  ]
+}
 ```
 
-기본 실행은 승인·공식 내용·현재 프로필 벡터를 검증하고 끝나요. 임베딩이나 DB 쓰기를 수행하지 않아요. 검토 후 등록할 때만 `--apply`를 추가해요.
+FAQ가 활성 GENERAL이고 `cacheable=true`이며, 현재 프로필의 질문 벡터가 있어야 등록할 수 있어요. 한 번에 최대 50개, 표현 하나는 최대 160자예요. 중복 문자열은 한 번만 처리해요. 입력의 대소문자·문장부호는 유지해요.
 
-```text
-python -X utf8 scripts/semantic-cache/register-reviewed-expressions.py --container POSTGRES_CONTAINER --database TEST_DB --profile-id PROFILE_ID --apply
-```
+임베딩은 기존 `EmbeddingService`를 사용하고 기본 8개씩 나눠 호출해요. `FAQ_CACHE_REGISTRATION_BATCH_SIZE`로 1~50 범위에서 조절할 수 있어요. 모델 호출 중에는 FAQ 잠금이나 DB 트랜잭션을 유지하지 않아요. 호출이 끝난 뒤 FAQ를 잠그고 승인·공식 내용·버전·벡터를 재확인해요. 바뀌었다면 `FAQ-009`로 전체 등록을 거절해요. 등록 중 하나라도 DB 저장에 실패하면 전체를 롤백해요.
 
-Ollama 기본 주소는 `http://localhost:11435`, OpenAI-compatible 기본 주소는 `http://localhost:8001/v1`이에요. 다른 서버는 `--embedding-url`로 지정해요. Python 표준 라이브러리와 Docker CLI를 사용해요.
+POST는 입력한 표현만 추가·갱신하며 기존 표현을 자동 제거하지 않아요. 제거할 때는 DELETE를 명시적으로 호출해요. DELETE는 해당 표현의 벡터를 검색에서 제외하는 동작이에요. 같은 사용자 질문이 다른 유효 표현과 매칭될 수는 있어요. FAQ 전체의 직접 답변을 막으려면 `cacheable=false`로 바꿔요. 비활성화된 표현을 같은 프로필로 다시 POST하면 임베딩·최신 FAQ 검증 후 재활성화해요. 같은 FAQ·프로필·문자열을 반복 등록해도 중복 행을 만들지 않아요.
 
-도구는 임베딩 후 트랜잭션에서 FAQ 승인·내용·버전·벡터를 다시 확인해요. 중간에 바뀌면 등록을 취소해요. 같은 프로필과 표현을 다시 등록해도 중복 행을 만들지 않아요. 승인 상태는 변경하지 않아요. 등록 이후 서버는 DB를 읽으므로 도구를 함께 실행할 필요가 없어요.
+GET에는 `id`, `faqId`, `profileId`, `question`, `enabled`, `valid`, `faqVersion`, `currentFaqVersion`, `createdAt`을 반환해요. `valid`는 현재 프로필·FAQ 승인·본문·버전·질문 벡터와 일치하는지 나타내요. 사용자 질문의 유사도 판정까지 통과했다는 뜻은 아니에요. 다른 프로필과 오래된 표현도 조회되지만 `valid=false`로 표시해요.
+
+FAQ 내용·버전이 바뀌면 GET으로 검토할 표현을 확인하고 해당 표현을 다시 POST해요. 검토 정책을 켠 경우 리소스의 공식 내용도 일치해야 실제 캐시 답변으로 사용할 수 있어요. API로 표현을 등록했다고 검토 정책의 대상 FAQ가 자동으로 늘어나지는 않아요.
+
+이전 `scripts/semantic-cache/` 도구는 로컬 실험용 추가/upsert 도구로 남겨뒀어요. 카탈로그에서 표현을 빼도 DB에서 철회되지 않으며 `--apply`는 전달한 표현을 활성화하므로 운영 관리에는 위 API를 사용해요. `catalog-reviewed.json`은 이전 다섯 FAQ의 대표 질문 5개와 추가 표현 44개를 담은 참고 목록이에요.
 
 ## 6. 확인 방법
 
@@ -89,7 +96,7 @@ Ollama 기본 주소는 `http://localhost:11435`, OpenAI-compatible 기본 주�
 gradlew.bat test build --no-daemon
 ```
 
-등록 도구의 별도 테스트:
+이전 Python 등록 도구의 별도 테스트(선택):
 
 ```text
 python -X utf8 scripts/semantic-cache/test-registration.py
@@ -116,6 +123,6 @@ python -X utf8 scripts/semantic-cache/test-registration.py
 
 ## 7. 한계
 
-등록된 질문 표현과 정규식 질문 범위는 모든 동의 표현·부정·문맥을 판별하지 못해요. 기존 실험에서 새 번호 요청·번호이동 부정·문맥 의존 질문을 통과시킨 사례가 있으며, 이 브랜치에서 해당 판정 정책을 수정하지 않았어요.
+등록된 질문 표현과 정규식 질문 범위는 모든 동의 표현·부정·문맥을 판별하지 못해요. 기존 실험에서 새 번호 요청·번호이동 부정·문맥 의존 질문을 통과시킨 사례가 있었어요. 이번 보완에서는 FAQ 3의 번호이동 부정·새 번호 조건을 제외하고 회귀 테스트를 추가했어요. 모든 부정·문맥 표현의 안전성을 검증한 것은 아니에요.
 
 동적 임계값, 질문 정확 일치부터 단계별로 처리하는 계층적 캐시, 캐시 전용 운영 메트릭·비용 계산은 추가하지 않았어요. 일반 Actuator/Prometheus 지표와 판정 로그는 사용할 수 있어요. 운영 활성화 전에는 실제 사용 질문과 팀 검토로 허용 범위를 확인해야 해요.

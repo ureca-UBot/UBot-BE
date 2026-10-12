@@ -92,6 +92,10 @@
 | `FAQ-005` | 400 | `FAQ_CATEGORY_SAME_NAME` | 이전 카테고리명과 후 카테고리명이 같습니다. |
 | `FAQ-006` | 400 | `FAQ_CATEGORY_IN_USE` | 해당 카테고리를 사용중인 FAQ가 있습니다. |
 | `FAQ-007` | 400 | `FAQ_CACHE_INTENT_INVALID` | 일반 안내 FAQ만 캐시 답변을 승인할 수 있습니다. |
+| `FAQ-008` | 409 | `FAQ_CACHE_NOT_APPROVED` | 캐시 답변이 승인된 일반 안내 FAQ만 표현을 등록할 수 있습니다. |
+| `FAQ-009` | 409 | `FAQ_CACHE_FAQ_CHANGED` | 등록 중 FAQ가 변경되었습니다. 최신 내용을 확인한 뒤 다시 등록해주세요. |
+| `FAQ-010` | 409 | `FAQ_CACHE_VECTOR_NOT_READY` | 현재 임베딩 프로필의 FAQ 질문 벡터가 준비되지 않았습니다. |
+| `FAQ-011` | 404 | `FAQ_CACHE_QUESTION_NOT_FOUND` | 해당 FAQ에 등록된 질문 표현을 찾을 수 없습니다. |
 
 
 - `FAQ-006`: 카테고리를 쓰는 활성 FAQ가 있으면 카테고리를 삭제할 수 없습니다.

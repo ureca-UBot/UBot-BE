@@ -318,6 +318,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | `FAQ_CACHE_TTL` | `7d` | Redis 공식 답변 스냅샷 TTL |
 | `FAQ_CACHE_SEMANTIC_ENABLED` | `false` | 추가 표현 검색·판정 사용 |
 | `FAQ_CACHE_REVIEWED_POLICY_ENABLED` | `false` | 실험한 다섯 FAQ의 범위·고정 Q/A·FAQ별 기준 사용 |
+| `FAQ_CACHE_REGISTRATION_BATCH_SIZE` | `8` | Java 표현 등록 API의 임베딩 배치 크기(1~50) |
 | `FAQ_CACHE_MIN_SIMILARITY` | `0.95` | 검토 정책이 꺼져 있을 때 최소 코사인 유사도 |
 | `FAQ_CACHE_MIN_MARGIN` | `0.15` | 검토 정책이 꺼져 있을 때 경쟁 FAQ와 최소 차이 |
 | `FAQ_CACHE_EMBEDDING_MODEL` | `bge-m3:567m` | 추가 검색을 허용할 실제 임베딩 모델 이름 |

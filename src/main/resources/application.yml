@@ -42,6 +42,7 @@ faq-cache:
   ttl: ${FAQ_CACHE_TTL:7d}
 
 faq-semantic-cache:
+  registration-batch-size: ${FAQ_CACHE_REGISTRATION_BATCH_SIZE:8}
   enabled: ${FAQ_CACHE_SEMANTIC_ENABLED:false}
   reviewed-policy-enabled: ${FAQ_CACHE_REVIEWED_POLICY_ENABLED:false}
   min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}

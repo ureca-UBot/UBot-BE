@@ -11,8 +11,12 @@ public record FaqCreateRequestDto(
 		@NotBlank @Size(max = 1000)String question,
 		@NotBlank @Size(max = 1000)String answer,
 		@NotNull Intent intent,
-		boolean cacheable
+		Boolean cacheable
 ){
+	public FaqCreateRequestDto {
+		cacheable = Boolean.TRUE.equals(cacheable);
+	}
+
 	public FaqCreateRequestDto(Long categoryId, String question, String answer, Intent intent) {
 		this(categoryId, question, answer, intent, false);
 	}

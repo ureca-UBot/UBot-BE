@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import com.ubot.faq.service.FaqCategoryService;
+import com.ubot.faq.service.FaqCacheQuestionService;
 import com.ubot.faq.service.FaqEmbeddingBackfillService;
 import com.ubot.faq.service.FaqLogService;
 import com.ubot.faq.service.FaqService;
@@ -43,6 +44,7 @@ class AdminFaqControllerTest {
     void setUp() {
         AdminFaqController controller =
                 new AdminFaqController(
+                        mock(FaqCacheQuestionService.class),
                         faqService,
                         faqCategoryService,
                         faqLogService,
