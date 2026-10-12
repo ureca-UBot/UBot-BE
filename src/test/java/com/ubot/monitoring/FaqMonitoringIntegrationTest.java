@@ -23,6 +23,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest(properties = {
 		"faq-monitoring.improvement.minimum-top-k-samples=20",
@@ -30,6 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 })
 @Import(PgvectorTestConfiguration.class)
 @ActiveProfiles("test")
+@Transactional
 @DisplayName("FAQ 모니터링 통합 테스트")
 class FaqMonitoringIntegrationTest {
 
