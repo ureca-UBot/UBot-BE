@@ -36,3 +36,14 @@ ranking:
   baseline-period-days: ${BASELINE_PERIOD_DAYS:7}
   baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:20}
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:20}
+
+faq-cache:
+  enabled: ${FAQ_CACHE_ENABLED:false}
+  ttl: ${FAQ_CACHE_TTL:7d}
+
+faq-semantic-cache:
+  enabled: ${FAQ_CACHE_SEMANTIC_ENABLED:false}
+  reviewed-policy-enabled: ${FAQ_CACHE_REVIEWED_POLICY_ENABLED:false}
+  min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
+  min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
+  embedding-model: ${FAQ_CACHE_EMBEDDING_MODEL:bge-m3:567m}

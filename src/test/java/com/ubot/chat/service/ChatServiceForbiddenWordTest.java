@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
+import com.ubot.faq.service.FaqCacheService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
@@ -24,7 +25,8 @@ class ChatServiceForbiddenWordTest {
 	private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
 	private final Deque<Runnable> jobs = new ArrayDeque<>();
 	private final ChatService service = new ChatService(attempts, filter, new ChatAnswerExecutor(
-			new ChatAnswerProcessor(vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()),
+			new ChatAnswerProcessor(vector, ChatTestFixtures.disabledSemanticCache(), mock(FaqCacheService.class),
+                ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()),
 			attempts, jobs::add));
 
 	@Test

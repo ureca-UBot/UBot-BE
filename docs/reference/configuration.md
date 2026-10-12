@@ -307,3 +307,19 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 모델을 호출하지 않고 `CHAT-014`로 실패합니다. 외부 프롬프트 파일을 사용하려면
 `prompt.faq.system-location`, `prompt.faq.user-location`에 Spring `file:` 리소스 경로를 지정합니다.
 호출 계약과 테스트 방법은 [LLM 모듈 연결 안내](../how-to/llm-module.md)를 참고하세요.
+
+## 공식 FAQ 시맨틱 캐시
+
+캐시의 기본값은 OFF예요. 켜면 판정과 DB 답변 검증을 통과한 질문에 공식 답변을 직접 반환해요. 알려진 오캐시 사례와 설정·등록 절차는 [시맨틱 캐시 이식본 안내](../how-to/103-faq-semantic-cache.md)에 있어요.
+
+| 환경변수 | 기본값 | 역할 |
+|---|---|---|
+| `FAQ_CACHE_ENABLED` | `false` | 공식 답변 캐시 기능 사용 |
+| `FAQ_CACHE_TTL` | `7d` | Redis 공식 답변 스냅샷 TTL |
+| `FAQ_CACHE_SEMANTIC_ENABLED` | `false` | 추가 표현 검색·판정 사용 |
+| `FAQ_CACHE_REVIEWED_POLICY_ENABLED` | `false` | 실험한 다섯 FAQ의 범위·고정 Q/A·FAQ별 기준 사용 |
+| `FAQ_CACHE_MIN_SIMILARITY` | `0.95` | 검토 정책이 꺼져 있을 때 최소 코사인 유사도 |
+| `FAQ_CACHE_MIN_MARGIN` | `0.15` | 검토 정책이 꺼져 있을 때 경쟁 FAQ와 최소 차이 |
+| `FAQ_CACHE_EMBEDDING_MODEL` | `bge-m3:567m` | 추가 검색을 허용할 실제 임베딩 모델 이름 |
+
+등록 표현은 현재 `EmbeddingProfileService`의 profile ID와 맞아야 해요. 모델 이름이 같아도 provider·프로필 버전이 다르면 표현을 공유하지 않아요.

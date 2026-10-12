@@ -1,0 +1,62 @@
+{
+  "description": "Rendered from stored experiments. No model/DB/API/training calls.",
+  "sources": [
+    {
+      "path": "outputs/semantic-cache-clusters-20261011-161713-959336/summary.json",
+      "sha256": "2f63d215496311736ec49453f9c7c9f97d28b3bccec254e7262ad1917cba08ba"
+    },
+    {
+      "path": "outputs/semantic-cache-clusters-20261011-161713-959336/assignments.json",
+      "sha256": "00ec2e16d05b80699f592f3a299da9f1e3904be60bf2d42e231eb3c6fb25c160"
+    },
+    {
+      "path": "outputs/semantic-cache-clusters-20261011-161713-959336/embedding-cache.json",
+      "sha256": "d9832e3be96a9f89d0acd6934744763c015359cf2be55f99b6408decc318ea61"
+    },
+    {
+      "path": "outputs/semantic-cache-clusters-20261011-161713-959336/all-clusters.json",
+      "sha256": "effd86524ff2665e9f1903bc65b3b98e302037dfe2898da6c156d8b98bf4ad78"
+    },
+    {
+      "path": "outputs/semantic-cache-reviewed-20261011-190049-715833/summary.json",
+      "sha256": "f39951255ee4f6123367fe443d082c992a0d4521738227116abf1f484b42ccab"
+    },
+    {
+      "path": "outputs/semantic-cache-reviewed-20261011-190049-715833/results.json",
+      "sha256": "3386f0fe8e4eaa0837a97fc23be11e2da90909e7bdf44bb665989d5564fef207"
+    },
+    {
+      "path": "outputs/semantic-cache-reviewed-20261011-190059-861512/summary.json",
+      "sha256": "fc69132279e75808bb7540dc8fec497a4af2cea720fb0ce64bea86798ee62447"
+    },
+    {
+      "path": "outputs/semantic-cache-reviewed-20261011-190059-861512/results.json",
+      "sha256": "3772bde1e8f1a566048964dd253513324794c027d8cdd254c694d337609f53c0"
+    },
+    {
+      "path": "outputs/semantic-cache-reviewed-api-20261011/baseline/results.json",
+      "sha256": "fe9058dd1adab4fe377a1c314099b8b31c24cfe768432b1a6309dab18ebdf0d2"
+    },
+    {
+      "path": "outputs/semantic-cache-reviewed-api-20261011/accepted/results.json",
+      "sha256": "2b5719d5472b817013571e6012b36ea659103f041b4d448bbfbc10b9248e7b61"
+    }
+  ],
+  "apiSamplePerSetting": 20,
+  "meanBeforeMs": 1177.255,
+  "meanAfterMs": 1043.285,
+  "assets": [
+    "actual-api-outcomes.png",
+    "actual-api-outcomes.svg",
+    "api-response-times.png",
+    "api-response-times.svg",
+    "cache-set-pipeline.png",
+    "cache-set-pipeline.svg",
+    "dbscan-analysis.png",
+    "dbscan-analysis.svg",
+    "request-architecture.png",
+    "request-architecture.svg",
+    "validation-comparison.png",
+    "validation-comparison.svg"
+  ]
+}

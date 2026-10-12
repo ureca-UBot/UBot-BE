@@ -9,11 +9,13 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqAnswerSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +25,23 @@ public class FaqVectorService {
     private final EmbeddingService embeddingService;
     private final EmbeddingProfileService embeddingProfileService;
     private final FaqVectorRepository faqVectorRepository;
+
+    /** Reuse the current profile's query embedding for baseline and cache retrieval. */
+    public FaqAnswerSearchResponseDto searchWithSemanticCache(String question, int topK, String cacheModel) {
+        PGvector vector = embeddingService.embedText(question);
+        Long profileId = embeddingProfileService.getCurrentProfileId();
+        var baseline = faqVectorRepository.getSimilarList(vector, profileId, topK);
+        if (!Objects.equals(cacheModel, embeddingService.getModelName())) {
+            log.warn("SEMANTIC_CACHE skipped: embedding_model_mismatch");
+            return new FaqAnswerSearchResponseDto(baseline, List.of());
+        }
+        try {
+            return new FaqAnswerSearchResponseDto(baseline, faqVectorRepository.getSemanticCandidates(vector, profileId));
+        } catch (DataAccessException exception) {
+            log.warn("SEMANTIC_CACHE lookup failed; keeping baseline retrieval", exception);
+            return new FaqAnswerSearchResponseDto(baseline, List.of());
+        }
+    }
 
     public List<FaqSearchResponseDto> getSimilarList(
             String userQuestion,

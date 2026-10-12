@@ -13,6 +13,7 @@ public record OldFaqResponseDto (
 		String question,
 		String answer,
 		Intent intent,
+		boolean cacheable,
 		Long createdById,
 		Long updatedById,
 		LocalDateTime updatedAt
@@ -25,6 +26,7 @@ public record OldFaqResponseDto (
 				oldFaq.getQuestion(),
 				oldFaq.getAnswer(),
 				oldFaq.getIntent(),
+				oldFaq.isCacheable(),
 				oldFaq.getCreatedBy().getId(),
 				oldFaq.getUpdatedBy().getId(),
 				oldFaq.getUpdatedAt()

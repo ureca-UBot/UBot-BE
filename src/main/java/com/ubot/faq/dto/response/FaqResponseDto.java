@@ -13,6 +13,7 @@ public record FaqResponseDto(
 		Integer version,
 		Long adminId,
 		Intent intent,
+		boolean cacheable,
 		LocalDateTime createdAt,
 		LocalDateTime updatedAt
 
@@ -26,6 +27,7 @@ public record FaqResponseDto(
 				faq.getVersion(),
 				faq.getAdmin().getId(),
 				faq.getIntent(),
+				faq.isCacheable(),
 				faq.getCreatedAt(),
 				faq.getUpdatedAt()
 		);

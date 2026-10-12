@@ -215,4 +215,44 @@ class FaqVectorServiceTest {
 
         return new PGvector(values);
     }
+
+    @Test
+    void semanticSearchReusesOneQueryEmbeddingAndTheCurrentProfile() {
+        PGvector vector = vector();
+        when(embeddingService.embedText("질문")).thenReturn(vector);
+        when(embeddingService.getModelName()).thenReturn("bge-m3:567m");
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+        when(repository.getSimilarList(vector,10L,3)).thenReturn(List.of());
+        when(repository.getSemanticCandidates(vector,10L)).thenReturn(List.of());
+        service.searchWithSemanticCache("질문",3,"bge-m3:567m");
+        verify(embeddingService).embedText("질문");
+        verify(repository).getSimilarList(vector,10L,3);
+        verify(repository).getSemanticCandidates(vector,10L);
+    }
+
+    @Test
+    void cacheModelMismatchKeepsBaselineWithoutAliasSearch() {
+        PGvector vector = vector();
+        when(embeddingService.embedText("질문")).thenReturn(vector);
+        when(embeddingService.getModelName()).thenReturn("ubot-embedding");
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+        when(repository.getSimilarList(vector,10L,3)).thenReturn(List.of());
+        assertThat(service.searchWithSemanticCache("질문",3,"bge-m3:567m").semantic()).isEmpty();
+        verify(repository,never()).getSemanticCandidates(any(),anyLong());
+    }
+
+    @Test
+    void aliasDatabaseFailureKeepsTheAlreadyRetrievedBaseline() {
+        PGvector vector = vector();
+        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        when(embeddingService.embedText("질문")).thenReturn(vector);
+        when(embeddingService.getModelName()).thenReturn("bge-m3:567m");
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+        when(repository.getSimilarList(vector,10L,3)).thenReturn(baseline);
+        when(repository.getSemanticCandidates(vector,10L)).thenThrow(
+                new org.springframework.dao.DataAccessResourceFailureException("alias lookup unavailable"));
+        var search = service.searchWithSemanticCache("질문",3,"bge-m3:567m");
+        assertThat(search.baseline()).isEqualTo(baseline);
+        assertThat(search.semantic()).isEmpty();
+    }
 }

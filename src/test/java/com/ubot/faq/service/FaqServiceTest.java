@@ -70,6 +70,47 @@ class FaqServiceTest {
             );
 
     @Test
+    void rejectsPersonalAndStoreCacheApprovalBeforeSaving() {
+        for (var intent : List.of(Intent.USER_DATA, Intent.STORE_DATA)) {
+            assertThatThrownBy(() -> service.createFaq(
+                    new FaqCreateRequestDto(2L,"질문","답변",intent,true),1L))
+                    .isInstanceOf(FaqException.class)
+                    .extracting(error -> ((FaqException) error).getErrorCode())
+                    .isEqualTo(FaqErrorCode.FAQ_CACHE_INTENT_INVALID);
+        }
+        verifyNoInteractions(faqRepository,vectorService,userRepository,categoryRepository);
+    }
+
+    @Test
+    void omittedApprovalPreservesGeneralFaqButChangingIntentRevokesIt() {
+        var faq = Faq.builder().id(10L).question("질문").answer("답변").version(3).intent(Intent.GENERAL)
+                .cacheable(true).faqCategory(category(2L,"일반")).admin(User.builder().id(1L).build()).build();
+        when(faqRepository.findActiveById(10L)).thenReturn(Optional.of(faq));
+        when(userRepository.findById(9L)).thenReturn(Optional.of(User.builder().id(9L).build()));
+        when(categoryRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(faq.getFaqCategory()));
+        when(faqRepository.save(faq)).thenReturn(faq);
+        assertThat(service.updateActiveFaq(new FaqUpdateRequestDto(10L,2L,"질문","답변",Intent.GENERAL),9L).cacheable()).isTrue();
+        assertThat(service.updateActiveFaq(new FaqUpdateRequestDto(10L,2L,"질문","답변",Intent.USER_DATA),9L).cacheable()).isFalse();
+        verify(vectorService,never()).saveVectorForFaq(anyLong(),anyInt(),anyString());
+        assertThat(faq.getVersion()).isEqualTo(5);
+    }
+
+    @Test
+    void explicitCacheRevocationRetainsThePreviousApprovalInHistory() {
+        var faq = Faq.builder().id(10L).question("질문").answer("답변").version(3).intent(Intent.GENERAL)
+                .cacheable(true).faqCategory(category(2L,"일반")).admin(User.builder().id(1L).build()).build();
+        when(faqRepository.findActiveById(10L)).thenReturn(Optional.of(faq));
+        when(userRepository.findById(9L)).thenReturn(Optional.of(User.builder().id(9L).build()));
+        when(categoryRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(faq.getFaqCategory()));
+        when(faqRepository.save(faq)).thenReturn(faq);
+        assertThat(service.updateActiveFaq(new FaqUpdateRequestDto(10L,2L,"질문","답변",Intent.GENERAL,false),9L).cacheable()).isFalse();
+        var history = ArgumentCaptor.forClass(OldFaq.class);
+        verify(oldFaqRepository).saveAndFlush(history.capture());
+        assertThat(history.getValue().isCacheable()).isTrue();
+        assertThat(faq.getVersion()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("관리자와 활성 카테고리가 있으면 FAQ를 저장하고 현재 버전의 질문 벡터를 생성한다")
     void createFaq_savesFaqAndVector() {
         var request = new FaqCreateRequestDto(

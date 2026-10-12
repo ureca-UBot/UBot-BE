@@ -1,6 +1,5 @@
 package com.ubot.faq.entity;
 
-import com.pgvector.PGvector;
 import com.ubot.faq.enums.Intent;
 import com.ubot.user.entity.User;
 import jakarta.persistence.*;
@@ -37,6 +36,9 @@ public class Faq {
 	@Column(name = "intent")
 	private Intent intent;
 
+	@Column(name = "cacheable")
+	private boolean cacheable;
+
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "admin_id")
 	private User admin;
@@ -56,10 +58,15 @@ public class Faq {
 			String answer,
 			Intent intent
 	){
+		update(category, question, answer, intent, cacheable && intent == Intent.GENERAL);
+	}
+
+	public void update(FaqCategory category, String question, String answer, Intent intent, boolean cacheable) {
 		this.faqCategory = category;
 		this.question = question;
 		this.answer = answer;
 		this.intent = intent;
+		this.cacheable = cacheable;
 		this.updatedAt = LocalDateTime.now();
 		this.version++;
 	}

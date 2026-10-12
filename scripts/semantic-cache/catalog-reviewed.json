@@ -1,0 +1,110 @@
+{
+  "description": "DBSCAN discovery candidates reviewed by Codex against current official answers. Developer review and new-question validation pending; not registered. Includes current base expressions.",
+  "pilotFaqIds": [
+    3,
+    6,
+    11,
+    14,
+    16
+  ],
+  "comparisonFaqIds": [
+    3,
+    4,
+    6,
+    7,
+    8,
+    11,
+    14,
+    15,
+    16,
+    256,
+    324,
+    681
+  ],
+  "aliases": [
+    {
+      "faqId": 3,
+      "reviewedFaqQuestion": "번호이동을 하면 기존 번호를 그대로 사용할 수 있나요?",
+      "reviewedFaqAnswer": "네. 번호이동 시 기존 전화번호를 그대로 유지할 수 있습니다.",
+      "questions": [
+        "통신사를 바꿔도 전화번호를 유지할 수 있나요?",
+        "번호이동해도 지금 번호 그대로 써요?",
+        "휴대폰은 그대로 쓰고 통신사만 바꾸면 전화번호도 바뀌나요?",
+        "다른 통신사로 옮길 때 쓰던 번호를 가져갈 수 있어요?",
+        "통신사를 옮겨도 전화번호는 유지돼?",
+        "번호이동을 하면 기존 번호를 그대로 사용할 수 있나요",
+        "번호이동하면 번호 안 바뀌는 거지?",
+        "번호이동하면 기존 전화번호는 그대로 쓸 수 있어?",
+        "통신사를 바꿔도 쓰던 번호를 유지할 수 있나요?",
+        "번호이동을 해도 전화번호는 안 바뀌는 거지?",
+        "통신사를 바꿔도 지금 번호 그대로 쓸 수 있어요?",
+        "통신사를 바꿔도 지금 전화번호를 유지할 수 있어요?",
+        "번호이동을 해도 지금 전화번호를 유지할 수 있어요?",
+        "통신사를 바꾸고 휴대폰은 그대로 쓰면 번호도 바뀌나요?",
+        "가입한 통신 회사를 옮기더라도 현재 연락처 번호를 가져갈 수 있습니까?",
+        "휴대폰은 교체하지 않고 다른 통신사로 옮길 경우 현재 번호를 유지할 수 있습니까?",
+        "번호이동하면 제 번호 그대로 쓰죠?",
+        "통신사만 옮겨도 전화번호는 안 바뀌나요?",
+        "다른 통신사로 갈 때 번호를 유지할 수 있나요?"
+      ]
+    },
+    {
+      "faqId": 6,
+      "reviewedFaqQuestion": "기기만 변경하면 전화번호도 바뀌나요?",
+      "reviewedFaqAnswer": "기기만 변경하는 경우 기존 전화번호는 그대로 유지됩니다.",
+      "questions": [
+        "휴대폰만 바꾸면 전화번호도 달라져?",
+        "휴대폰 기기만 바꾸면 전화번호도 바뀌어?",
+        "기기 변경을 해도 기존 전화번호는 유지되나요?",
+        "휴대폰만 교체하면 쓰던 번호는 그대로인 거지?",
+        "휴대폰만 새 걸로 바꾸면 번호도 바뀌나요?"
+      ]
+    },
+    {
+      "faqId": 11,
+      "reviewedFaqQuestion": "유심을 바꾸면 전화번호도 변경되나요?",
+      "reviewedFaqAnswer": "유심만 교체하는 경우 기존 전화번호는 그대로 유지됩니다.",
+      "questions": [
+        "유심 교체하면 번호도 바뀌어?",
+        "유심만 교체하면 기존 번호는 유지돼?",
+        "유심만 교체하면 전화번호는 그대로죠?"
+      ]
+    },
+    {
+      "faqId": 14,
+      "reviewedFaqQuestion": "eSIM이 무엇인가요?",
+      "reviewedFaqAnswer": "물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.",
+      "questions": [
+        "esim이 뭐야?",
+        "esim이 뭔가요",
+        "esim이 어떤 건지 설명해줘.",
+        "아니 이심이 뭐야",
+        "eSIM이 뭐야?",
+        "eSIM은 뭘까?",
+        "eSIM이 무엇인가요!",
+        "eSIM은 어떤 건가요?",
+        "eSIM은 어떤 건가요!",
+        "eSIM이 어떤 건지 알려주세요.",
+        "esim이 뭐야!",
+        "esim이라는 게 뭔지 알려줘!"
+      ]
+    },
+    {
+      "faqId": 16,
+      "reviewedFaqQuestion": "eSIM과 일반 유심을 동시에 사용할 수 있나요?",
+      "reviewedFaqAnswer": "듀얼 SIM 지원 단말기에서는 동시에 사용할 수 있습니다.",
+      "questions": [
+        "eSIM이랑 유심을 같이 쓸 수 있어요?",
+        "듀얼심 지원 폰이면 실물 유심과 이심을 함께 쓸 수 있나요?",
+        "한 휴대폰에서 eSIM과 일반 유심을 동시에 사용해도 돼요?",
+        "eSIM이랑 물리 유심 같이 쓸 수 있어?",
+        "eSIM이랑 일반 유심을 같이 쓸 수 있나요?"
+      ]
+    }
+  ],
+  "reviewStatus": "CODEX_REVIEWED_LOCAL_PILOT",
+  "newExpressionCount": 33,
+  "analysisEvidence": "outputs\\semantic-cache-clusters-20261011-161713-959336",
+  "policyRequired": "FAQ_CACHE_REVIEWED_POLICY_ENABLED=true; not approved for unrestricted relaxed matching",
+  "validation": "Authored fresh 100: correct proposals 26, wrong 0; independent team/traffic evaluation pending"
+}

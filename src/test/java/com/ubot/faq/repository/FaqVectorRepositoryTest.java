@@ -341,6 +341,64 @@ class FaqVectorRepositoryTest {
         );
     }
 
+    @Test
+    void semanticAliasesAreGroupedAndUnapprovedCompetitorsRemain() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        insertAlias(1L, profileId, "다른 표현 하나", vectorOf(0));
+        insertAlias(1L, profileId, "다른 표현 둘", vectorOf(0));
+        var candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
+        assertThat(candidates).extracting(c -> c.faq().faqId()).containsExactly(1L, 2L);
+        assertThat(candidates.getFirst().registered()).isTrue();
+        assertThat(candidates.get(1).registered()).isFalse();
+        assertThat(candidates.get(1).faq().cacheable()).isFalse();
+        assertThat(candidates.getFirst().faq().question()).isEqualTo("유심 재발급");
+    }
+
+    @Test
+    void aliasesFromAnotherProfileNeverBecomeRegisteredCandidates() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        repository.saveVectorForFaq(1L, profileId, 1, vectorOf(1));
+        repository.saveVectorForFaq(1L, otherProfileId, 1, vectorOf(0));
+        insertAlias(1L, otherProfileId, "다른 프로필 표현", vectorOf(0));
+        var candidate = repository.getSemanticCandidates(vectorOf(0), profileId).getFirst();
+        assertThat(candidate.faq().faqId()).isEqualTo(1L);
+        assertThat(candidate.registered()).isFalse();
+        assertThat(candidate.faq().similarityScore()).isZero();
+    }
+
+    @Test
+    void staleContentVersionRevocationAndPersonalIntentInvalidateAliases() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        insertAlias(1L, profileId, "검토한 표현", vectorOf(0));
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isTrue();
+        jdbcTemplate.update("UPDATE faq SET answer = '바뀐 답변' WHERE id = 1");
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        jdbcTemplate.update("UPDATE faq SET answer = '매장에서 재발급할 수 있습니다.', version = 2 WHERE id = 1");
+        repository.updateVectorVersionForFaq(1L, profileId, 2);
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        jdbcTemplate.update("UPDATE faq SET version = 1, cacheable = false WHERE id = 1");
+        repository.updateVectorVersionForFaq(1L, profileId, 1);
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        jdbcTemplate.update("UPDATE faq SET cacheable = true, intent = 'USER_DATA' WHERE id = 1");
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+    }
+
+    @Test
+    void aliasCannotReplaceAMissingCurrentProfileCanonicalVector() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        insertAlias(1L, profileId, "검토한 표현", vectorOf(0));
+        jdbcTemplate.update("DELETE FROM faq_embeddings WHERE faq_id = 1 AND profile_id = ?", profileId);
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId))
+                .extracting(c -> c.faq().faqId()).containsExactly(2L);
+    }
+
+    private void insertAlias(Long faqId, Long aliasProfileId, String question, PGvector vector) {
+        jdbcTemplate.update("""
+                INSERT INTO faq_cache_question(faq_id, profile_id, question, vector, faq_version, faq_question, faq_answer)
+                SELECT id, ?, ?, ?, version, question, answer FROM faq WHERE id = ?
+                """, aliasProfileId, question, vector, faqId);
+    }
+
     private void insertFaq(
             Long id,
             String question,

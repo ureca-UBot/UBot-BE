@@ -10,6 +10,10 @@ public record FaqCreateRequestDto(
 		@NotNull @Positive Long categoryId,
 		@NotBlank @Size(max = 1000)String question,
 		@NotBlank @Size(max = 1000)String answer,
-		@NotNull Intent intent
+		@NotNull Intent intent,
+		boolean cacheable
 ){
+	public FaqCreateRequestDto(Long categoryId, String question, String answer, Intent intent) {
+		this(categoryId, question, answer, intent, false);
+	}
 }

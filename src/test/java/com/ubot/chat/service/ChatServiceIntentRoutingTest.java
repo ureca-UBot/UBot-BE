@@ -22,6 +22,7 @@ import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.service.FaqCacheService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
@@ -58,7 +59,8 @@ class ChatServiceIntentRoutingTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				vector, ai, mock(UnansweredQuestionService.class),
+				vector, ChatTestFixtures.disabledSemanticCache(), mock(FaqCacheService.class),
+                ai, mock(UnansweredQuestionService.class),
 				ChatTestFixtures.collector(nearbyStoreSearcher));
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));

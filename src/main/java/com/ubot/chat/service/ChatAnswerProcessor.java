@@ -10,6 +10,9 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
+import com.ubot.faq.service.FaqSemanticCacheService;
+import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
+import com.ubot.faq.service.FaqCacheService;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
@@ -35,16 +38,22 @@ public class ChatAnswerProcessor {
 	private double confidenceThreshold;
 
 	private final FaqVectorService faqVectorService;
+	private final FaqSemanticCacheService semanticCacheService;
+	private final FaqCacheService faqCacheService;
 	private final AiService aiService;
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 
 	public ChatAnswerProcessor(
 			FaqVectorService faqVectorService,
+			FaqSemanticCacheService semanticCacheService,
+			FaqCacheService faqCacheService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
 			ChatContextCollector chatContextCollector) {
 		this.faqVectorService = faqVectorService;
+		this.semanticCacheService = semanticCacheService;
+		this.faqCacheService = faqCacheService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
@@ -52,11 +61,20 @@ public class ChatAnswerProcessor {
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
+		long started = System.nanoTime();
 		checkCancellation.run();
 		// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
 		List<FaqSearchResponseDto> results;
+		List<SemanticFaqCandidateResponseDto> semanticCandidates = List.of();
 		try {
-			results = searchFaqs(attempt);
+			if (semanticCacheService.shouldSearch(attempt.getQuestion(), attempt.isResearch())) {
+				var search = faqVectorService.searchWithSemanticCache(attempt.getQuestion(), topK,
+						semanticCacheService.getEmbeddingModel());
+				results = search.baseline();
+				semanticCandidates = search.semantic();
+			} else {
+				results = searchFaqs(attempt);
+			}
 		} catch (DataAccessException exception) {
 			return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
@@ -69,11 +87,23 @@ public class ChatAnswerProcessor {
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
 		}
+		var selected = semanticCacheService.select(attempt.getId(), attempt.getQuestion(), semanticCandidates);
+		checkCancellation.run();
+		if (selected.isPresent()) {
+			var official = faqCacheService.getOrLoadOfficialAnswer(selected.get());
+			checkCancellation.run();
+			if (official.isPresent()) {
+				logRoute(attempt, "FAQ_OFFICIAL", List.of(selected.get()), started);
+				return ChatAnswerResult.answered(new AiAnswer(official.get(), null, false), List.of(selected.get()));
+			}
+		}
 		List<FaqSearchResponseDto> filteredResults = results.stream()
+				.limit(topK)
 				.filter(result -> Double.isFinite(result.similarityScore())
 						&& result.similarityScore() >= confidenceThreshold)
 				.toList();
 		if (filteredResults.isEmpty()) {
+			logRoute(attempt, "INSUFFICIENT_FAQ", List.of(), started);
 			log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 최고유사도={}, 기준값={}",
 					attempt.getId(), highestSimilarity(results), confidenceThreshold);
 			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, results.get(0));
@@ -83,6 +113,7 @@ public class ChatAnswerProcessor {
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
 		AnswerMaterials materials = chatContextCollector.collect(
 				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
+		logRoute(attempt, "LLM", filteredResults, started);
 		AiAnswer answer = aiService.generateAnswer(materials);
 		checkCancellation.run();
 		if (answer == null || !StringUtils.hasText(answer.answer())) {
@@ -97,6 +128,11 @@ public class ChatAnswerProcessor {
 			return faqVectorService.getSimilarListByIntent(attempt.getQuestion(), attempt.getIntent(), topK);
 		}
 		return faqVectorService.getSimilarList(attempt.getQuestion(), topK);
+	}
+
+	private void logRoute(AnswerAttemptsHistory attempt, String source, List<FaqSearchResponseDto> faqs, long started) {
+		log.info("CHAT route: attemptId={}, source={}, faqIds={}, preparationMs={}", attempt.getId(), source,
+				faqs.stream().map(FaqSearchResponseDto::faqId).toList(), (System.nanoTime() - started) / 1_000_000);
 	}
 
 	private void createUnansweredQuestion(

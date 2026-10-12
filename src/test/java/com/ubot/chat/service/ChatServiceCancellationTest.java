@@ -8,6 +8,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.service.FaqCacheService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
@@ -45,7 +46,8 @@ class ChatServiceCancellationTest {
 	@BeforeEach
 	void setup() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+				vector, ChatTestFixtures.disabledSemanticCache(), mock(FaqCacheService.class),
+                ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);

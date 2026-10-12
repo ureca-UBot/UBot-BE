@@ -6,6 +6,11 @@ build/
 !**/src/test/**/build/
 .env
 
+# Local model experiments and generated measurements
+outputs/
+**/__pycache__/
+scripts/embedding-lab/
+
 ### STS ###
 .apt_generated
 .classpath

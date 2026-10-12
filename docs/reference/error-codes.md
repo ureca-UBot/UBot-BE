@@ -91,6 +91,7 @@
 | `FAQ-004` | 409 | `FAQ_CATEGORY_EXIST` | 이미 존재하는 카테고리 명입니다. |
 | `FAQ-005` | 400 | `FAQ_CATEGORY_SAME_NAME` | 이전 카테고리명과 후 카테고리명이 같습니다. |
 | `FAQ-006` | 400 | `FAQ_CATEGORY_IN_USE` | 해당 카테고리를 사용중인 FAQ가 있습니다. |
+| `FAQ-007` | 400 | `FAQ_CACHE_INTENT_INVALID` | 일반 안내 FAQ만 캐시 답변을 승인할 수 있습니다. |
 
 
 - `FAQ-006`: 카테고리를 쓰는 활성 FAQ가 있으면 카테고리를 삭제할 수 없습니다.

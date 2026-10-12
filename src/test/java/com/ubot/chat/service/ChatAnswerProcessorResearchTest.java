@@ -8,6 +8,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.service.FaqCacheService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,7 +53,8 @@ class ChatAnswerProcessorResearchTest {
     @BeforeEach
     void setUp() {
         processor = new ChatAnswerProcessor(
-                faqVectorService, aiService, unansweredQuestionService, chatContextCollector);
+                faqVectorService, ChatTestFixtures.disabledSemanticCache(), mock(FaqCacheService.class),
+                aiService, unansweredQuestionService, chatContextCollector);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
     }

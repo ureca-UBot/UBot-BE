@@ -12,6 +12,7 @@ import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
 import com.ubot.faq.entity.OldFaq;
+import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqCategoryRepository;
 import com.ubot.faq.repository.OldFaqRepository;
 import com.ubot.faq.repository.FaqRepository;
@@ -44,6 +45,7 @@ public class FaqService {
 	//	Todo: 중복되는 FAQ가 존재하는지를 확인하는 내용이 필요해보이는데, 어떻게 할지는 미정
 	@Transactional
 	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
+		validateCacheable(requestDto.cacheable(), requestDto.intent());
 
 		User admin = userRepository.findById(adminId).orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 		FaqCategory category = faqCategoryRepository.findByIdAndDeletedAtIsNull(requestDto.categoryId()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CATEGORY_NOT_FOUND));
@@ -54,6 +56,7 @@ public class FaqService {
 				.question(requestDto.question())
 				.answer(requestDto.answer())
 				.intent(requestDto.intent())
+				.cacheable(requestDto.cacheable())
 				.createdAt(LocalDateTime.now())
 				.updatedAt(LocalDateTime.now())
 				.build();
@@ -114,6 +117,9 @@ public class FaqService {
 	public FaqResponseDto updateActiveFaq(FaqUpdateRequestDto requestDto, Long adminId){
 
 		Faq faq = faqRepository.findActiveById(requestDto.id()).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+		boolean cacheable = requestDto.cacheable() == null
+				? faq.isCacheable() && requestDto.intent() == Intent.GENERAL : requestDto.cacheable();
+		validateCacheable(cacheable, requestDto.intent());
 		User updatedBy = userRepository.findById(adminId).orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
 
 		OldFaq oldFaq = OldFaq.from(faq, updatedBy);
@@ -128,7 +134,8 @@ public class FaqService {
 		        category,
 		        requestDto.question(),
 		        requestDto.answer(),
-		        requestDto.intent()
+		        requestDto.intent(),
+		        cacheable
 		);
 
 		Faq savedFaq = faqRepository.save(faq);
@@ -164,5 +171,11 @@ public class FaqService {
 			faq.restore();
 		}
 		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
+	}
+
+	private void validateCacheable(boolean cacheable, Intent intent) {
+		if (cacheable && intent != Intent.GENERAL) {
+			throw new FaqException(FaqErrorCode.FAQ_CACHE_INTENT_INVALID);
+		}
 	}
 }
