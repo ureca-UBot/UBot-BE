@@ -60,10 +60,11 @@ public class FaqService {
 
 		Faq savedFaq = faqRepository.save(faq);
 
-		faqVectorService.saveVectorForFaq(
+		faqVectorService.saveVectorsForFaq(
 		        savedFaq.getId(),
 		        savedFaq.getVersion(),
-		        requestDto.question()
+		        savedFaq.getQuestion(),
+		        savedFaq.getAnswer()
 		);
 		log.info("FAQ를 생성했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 
@@ -123,6 +124,8 @@ public class FaqService {
 
 		boolean questionChanged =
 		        !faq.getQuestion().equals(requestDto.question());
+		boolean answerChanged =
+		        !faq.getAnswer().equals(requestDto.answer());
 
 		faq.update(
 		        category,
@@ -133,18 +136,14 @@ public class FaqService {
 
 		Faq savedFaq = faqRepository.save(faq);
 
-		if (questionChanged) {
-		    faqVectorService.saveVectorForFaq(
-		            savedFaq.getId(),
-		            savedFaq.getVersion(),
-		            savedFaq.getQuestion()
-		    );
-		} else {
-		    faqVectorService.updateVectorVersionForFaq(
-		            savedFaq.getId(),
-		            savedFaq.getVersion()
-		    );
-		}
+		faqVectorService.updateVectorsForFaq(
+		        savedFaq.getId(),
+		        savedFaq.getVersion(),
+		        savedFaq.getQuestion(),
+		        savedFaq.getAnswer(),
+		        questionChanged,
+		        answerChanged
+		);
 		log.info("FAQ를 수정했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 		return FaqResponseDto.from(savedFaq);
 	}
@@ -166,3 +165,4 @@ public class FaqService {
 		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
 	}
 }
+

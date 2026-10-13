@@ -3,11 +3,7 @@ package com.ubot.faq.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -70,7 +66,7 @@ class FaqServiceTest {
             );
 
     @Test
-    @DisplayName("관리자와 활성 카테고리가 있으면 FAQ를 저장하고 현재 버전의 질문 벡터를 생성한다")
+    @DisplayName("관리자와 활성 카테고리가 있으면 FAQ를 저장하고 현재 버전의 벡터를 질문과 답변으로 생성한다")
     void createFaq_savesFaqAndVector() {
         var request = new FaqCreateRequestDto(
                 2L,
@@ -111,10 +107,11 @@ class FaqServiceTest {
                 .isEqualTo(1);
 
         verify(vectorService)
-                .saveVectorForFaq(
+                .saveVectorsForFaq(
                         result.id(),
                         1,
-                        request.question()
+                        request.question(),
+                        request.answer()
                 );
 
         verify(faqRepository, times(1))
@@ -176,7 +173,7 @@ class FaqServiceTest {
     }
 
     @Test
-    @DisplayName("질문이 바뀐 FAQ는 이전 벡터를 이력에 저장하고 새 버전으로 재임베딩한다")
+    @DisplayName("질문과 답변이 바뀐 FAQ는 이전 내용을 이력에 저장하고 두 변경을 벡터 서비스에 알린다")
     void updateFaq_copiesHistoryAndRegeneratesVector() {
         Faq faq = faq(
                 10L,
@@ -229,16 +226,13 @@ class FaqServiceTest {
                 .isEqualTo("기존 질문");
 
         verify(vectorService)
-                .saveVectorForFaq(
+                .updateVectorsForFaq(
                         10L,
                         4,
-                        "새 질문"
-                );
-
-        verify(vectorService, never())
-                .updateVectorVersionForFaq(
-                        anyLong(),
-                        anyInt()
+                        "새 질문",
+                        "새 답변",
+                        true,
+                        true
                 );
 
         assertThat(result.version())
@@ -246,7 +240,45 @@ class FaqServiceTest {
     }
 
     @Test
-    @DisplayName("질문이 같으면 재임베딩하지 않고 기존 벡터의 FAQ 버전만 갱신한다")
+    @DisplayName("카테고리와 intent만 바뀌면 질문과 답변이 그대로라고 벡터 서비스에 알린다")
+    void updateFaq_reportsNoTextChangeWhenOnlyCategoryAndIntentChange() {
+        Faq faq = faq(
+                10L,
+                "같은 질문",
+                1,
+                category(3L, "기존")
+        );
+
+        givenUpdatableFaq(faq);
+
+        FaqResponseDto result =
+                service.updateActiveFaq(
+                        new FaqUpdateRequestDto(
+                                10L,
+                                2L,
+                                "같은 질문",
+                                "답변",
+                                Intent.STORE_DATA
+                        ),
+                        9L
+                );
+
+        verify(vectorService)
+                .updateVectorsForFaq(
+                        10L,
+                        2,
+                        "같은 질문",
+                        "답변",
+                        false,
+                        false
+                );
+
+        assertThat(result.version())
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("답변만 바뀌면 답변 변경만 벡터 서비스에 알린다")
     void updateFaq_updatesOnlyVectorVersionWhenQuestionIsSame() {
         Faq faq = faq(
                 10L,
@@ -289,17 +321,14 @@ class FaqServiceTest {
                         9L
                 );
 
-        verify(vectorService, never())
-                .saveVectorForFaq(
-                        anyLong(),
-                        anyInt(),
-                        anyString()
-                );
-
         verify(vectorService)
-                .updateVectorVersionForFaq(
+                .updateVectorsForFaq(
                         10L,
-                        2
+                        2,
+                        "같은 질문",
+                        "수정 답변",
+                        false,
+                        true
                 );
 
         assertThat(result.version())
@@ -421,6 +450,31 @@ class FaqServiceTest {
                 .findDeletedFaqByFaqIds(
                         request.faqIds()
                 );
+    }
+
+    /** 수정 요청이 통과하도록 FAQ, 수정자, 카테고리(ID 2) 조회를 준비합니다. */
+    private void givenUpdatableFaq(Faq faq) {
+        when(faqRepository.findActiveById(faq.getId()))
+                .thenReturn(Optional.of(faq));
+
+        when(userRepository.findById(9L))
+                .thenReturn(
+                        Optional.of(
+                                User.builder()
+                                        .id(9L)
+                                        .build()
+                        )
+                );
+
+        when(categoryRepository.findByIdAndDeletedAtIsNull(2L))
+                .thenReturn(
+                        Optional.of(
+                                category(2L, "변경")
+                        )
+                );
+
+        when(faqRepository.save(faq))
+                .thenReturn(faq);
     }
 
     private void assertFaqError(
