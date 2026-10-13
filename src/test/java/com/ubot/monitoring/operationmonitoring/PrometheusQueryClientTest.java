@@ -2,49 +2,73 @@ package com.ubot.monitoring.operationmonitoring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import com.ubot.common.GlobalException;
 import com.ubot.monitoring.operationmonitoring.exception.OperationMonitoringErrorCode;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @DisplayName("Prometheus 조회 Client 테스트")
 class PrometheusQueryClientTest {
 
-    private final RestClient.Builder builder = RestClient.builder();
-    private final MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-    private final PrometheusQueryClient client = new PrometheusQueryClient(builder.build());
+    private HttpServer server;
+    private PrometheusQueryClient client;
+    private int responseStatus;
+    private String responseBody;
+    private URI requestedUri;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        responseStatus = 200;
+        responseBody = "";
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/", this::respond);
+        server.start();
+        client = new PrometheusQueryClient(
+                RestClient.builder(),
+                "http://localhost:" + server.getAddress().getPort(),
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1)
+        );
+    }
+
+    @AfterEach
+    void tearDown() {
+        server.stop(0);
+    }
 
     @Test
     @DisplayName("instant vector 응답을 레이블과 단일 시점 값으로 변환한다")
     void parsesInstantVector() {
         Instant at = Instant.parse("2026-10-12T00:00:00Z");
-        server.expect(requestTo(containsString("/api/v1/query")))
-                .andExpect(queryParam("query", "up%7Bjob%3D%22backend%22%7D"))
-                .andExpect(queryParam("time", "1791763200"))
-                .andRespond(withSuccess("""
-                        {"status":"success","data":{"resultType":"vector","result":[
-                          {"metric":{"job":"backend","instance":"backend:8080"},"value":[1791763200,"1"]}
-                        ]}}
-                        """, MediaType.APPLICATION_JSON));
+        responseBody = """
+                {"status":"success","data":{"resultType":"vector","result":[
+                  {"metric":{"job":"backend","instance":"backend:8080"},"value":[1791763200,"1"]}
+                ]}}
+                """;
 
         var result = client.query("up{job=\"backend\"}", at);
 
+        assertThat(requestedUri.getPath()).isEqualTo("/api/v1/query");
+        assertThat(queryParameter("query")).isEqualTo("up{job=\"backend\"}");
+        assertThat(queryParameter("time")).isEqualTo("1791763200");
         assertThat(result).singleElement().satisfies(series -> {
             assertThat(series.labels()).containsEntry("job", "backend");
             assertThat(series.points()).containsExactly(new PrometheusQueryClient.PrometheusPoint(at, 1.0));
         });
-        server.verify();
     }
 
     @Test
@@ -52,39 +76,50 @@ class PrometheusQueryClientTest {
     void parsesRangeMatrixAndSkipsInvalidValues() {
         Instant start = Instant.parse("2026-10-12T00:00:00Z");
         Instant end = start.plusSeconds(30);
-        server.expect(requestTo(containsString("/api/v1/query_range")))
-                .andExpect(queryParam("query", "process_cpu_usage"))
-                .andExpect(queryParam("start", "1791763200"))
-                .andExpect(queryParam("end", "1791763230"))
-                .andExpect(queryParam("step", "15"))
-                .andRespond(withSuccess("""
-                        {"status":"success","data":{"resultType":"matrix","result":[
-                          {"metric":{"job":"backend"},"values":[
-                            [1791763200,"0.12"], [1791763215,"NaN"], [1791763230,"0.14"]
-                          ]}
-                        ]}}
-                        """, MediaType.APPLICATION_JSON));
+        responseBody = """
+                {"status":"success","data":{"resultType":"matrix","result":[
+                  {"metric":{"job":"backend"},"values":[
+                    [1791763200,"0.12"], [1791763215,"NaN"], [1791763230,"0.14"]
+                  ]}
+                ]}}
+                """;
 
         var result = client.queryRange("process_cpu_usage", start, end, Duration.ofSeconds(15));
 
+        assertThat(requestedUri.getPath()).isEqualTo("/api/v1/query_range");
+        assertThat(queryParameter("query")).isEqualTo("process_cpu_usage");
+        assertThat(queryParameter("start")).isEqualTo("1791763200");
+        assertThat(queryParameter("end")).isEqualTo("1791763230");
+        assertThat(queryParameter("step")).isEqualTo("15");
         assertThat(result).singleElement().satisfies(series ->
                 assertThat(series.points()).containsExactly(
                         new PrometheusQueryClient.PrometheusPoint(start, 0.12),
                         new PrometheusQueryClient.PrometheusPoint(end, 0.14)
                 ));
-        server.verify();
     }
 
     @Test
     @DisplayName("Prometheus HTTP 오류는 서비스 이용 불가 예외로 변환한다")
     void mapsPrometheusFailureToUnavailableError() {
-        server.expect(requestTo(containsString("/api/v1/query")))
-                .andRespond(withServerError());
+        responseStatus = 500;
 
         assertThatThrownBy(() -> client.query("up", Instant.now()))
                 .isInstanceOfSatisfying(GlobalException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(OperationMonitoringErrorCode.PROMETHEUS_UNAVAILABLE));
-        server.verify();
+    }
+
+    private void respond(HttpExchange exchange) throws IOException {
+        requestedUri = exchange.getRequestURI();
+        byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(responseStatus, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
+    private String queryParameter(String name) {
+        String value = UriComponentsBuilder.fromUri(requestedUri).build().getQueryParams().getFirst(name);
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 }

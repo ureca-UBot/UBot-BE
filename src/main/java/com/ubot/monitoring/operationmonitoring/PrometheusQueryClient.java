@@ -43,10 +43,6 @@ public class PrometheusQueryClient {
                 .build();
     }
 
-    PrometheusQueryClient(RestClient restClient) {
-        this.restClient = restClient;
-    }
-
     public List<PrometheusSeries> query(String query, Instant at) {
         JsonNode response = request("/api/v1/query", Map.of(
                 "query", query,
