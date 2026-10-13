@@ -48,7 +48,7 @@ services:
         timeout: 3s
         retries: 10
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.0
     restart: unless-stopped
 
     ports:
@@ -60,6 +60,43 @@ services:
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0
+    restart: unless-stopped
+
+    command:
+      - --redis.addr=redis://redis:6379
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    restart: unless-stopped
+
+    privileged: true
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
 volumes:
   postgres-data:
   redis-data:
