@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.nullValue;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -62,6 +63,7 @@ class NoticeControllerTest {
         mockMvc.perform(get("/notices/banners"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.region").value("BUSAN"))
                 .andExpect(jsonPath("$.data.notices[0].noticeId").value(1))
                 .andExpect(jsonPath("$.data.outages").isEmpty());
 
@@ -87,10 +89,12 @@ class NoticeControllerTest {
     void usesNullRegionWhenIpIsUnresolved() throws Exception {
         when(clientIpResolver.resolve(any())).thenReturn("10.0.0.1");
         when(ipRegionResolver.resolve("10.0.0.1")).thenReturn(Optional.empty());
-        when(noticeService.getBanners(null)).thenReturn(new NoticeBannerResponseDto(List.of(), List.of()));
+        when(noticeService.getBanners(null))
+                .thenReturn(new NoticeBannerResponseDto(null, List.of(), List.of()));
 
         mockMvc.perform(get("/notices/banners"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.region").value(nullValue()))
                 .andExpect(jsonPath("$.data.notices").isEmpty());
 
         verify(noticeService).getBanners(null);
@@ -126,6 +130,6 @@ class NoticeControllerTest {
     private NoticeBannerResponseDto banner() {
         NoticeResponseDto notice = new NoticeResponseDto(
                 1L, NoticeType.NOTICE, "제목", "내용", null, null, LocalDateTime.of(2026, 1, 1, 0, 0));
-        return new NoticeBannerResponseDto(List.of(notice), List.of());
+        return new NoticeBannerResponseDto(RegionSido.BUSAN, List.of(notice), List.of());
     }
 }
