@@ -24,7 +24,7 @@ services:
 
     command:
       - --model
-      - ${LLM_HF_MODEL:-Qwen/Qwen3-4B-AWQ}
+      - ${LLM_HF_MODEL:-RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16}
       - --served-model-name
       - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
       - --max-model-len
@@ -105,7 +105,7 @@ services:
       - -m
       - sglang.launch_server
       - --model-path
-      - ${LLM_HF_MODEL:-Qwen/Qwen3-4B-AWQ}
+      - ${LLM_HF_MODEL:-RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16}
       - --served-model-name
       - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
       - --host

@@ -27,6 +27,7 @@ import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
+import com.ubot.prompt.format.FaqAnswerFormat;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -74,6 +75,28 @@ class OllamaClientHttpTest {
         assertThat(body.get("messages").get(3).get("content").asString())
                 .isEqualTo(request.messages().getLast().content());
         assertThat(result.answer()).isEqualTo("가까운 매장에서 재발급할 수 있습니다.");
+        // temperature는 항상 0으로 보내고, 출력 스키마가 없는 요청에는 format을 보내지 않습니다.
+        assertThat(body.get("options").get("temperature").asDouble()).isEqualTo(LlmClient.TEMPERATURE);
+        assertThat(body.has("format")).isFalse();
+    }
+
+    @Test
+    void sendsResponseSchemaAsFormatWithConfiguredModelAndTemperature() throws IOException {
+        var capturedBody = new AtomicReference<String>();
+        var service = createService(exchange -> {
+            capturedBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, RESPONSE);
+        }, Duration.ofSeconds(3));
+
+        service.generateAnswer(question("유심 재발급 방법").withResponseSchema(FaqAnswerFormat.schema()));
+
+        var body = JsonMapper.builder().build().readTree(capturedBody.get());
+        // 요청 옵션을 넣어도 기본 옵션(모델·temperature)이 빠지지 않아야 합니다.
+        assertThat(body.get("model").asString()).isEqualTo(MODEL_NAME);
+        assertThat(body.get("options").get("temperature").asDouble()).isEqualTo(LlmClient.TEMPERATURE);
+        assertThat(body.get("format").get("type").asString()).isEqualTo("object");
+        assertThat(body.get("format").get("properties").propertyNames())
+                .containsExactly("answer", "evidence_ids", "status");
     }
 
     @Test
