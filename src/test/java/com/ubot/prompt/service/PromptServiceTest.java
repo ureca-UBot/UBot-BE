@@ -9,6 +9,7 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
+import com.ubot.prompt.format.FaqAnswerFormat;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.assertj.core.api.ThrowingConsumer;
@@ -42,6 +43,8 @@ class PromptServiceTest {
                 .contains("유심 재발급 방법과 준비물을 알려주세요.", "[FAQ ID: 12]", "[FAQ ID: 13]",
                         "유심 재발급 준비물", "매장에서 재발급 가능합니다.", "준비물 안내 원문")
                 .doesNotContain("0.9", "0.6");
+        // 시스템 지침이 요구하는 출력 형식을 스키마로도 함께 넘깁니다.
+        assertThat(request.responseSchema()).isEqualTo(FaqAnswerFormat.schema());
     }
 
     @Test

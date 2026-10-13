@@ -24,6 +24,8 @@ import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.enums.LlmMessageRole;
+import com.ubot.llm.exception.LlmErrorCode;
+import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
 import com.ubot.location.service.LocationService;
 import com.ubot.prompt.exception.PromptErrorCode;
@@ -72,6 +74,27 @@ class AiServiceTest {
         verify(llmService).generateAnswer(request.capture());
         assertThat(request.getValue().toolCallbacks()).isEmpty();
         assertThat(request.getValue().toolContext()).isEmpty();
+    }
+
+    @Test
+    void 모델이_낸_JSON에서_answer만_꺼내_반환한다() {
+        var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
+        when(promptService.createPrompt("사용자 질문", faqs, List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"선택약정은 12개월과 24개월이 있습니다.\",\"evidence_ids\":[\"112\"],\"status\":\"ANSWER\"}"));
+
+        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("선택약정은 12개월과 24개월이 있습니다.");
+    }
+
+    @Test
+    void 모델이_낸_JSON을_읽을_수_없으면_LLM_응답_오류로_실패한다() {
+        var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
+        when(promptService.createPrompt("사용자 질문", faqs, List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answer\": \"잘린 답"));
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
     }
 
     @Test
