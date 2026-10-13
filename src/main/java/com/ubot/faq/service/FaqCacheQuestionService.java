@@ -9,12 +9,14 @@ import com.ubot.faq.dto.request.FaqCacheQuestionCreateRequestDto;
 import com.ubot.faq.config.FaqSemanticCacheProperties;
 import com.ubot.faq.dto.response.FaqCacheQuestionResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.policy.FaqQuestionNormalizer;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqCacheQuestionRepository;
 import com.ubot.faq.repository.FaqCacheQuestionRepository.FaqSnapshot;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
@@ -46,9 +48,18 @@ public class FaqCacheQuestionService {
         FaqSnapshot snapshot = repository.getActiveFaq(faqId, profileId)
                 .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
         validateRegistration(snapshot);
-        List<String> questions = request.questions().stream().distinct().toList();
+        var unique = new LinkedHashMap<String, String>();
+        for (String question : request.questions()) {
+            String normalized = FaqQuestionNormalizer.normalize(question);
+            if (normalized == null || normalized.isBlank()) {
+                throw new FaqException(FaqErrorCode.FAQ_CACHE_QUESTION_INVALID);
+            }
+            unique.putIfAbsent(normalized, question);
+        }
+        List<String> questions = List.copyOf(unique.values());
+        List<String> normalizedQuestions = List.copyOf(unique.keySet());
         // The model call happens before a transaction or a FAQ row lock is held.
-        List<PGvector> vectors = embedQuestions(questions);
+        List<PGvector> vectors = embedQuestions(normalizedQuestions);
         return transactions.execute(status -> {
             FaqSnapshot current = repository.getActiveFaqForUpdate(faqId, profileId)
                     .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CACHE_FAQ_CHANGED));

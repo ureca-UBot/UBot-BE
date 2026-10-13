@@ -394,8 +394,8 @@ class FaqVectorRepositoryTest {
 
     private void insertAlias(Long faqId, Long aliasProfileId, String question, PGvector vector) {
         jdbcTemplate.update("""
-                INSERT INTO faq_cache_question(faq_id, profile_id, question, vector, faq_version, faq_question, faq_answer)
-                SELECT id, ?, ?, ?, version, question, answer FROM faq WHERE id = ?
+                INSERT INTO faq_cache_question(faq_id, profile_id, question, vector, faq_version, faq_question, faq_answer, normalization_version)
+                SELECT id, ?, ?, ?, version, question, answer, 1 FROM faq WHERE id = ?
                 """, aliasProfileId, question, vector, faqId);
     }
 

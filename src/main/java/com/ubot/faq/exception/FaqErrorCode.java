@@ -20,7 +20,8 @@ public enum FaqErrorCode implements ErrorCode {
     FAQ_CACHE_NOT_APPROVED(HttpStatus.CONFLICT, "FAQ-008", "캐시 답변이 승인된 일반 안내 FAQ만 표현을 등록할 수 있습니다."),
     FAQ_CACHE_FAQ_CHANGED(HttpStatus.CONFLICT, "FAQ-009", "등록 중 FAQ가 변경되었습니다. 최신 내용을 확인한 뒤 다시 등록해주세요."),
     FAQ_CACHE_VECTOR_NOT_READY(HttpStatus.CONFLICT, "FAQ-010", "현재 임베딩 프로필의 FAQ 질문 벡터가 준비되지 않았습니다."),
-    FAQ_CACHE_QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-011", "해당 FAQ에 등록된 질문 표현을 찾을 수 없습니다.");
+    FAQ_CACHE_QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-011", "해당 FAQ에 등록된 질문 표현을 찾을 수 없습니다."),
+    FAQ_CACHE_QUESTION_INVALID(HttpStatus.BAD_REQUEST, "FAQ-012", "정규화 후 비어 있는 질문 표현은 등록할 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;

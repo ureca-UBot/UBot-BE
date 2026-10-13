@@ -5,7 +5,7 @@ import com.ubot.faq.config.FaqSemanticCacheProperties;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.faq.policy.ReviewedFaqPolicy;
+import com.ubot.faq.policy.FaqQuestionNormalizer;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -19,43 +19,24 @@ import org.springframework.stereotype.Service;
 public class FaqSemanticCacheService {
     private final FaqSemanticCacheProperties properties;
     private final FaqCacheProperties cacheProperties;
-    private final ReviewedFaqPolicy reviewedPolicy = new ReviewedFaqPolicy();
     // Conservative exclusions, not a complete intent/completeness classifier.
     private static final Pattern EXCLUDED = Pattern.compile(
-            "그리고|그런데|아니라|말고|추가로|더불어|아까|방금|위에서|그거|이거|그것|이것"
+            "그리고|그런데|말고|더불어|아까|방금|위에서|그거|이거|그것|이것"
             + "|(?:조회|확인|변경|신청|해지|발급|예약)\\s*(?:해\\s*줘|해주세요|해줘|해줄)"
             + "|(?:알려|설명|궁금).*(?:또|도\\s*(?:알려|설명|궁금))|[;\\r\\n]");
 
     public boolean shouldSearch(String question, boolean research) {
-        return properties.isEnabled() && cacheProperties.isEnabled() && !research
-                && question != null && !question.isBlank() && question.length() <= 160
-                && question.chars().filter(c -> c == '?' || c == '？').count() <= 1
-                && !EXCLUDED.matcher(question).find()
-                && (!properties.isReviewedPolicyEnabled() || reviewedPolicy.supports(question));
-    }
-
-    public String getEmbeddingModel() {
-        return properties.getEmbeddingModel();
+        if (!properties.isEnabled() || !cacheProperties.isEnabled() || research
+                || question == null || question.isBlank() || question.length() > 160) return false;
+        String normalized = FaqQuestionNormalizer.normalize(question);
+        return !normalized.isBlank()
+                && normalized.chars().filter(c -> c == '?').count() <= 1
+                && !EXCLUDED.matcher(normalized).find();
     }
 
     public Optional<FaqSearchResponseDto> select(Long attemptId, List<SemanticFaqCandidateResponseDto> candidates) {
-        return select(attemptId, null, candidates);
-    }
-
-    public Optional<FaqSearchResponseDto> select(Long attemptId, String question, List<SemanticFaqCandidateResponseDto> candidates) {
         if (!properties.isEnabled() || !cacheProperties.isEnabled()) {
             return Optional.empty();
-        }
-        if (properties.isReviewedPolicyEnabled()) {
-            var decision = reviewedPolicy.decide(question, candidates == null ? List.of() : candidates.stream()
-                    .map(c -> new ReviewedFaqPolicy.Offer(c.faq().faqId(), c.faq().question(), c.faq().answer(),
-                            c.faq().similarityScore(), c.registered(),
-                            c.faq().cacheable() && c.faq().intent() == Intent.GENERAL)).toList());
-            log.info("SEMANTIC_CACHE decision: attemptId={}, policy=reviewed, reason={}, faqId={}, score={}, gap={}",
-                    attemptId, decision.reason(), decision.faqId(), decision.score(), decision.gap());
-            return decision.faqId() != null
-                    ? candidates.stream().filter(c -> c.faq().faqId().equals(decision.faqId()))
-                        .map(SemanticFaqCandidateResponseDto::faq).findFirst() : Optional.empty();
         }
         String reason = "no_candidates";
         double score = Double.NaN;

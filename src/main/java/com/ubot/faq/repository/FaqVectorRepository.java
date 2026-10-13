@@ -9,6 +9,7 @@ import com.pgvector.PGvector;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.policy.FaqQuestionNormalizer;
 
 import lombok.RequiredArgsConstructor;
 
@@ -32,6 +33,7 @@ public class FaqVectorRepository {
                     SELECT c.faq_id, c.question, c.vector FROM faq_cache_question c
                     JOIN active f ON f.id = c.faq_id
                     WHERE c.enabled AND c.profile_id = ? AND f.cacheable AND f.intent = 'GENERAL'
+                      AND c.normalization_version = ?
                       AND c.faq_version = f.version AND c.faq_question = f.question AND c.faq_answer = f.answer
                 ), expressions AS (
                     SELECT id AS faq_id, question, vector FROM active
@@ -51,7 +53,8 @@ public class FaqVectorRepository {
                 new FaqSearchResponseDto(rs.getLong("id"), rs.getString("question"), rs.getString("answer"),
                         rs.getDouble("similarity_score"), Intent.valueOf(rs.getString("intent")),
                         rs.getBoolean("cacheable"), rs.getInt("version")),
-                rs.getString("matched_question"), rs.getBoolean("registered")), profileId, profileId, queryEmbedding);
+                rs.getString("matched_question"), rs.getBoolean("registered")), profileId, profileId,
+                FaqQuestionNormalizer.VERSION, queryEmbedding);
     }
 
     public List<FaqSearchResponseDto> getSimilarList(

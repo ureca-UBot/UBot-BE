@@ -68,8 +68,7 @@ public class ChatAnswerProcessor {
 		List<SemanticFaqCandidateResponseDto> semanticCandidates = List.of();
 		try {
 			if (semanticCacheService.shouldSearch(attempt.getQuestion(), attempt.isResearch())) {
-				var search = faqVectorService.searchWithSemanticCache(attempt.getQuestion(), topK,
-						semanticCacheService.getEmbeddingModel());
+				var search = faqVectorService.searchWithSemanticCache(attempt.getQuestion(), topK);
 				results = search.baseline();
 				semanticCandidates = search.semantic();
 			} else {
@@ -87,10 +86,10 @@ public class ChatAnswerProcessor {
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
 		}
-		var selected = semanticCacheService.select(attempt.getId(), attempt.getQuestion(), semanticCandidates);
+		var selected = semanticCacheService.select(attempt.getId(), semanticCandidates);
 		checkCancellation.run();
 		if (selected.isPresent()) {
-			var official = faqCacheService.getOrLoadOfficialAnswer(selected.get());
+			var official = faqCacheService.getOfficialAnswer(selected.get());
 			checkCancellation.run();
 			if (official.isPresent()) {
 				logRoute(attempt, "FAQ_OFFICIAL", List.of(selected.get()), started);

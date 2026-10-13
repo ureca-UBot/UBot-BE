@@ -96,6 +96,7 @@
 | `FAQ-009` | 409 | `FAQ_CACHE_FAQ_CHANGED` | 등록 중 FAQ가 변경되었습니다. 최신 내용을 확인한 뒤 다시 등록해주세요. |
 | `FAQ-010` | 409 | `FAQ_CACHE_VECTOR_NOT_READY` | 현재 임베딩 프로필의 FAQ 질문 벡터가 준비되지 않았습니다. |
 | `FAQ-011` | 404 | `FAQ_CACHE_QUESTION_NOT_FOUND` | 해당 FAQ에 등록된 질문 표현을 찾을 수 없습니다. |
+| `FAQ-012` | 400 | `FAQ_CACHE_QUESTION_INVALID` | 정규화 후 비어 있는 질문 표현은 등록할 수 없습니다. |
 
 
 - `FAQ-006`: 카테고리를 쓰는 활성 FAQ가 있으면 카테고리를 삭제할 수 없습니다.

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.embedding.exception.EmbeddingException;
+import com.ubot.faq.policy.FaqQuestionNormalizer;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.dto.response.FaqAnswerSearchResponseDto;
 import com.ubot.faq.enums.Intent;
@@ -26,18 +28,16 @@ public class FaqVectorService {
     private final EmbeddingProfileService embeddingProfileService;
     private final FaqVectorRepository faqVectorRepository;
 
-    /** Reuse the current profile's query embedding for baseline and cache retrieval. */
-    public FaqAnswerSearchResponseDto searchWithSemanticCache(String question, int topK, String cacheModel) {
+    /** 원문 검색을 유지하고, 캐시 입력이 같으면 질문 임베딩을 재사용합니다. */
+    public FaqAnswerSearchResponseDto searchWithSemanticCache(String question, int topK) {
         PGvector vector = embeddingService.embedText(question);
         Long profileId = embeddingProfileService.getCurrentProfileId();
         var baseline = faqVectorRepository.getSimilarList(vector, profileId, topK);
-        if (!Objects.equals(cacheModel, embeddingService.getModelName())) {
-            log.warn("SEMANTIC_CACHE skipped: embedding_model_mismatch");
-            return new FaqAnswerSearchResponseDto(baseline, List.of());
-        }
         try {
-            return new FaqAnswerSearchResponseDto(baseline, faqVectorRepository.getSemanticCandidates(vector, profileId));
-        } catch (DataAccessException exception) {
+            String normalized = FaqQuestionNormalizer.normalize(question);
+            PGvector cacheVector = question.equals(normalized) ? vector : embeddingService.embedText(normalized);
+            return new FaqAnswerSearchResponseDto(baseline, faqVectorRepository.getSemanticCandidates(cacheVector, profileId));
+        } catch (DataAccessException | EmbeddingException exception) {
             log.warn("SEMANTIC_CACHE lookup failed; keeping baseline retrieval", exception);
             return new FaqAnswerSearchResponseDto(baseline, List.of());
         }

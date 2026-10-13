@@ -22,9 +22,12 @@ import com.ubot.embedding.exception.EmbeddingException;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCacheQuestionCreateRequestDto;
+import com.ubot.faq.entity.Faq;
+import com.ubot.faq.entity.FaqCacheQuestion;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqVectorRepository;
+import com.ubot.faq.repository.FaqCacheQuestionRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.repository.UserRepository;
@@ -33,6 +36,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.IntStream;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +52,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -63,7 +69,10 @@ class FaqCacheQuestionIntegrationTest {
     @Autowired private FaqCacheQuestionService service;
     @Autowired private EmbeddingProfileService profiles;
     @Autowired private FaqVectorRepository vectors;
+    @Autowired private FaqCacheQuestionRepository cacheQuestions;
     @Autowired private UserRepository users;
+    @Autowired private EntityManager entityManager;
+    @Autowired private PlatformTransactionManager transactionManager;
     @MockitoBean private EmbeddingService embedding;
 
     private Long profileId;
@@ -179,6 +188,75 @@ class FaqCacheQuestionIntegrationTest {
         List<String> questions = IntStream.range(0, 17).mapToObj(i -> "검토 표현 " + i).toList();
         assertThat(service.registerFaqCacheQuestions(14L, new FaqCacheQuestionCreateRequestDto(questions))).hasSize(17);
         assertThat(rowCount()).isEqualTo(17);
+    }
+
+    @Test
+    void normalizedDuplicatesAcrossRequestsUseOneRowAndOneEmbeddingInput() {
+        var first = service.registerFaqCacheQuestions(14L, request("  esim이  뭐야？？？ ", "esim이 뭐야?", "esim이\t뭐야??"));
+        assertThat(first).hasSize(1);
+        assertThat(first.getFirst().question()).isEqualTo("  esim이  뭐야？？？ ");
+        assertThat(first.getFirst().normalizedQuestion()).isEqualTo("esim이 뭐야?");
+        assertThat(first.getFirst().normalizationVersion()).isEqualTo(1);
+        verify(embedding).embedTexts(List.of("esim이 뭐야?"));
+        var second = service.registerFaqCacheQuestions(14L, request("esim이 뭐야????"));
+        assertThat(second.getFirst().id()).isEqualTo(first.getFirst().id());
+        assertThat(rowCount()).isEqualTo(1);
+        service.deactivateFaqCacheQuestion(14L, first.getFirst().id());
+        assertThat(service.getFaqCacheQuestionList(14L).getFirst().valid()).isFalse();
+        var reactivated = service.registerFaqCacheQuestions(14L, request("esim이 뭐야？"));
+        assertThat(reactivated.getFirst().id()).isEqualTo(first.getFirst().id());
+        assertThat(reactivated.getFirst().enabled()).isTrue();
+        assertThat(reactivated.getFirst().valid()).isTrue();
+    }
+
+    @Test
+    void unversionedImportsCannotBecomeCacheCandidatesBeforeJavaRegistration() {
+        jdbc.update("""
+                INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer)
+                SELECT id,?,'esim이 뭐야??',?,version,question,answer FROM faq WHERE id=14
+                """, profileId, vector(0));
+        var old = service.getFaqCacheQuestionList(14L).getFirst();
+        assertThat(old.normalizationVersion()).isZero();
+        assertThat(old.valid()).isFalse();
+        assertThat(vectors.getSemanticCandidates(vector(0),profileId).getFirst().registered()).isFalse();
+        var refreshed = service.registerFaqCacheQuestions(14L,request("esim이 뭐야?"));
+        assertThat(refreshed.getFirst().id()).isEqualTo(old.id());
+        assertThat(refreshed.getFirst().valid()).isTrue();
+        assertThat(rowCount()).isEqualTo(1);
+    }
+
+    @Test
+    void entityMapsTheVectorAndDatabaseGeneratedColumnsAndSupportsScopedDeactivation() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            var entity = FaqCacheQuestion.builder().faq(entityManager.getReference(Faq.class,14L))
+                    .profileId(profileId).question("  esim이  뭐야？？？ ").normalizationVersion(1)
+                    .vector(vector(0).toArray()).faqVersion(1).faqQuestion("eSIM이 무엇인가요?")
+                    .faqAnswer("물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.").build();
+            entityManager.persist(entity);
+            entityManager.flush();
+            Long id = entity.getId();
+            assertThat(entity.getNormalizedQuestion()).isEqualTo("esim이 뭐야?");
+            assertThat(entity.getCreatedAt()).isNotNull();
+            entityManager.clear();
+            var loaded = entityManager.find(FaqCacheQuestion.class,id);
+            assertThat(loaded.getFaq().getId()).isEqualTo(14L);
+            assertThat(loaded.getProfileId()).isEqualTo(profileId);
+            assertThat(loaded.getVector()).containsExactly(vector(0).toArray());
+            assertThat(loaded.getNormalizationVersion()).isEqualTo(1);
+            assertThat(cacheQuestions.deactivateQuestion(15L,id)).isZero();
+            assertThat(cacheQuestions.deactivateQuestion(14L,id)).isEqualTo(1);
+            entityManager.clear();
+            assertThat(entityManager.find(FaqCacheQuestion.class,id).isEnabled()).isFalse();
+        });
+    }
+
+    @Test
+    void unicodeSpacingOnlyExpressionsAreRejectedBeforeEmbedding() throws Exception {
+        mvc.perform(post(ROUTE).with(administrator()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"questions\":[\"\u00A0\u3000\"]}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("FAQ-012"));
+        verify(embedding,never()).embedTexts(anyList());
+        assertThat(rowCount()).isZero();
     }
 
     @Test

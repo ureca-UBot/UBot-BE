@@ -312,15 +312,16 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 
 캐시의 기본값은 OFF예요. 켜면 판정과 DB 답변 검증을 통과한 질문에 공식 답변을 직접 반환해요. 알려진 오캐시 사례와 설정·등록 절차는 [시맨틱 캐시 이식본 안내](../how-to/103-faq-semantic-cache.md)에 있어요.
 
+공식 답변은 최신 DB 검증 후 반환하며 FAQ 답변의 Redis 저장·조회는 사용하지 않아요. 기존 `FAQ_CACHE_TTL`은 더 이상 사용하지 않아요. 다른 기능의 Redis 설정은 유지해요.
+
 | 환경변수 | 기본값 | 역할 |
 |---|---|---|
 | `FAQ_CACHE_ENABLED` | `false` | 공식 답변 캐시 기능 사용 |
-| `FAQ_CACHE_TTL` | `7d` | Redis 공식 답변 스냅샷 TTL |
 | `FAQ_CACHE_SEMANTIC_ENABLED` | `false` | 추가 표현 검색·판정 사용 |
-| `FAQ_CACHE_REVIEWED_POLICY_ENABLED` | `false` | 실험한 다섯 FAQ의 범위·고정 Q/A·FAQ별 기준 사용 |
 | `FAQ_CACHE_REGISTRATION_BATCH_SIZE` | `8` | Java 표현 등록 API의 임베딩 배치 크기(1~50) |
-| `FAQ_CACHE_MIN_SIMILARITY` | `0.95` | 검토 정책이 꺼져 있을 때 최소 코사인 유사도 |
-| `FAQ_CACHE_MIN_MARGIN` | `0.15` | 검토 정책이 꺼져 있을 때 경쟁 FAQ와 최소 차이 |
-| `FAQ_CACHE_EMBEDDING_MODEL` | `bge-m3:567m` | 추가 검색을 허용할 실제 임베딩 모델 이름 |
+| `FAQ_CACHE_MIN_SIMILARITY` | `0.95` | 모든 승인·등록 FAQ에 적용하는 최소 코사인 유사도 |
+| `FAQ_CACHE_MIN_MARGIN` | `0.15` | 서로 다른 FAQ의 최고 점수 간 최소 차이 |
 
-등록 표현은 현재 `EmbeddingProfileService`의 profile ID와 맞아야 해요. 모델 이름이 같아도 provider·프로필 버전이 다르면 표현을 공유하지 않아요.
+캐시 검색과 표현 등록은 채팅과 같은 `EmbeddingService`·`EmbeddingProfileService`를 사용해요. 모델 설정은 임베딩 엔진에 따라 `OLLAMA_EMBEDDING_MODEL` 또는 `EMBEDDING_MODEL`을 사용하며 별도 `FAQ_CACHE_EMBEDDING_MODEL`은 더 이상 사용하지 않아요. 등록 표현은 현재 프로필의 profile ID와 맞아야 해요. 모델 이름이 같아도 provider·프로필 버전이 다르면 표현을 공유하지 않아요. 모델이나 프로필이 바뀌면 새 프로필의 FAQ 벡터·등록 표현을 준비하고 판정 기준을 다시 검증해야 해요.
+
+캐시 검색·등록에는 NFC, 공백·탭·NBSP·전각 공백, 반복 물음표/느낌표 정규화를 적용해요. 대소문자·동의어·부정·조건·줄바꿈은 통합하거나 지우지 않아요. 원문 FAQ 검색과 정규화된 캐시 입력이 다르면 같은 모델의 임베딩을 추가로 호출해요. V29에 정규화 키·버전·중복 방지 제약을 포함했어요. 이전 V29를 적용한 로컬 DB의 준비 방법은 [사용 안내](../how-to/103-faq-semantic-cache.md#3-db-준비)에서 확인할 수 있어요.

@@ -2,7 +2,6 @@ package com.ubot.faq.config;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Getter;
@@ -18,7 +17,6 @@ import org.springframework.validation.annotation.Validated;
 @Setter
 public class FaqSemanticCacheProperties {
     private boolean enabled;
-    private boolean reviewedPolicyEnabled;
     @Min(1)
     @Max(50)
     private int registrationBatchSize = 8;
@@ -28,6 +26,4 @@ public class FaqSemanticCacheProperties {
     @DecimalMin("0.0")
     @DecimalMax("2.0")
     private double minMargin = 0.15;
-    @NotBlank
-    private String embeddingModel = "bge-m3:567m";
 }

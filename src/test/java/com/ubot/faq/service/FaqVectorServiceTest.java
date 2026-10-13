@@ -17,9 +17,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.pgvector.PGvector;
+import com.ubot.ai.config.AiRuntimeProperties;
+import com.ubot.embedding.client.EmbeddingClient;
+import com.ubot.embedding.repository.EmbeddingProfileRepository;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqVectorRepository;
 
@@ -220,25 +224,47 @@ class FaqVectorServiceTest {
     void semanticSearchReusesOneQueryEmbeddingAndTheCurrentProfile() {
         PGvector vector = vector();
         when(embeddingService.embedText("질문")).thenReturn(vector);
-        when(embeddingService.getModelName()).thenReturn("bge-m3:567m");
         when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
         when(repository.getSimilarList(vector,10L,3)).thenReturn(List.of());
         when(repository.getSemanticCandidates(vector,10L)).thenReturn(List.of());
-        service.searchWithSemanticCache("질문",3,"bge-m3:567m");
+        service.searchWithSemanticCache("질문",3);
         verify(embeddingService).embedText("질문");
         verify(repository).getSimilarList(vector,10L,3);
         verify(repository).getSemanticCandidates(vector,10L);
     }
 
     @Test
-    void cacheModelMismatchKeepsBaselineWithoutAliasSearch() {
-        PGvector vector = vector();
-        when(embeddingService.embedText("질문")).thenReturn(vector);
-        when(embeddingService.getModelName()).thenReturn("ubot-embedding");
-        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
-        when(repository.getSimilarList(vector,10L,3)).thenReturn(List.of());
-        assertThat(service.searchWithSemanticCache("질문",3,"bge-m3:567m").semantic()).isEmpty();
-        verify(repository,never()).getSemanticCandidates(any(),anyLong());
+    void semanticSearchUsesTheSameConfiguredClientAndProfileAsChatForBothEngines() {
+        for (String mode : List.of("ollama", "vllm")) {
+            var runtime = new AiRuntimeProperties();
+            runtime.setMode(mode);
+            runtime.setEmbeddingProfileVersion(2);
+            var client = mock(EmbeddingClient.class);
+            var profiles = mock(EmbeddingProfileRepository.class);
+            var vectors = mock(FaqVectorRepository.class);
+            String model = mode.equals("ollama") ? "bge-custom-alias" : "ubot-embedding";
+            String provider = mode.equals("ollama") ? "ollama" : "openai-compatible";
+            PGvector vector = vector();
+            when(client.embed("질문")).thenReturn(vector);
+            when(client.getModelName()).thenReturn(model);
+            when(profiles.findOrCreate(provider,model,EmbeddingClient.DIMENSIONS,2)).thenReturn(42L);
+            var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.8,Intent.GENERAL));
+            var candidates = List.of(new SemanticFaqCandidateResponseDto(
+                    new FaqSearchResponseDto(14L,"공식 질문","공식 답변",.98,Intent.GENERAL,true,1),"등록 표현",true));
+            when(vectors.getSimilarList(vector,42L,3)).thenReturn(baseline);
+            when(vectors.getSemanticCandidates(vector,42L)).thenReturn(candidates);
+            var shared = new FaqVectorService(new EmbeddingService(client),
+                    new EmbeddingProfileService(runtime,client,profiles),vectors);
+
+            var result = shared.searchWithSemanticCache("질문",3);
+
+            assertThat(result.baseline()).isEqualTo(baseline);
+            assertThat(result.semantic()).isEqualTo(candidates);
+            verify(client).embed("질문");
+            verify(profiles).findOrCreate(provider,model,EmbeddingClient.DIMENSIONS,2);
+            verify(vectors).getSimilarList(vector,42L,3);
+            verify(vectors).getSemanticCandidates(vector,42L);
+        }
     }
 
     @Test
@@ -246,13 +272,48 @@ class FaqVectorServiceTest {
         PGvector vector = vector();
         var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
         when(embeddingService.embedText("질문")).thenReturn(vector);
-        when(embeddingService.getModelName()).thenReturn("bge-m3:567m");
         when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
         when(repository.getSimilarList(vector,10L,3)).thenReturn(baseline);
         when(repository.getSemanticCandidates(vector,10L)).thenThrow(
                 new org.springframework.dao.DataAccessResourceFailureException("alias lookup unavailable"));
-        var search = service.searchWithSemanticCache("질문",3,"bge-m3:567m");
+        var search = service.searchWithSemanticCache("질문",3);
         assertThat(search.baseline()).isEqualTo(baseline);
         assertThat(search.semantic()).isEmpty();
+    }
+
+    @Test
+    void normalizedCacheInputDoesNotChangeTheOriginalBaselineEmbedding() {
+        PGvector rawVector = vector();
+        float[] values = new float[1024];
+        values[1] = 1;
+        PGvector normalizedVector = new PGvector(values);
+        String raw = "  esim이  뭐야？？？ ";
+        when(embeddingService.embedText(raw)).thenReturn(rawVector);
+        when(embeddingService.embedText("esim이 뭐야?")).thenReturn(normalizedVector);
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        when(repository.getSimilarList(rawVector,10L,3)).thenReturn(baseline);
+        when(repository.getSemanticCandidates(normalizedVector,10L)).thenReturn(List.of());
+        assertThat(service.searchWithSemanticCache(raw,3).baseline()).isEqualTo(baseline);
+        verify(repository).getSimilarList(rawVector,10L,3);
+        verify(repository).getSemanticCandidates(normalizedVector,10L);
+        verify(embeddingService).embedText(raw);
+        verify(embeddingService).embedText("esim이 뭐야?");
+    }
+
+    @Test
+    void normalizedEmbeddingFailureKeepsThePreviouslyRetrievedBaseline() {
+        String raw = "esim이 뭐야??";
+        PGvector vector = vector();
+        when(embeddingService.embedText(raw)).thenReturn(vector);
+        when(embeddingService.embedText("esim이 뭐야?")).thenThrow(new com.ubot.embedding.exception.EmbeddingException(
+                com.ubot.embedding.exception.EmbeddingErrorCode.EMBEDDING_TIMEOUT));
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        when(repository.getSimilarList(vector,10L,3)).thenReturn(baseline);
+        var result = service.searchWithSemanticCache(raw,3);
+        assertThat(result.baseline()).isEqualTo(baseline);
+        assertThat(result.semantic()).isEmpty();
+        verify(repository,never()).getSemanticCandidates(any(),anyLong());
     }
 }
