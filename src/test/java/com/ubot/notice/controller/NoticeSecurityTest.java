@@ -66,7 +66,8 @@ class NoticeSecurityTest {
     @Test
     @DisplayName("비회원도 배너를 조회할 수 있다")
     void allowsAnonymousBanner() throws Exception {
-        when(noticeService.getBanners(null)).thenReturn(new NoticeBannerResponseDto(List.of(), List.of()));
+        when(noticeService.getBanners(null))
+                .thenReturn(new NoticeBannerResponseDto(null, List.of(), List.of()));
 
         mockMvc.perform(get("/notices/banners")).andExpect(status().isOk());
     }
@@ -81,7 +82,8 @@ class NoticeSecurityTest {
     @DisplayName("만료된 토큰을 보내도 공지 조회는 성공한다")
     void allowsExpiredToken() throws Exception {
         when(jwtUtil.getUserId("expired-token")).thenThrow(new ExpiredJwtException(null, null, "expired"));
-        when(noticeService.getBanners(null)).thenReturn(new NoticeBannerResponseDto(List.of(), List.of()));
+        when(noticeService.getBanners(null))
+                .thenReturn(new NoticeBannerResponseDto(null, List.of(), List.of()));
 
         mockMvc.perform(get("/notices/banners").header("Authorization", "Bearer expired-token"))
                 .andExpect(status().isOk());
@@ -95,7 +97,8 @@ class NoticeSecurityTest {
     @DisplayName("잘못된 토큰을 보내도 공지 조회는 성공한다")
     void allowsInvalidToken() throws Exception {
         when(jwtUtil.getUserId("broken-token")).thenThrow(new MalformedJwtException("invalid"));
-        when(noticeService.getBanners(null)).thenReturn(new NoticeBannerResponseDto(List.of(), List.of()));
+        when(noticeService.getBanners(null))
+                .thenReturn(new NoticeBannerResponseDto(null, List.of(), List.of()));
 
         mockMvc.perform(get("/notices/banners").header("Authorization", "Bearer broken-token"))
                 .andExpect(status().isOk());

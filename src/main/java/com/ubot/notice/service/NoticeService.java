@@ -37,13 +37,15 @@ public class NoticeService {
 
     private final NoticeRepository noticeRepository;
 
-    /**
-     * 배너로 보여 줄 공지와 장애를 각각 최신순으로 반환합니다.
+    /*
+     * 배너로 보여 줄 공지와 장애를 각각 최신순으로 반환
      * 전체 공지와 region 공지를 함께 반환하고, region이 null이면 전체 공지만 반환합니다.
+     * 접속 지역도 같이 반환
      */
     public NoticeBannerResponseDto getBanners(RegionSido region) {
         LocalDateTime now = LocalDateTime.now();
         return new NoticeBannerResponseDto(
+                region,
                 getBannerList(NoticeType.NOTICE, region, now),
                 getBannerList(NoticeType.OUTAGE, region, now));
     }
