@@ -193,6 +193,30 @@ class FaqRetrievalServiceTest {
     }
 
     @Test
+    @DisplayName("Reranker가 연속으로 실패하면 이후 요청은 호출하지 않고 벡터 검색 결과로 답한다")
+    void repeatedFailures_skipRerankerCalls() {
+        List<FaqSearchResponseDto> dense = faqs(10);
+        when(faqVectorService.getSimilarList("질문", 10)).thenReturn(dense);
+        int[] calls = {0};
+        RerankerClient client = (query, documents) -> {
+            calls[0]++;
+            throw new RerankException("제한 시간 초과");
+        };
+        FaqRetrievalProperties properties = properties(true, 10, true);
+        properties.getRerank().setFailureThreshold(2);
+        FaqRetrievalService service = service(properties, client);
+
+        service.retrieve("질문", null, 3);
+        service.retrieve("질문", null, 3);
+        RetrievalOutcome skipped = service.retrieve("질문", null, 3);
+
+        assertThat(calls[0]).isEqualTo(2);
+        assertThat(skipped.rankedCandidates()).containsExactly(dense.get(0), dense.get(1), dense.get(2));
+        assertThat(skipped.reranked()).isFalse();
+        assertThat(skipped.fallbackReason()).contains("건너뜁니다");
+    }
+
+    @Test
     @DisplayName("켠 상태에서 후보 수가 CHAT_TOP_K보다 작으면 시작할 때 막는다")
     void candidateKSmallerThanTopK_rejected() {
         assertThatThrownBy(() -> new FaqRetrievalService(

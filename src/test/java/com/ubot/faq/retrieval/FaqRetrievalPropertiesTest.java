@@ -22,6 +22,9 @@ class FaqRetrievalPropertiesTest {
         assertThat(properties.getRerank().isFallbackEnabled()).isTrue();
         assertThat(properties.getRerank().getConnectTimeout()).isEqualTo(Duration.ofMillis(500));
         assertThat(properties.getRerank().getReadTimeout()).isEqualTo(Duration.ofMillis(1500));
+        assertThat(properties.getRerank().getMaxConcurrent()).isEqualTo(32);
+        assertThat(properties.getRerank().getFailureThreshold()).isEqualTo(5);
+        assertThat(properties.getRerank().getFailureCooldown()).isEqualTo(Duration.ofSeconds(10));
     }
 
     @Test
@@ -38,6 +41,18 @@ class FaqRetrievalPropertiesTest {
         FaqRetrievalProperties connectTimeout = new FaqRetrievalProperties();
         connectTimeout.getRerank().setConnectTimeout(Duration.ofMillis(-1));
         assertThatThrownBy(connectTimeout::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
+
+        FaqRetrievalProperties maxConcurrent = new FaqRetrievalProperties();
+        maxConcurrent.getRerank().setMaxConcurrent(0);
+        assertThatThrownBy(maxConcurrent::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
+
+        FaqRetrievalProperties failureThreshold = new FaqRetrievalProperties();
+        failureThreshold.getRerank().setFailureThreshold(0);
+        assertThatThrownBy(failureThreshold::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
+
+        FaqRetrievalProperties failureCooldown = new FaqRetrievalProperties();
+        failureCooldown.getRerank().setFailureCooldown(Duration.ZERO);
+        assertThatThrownBy(failureCooldown::afterPropertiesSet).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

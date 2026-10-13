@@ -67,6 +67,10 @@ faq:
       connect-timeout: ${FAQ_RERANK_CONNECT_TIMEOUT:500ms}
       read-timeout: ${FAQ_RERANK_READ_TIMEOUT:1500ms}
       fallback-enabled: ${FAQ_RERANK_FALLBACK_ENABLED:true}
+      # 요청이 몰리거나 Reranker가 연속으로 실패할 때 호출을 건너뛰는 보호 장치
+      max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
+      failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
+      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
 
 data-retention:
   # 보관 기간이 지난 데이터 삭제(purge_expired_data) 실행 시각. Asia/Seoul 기준 Spring cron
