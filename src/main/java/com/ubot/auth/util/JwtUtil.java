@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Date;
 
@@ -46,5 +47,16 @@ public class JwtUtil {
 				.getSubject();
 
 		return Long.valueOf(subject);
+	}
+
+	public Instant getIssuedAt(String token){
+		Date issuedAt = Jwts.parser()
+				.verifyWith(secretKey)
+				.build()
+				.parseSignedClaims(token)
+				.getPayload()
+				.getIssuedAt();
+
+		return issuedAt == null ? null : issuedAt.toInstant();
 	}
 }
