@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 지금 Embedding Profile의 FAQ 벡터를 확인하고, 모자라면 임시 백엔드로 백필합니다.
+# 지금 Embedding Profile에서 검색에 쓰는 유형의 FAQ 벡터를 확인하고, 모자라면 임시 백엔드로 백필합니다.
 # 정하는 값: BACKFILL_AFTER_SWITCH
-# 쓰는 값: COMPOSE, EMBEDDING_ENGINE, EMBEDDING_PROFILE_VERSION
+# 쓰는 값: COMPOSE, EMBEDDING_ENGINE, EMBEDDING_PROFILE_VERSION, FAQ_SEARCH_VECTOR_TYPE
 
 
 run_psql() {
@@ -15,7 +15,8 @@ run_psql() {
 }
 
 
-# 삭제되지 않은 FAQ가 모두 지금 Embedding Profile의 벡터를 가지고 있는지 확인한다.
+# 삭제되지 않은 FAQ가 모두 지금 Embedding Profile에서 검색에 쓰는 유형(FAQ_SEARCH_VECTOR_TYPE)의 벡터를 가지고 있는지 확인한다.
+# 백필은 유형과 관계없이 모자란 벡터를 모두 채우지만, 여기서는 검색에 쓰는 유형만 본다.
 # 반환값: 0 모두 있음(FAQ가 없는 경우 포함), 1 모자람, 2 확인 실패
 # 조건문 안에서 호출하면 set -e가 적용되지 않으므로, 조회 결과를 직접 검사한다.
 check_faq_embedding_coverage() {
@@ -124,6 +125,7 @@ SQL
   covered_count="$(
     run_psql \
       -v profile_id="${profile_id}" \
+      -v vector_type="${FAQ_SEARCH_VECTOR_TYPE}" \
       <<'SQL' || true
 SELECT COUNT(*)
 FROM faq f
@@ -131,7 +133,7 @@ JOIN faq_embeddings fe
   ON fe.faq_id = f.id
 WHERE f.deleted_at IS NULL
   AND fe.profile_id = :'profile_id'
-  AND fe.vector_type = 'QUESTION'
+  AND fe.vector_type = :'vector_type'
   AND fe.faq_version = f.version;
 SQL
   )"
@@ -141,10 +143,10 @@ SQL
     return 2
   fi
 
-  echo "Current FAQ embedding count: ${covered_count}/${active_count}"
+  echo "Current FAQ embedding count (${FAQ_SEARCH_VECTOR_TYPE}): ${covered_count}/${active_count}"
 
   if [ "${covered_count}" -ne "${active_count}" ]; then
-    echo "Missing FAQ embeddings: $((active_count - covered_count))"
+    echo "Missing FAQ embeddings (${FAQ_SEARCH_VECTOR_TYPE}): $((active_count - covered_count))"
     return 1
   fi
 

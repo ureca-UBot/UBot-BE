@@ -105,3 +105,4 @@ Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 �
 | AWS 테스트 인프라(Terraform) | [infra/terraform/README.md](infra/terraform/README.md) |
 | 브랜치·PR·커밋 규칙 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 유사도 기준 실험 결과 (보고서는 0.73을 1차 채택, 코드 기본값은 0.75) | [FAQ_Threshold_테스트_보고서.md](docs/FAQ_Threshold_테스트_보고서.md) |
+| FAQ 검색 방식(HNSW·전체 비교), Q와 Q+A 벡터 비교, 답변 테스트 결과 | [FAQ_검색_테스트_보고서.md](docs/FAQ_검색_테스트_보고서.md) |

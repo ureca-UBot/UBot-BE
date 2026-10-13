@@ -9,6 +9,7 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.entity.Faq;
+import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.faq.repository.FaqVectorRepository;
 
@@ -46,36 +47,45 @@ public class FaqEmbeddingBackfillService {
             );
 
             for (Faq faq : page.getContent()) {
-                if (
-                        faqVectorRepository.hasCurrentVector(
-                                faq.getId(),
-                                profileId,
-                                faq.getVersion()
-                        )
-                ) {
-                    continue;
+                // 유형마다 따로 확인합니다. QUESTION 벡터가 있어도 QUESTION_ANSWER 벡터는 없을 수 있습니다.
+                for (FaqVectorType vectorType : FaqVectorType.values()) {
+                    if (
+                            faqVectorRepository.hasCurrentVector(
+                                    faq.getId(),
+                                    profileId,
+                                    vectorType,
+                                    faq.getVersion()
+                            )
+                    ) {
+                        continue;
+                    }
+
+                    PGvector vector =
+                            embeddingService.embedText(
+                                    vectorType.toEmbeddingText(
+                                            faq.getQuestion(),
+                                            faq.getAnswer()
+                                    )
+                            );
+
+                    faqVectorRepository.saveVectorForFaq(
+                            faq.getId(),
+                            profileId,
+                            vectorType,
+                            faq.getVersion(),
+                            vector
+                    );
+
+                    updatedCount++;
+
+                    log.info(
+                            "FAQ embedding backfill: faqId={}, version={}, profileId={}, vectorType={}",
+                            faq.getId(),
+                            faq.getVersion(),
+                            profileId,
+                            vectorType
+                    );
                 }
-
-                PGvector vector =
-                        embeddingService.embedText(
-                                faq.getQuestion()
-                        );
-
-                faqVectorRepository.saveVectorForFaq(
-                        faq.getId(),
-                        profileId,
-                        faq.getVersion(),
-                        vector
-                );
-
-                updatedCount++;
-
-                log.info(
-                        "FAQ embedding backfill: faqId={}, version={}, profileId={}",
-                        faq.getId(),
-                        faq.getVersion(),
-                        profileId
-                );
             }
 
             pageNumber++;
