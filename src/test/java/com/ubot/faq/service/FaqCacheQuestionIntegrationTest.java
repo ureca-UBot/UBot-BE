@@ -1,5 +1,7 @@
 package com.ubot.faq.service;
 
+import com.ubot.faq.enums.FaqVectorType;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -95,7 +97,7 @@ class FaqCacheQuestionIntegrationTest {
                 INSERT INTO faq(id,category_id,question,answer,intent,cacheable)
                 VALUES (14,?,'eSIM이 무엇인가요?','물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.','GENERAL',true)
                 """, categoryId);
-        vectors.saveVectorForFaq(14L, profileId, 1, vector(1));
+        vectors.saveVectorForFaq(14L, profileId, FaqVectorType.QUESTION, 1, vector(1));
         LocalDateTime now = LocalDateTime.now();
         administrator = users.saveAndFlush(User.builder().email("cache-" + UUID.randomUUID() + "@test.com")
                 .hashedPassword("test-only").name("관리자").role(UserRole.ADMIN)
@@ -134,7 +136,7 @@ class FaqCacheQuestionIntegrationTest {
     void listingRetainsStaleAndOtherProfileRowsButMarksThemInvalid() {
         service.registerFaqCacheQuestions(14L, request("esim이 뭐야?"));
         jdbc.update("UPDATE faq SET answer='바뀐 답변', version=2 WHERE id=14");
-        vectors.updateVectorVersionForFaq(14L, profileId, 2);
+        vectors.updateVectorVersionForFaq(14L, profileId, FaqVectorType.QUESTION, 2);
         assertThat(service.getFaqCacheQuestionList(14L).getFirst().valid()).isFalse();
         assertThat(service.getFaqCacheQuestionList(14L).getFirst().currentFaqVersion()).isEqualTo(2);
         service.registerFaqCacheQuestions(14L, request("esim이 뭐야?"));

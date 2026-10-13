@@ -1,5 +1,7 @@
 package com.ubot.faq.service;
 
+import com.ubot.faq.enums.FaqVectorType;
+
 import com.pgvector.PGvector;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
@@ -57,7 +59,7 @@ public class FaqCacheQuestionService {
         Long profileId = profileService.getCurrentProfileId();
         FaqSnapshot snapshot = faqRepository.findActiveCacheRegistrationSnapshotById(faqId)
                 .map(faq -> new FaqSnapshot(faq.getId(), faq.getQuestion(), faq.getAnswer(), faq.getVersion(),
-                        faq.getIntent(), faq.isCacheable(), faqVectors.hasCurrentVector(faqId, profileId, faq.getVersion())))
+                        faq.getIntent(), faq.isCacheable(), faqVectors.hasCurrentVector(faqId, profileId, FaqVectorType.QUESTION, faq.getVersion())))
                 .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
         validateRegistration(snapshot);
         var unique = new LinkedHashMap<String, String>();
@@ -102,7 +104,7 @@ public class FaqCacheQuestionService {
         return transactions.execute(status -> {
             Faq faq = faqRepository.findActiveById(faqId)
                     .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
-            boolean currentVector = faqVectors.hasCurrentVector(faqId, profileId, faq.getVersion());
+            boolean currentVector = faqVectors.hasCurrentVector(faqId, profileId, FaqVectorType.QUESTION, faq.getVersion());
             return repository.findAllByFaq_IdOrderByIdAsc(faqId).stream()
                     .map(entity -> toResponse(entity, faq, profileId, currentVector)).toList();
         });
@@ -120,7 +122,7 @@ public class FaqCacheQuestionService {
 
     private FaqSnapshot snapshot(Faq faq, Long profileId) {
         return new FaqSnapshot(faq.getId(), faq.getQuestion(), faq.getAnswer(), faq.getVersion(), faq.getIntent(),
-                faq.isCacheable(), faqVectors.hasCurrentVector(faq.getId(), profileId, faq.getVersion()));
+                faq.isCacheable(), faqVectors.hasCurrentVector(faq.getId(), profileId, FaqVectorType.QUESTION, faq.getVersion()));
     }
 
     private FaqCacheQuestionResponseDto toResponse(FaqCacheQuestion question, Faq faq, Long profileId, boolean currentVector) {

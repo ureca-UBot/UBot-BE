@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import com.pgvector.PGvector;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
+import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.policy.FaqQuestionNormalizer;
 
@@ -16,8 +17,6 @@ import lombok.RequiredArgsConstructor;
 @Repository
 @RequiredArgsConstructor
 public class FaqVectorRepository {
-
-    private static final String QUESTION_VECTOR_TYPE = "QUESTION";
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -57,9 +56,12 @@ public class FaqVectorRepository {
                 FaqQuestionNormalizer.VERSION, queryEmbedding);
     }
 
+    // 두 검색 쿼리는 거리 연산자(<=>)가 아니라 유사도로 정렬합니다. 그래야 HNSW 인덱스를 타지 않고 전체를 비교합니다.
+    // HNSW는 가까운 후보를 먼저 고른 뒤에 프로필·유형 조건을 적용해서, 조건에 맞는 벡터를 놓치거나 topK보다 적게 돌려줍니다.
     public List<FaqSearchResponseDto> getSimilarList(
             PGvector queryEmbedding,
             Long profileId,
+            FaqVectorType vectorType,
             int topK
     ) {
         String sql = """
@@ -76,9 +78,9 @@ public class FaqVectorRepository {
                   ON fe.faq_id = f.id
                 WHERE f.deleted_at IS NULL
                   AND fe.profile_id = ?
-                  AND fe.vector_type = 'QUESTION'
+                  AND fe.vector_type = ?
                   AND fe.faq_version = f.version
-                ORDER BY fe.vector <=> ?
+                ORDER BY similarity_score DESC
                 LIMIT ?
                 """;
 
@@ -94,7 +96,7 @@ public class FaqVectorRepository {
                 ),
                 queryEmbedding,
                 profileId,
-                queryEmbedding,
+                vectorType.name(),
                 topK
         );
     }
@@ -102,6 +104,7 @@ public class FaqVectorRepository {
     public List<FaqSearchResponseDto> getSimilarListByIntent(
             PGvector queryEmbedding,
             Long profileId,
+            FaqVectorType vectorType,
             Intent intent,
             int topK
     ) {
@@ -120,9 +123,9 @@ public class FaqVectorRepository {
                 WHERE f.deleted_at IS NULL
                   AND f.intent = ?
                   AND fe.profile_id = ?
-                  AND fe.vector_type = 'QUESTION'
+                  AND fe.vector_type = ?
                   AND fe.faq_version = f.version
-                ORDER BY fe.vector <=> ?
+                ORDER BY similarity_score DESC
                 LIMIT ?
                 """;
 
@@ -139,7 +142,7 @@ public class FaqVectorRepository {
                 queryEmbedding,
                 intent.name(),
                 profileId,
-                queryEmbedding,
+                vectorType.name(),
                 topK
         );
     }
@@ -147,6 +150,7 @@ public class FaqVectorRepository {
     public void saveVectorForFaq(
             Long faqId,
             Long profileId,
+            FaqVectorType vectorType,
             Integer faqVersion,
             PGvector embedding
     ) {
@@ -168,7 +172,7 @@ public class FaqVectorRepository {
                 """,
                 faqId,
                 profileId,
-                QUESTION_VECTOR_TYPE,
+                vectorType.name(),
                 faqVersion,
                 embedding
         );
@@ -177,6 +181,7 @@ public class FaqVectorRepository {
     public void updateVectorVersionForFaq(
             Long faqId,
             Long profileId,
+            FaqVectorType vectorType,
             Integer faqVersion
     ) {
         jdbcTemplate.update(
@@ -191,12 +196,13 @@ public class FaqVectorRepository {
                 faqVersion,
                 faqId,
                 profileId,
-                QUESTION_VECTOR_TYPE
+                vectorType.name()
         );
     }
     public boolean hasCurrentVector(
             Long faqId,
             Long profileId,
+            FaqVectorType vectorType,
             Integer faqVersion
     ) {
         Integer count = jdbcTemplate.queryForObject(
@@ -205,12 +211,13 @@ public class FaqVectorRepository {
                 FROM faq_embeddings
                 WHERE faq_id = ?
                   AND profile_id = ?
-                  AND vector_type = 'QUESTION'
+                  AND vector_type = ?
                   AND faq_version = ?
                 """,
                 Integer.class,
                 faqId,
                 profileId,
+                vectorType.name(),
                 faqVersion
         );
 

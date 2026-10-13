@@ -240,6 +240,8 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
 
+`FAQ_SEARCH_VECTOR_TYPE`을 `QUESTION_ANSWER`로 바꿨는데 그 유형의 벡터를 채우지 않았을 때도 같습니다. 검색은 선택한 유형의 벡터만 쓰고, 시드 스크립트는 `QUESTION` 벡터만 넣습니다.
+
 **해결**
 
 관리자 계정으로 백필을 실행해 지금 Profile의 벡터를 채웁니다([백필](how-to/llm-module.md#백필)).
