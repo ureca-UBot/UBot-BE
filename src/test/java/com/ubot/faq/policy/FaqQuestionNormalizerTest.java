@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class FaqQuestionNormalizerTest {
     @Test
     void collapsesOnlySpacingUnicodeCompositionAndRepeatedQuestionOrExclamationMarks() {
-        var examples = Map.of(
+        Map<String, String> examples = Map.of(
                 "  eSim이  뭔가요??  ", "eSim이 뭔가요?",
                 "esim이\t뭐야？？？", "esim이 뭐야?",
                 "esim이\u00A0\u3000뭐야！！!!", "esim이 뭐야!",

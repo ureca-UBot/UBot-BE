@@ -41,7 +41,7 @@ public class FaqSemanticCacheService {
         double gap = Double.NaN;
         FaqSearchResponseDto selected = null;
         if (candidates != null && !candidates.isEmpty()) {
-            var first = candidates.getFirst();
+            SemanticFaqCandidateResponseDto first = candidates.getFirst();
             score = first.faq().similarityScore();
             // No competing FAQ means insufficient evidence for the margin decision.
             if (candidates.size() > 1) {

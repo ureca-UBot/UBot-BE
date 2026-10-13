@@ -315,7 +315,7 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 
 FAQ 캐시 설정은 `FaqCacheProperties`와 `faq-cache` 설정 그룹에서 관리한다. 전체 사용 여부(`enabled`)와 시맨틱 검색 사용 여부(`semantic-enabled`)는 별도로 유지하며, 기존 `FAQ_CACHE_*` 환경변수 이름과 기본값은 변경하지 않는다.
 
-캐시의 기본값은 OFF예요. 켜면 판정과 DB 답변 검증을 통과한 질문에 공식 답변을 직접 반환해요. 알려진 오캐시 사례와 설정·등록 절차는 [시맨틱 캐시 이식본 안내](../how-to/103-faq-semantic-cache.md)에 있어요.
+캐시의 기본값은 OFF다. `FAQ_CACHE_ENABLED`와 `FAQ_CACHE_SEMANTIC_ENABLED`를 모두 true로 설정하고 서버를 재시작하면, 캐시 판정과 최신 DB 답변 검증을 통과한 질문에 공식 답변을 직접 반환한다.
 
 공식 답변은 최신 DB 검증 후 반환하며 FAQ 답변의 Redis 저장·조회는 사용하지 않아요. 기존 `FAQ_CACHE_TTL`은 더 이상 사용하지 않아요. 다른 기능의 Redis 설정은 유지해요.
 
@@ -331,4 +331,30 @@ FAQ 캐시 설정은 `FaqCacheProperties`와 `faq-cache` 설정 그룹에서 관
 
 캐시 검색과 표현 등록은 채팅과 같은 `EmbeddingService`·`EmbeddingProfileService`를 사용해요. 모델 설정은 임베딩 엔진에 따라 `OLLAMA_EMBEDDING_MODEL` 또는 `EMBEDDING_MODEL`을 사용하며 별도 `FAQ_CACHE_EMBEDDING_MODEL`은 더 이상 사용하지 않아요. 등록 표현은 현재 프로필의 profile ID와 맞아야 해요. 모델 이름이 같아도 provider·프로필 버전이 다르면 표현을 공유하지 않아요. 모델이나 프로필이 바뀌면 새 프로필의 FAQ 벡터·등록 표현을 준비하고 판정 기준을 다시 검증해야 해요.
 
-캐시 검색·등록에는 NFC, 공백·탭·NBSP·전각 공백, 반복 물음표/느낌표 정규화를 적용한다. 대소문자·동의어·부정·조건·줄바꿈은 통합하거나 지우지 않는다. 원문 FAQ 검색과 정규화된 캐시 입력이 다르면 같은 모델의 임베딩을 추가로 호출한다. 정규화 규칙은 Java의 `FaqQuestionNormalizer`에서 관리하며 등록 시 임베딩한 입력과 저장 키가 같다. V30에 일반 컬럼인 정규화 키·버전·중복 방지 제약을 포함한다. 이전 V28·V29를 적용한 로컬 DB의 준비 방법은 [사용 안내](../how-to/103-faq-semantic-cache.md#3-db-준비)에서 확인할 수 있다.
+캐시 검색·등록에는 NFC, 공백·탭·NBSP·전각 공백, 반복 물음표/느낌표 정규화를 적용한다. 대소문자·동의어·부정·조건·줄바꿈은 통합하거나 지우지 않는다. 원문 FAQ 검색과 정규화된 캐시 입력이 다르면 같은 모델의 임베딩을 추가로 호출한다. 정규화 규칙은 Java의 `FaqQuestionNormalizer`에서 관리하며 등록 시 임베딩한 입력과 저장 키가 같다.
+
+### 관리자 승인 및 표현 관리
+
+관리자 인증으로 `POST /admin/faqs`, `PATCH /admin/faqs`의 `cacheable` 필드를 설정한다. 생성 시 생략하면 false이고, 수정 시 생략하면 기존 GENERAL FAQ의 승인 상태를 유지한다. intent를 USER_DATA 또는 STORE_DATA로 변경하면 생략된 승인은 해제된다. GENERAL이 아닌 FAQ에 true를 지정하면 `FAQ-007`로 거절한다. PATCH에는 기존 id·categoryId·question·answer·intent 필수 필드도 함께 보낸다.
+
+| API | 역할 |
+|---|---|
+| `POST /admin/faqs/{faqId}/cache-questions` | 현재 프로필로 표현을 임베딩해 추가·갱신 |
+| `GET /admin/faqs/{faqId}/cache-questions` | 해당 FAQ의 모든 프로필 표현과 활성·유효 상태 조회 |
+| `DELETE /admin/faqs/{faqId}/cache-questions/{questionId}` | 표현 한 개를 비활성화 |
+
+등록 요청 예시:
+
+```json
+{"questions": ["esim이 뭐야?", "esim이 어떤 건지 설명해줘."]}
+```
+
+표현 등록에는 승인된 활성 GENERAL FAQ와 현재 프로필·버전의 QUESTION 벡터가 필요하다. 한 요청에 최대 50개, 표현 하나에 최대 160자를 허용한다. 정규화된 키가 같은 입력은 중복 저장하지 않는다. 등록·갱신·비활성화는 JPA 엔티티로 처리하고, 벡터 검색은 SQL의 `<=>` 연산자를 사용한다. 임베딩 호출 중에는 DB 트랜잭션과 FAQ 잠금을 유지하지 않으며, 저장 전에 최신 FAQ를 잠그고 승인·본문·버전·벡터를 재확인한다. 등록 도중 변경이 확인되면 `FAQ-009`로 요청 전체를 거절한다.
+
+POST는 입력한 표현만 추가·갱신한다. DELETE는 해당 표현만 검색에서 제외하므로, 공식 질문이나 다른 유효 표현이 여전히 매칭될 수 있다. FAQ 전체의 직접 답변을 막으려면 `cacheable=false`로 설정한다. FAQ 내용·버전·프로필이 달라진 표현은 다시 검토하고 POST로 등록해야 한다. GET의 `valid`는 현재 표현의 유효 상태이며 사용자 질문의 유사도 판정 결과는 아니다.
+
+### DB 마이그레이션
+
+develop의 V28은 데이터 보관 정책이다. 캐시 승인은 `V29__add_faq_cache_eligibility.sql`, 표현 테이블은 `V30__create_faq_cache_questions.sql`에서 생성한다. 정규화 키는 일반 NOT NULL 컬럼이며 DB의 UNIQUE 제약은 `(faq_id, normalized_question, profile_id)` 중복을 막는다.
+
+이전 번호인 V28(캐시 승인)·V29(표현 테이블)를 적용한 로컬 DB는 현재 이력과 호환되지 않는다. 백업 후 별도 새 DB에 최신 마이그레이션을 적용하고 데이터를 이관한다. 기존 정규화 키·벡터를 보존하면 재임베딩할 필요는 없다. 체크섬 수정이나 repair로 다른 마이그레이션의 이력을 맞추지 않는다.

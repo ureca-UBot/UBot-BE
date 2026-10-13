@@ -53,7 +53,7 @@ public class FaqVectorService {
     public FaqAnswerSearchResponseDto searchWithSemanticCache(String question, int topK) {
         PGvector vector = embeddingService.embedText(question);
         Long profileId = embeddingProfileService.getCurrentProfileId();
-        var baseline = faqVectorRepository.getSimilarList(vector, profileId, searchVectorType, topK);
+        List<FaqSearchResponseDto> baseline = faqVectorRepository.getSimilarList(vector, profileId, searchVectorType, topK);
         try {
             String normalized = FaqQuestionNormalizer.normalize(question);
             PGvector cacheVector = question.equals(normalized) ? vector : embeddingService.embedText(normalized);

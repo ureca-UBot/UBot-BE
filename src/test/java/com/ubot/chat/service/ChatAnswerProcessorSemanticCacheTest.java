@@ -39,9 +39,9 @@ class ChatAnswerProcessorSemanticCacheTest {
             new SemanticFaqCandidateResponseDto(baseline.getFirst(),"첫 번째 질문"));
 
     @Test void aliasMatchReturnsVerifiedOfficialAnswerWithNoLlm() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         when(cache.getOfficialAnswer(official)).thenReturn(Optional.of("디지털 SIM입니다."));
-        var result = processor.generateAnswer(attempt(question),null,()->{});
+        ChatAnswerResult result = processor.generateAnswer(attempt(question),null,()->{});
         assertThat(result.answer().answer()).isEqualTo("디지털 SIM입니다.");
         assertThat(result.faqs()).containsExactly(official);
         verifyNoInteractions(ai);
@@ -50,12 +50,12 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void validSemanticCacheReturnsOfficialAnswerWhenBaselineIsEmpty() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         when(vector.searchWithSemanticCache(question,3))
                 .thenReturn(new FaqAnswerSearchResponseDto(List.of(),candidates));
         when(cache.getOfficialAnswer(official)).thenReturn(Optional.of(official.answer()));
 
-        var result = processor.generateAnswer(attempt(question),null,()->{});
+        ChatAnswerResult result = processor.generateAnswer(attempt(question),null,()->{});
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().answer()).isEqualTo(official.answer());
@@ -65,12 +65,12 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void emptyBaselineStillFailsWhenTheSelectedOfficialAnswerIsRevoked() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         when(vector.searchWithSemanticCache(question,3))
                 .thenReturn(new FaqAnswerSearchResponseDto(List.of(),candidates));
         when(cache.getOfficialAnswer(official)).thenReturn(Optional.empty());
 
-        var result = processor.generateAnswer(attempt(question),null,()->{});
+        ChatAnswerResult result = processor.generateAnswer(attempt(question),null,()->{});
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
         verify(cache).getOfficialAnswer(official);
@@ -78,15 +78,15 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void approvedCanonicalQuestionReturnsTheDatabaseAnswerWithoutLlm() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         String newQuestion = "해지하면 남은 단말기 할부금은 어떻게 되나요?";
-        var approved = new FaqSearchResponseDto(48L,newQuestion,
+        FaqSearchResponseDto approved = new FaqSearchResponseDto(48L,newQuestion,
                 "통신 서비스를 해지해도 남은 단말기 할부금은 계속 납부해야 합니다.",.98,Intent.GENERAL,true,2);
         when(vector.searchWithSemanticCache(newQuestion,3))
                 .thenReturn(new FaqAnswerSearchResponseDto(baseline,List.of(new SemanticFaqCandidateResponseDto(approved,newQuestion),
                         candidates.get(1))));
         when(cache.getOfficialAnswer(approved)).thenReturn(Optional.of(approved.answer()));
-        var result = processor.generateAnswer(attempt(newQuestion),null,()->{});
+        ChatAnswerResult result = processor.generateAnswer(attempt(newQuestion),null,()->{});
         assertThat(result.answer().answer()).isEqualTo(approved.answer());
         assertThat(result.faqs()).containsExactly(approved);
         verifyNoInteractions(ai);
@@ -99,15 +99,15 @@ class ChatAnswerProcessorSemanticCacheTest {
     }, delimiter = '|')
     void singleIntentQuestionsWithAdditionalOrContrastWordsUseSemanticSearch(
             long faqId, String input, String officialQuestion, String officialAnswer) {
-        var processor = processor();
-        var approved = new FaqSearchResponseDto(faqId,officialQuestion,officialAnswer,
+        ChatAnswerProcessor processor = processor();
+        FaqSearchResponseDto approved = new FaqSearchResponseDto(faqId,officialQuestion,officialAnswer,
                 .98,Intent.GENERAL,true,2);
         when(vector.searchWithSemanticCache(input,3))
                 .thenReturn(new FaqAnswerSearchResponseDto(baseline,List.of(
                         new SemanticFaqCandidateResponseDto(approved,input),candidates.get(1))));
         when(cache.getOfficialAnswer(approved)).thenReturn(Optional.of(officialAnswer));
 
-        var result = processor.generateAnswer(attempt(input),null,()->{});
+        ChatAnswerResult result = processor.generateAnswer(attempt(input),null,()->{});
 
         assertThat(result.answer().answer()).isEqualTo(officialAnswer);
         assertThat(result.faqs()).containsExactly(approved);
@@ -117,7 +117,7 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void additionalRequestOutsideTheFormerPilotUsesBaselineWithoutSemanticLookup() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         String compound = "해외에서 와이파이만 사용하고 싶어요. 그리고 로밍 요금도 알려줘.";
         when(vector.getSimilarList(compound,3)).thenReturn(baseline);
         processor.generateAnswer(attempt(compound),null,()->{});
@@ -127,14 +127,14 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void revokedOrChangedOfficialAnswerKeepsOriginalLlmSources() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         when(cache.getOfficialAnswer(official)).thenReturn(Optional.empty());
         assertThat(processor.generateAnswer(attempt(question),null,()->{}).answer().answer()).isEqualTo("LLM");
         verify(ai).generateAnswer(ChatTestFixtures.materialsFor(question,baseline));
     }
 
     @Test void disabledCacheKeepsTheBaselineLlmPathWithoutAliasSearch() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         properties.setEnabled(false);
         when(vector.getSimilarList(question,3)).thenReturn(baseline);
         assertThat(processor.generateAnswer(attempt(question),null,()->{}).answer().answer()).isEqualTo("LLM");
@@ -144,7 +144,7 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void compoundQuestionUsesBaselineWithoutSemanticLookup() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         String compound = "esim이 어떤 건지 설명해줘. 그리고 발급 가격도 알려줘.";
         when(vector.getSimilarList(compound,3)).thenReturn(baseline);
         processor.generateAnswer(attempt(compound),null,()->{});
@@ -154,7 +154,7 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void cancellationAfterSearchPreventsBothCacheAndLlm() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         int[] calls = {0};
         assertThatThrownBy(() -> processor.generateAnswer(attempt(question),null,()-> {
             if (++calls[0] == 2) throw new IllegalStateException("cancelled");
@@ -163,11 +163,11 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     @Test void repeatedPunctuationUsesSemanticSearchButFallbackKeepsTheOriginalQuestion() {
-        var processor = processor();
+        ChatAnswerProcessor processor = processor();
         String raw = "  esim이  뭐야？？？ ";
         when(vector.searchWithSemanticCache(raw,3)).thenReturn(new FaqAnswerSearchResponseDto(baseline,candidates));
         when(cache.getOfficialAnswer(official)).thenReturn(Optional.empty());
-        var attempt = attempt(raw);
+        AnswerAttemptsHistory attempt = attempt(raw);
         assertThat(processor.generateAnswer(attempt,null,()->{}).answer().answer()).isEqualTo("LLM");
         assertThat(attempt.getQuestion()).isEqualTo(raw);
         verify(vector).searchWithSemanticCache(raw,3);
@@ -177,7 +177,7 @@ class ChatAnswerProcessorSemanticCacheTest {
     private ChatAnswerProcessor processor() {
         properties.setEnabled(true);
         properties.setSemanticEnabled(true);
-        var processor = new ChatAnswerProcessor(vector,semantic,cache,ai,
+        ChatAnswerProcessor processor = new ChatAnswerProcessor(vector,semantic,cache,ai,
                 mock(UnansweredQuestionService.class),ChatTestFixtures.collector());
         ReflectionTestUtils.setField(processor,"topK",3);
         ReflectionTestUtils.setField(processor,"confidenceThreshold",.75);

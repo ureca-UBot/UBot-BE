@@ -62,7 +62,7 @@ public class FaqCacheQuestionService {
                         faq.getIntent(), faq.isCacheable(), faqVectors.hasCurrentVector(faqId, profileId, FaqVectorType.QUESTION, faq.getVersion())))
                 .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
         validateRegistration(snapshot);
-        var unique = new LinkedHashMap<String, String>();
+        Map<String, String> unique = new LinkedHashMap<>();
         for (String question : request.questions()) {
             String normalized = FaqQuestionNormalizer.normalize(question);
             if (normalized == null || normalized.isBlank()) {
@@ -71,7 +71,7 @@ public class FaqCacheQuestionService {
             unique.putIfAbsent(normalized, question);
         }
         // 정규화 키와 원문을 묶어 임베딩 순서와 저장할 입력이 어긋나지 않게 한다.
-        var questions = List.copyOf(unique.entrySet());
+        List<Map.Entry<String, String>> questions = List.copyOf(unique.entrySet());
         List<String> normalizedQuestions = questions.stream().map(Map.Entry::getKey).toList();
         // The model call happens before a transaction or a FAQ row lock is held.
         List<PGvector> vectors = embedQuestions(normalizedQuestions);
@@ -86,7 +86,7 @@ public class FaqCacheQuestionService {
             validateRegistration(current);
             List<FaqCacheQuestion> registered = new ArrayList<>();
             for (int index = 0; index < questions.size(); index++) {
-                var question = questions.get(index);
+                Map.Entry<String, String> question = questions.get(index);
                 FaqCacheQuestion entity = repository.findByFaq_IdAndNormalizedQuestionAndProfileId(
                                 faqId, question.getKey(), profileId)
                         .orElseGet(() -> FaqCacheQuestion.builder().faq(currentFaq).profileId(profileId).build());

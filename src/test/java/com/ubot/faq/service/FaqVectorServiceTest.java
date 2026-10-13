@@ -24,6 +24,7 @@ import com.ubot.embedding.repository.EmbeddingProfileRepository;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqAnswerSearchResponseDto;
 import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
 import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.enums.Intent;
@@ -398,10 +399,10 @@ class FaqVectorServiceTest {
     @Test
     void semanticSearchKeepsTheConfiguredQuestionAnswerBaseline() {
         PGvector vector = vector(0);
-        var qaService = serviceSearching(FaqVectorType.QUESTION_ANSWER);
+        FaqVectorService qaService = serviceSearching(FaqVectorType.QUESTION_ANSWER);
         when(embeddingService.embedText("질문")).thenReturn(vector);
         when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
-        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        List<FaqSearchResponseDto> baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
         when(repository.getSimilarList(vector,10L,FaqVectorType.QUESTION_ANSWER,3)).thenReturn(baseline);
         when(repository.getSemanticCandidates(vector,10L)).thenReturn(List.of());
 
@@ -427,27 +428,27 @@ class FaqVectorServiceTest {
     @Test
     void semanticSearchUsesTheSameConfiguredClientAndProfileAsChatForBothEngines() {
         for (String mode : List.of("ollama", "vllm")) {
-            var runtime = new AiRuntimeProperties();
+            AiRuntimeProperties runtime = new AiRuntimeProperties();
             runtime.setMode(mode);
             runtime.setEmbeddingProfileVersion(2);
-            var client = mock(EmbeddingClient.class);
-            var profiles = mock(EmbeddingProfileRepository.class);
-            var vectors = mock(FaqVectorRepository.class);
+            EmbeddingClient client = mock(EmbeddingClient.class);
+            EmbeddingProfileRepository profiles = mock(EmbeddingProfileRepository.class);
+            FaqVectorRepository vectors = mock(FaqVectorRepository.class);
             String model = mode.equals("ollama") ? "bge-custom-alias" : "ubot-embedding";
             String provider = mode.equals("ollama") ? "ollama" : "openai-compatible";
             PGvector vector = vector(0);
             when(client.embed("질문")).thenReturn(vector);
             when(client.getModelName()).thenReturn(model);
             when(profiles.findOrCreate(provider,model,EmbeddingClient.DIMENSIONS,2)).thenReturn(42L);
-            var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.8,Intent.GENERAL));
-            var candidates = List.of(new SemanticFaqCandidateResponseDto(
+            List<FaqSearchResponseDto> baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.8,Intent.GENERAL));
+            List<SemanticFaqCandidateResponseDto> candidates = List.of(new SemanticFaqCandidateResponseDto(
                     new FaqSearchResponseDto(14L,"공식 질문","공식 답변",.98,Intent.GENERAL,true,1),"등록 표현"));
             when(vectors.getSimilarList(vector,42L, FaqVectorType.QUESTION,3)).thenReturn(baseline);
             when(vectors.getSemanticCandidates(vector,42L)).thenReturn(candidates);
-            var shared = new FaqVectorService(new EmbeddingService(client),
+            FaqVectorService shared = new FaqVectorService(new EmbeddingService(client),
                     new EmbeddingProfileService(runtime,client,profiles),vectors, FaqVectorType.QUESTION);
 
-            var result = shared.searchWithSemanticCache("질문",3);
+            FaqAnswerSearchResponseDto result = shared.searchWithSemanticCache("질문",3);
 
             assertThat(result.baseline()).isEqualTo(baseline);
             assertThat(result.semantic()).isEqualTo(candidates);
@@ -461,13 +462,13 @@ class FaqVectorServiceTest {
     @Test
     void aliasDatabaseFailureKeepsTheAlreadyRetrievedBaseline() {
         PGvector vector = vector(0);
-        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        List<FaqSearchResponseDto> baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
         when(embeddingService.embedText("질문")).thenReturn(vector);
         when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
         when(repository.getSimilarList(vector,10L, FaqVectorType.QUESTION,3)).thenReturn(baseline);
         when(repository.getSemanticCandidates(vector,10L)).thenThrow(
                 new org.springframework.dao.DataAccessResourceFailureException("alias lookup unavailable"));
-        var search = service.searchWithSemanticCache("질문",3);
+        FaqAnswerSearchResponseDto search = service.searchWithSemanticCache("질문",3);
         assertThat(search.baseline()).isEqualTo(baseline);
         assertThat(search.semantic()).isEmpty();
     }
@@ -482,7 +483,7 @@ class FaqVectorServiceTest {
         when(embeddingService.embedText(raw)).thenReturn(rawVector);
         when(embeddingService.embedText("esim이 뭐야?")).thenReturn(normalizedVector);
         when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
-        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        List<FaqSearchResponseDto> baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
         when(repository.getSimilarList(rawVector,10L, FaqVectorType.QUESTION,3)).thenReturn(baseline);
         when(repository.getSemanticCandidates(normalizedVector,10L)).thenReturn(List.of());
         assertThat(service.searchWithSemanticCache(raw,3).baseline()).isEqualTo(baseline);
@@ -500,9 +501,9 @@ class FaqVectorServiceTest {
         when(embeddingService.embedText("esim이 뭐야?")).thenThrow(new com.ubot.embedding.exception.EmbeddingException(
                 com.ubot.embedding.exception.EmbeddingErrorCode.EMBEDDING_TIMEOUT));
         when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
-        var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
+        List<FaqSearchResponseDto> baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.9,Intent.GENERAL));
         when(repository.getSimilarList(vector,10L, FaqVectorType.QUESTION,3)).thenReturn(baseline);
-        var result = service.searchWithSemanticCache(raw,3);
+        FaqAnswerSearchResponseDto result = service.searchWithSemanticCache(raw,3);
         assertThat(result.baseline()).isEqualTo(baseline);
         assertThat(result.semantic()).isEmpty();
         verify(repository,never()).getSemanticCandidates(any(),anyLong());

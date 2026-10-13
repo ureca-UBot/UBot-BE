@@ -30,7 +30,7 @@ class FaqCacheServiceTest {
     }
 
     @Test void revocationDeletionVersionAndContentChangesCannotReuseAnOldApproval() {
-        for (var current : java.util.List.of(Optional.<Faq>empty(), Optional.of(current(false,6,"공식 답변")),
+        for (Optional<Faq> current : java.util.List.of(Optional.<Faq>empty(), Optional.of(current(false,6,"공식 답변")),
                 Optional.of(current(true,7,"공식 답변")), Optional.of(current(true,6,"수정 답변")))) {
             when(repository.findActiveById(14L)).thenReturn(current);
             assertThat(service.getOfficialAnswer(selected)).isEmpty();
@@ -38,11 +38,11 @@ class FaqCacheServiceTest {
     }
 
     @Test void changedQuestionNonGeneralIntentAndBlankAnswerPreventDirectAnswers() {
-        var changedQuestion = Faq.builder().id(14L).question("변경된 질문").answer("공식 답변")
+        Faq changedQuestion = Faq.builder().id(14L).question("변경된 질문").answer("공식 답변")
                 .intent(Intent.GENERAL).cacheable(true).version(6).build();
-        var personal = Faq.builder().id(14L).question("정의").answer("공식 답변")
+        Faq personal = Faq.builder().id(14L).question("정의").answer("공식 답변")
                 .intent(Intent.USER_DATA).cacheable(true).version(6).build();
-        for (var faq : java.util.List.of(changedQuestion, personal)) {
+        for (Faq faq : java.util.List.of(changedQuestion, personal)) {
             when(repository.findActiveById(14L)).thenReturn(Optional.of(faq));
             assertThat(service.getOfficialAnswer(selected)).isEmpty();
         }

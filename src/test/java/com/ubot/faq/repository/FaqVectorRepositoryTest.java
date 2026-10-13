@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
 import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.policy.FaqQuestionNormalizer;
@@ -532,7 +533,7 @@ class FaqVectorRepositoryTest {
         jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
         insertAlias(1L, profileId, "다른 표현 하나", vectorOf(0));
         insertAlias(1L, profileId, "다른 표현 둘", vectorOf(0));
-        var candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
+        List<SemanticFaqCandidateResponseDto> candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
         assertThat(candidates).extracting(c -> c.faq().faqId()).containsExactly(1L, 2L);
         assertThat(candidates.getFirst().faq().cacheable()).isTrue();
         assertThat(candidates.get(1).faq().cacheable()).isFalse();
@@ -545,7 +546,7 @@ class FaqVectorRepositoryTest {
         repository.saveVectorForFaq(1L, profileId, FaqVectorType.QUESTION, 1, vectorOf(1));
         repository.saveVectorForFaq(1L, otherProfileId, FaqVectorType.QUESTION, 1, vectorOf(0));
         insertAlias(1L, otherProfileId, "다른 프로필 표현", vectorOf(0));
-        var candidate = repository.getSemanticCandidates(vectorOf(0), profileId).getFirst();
+        SemanticFaqCandidateResponseDto candidate = repository.getSemanticCandidates(vectorOf(0), profileId).getFirst();
         assertThat(candidate.faq().faqId()).isEqualTo(1L);
         assertThat(candidate.matchedQuestion()).isEqualTo("유심 재발급");
         assertThat(candidate.faq().similarityScore()).isZero();
@@ -593,9 +594,9 @@ class FaqVectorRepositoryTest {
         repository.saveVectorForFaq(1L,profileId,FaqVectorType.QUESTION_ANSWER,1,vectorOf(0));
         insertAlias(1L,profileId,"검토한 질문 표현",vectorOf(1));
 
-        var qaResult = repository.getSimilarList(vectorOf(0),profileId,FaqVectorType.QUESTION_ANSWER,3).stream()
+        FaqSearchResponseDto qaResult = repository.getSimilarList(vectorOf(0),profileId,FaqVectorType.QUESTION_ANSWER,3).stream()
                 .filter(faq -> faq.faqId().equals(1L)).findFirst().orElseThrow();
-        var cacheResult = repository.getSemanticCandidates(vectorOf(0),profileId).stream()
+        SemanticFaqCandidateResponseDto cacheResult = repository.getSemanticCandidates(vectorOf(0),profileId).stream()
                 .filter(candidate -> candidate.faq().faqId().equals(1L)).findFirst().orElseThrow();
 
         assertThat(qaResult.similarityScore()).isEqualTo(1.0);
@@ -608,8 +609,8 @@ class FaqVectorRepositoryTest {
         jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM faq_cache_question", Long.class)).isZero();
 
-        var candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
-        var properties = new FaqCacheProperties();
+        List<SemanticFaqCandidateResponseDto> candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
+        FaqCacheProperties properties = new FaqCacheProperties();
         properties.setEnabled(true);
         properties.setSemanticEnabled(true);
 

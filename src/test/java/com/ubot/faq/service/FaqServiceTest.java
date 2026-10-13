@@ -67,7 +67,7 @@ class FaqServiceTest {
 
     @Test
     void rejectsPersonalAndStoreCacheApprovalBeforeSaving() {
-        for (var intent : List.of(Intent.USER_DATA, Intent.STORE_DATA)) {
+        for (Intent intent : List.of(Intent.USER_DATA, Intent.STORE_DATA)) {
             assertThatThrownBy(() -> service.createFaq(
                     new FaqCreateRequestDto(2L,"질문","답변",intent,true),1L))
                     .isInstanceOf(FaqException.class)
@@ -79,7 +79,7 @@ class FaqServiceTest {
 
     @Test
     void omittedApprovalPreservesGeneralFaqButChangingIntentRevokesIt() {
-        var faq = Faq.builder().id(10L).question("질문").answer("답변").version(3).intent(Intent.GENERAL)
+        Faq faq = Faq.builder().id(10L).question("질문").answer("답변").version(3).intent(Intent.GENERAL)
                 .cacheable(true).faqCategory(category(2L,"일반")).admin(User.builder().id(1L).build()).build();
         when(faqRepository.findActiveById(10L)).thenReturn(Optional.of(faq));
         when(userRepository.findById(9L)).thenReturn(Optional.of(User.builder().id(9L).build()));
@@ -94,14 +94,14 @@ class FaqServiceTest {
 
     @Test
     void explicitCacheRevocationRetainsThePreviousApprovalInHistory() {
-        var faq = Faq.builder().id(10L).question("질문").answer("답변").version(3).intent(Intent.GENERAL)
+        Faq faq = Faq.builder().id(10L).question("질문").answer("답변").version(3).intent(Intent.GENERAL)
                 .cacheable(true).faqCategory(category(2L,"일반")).admin(User.builder().id(1L).build()).build();
         when(faqRepository.findActiveById(10L)).thenReturn(Optional.of(faq));
         when(userRepository.findById(9L)).thenReturn(Optional.of(User.builder().id(9L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(faq.getFaqCategory()));
         when(faqRepository.save(faq)).thenReturn(faq);
         assertThat(service.updateActiveFaq(new FaqUpdateRequestDto(10L,2L,"질문","답변",Intent.GENERAL,false),9L).cacheable()).isFalse();
-        var history = ArgumentCaptor.forClass(OldFaq.class);
+        ArgumentCaptor<OldFaq> history = ArgumentCaptor.forClass(OldFaq.class);
         verify(oldFaqRepository).saveAndFlush(history.capture());
         assertThat(history.getValue().isCacheable()).isTrue();
         assertThat(faq.getVersion()).isEqualTo(4);

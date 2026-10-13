@@ -33,7 +33,7 @@ class FaqCachePropertiesTest {
                 "FAQ_CACHE_MIN_MARGIN=0.12")
                 .run(context -> {
                     assertThat(context).hasNotFailed().hasSingleBean(FaqCacheProperties.class);
-                    var properties = context.getBean(FaqCacheProperties.class);
+                    FaqCacheProperties properties = context.getBean(FaqCacheProperties.class);
                     assertThat(properties.isEnabled()).isTrue();
                     assertThat(properties.isSemanticEnabled()).isTrue();
                     assertThat(properties.getRegistrationBatchSize()).isEqualTo(4);

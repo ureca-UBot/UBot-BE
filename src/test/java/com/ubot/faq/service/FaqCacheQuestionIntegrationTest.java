@@ -24,6 +24,7 @@ import com.ubot.embedding.exception.EmbeddingException;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCacheQuestionCreateRequestDto;
+import com.ubot.faq.dto.response.FaqCacheQuestionResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCacheQuestion;
 import com.ubot.faq.exception.FaqErrorCode;
@@ -38,7 +39,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import jakarta.persistence.EntityManager;
@@ -210,13 +213,13 @@ class FaqCacheQuestionIntegrationTest {
 
     @Test
     void normalizedDuplicatesAcrossRequestsUseOneRowAndOneEmbeddingInput() {
-        var first = service.registerFaqCacheQuestions(14L, request("  esim이  뭐야？？？ ", "esim이 뭐야?", "esim이\t뭐야??"));
+        List<FaqCacheQuestionResponseDto> first = service.registerFaqCacheQuestions(14L, request("  esim이  뭐야？？？ ", "esim이 뭐야?", "esim이\t뭐야??"));
         assertThat(first).hasSize(1);
         assertThat(first.getFirst().question()).isEqualTo("  esim이  뭐야？？？ ");
         assertThat(first.getFirst().normalizedQuestion()).isEqualTo("esim이 뭐야?");
         assertThat(first.getFirst().normalizationVersion()).isEqualTo(1);
         verify(embedding).embedTexts(List.of("esim이 뭐야?"));
-        var second = service.registerFaqCacheQuestions(14L, request("esim이 뭐야????"));
+        List<FaqCacheQuestionResponseDto> second = service.registerFaqCacheQuestions(14L, request("esim이 뭐야????"));
         assertThat(second.getFirst().id()).isEqualTo(first.getFirst().id());
         assertThat(second.getFirst().createdAt()).isEqualTo(first.getFirst().createdAt());
         assertThat(second.getFirst().question()).isEqualTo("esim이 뭐야????");
@@ -225,7 +228,7 @@ class FaqCacheQuestionIntegrationTest {
         assertThat(rowCount()).isEqualTo(1);
         service.deactivateFaqCacheQuestion(14L, first.getFirst().id());
         assertThat(service.getFaqCacheQuestionList(14L).getFirst().valid()).isFalse();
-        var reactivated = service.registerFaqCacheQuestions(14L, request("esim이 뭐야？"));
+        List<FaqCacheQuestionResponseDto> reactivated = service.registerFaqCacheQuestions(14L, request("esim이 뭐야？"));
         assertThat(reactivated.getFirst().id()).isEqualTo(first.getFirst().id());
         assertThat(reactivated.getFirst().enabled()).isTrue();
         assertThat(reactivated.getFirst().valid()).isTrue();
@@ -237,11 +240,11 @@ class FaqCacheQuestionIntegrationTest {
                 INSERT INTO faq_cache_question(faq_id,profile_id,question,normalized_question,vector,faq_version,faq_question,faq_answer)
                 SELECT id,?,'esim이 뭐야??','esim이 뭐야?',?,version,question,answer FROM faq WHERE id=14
                 """, profileId, vector(0));
-        var old = service.getFaqCacheQuestionList(14L).getFirst();
+        FaqCacheQuestionResponseDto old = service.getFaqCacheQuestionList(14L).getFirst();
         assertThat(old.normalizationVersion()).isZero();
         assertThat(old.valid()).isFalse();
         assertThat(vectors.getSemanticCandidates(vector(0),profileId).getFirst().faq().similarityScore()).isZero();
-        var refreshed = service.registerFaqCacheQuestions(14L,request("esim이 뭐야?"));
+        List<FaqCacheQuestionResponseDto> refreshed = service.registerFaqCacheQuestions(14L,request("esim이 뭐야?"));
         assertThat(refreshed.getFirst().id()).isEqualTo(old.id());
         assertThat(refreshed.getFirst().valid()).isTrue();
         assertThat(vectors.getSemanticCandidates(vector(0),profileId).getFirst().faq().similarityScore()).isEqualTo(1.0);
@@ -251,7 +254,7 @@ class FaqCacheQuestionIntegrationTest {
     @Test
     void entityNormalizesInJavaAndMapsVectorAndDatabaseTimestamp() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            var entity = FaqCacheQuestion.builder().faq(entityManager.getReference(Faq.class,14L))
+            FaqCacheQuestion entity = FaqCacheQuestion.builder().faq(entityManager.getReference(Faq.class,14L))
                     .profileId(profileId).question("  esim이  뭐야？？？ ").normalizationVersion(1)
                     .vector(vector(0).toArray()).faqVersion(1).faqQuestion("eSIM이 무엇인가요?")
                     .faqAnswer("물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.").build();
@@ -263,7 +266,7 @@ class FaqCacheQuestionIntegrationTest {
             assertThat(jdbc.queryForObject("SELECT normalized_question FROM faq_cache_question WHERE id=?",
                     String.class, id)).isEqualTo(entity.getNormalizedQuestion());
             entityManager.clear();
-            var loaded = entityManager.find(FaqCacheQuestion.class,id);
+            FaqCacheQuestion loaded = entityManager.find(FaqCacheQuestion.class,id);
             assertThat(loaded.getFaq().getId()).isEqualTo(14L);
             assertThat(loaded.getProfileId()).isEqualTo(profileId);
             assertThat(loaded.getVector()).containsExactly(vector(0).toArray());
@@ -278,7 +281,7 @@ class FaqCacheQuestionIntegrationTest {
 
     @Test
     void concurrentNormalizedRegistrationsKeepOneRowWithTheEmbeddedInput() throws Exception {
-        var bothEmbedding = new CountDownLatch(2);
+        CountDownLatch bothEmbedding = new CountDownLatch(2);
         when(embedding.embedTexts(anyList())).thenAnswer(call -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             List<String> inputs = call.getArgument(0);
@@ -287,11 +290,11 @@ class FaqCacheQuestionIntegrationTest {
             assertThat(bothEmbedding.await(10, TimeUnit.SECONDS)).isTrue();
             return List.of(vector(0));
         });
-        try (var executor = Executors.newFixedThreadPool(2)) {
-            var first = executor.submit(() -> service.registerFaqCacheQuestions(14L, request("  esim이  뭐야？？？ ")));
-            var second = executor.submit(() -> service.registerFaqCacheQuestions(14L, request("esim이\t뭐야??")));
-            var firstResult = first.get(20, TimeUnit.SECONDS).getFirst();
-            var secondResult = second.get(20, TimeUnit.SECONDS).getFirst();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<List<FaqCacheQuestionResponseDto>> first = executor.submit(() -> service.registerFaqCacheQuestions(14L, request("  esim이  뭐야？？？ ")));
+            Future<List<FaqCacheQuestionResponseDto>> second = executor.submit(() -> service.registerFaqCacheQuestions(14L, request("esim이\t뭐야??")));
+            FaqCacheQuestionResponseDto firstResult = first.get(20, TimeUnit.SECONDS).getFirst();
+            FaqCacheQuestionResponseDto secondResult = second.get(20, TimeUnit.SECONDS).getFirst();
             assertThat(firstResult.id()).isEqualTo(secondResult.id());
             assertThat(rowCount()).isEqualTo(1);
             assertThat(service.getFaqCacheQuestionList(14L).getFirst().normalizedQuestion()).isEqualTo("esim이 뭐야?");
@@ -344,7 +347,7 @@ class FaqCacheQuestionIntegrationTest {
 
     @Test
     void wrongFaqInDeactivationCannotModifyAnotherFaqExpression() throws Exception {
-        var row = service.registerFaqCacheQuestions(14L, request("표현")).getFirst();
+        FaqCacheQuestionResponseDto row = service.registerFaqCacheQuestions(14L, request("표현")).getFirst();
         jdbc.update("""
                 INSERT INTO faq(id,category_id,question,answer,intent) VALUES (15,?,'다른 질문','다른 답변','GENERAL')
                 """, categoryId);

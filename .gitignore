@@ -60,3 +60,9 @@ backend.hcl
 errored.tfstate
 crash.log
 crash.*.log
+
+# Local semantic-cache experiments and write-ups
+/scripts/semantic-cache/
+/docs/images/semantic-cache-*/
+/docs/reports/semantic-cache*
+/docs/how-to/103-faq-semantic-cache.md

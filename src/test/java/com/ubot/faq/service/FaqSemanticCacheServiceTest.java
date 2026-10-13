@@ -86,7 +86,7 @@ class FaqSemanticCacheServiceTest {
     @ValueSource(longs = {32L, 48L, 136L, 142L, 100001L})
     void anyApprovedFaqCanPassWithoutAnIdAllowlist(long faqId) {
         properties.setSemanticEnabled(true);
-        var approved = new SemanticFaqCandidateResponseDto(
+        SemanticFaqCandidateResponseDto approved = new SemanticFaqCandidateResponseDto(
                 new FaqSearchResponseDto(faqId,"관리자 등록 질문","현재 공식 답변",
                         .98,Intent.GENERAL,true,2),"등록 표현");
         assertThat(service.select(1L,List.of(approved,candidate(.70,false))))
@@ -105,7 +105,7 @@ class FaqSemanticCacheServiceTest {
 
     @Test void approvalAndGeneralIntentAreRequired() {
         properties.setSemanticEnabled(true);
-        for (var first : List.of(
+        for (SemanticFaqCandidateResponseDto first : List.of(
                 new SemanticFaqCandidateResponseDto(new FaqSearchResponseDto(48L,"질문","답변",.99,Intent.GENERAL,false,1),"표현"),
                 new SemanticFaqCandidateResponseDto(new FaqSearchResponseDto(48L,"질문","답변",.99,Intent.USER_DATA,true,1),"표현"),
                 new SemanticFaqCandidateResponseDto(new FaqSearchResponseDto(48L,"질문","답변",.99,Intent.STORE_DATA,true,1),"표현"))) {

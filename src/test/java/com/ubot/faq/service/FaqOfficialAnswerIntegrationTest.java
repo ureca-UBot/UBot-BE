@@ -103,7 +103,7 @@ class FaqOfficialAnswerIntegrationTest {
     void modifiedFaqDoesNotReturnThePreviouslySelectedSnapshot() {
         jdbc.update("UPDATE faq SET answer='수정된 답변',version=2 WHERE id=14");
         assertThat(answers.getOfficialAnswer(selected)).isEmpty();
-        var latest = new FaqSearchResponseDto(14L, selected.question(), "수정된 답변", .98, Intent.GENERAL, true, 2);
+        FaqSearchResponseDto latest = new FaqSearchResponseDto(14L, selected.question(), "수정된 답변", .98, Intent.GENERAL, true, 2);
         assertThat(answers.getOfficialAnswer(latest)).contains("수정된 답변");
         verifyNoInteractions(redis);
     }
