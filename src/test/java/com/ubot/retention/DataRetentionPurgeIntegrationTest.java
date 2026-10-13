@@ -38,6 +38,7 @@ class DataRetentionPurgeIntegrationTest {
 	private final List<Long> planIds = new ArrayList<>();
 	private final List<Long> storeIds = new ArrayList<>();
 	private final List<Long> groupIds = new ArrayList<>();
+	private final List<Long> questionLogIds = new ArrayList<>();
 
 	private final LocalDateTime now = LocalDateTime.now();
 	private final LocalDateTime fourMonthsAgo = now.minusMonths(4);
@@ -45,6 +46,10 @@ class DataRetentionPurgeIntegrationTest {
 
 	@AfterEach
 	void cleanUp() {
+		// 익명화된 질문 로그는 회원·대화 연결이 없어 CASCADE로 지워지지 않으므로 직접 지웁니다(faq_log CASCADE).
+		for (Long questionLogId : questionLogIds) {
+			jdbcTemplate.update("DELETE FROM question_log WHERE id = ?", questionLogId);
+		}
 		// 구독이 회원 삭제를 막으므로 먼저 지우고, 나머지는 회원·마스터 삭제의 CASCADE로 정리합니다.
 		for (Long userId : userIds) {
 			jdbcTemplate.update("DELETE FROM subscriptions WHERE user_id = ?", userId);
@@ -72,13 +77,15 @@ class DataRetentionPurgeIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("마지막 활동이 3개월 지난 대화는 질문·검색·답변 시도와 함께 지워지고 진행 중인 대화는 남는다")
+	@DisplayName("마지막 활동이 3개월 지난 대화는 답변 시도와 함께 지워지고, 질문 로그는 익명화해 모니터링용으로 남긴다")
 	void purgesConversationsInactiveForThreeMonths() {
 		Long userId = createUser(null);
 		Long faqId = createFaq(createCategory(null), userId, null);
 		Long oldConversation = createConversation(userId, fourMonthsAgo);
+		Long guestConversation = createGuestConversation(fourMonthsAgo);
 		Long activeConversation = createConversation(userId, now.minusDays(1));
 		Long oldQuestion = createQuestionLog(userId, oldConversation, fourMonthsAgo);
+		Long guestQuestion = createQuestionLog(null, guestConversation, fourMonthsAgo);
 		Long activeQuestion = createQuestionLog(userId, activeConversation, fourMonthsAgo);
 		createFaqLog(oldQuestion, faqId);
 		createFaqLog(activeQuestion, faqId);
@@ -89,17 +96,38 @@ class DataRetentionPurgeIntegrationTest {
 		purge();
 
 		assertThat(exists("conversations", "conversation_id", oldConversation)).isFalse();
-		assertThat(exists("question_log", "id", oldQuestion)).isFalse();
-		assertThat(count("faq_log", "question_log_id", oldQuestion)).isZero();
+		assertThat(exists("conversations", "conversation_id", guestConversation)).isFalse();
 		assertThat(exists("answer_attempts_history", "attempt_id", oldAttempt)).isFalse();
-		// 진행 중인 대화는 안의 질문이 오래됐어도 대화 단위로 남깁니다.
+		// 질문 로그와 검색 결과는 FAQ 모니터링용으로 남기고 원문과 회원·대화 연결만 비웁니다.
+		assertThat(isAnonymized(oldQuestion)).isTrue();
+		assertThat(isAnonymized(guestQuestion)).isTrue();
+		assertThat(count("faq_log", "question_log_id", oldQuestion)).isOne();
+		// 진행 중인 대화는 안의 질문이 오래됐어도 대화 기록 화면에 쓰이므로 그대로 둡니다.
 		assertThat(exists("conversations", "conversation_id", activeConversation)).isTrue();
-		assertThat(exists("question_log", "id", activeQuestion)).isTrue();
+		assertThat(isAnonymized(activeQuestion)).isFalse();
 		// 검토 대기 중인 그룹의 미답변 질문은 시도 로그가 지워져도 연결만 끊고 남깁니다.
 		assertThat(exists("unanswered_question_groups", "id", pendingGroup)).isTrue();
 		assertThat(exists("unanswered_questions", "id", unansweredQuestion)).isTrue();
 		assertThat(jdbcTemplate.queryForObject(
 				"SELECT attempt_id FROM unanswered_questions WHERE id = ?", Long.class, unansweredQuestion)).isNull();
+	}
+
+	@Test
+	@DisplayName("FAQ 모니터링 보관 기간(3년)이 지난 질문 로그는 검색 결과와 함께 지워진다")
+	void purgesQuestionLogsOlderThanThreeYears() {
+		Long userId = createUser(null);
+		Long faqId = createFaq(createCategory(null), userId, null);
+		Long expiredQuestion = createQuestionLog(userId, null, now.minusYears(3).minusDays(1));
+		Long keptQuestion = createQuestionLog(userId, null, now.minusYears(2));
+		createFaqLog(expiredQuestion, faqId);
+		createFaqLog(keptQuestion, faqId);
+
+		purge();
+
+		assertThat(exists("question_log", "id", expiredQuestion)).isFalse();
+		assertThat(count("faq_log", "question_log_id", expiredQuestion)).isZero();
+		assertThat(isAnonymized(keptQuestion)).isTrue();
+		assertThat(count("faq_log", "question_log_id", keptQuestion)).isOne();
 	}
 
 	@Test
@@ -217,6 +245,14 @@ class DataRetentionPurgeIntegrationTest {
 		jdbcTemplate.execute("CALL purge_expired_data()");
 	}
 
+	private boolean isAnonymized(Long questionLogId) {
+		return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+				SELECT anonymized_at IS NOT NULL AND user_question = '' AND llm_question = ''
+				       AND user_id IS NULL AND conversation_id IS NULL
+				FROM question_log WHERE id = ?
+				""", Boolean.class, questionLogId));
+	}
+
 	private boolean exists(String table, String column, Long id) {
 		return count(table, column, id) > 0;
 	}
@@ -262,12 +298,22 @@ class DataRetentionPurgeIntegrationTest {
 				""", Long.class, userId, updatedAt, updatedAt);
 	}
 
-	private Long createQuestionLog(Long userId, Long conversationId, LocalDateTime createdAt) {
+	private Long createGuestConversation(LocalDateTime updatedAt) {
 		return jdbcTemplate.queryForObject("""
-				INSERT INTO question_log (user_id, user_question, conversation_id, created_at)
-				VALUES (?, 'q', ?, ?)
+				INSERT INTO conversations (type, created_at, updated_at)
+				VALUES ('GUEST', ?, ?)
+				RETURNING conversation_id
+				""", Long.class, updatedAt, updatedAt);
+	}
+
+	private Long createQuestionLog(Long userId, Long conversationId, LocalDateTime createdAt) {
+		Long id = jdbcTemplate.queryForObject("""
+				INSERT INTO question_log (user_id, user_question, llm_question, conversation_id, created_at)
+				VALUES (?, 'q', 'q', ?, ?)
 				RETURNING id
 				""", Long.class, userId, conversationId, createdAt);
+		questionLogIds.add(id);
+		return id;
 	}
 
 	private void createFaqLog(Long questionLogId, Long faqId) {

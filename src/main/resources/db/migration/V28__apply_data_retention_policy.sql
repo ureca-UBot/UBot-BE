@@ -15,6 +15,15 @@ ALTER TABLE question_log
     ADD CONSTRAINT question_log_user_id_fkey
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE;
 
+-- FAQ 모니터링은 question_log·faq_log를 3년 집계하므로 질문 로그 행은 3년 남깁니다.
+-- 3개월이 지나면 질문 원문과 회원·대화 연결만 비우고(익명화) anonymized_at을 기록합니다.
+-- 익명화된 행은 user_id와 conversation_id가 모두 비므로 소유자 CHECK에 예외를 둡니다.
+ALTER TABLE question_log
+    ADD COLUMN anonymized_at TIMESTAMP,
+    DROP CONSTRAINT question_log_owner_check,
+    ADD CONSTRAINT question_log_owner_check
+        CHECK (user_id IS NOT NULL OR conversation_id IS NOT NULL OR anonymized_at IS NOT NULL) NOT VALID;
+
 ALTER TABLE answer_attempts_history
     DROP CONSTRAINT answer_attempts_history_conversation_id_fkey,
     ADD CONSTRAINT answer_attempts_history_conversation_id_fkey
