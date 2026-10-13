@@ -13,6 +13,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
@@ -31,7 +32,7 @@ class ChatServiceResearchTest {
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
     private final Deque<Runnable> jobs = new ArrayDeque<>();
     private final ChatService service = new ChatService(attempts, filter, new ChatAnswerExecutor(
-            new ChatAnswerProcessor(vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()),
+            new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()),
             attempts, jobs::add));
 
     @Test

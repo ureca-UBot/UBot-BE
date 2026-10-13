@@ -13,6 +13,13 @@ services:
     ports: !override
       - "127.0.0.1:${EMBEDDING_PORT:-8001}:8000"
 
+  vllm-reranker:
+    extends:
+      file: ./infra/llm/docker-compose.yml
+      service: vllm-reranker
+    ports: !override
+      - "127.0.0.1:${RERANKER_PORT:-8002}:8000"
+
 volumes:
   hf-cache:
     name: llm_hf-cache

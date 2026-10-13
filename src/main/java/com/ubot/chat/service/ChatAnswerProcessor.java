@@ -9,7 +9,8 @@ import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
-import com.ubot.faq.service.FaqVectorService;
+import com.ubot.faq.retrieval.FaqRetrievalService;
+import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
@@ -34,17 +35,17 @@ public class ChatAnswerProcessor {
 	@Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}")
 	private double confidenceThreshold;
 
-	private final FaqVectorService faqVectorService;
+	private final FaqRetrievalService faqRetrievalService;
 	private final AiService aiService;
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 
 	public ChatAnswerProcessor(
-			FaqVectorService faqVectorService,
+			FaqRetrievalService faqRetrievalService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
 			ChatContextCollector chatContextCollector) {
-		this.faqVectorService = faqVectorService;
+		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
@@ -54,29 +55,34 @@ public class ChatAnswerProcessor {
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
 		checkCancellation.run();
 		// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
-		List<FaqSearchResponseDto> results;
+		RetrievalOutcome outcome;
 		try {
-			results = searchFaqs(attempt);
+			outcome = searchFaqs(attempt);
 		} catch (DataAccessException exception) {
 			return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
+		// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
+		List<FaqSearchResponseDto> results = outcome.rankedCandidates();
 		checkCancellation.run();
-		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, 검색결과=[{}]",
+		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, Reranker정렬={}, Reranker실패사유={}, 검색결과=[{}]",
 				attempt.getId(), attempt.getIntent(), results == null ? 0 : results.size(),
-				highestSimilarity(results), formatSearchResults(results));
+				highestSimilarity(results), outcome.reranked(), outcome.fallbackReason(), formatSearchResults(results));
 		if (results == null || results.isEmpty()) {
 			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
 		}
+		// 유사도 기준은 코사인 유사도에만 적용합니다. 다시 정렬한 후보 전체에서 거른 뒤에 topK개로 줄여야,
+		// 상위 topK개를 먼저 잘라 그 아래의 기준 통과 후보를 잃는 일이 없습니다.
 		List<FaqSearchResponseDto> filteredResults = results.stream()
 				.filter(result -> Double.isFinite(result.similarityScore())
 						&& result.similarityScore() >= confidenceThreshold)
+				.limit(topK)
 				.toList();
 		if (filteredResults.isEmpty()) {
 			log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 최고유사도={}, 기준값={}",
 					attempt.getId(), highestSimilarity(results), confidenceThreshold);
-			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, results.get(0));
+			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
 		}
 		checkCancellation.run();
@@ -92,11 +98,9 @@ public class ChatAnswerProcessor {
 	}
 
 	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
-	private List<FaqSearchResponseDto> searchFaqs(AnswerAttemptsHistory attempt) {
-		if (attempt.isResearch()) {
-			return faqVectorService.getSimilarListByIntent(attempt.getQuestion(), attempt.getIntent(), topK);
-		}
-		return faqVectorService.getSimilarList(attempt.getQuestion(), topK);
+	private RetrievalOutcome searchFaqs(AnswerAttemptsHistory attempt) {
+		return faqRetrievalService.retrieve(
+				attempt.getQuestion(), attempt.isResearch() ? attempt.getIntent() : null, topK);
 	}
 
 	private void createUnansweredQuestion(
