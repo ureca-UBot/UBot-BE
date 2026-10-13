@@ -10,6 +10,7 @@ services:
       POSTGRES_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PROMETHEUS_BASE_URL: http://prometheus:9090
 
 
     expose:
