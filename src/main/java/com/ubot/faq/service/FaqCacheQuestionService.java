@@ -8,7 +8,7 @@ import com.ubot.embedding.exception.EmbeddingException;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCacheQuestionCreateRequestDto;
-import com.ubot.faq.config.FaqSemanticCacheProperties;
+import com.ubot.faq.config.FaqCacheProperties;
 import com.ubot.faq.dto.response.FaqCacheQuestionResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCacheQuestion;
@@ -37,12 +37,12 @@ public class FaqCacheQuestionService {
     private final FaqCacheQuestionRepository repository;
     private final FaqRepository faqRepository;
     private final FaqVectorRepository faqVectors;
-    private final FaqSemanticCacheProperties properties;
+    private final FaqCacheProperties properties;
     private final TransactionTemplate transactions;
 
     public FaqCacheQuestionService(EmbeddingService embeddingService, EmbeddingProfileService profileService,
                                   FaqCacheQuestionRepository repository, FaqRepository faqRepository,
-                                  FaqVectorRepository faqVectors, FaqSemanticCacheProperties properties,
+                                  FaqVectorRepository faqVectors, FaqCacheProperties properties,
                                   PlatformTransactionManager manager) {
         this.embeddingService = embeddingService;
         this.profileService = profileService;

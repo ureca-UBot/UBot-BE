@@ -39,12 +39,11 @@ ranking:
 
 faq-cache:
   enabled: ${FAQ_CACHE_ENABLED:false}
-
-faq-semantic-cache:
+  semantic-enabled: ${FAQ_CACHE_SEMANTIC_ENABLED:false}
   registration-batch-size: ${FAQ_CACHE_REGISTRATION_BATCH_SIZE:8}
-  enabled: ${FAQ_CACHE_SEMANTIC_ENABLED:false}
   min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
   min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
+
 faq-monitoring:
   improvement:
     top-k: ${CHAT_TOP_K:3}

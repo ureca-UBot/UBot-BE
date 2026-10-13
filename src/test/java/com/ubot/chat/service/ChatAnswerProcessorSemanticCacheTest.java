@@ -8,6 +8,7 @@ import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
+import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.config.*;
 import com.ubot.faq.dto.response.*;
 import com.ubot.faq.enums.Intent;
@@ -24,9 +25,8 @@ class ChatAnswerProcessorSemanticCacheTest {
     private final FaqVectorService vector = mock(FaqVectorService.class);
     private final FaqCacheService cache = mock(FaqCacheService.class);
     private final AiService ai = mock(AiService.class);
-    private final FaqSemanticCacheProperties properties = new FaqSemanticCacheProperties();
-    private final FaqCacheProperties cacheProperties = new FaqCacheProperties();
-    private final FaqSemanticCacheService semantic = new FaqSemanticCacheService(properties, cacheProperties);
+    private final FaqCacheProperties properties = new FaqCacheProperties();
+    private final FaqSemanticCacheService semantic = new FaqSemanticCacheService(properties);
     private final String question = "esim이 어떤 건지 설명해줘.";
     private final FaqSearchResponseDto official = new FaqSearchResponseDto(14L,"eSIM이 무엇인가요?",
             "디지털 SIM입니다.",.98,Intent.GENERAL,true,6);
@@ -35,8 +35,8 @@ class ChatAnswerProcessorSemanticCacheTest {
             new FaqSearchResponseDto(2L,"두 번째 질문","답변",.79,Intent.GENERAL),
             new FaqSearchResponseDto(3L,"세 번째 질문","답변",.76,Intent.GENERAL));
     private final List<SemanticFaqCandidateResponseDto> candidates = List.of(
-            new SemanticFaqCandidateResponseDto(official,question,true),
-            new SemanticFaqCandidateResponseDto(baseline.getFirst(),"첫 번째 질문",false));
+            new SemanticFaqCandidateResponseDto(official,question),
+            new SemanticFaqCandidateResponseDto(baseline.getFirst(),"첫 번째 질문"));
 
     @Test void aliasMatchReturnsVerifiedOfficialAnswerWithNoLlm() {
         var processor = processor();
@@ -49,13 +49,41 @@ class ChatAnswerProcessorSemanticCacheTest {
         verify(vector,never()).getSimilarList(anyString(),anyInt());
     }
 
-    @Test void newlyApprovedFaqOutsideTheFormerPilotReturnsTheDatabaseAnswerWithoutLlm() {
+    @Test void validSemanticCacheReturnsOfficialAnswerWhenBaselineIsEmpty() {
+        var processor = processor();
+        when(vector.searchWithSemanticCache(question,3))
+                .thenReturn(new FaqAnswerSearchResponseDto(List.of(),candidates));
+        when(cache.getOfficialAnswer(official)).thenReturn(Optional.of(official.answer()));
+
+        var result = processor.generateAnswer(attempt(question),null,()->{});
+
+        assertThat(result.errorCode()).isNull();
+        assertThat(result.answer().answer()).isEqualTo(official.answer());
+        assertThat(result.faqs()).containsExactly(official);
+        verify(cache).getOfficialAnswer(official);
+        verifyNoInteractions(ai);
+    }
+
+    @Test void emptyBaselineStillFailsWhenTheSelectedOfficialAnswerIsRevoked() {
+        var processor = processor();
+        when(vector.searchWithSemanticCache(question,3))
+                .thenReturn(new FaqAnswerSearchResponseDto(List.of(),candidates));
+        when(cache.getOfficialAnswer(official)).thenReturn(Optional.empty());
+
+        var result = processor.generateAnswer(attempt(question),null,()->{});
+
+        assertThat(result.errorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
+        verify(cache).getOfficialAnswer(official);
+        verifyNoInteractions(ai);
+    }
+
+    @Test void approvedCanonicalQuestionReturnsTheDatabaseAnswerWithoutLlm() {
         var processor = processor();
         String newQuestion = "해지하면 남은 단말기 할부금은 어떻게 되나요?";
         var approved = new FaqSearchResponseDto(48L,newQuestion,
                 "통신 서비스를 해지해도 남은 단말기 할부금은 계속 납부해야 합니다.",.98,Intent.GENERAL,true,2);
         when(vector.searchWithSemanticCache(newQuestion,3))
-                .thenReturn(new FaqAnswerSearchResponseDto(baseline,List.of(new SemanticFaqCandidateResponseDto(approved,newQuestion,true),
+                .thenReturn(new FaqAnswerSearchResponseDto(baseline,List.of(new SemanticFaqCandidateResponseDto(approved,newQuestion),
                         candidates.get(1))));
         when(cache.getOfficialAnswer(approved)).thenReturn(Optional.of(approved.answer()));
         var result = processor.generateAnswer(attempt(newQuestion),null,()->{});
@@ -76,7 +104,7 @@ class ChatAnswerProcessorSemanticCacheTest {
                 .98,Intent.GENERAL,true,2);
         when(vector.searchWithSemanticCache(input,3))
                 .thenReturn(new FaqAnswerSearchResponseDto(baseline,List.of(
-                        new SemanticFaqCandidateResponseDto(approved,input,true),candidates.get(1))));
+                        new SemanticFaqCandidateResponseDto(approved,input),candidates.get(1))));
         when(cache.getOfficialAnswer(approved)).thenReturn(Optional.of(officialAnswer));
 
         var result = processor.generateAnswer(attempt(input),null,()->{});
@@ -147,8 +175,8 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     private ChatAnswerProcessor processor() {
-        cacheProperties.setEnabled(true);
         properties.setEnabled(true);
+        properties.setSemanticEnabled(true);
         var processor = new ChatAnswerProcessor(vector,semantic,cache,ai,
                 mock(UnansweredQuestionService.class),ChatTestFixtures.collector());
         ReflectionTestUtils.setField(processor,"topK",3);

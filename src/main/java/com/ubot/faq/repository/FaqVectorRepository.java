@@ -43,8 +43,7 @@ public class FaqVectorRepository {
                     FROM expressions ORDER BY faq_id, similarity_score DESC, question
                 )
                 SELECT f.id, f.question, f.answer, f.intent, f.cacheable, f.version,
-                       b.matched_question, b.similarity_score,
-                       EXISTS(SELECT 1 FROM valid v WHERE v.faq_id = f.id) AS registered
+                       b.matched_question, b.similarity_score
                 FROM best b JOIN active f ON f.id = b.faq_id
                 ORDER BY b.similarity_score DESC, f.id LIMIT 20
                 """;
@@ -52,7 +51,7 @@ public class FaqVectorRepository {
                 new FaqSearchResponseDto(rs.getLong("id"), rs.getString("question"), rs.getString("answer"),
                         rs.getDouble("similarity_score"), Intent.valueOf(rs.getString("intent")),
                         rs.getBoolean("cacheable"), rs.getInt("version")),
-                rs.getString("matched_question"), rs.getBoolean("registered")), profileId, profileId,
+                rs.getString("matched_question")), profileId, profileId,
                 FaqQuestionNormalizer.VERSION, queryEmbedding);
     }
 

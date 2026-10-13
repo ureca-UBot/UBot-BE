@@ -12,7 +12,6 @@ import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.config.FaqCacheProperties;
 import com.ubot.faq.service.FaqSemanticCacheService;
-import com.ubot.faq.config.FaqSemanticCacheProperties;
 
 import com.ubot.user.service.UserService;
 import java.util.List;
@@ -23,7 +22,7 @@ final class ChatTestFixtures {
 	}
 
 	static FaqSemanticCacheService disabledSemanticCache() {
-		return new FaqSemanticCacheService(new FaqSemanticCacheProperties(), new FaqCacheProperties());
+		return new FaqSemanticCacheService(new FaqCacheProperties());
 	}
 
 	/** 실제 핸들러로 만든 수집기입니다. 기존 테스트의 FAQ는 모두 GENERAL이라 FAQ가 그대로 전달됩니다. */

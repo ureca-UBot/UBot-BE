@@ -1,7 +1,6 @@
 package com.ubot.faq.service;
 
 import com.ubot.faq.config.FaqCacheProperties;
-import com.ubot.faq.config.FaqSemanticCacheProperties;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
 import com.ubot.faq.enums.Intent;
@@ -17,8 +16,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 @Slf4j
 public class FaqSemanticCacheService {
-    private final FaqSemanticCacheProperties properties;
-    private final FaqCacheProperties cacheProperties;
+    private final FaqCacheProperties properties;
     // Conservative exclusions, not a complete intent/completeness classifier.
     private static final Pattern EXCLUDED = Pattern.compile(
             "그리고|그런데|말고|더불어|아까|방금|위에서|그거|이거|그것|이것"
@@ -26,7 +24,7 @@ public class FaqSemanticCacheService {
             + "|(?:알려|설명|궁금).*(?:또|도\\s*(?:알려|설명|궁금))|[;\\r\\n]");
 
     public boolean shouldSearch(String question, boolean research) {
-        if (!properties.isEnabled() || !cacheProperties.isEnabled() || research
+        if (!properties.isEnabled() || !properties.isSemanticEnabled() || research
                 || question == null || question.isBlank() || question.length() > 160) return false;
         String normalized = FaqQuestionNormalizer.normalize(question);
         return !normalized.isBlank()
@@ -35,7 +33,7 @@ public class FaqSemanticCacheService {
     }
 
     public Optional<FaqSearchResponseDto> select(Long attemptId, List<SemanticFaqCandidateResponseDto> candidates) {
-        if (!properties.isEnabled() || !cacheProperties.isEnabled()) {
+        if (!properties.isEnabled() || !properties.isSemanticEnabled()) {
             return Optional.empty();
         }
         String reason = "no_candidates";
@@ -49,8 +47,8 @@ public class FaqSemanticCacheService {
             if (candidates.size() > 1) {
                 gap = score - candidates.get(1).faq().similarityScore();
             }
-            if (!first.registered() || !first.faq().cacheable() || first.faq().intent() != Intent.GENERAL) {
-                reason = "not_approved_or_registered";
+            if (!first.faq().cacheable() || first.faq().intent() != Intent.GENERAL) {
+                reason = "not_approved_or_general";
             } else if (!Double.isFinite(score) || score < properties.getMinSimilarity()) {
                 reason = "below_threshold";
             } else if (!Double.isFinite(gap) || gap < properties.getMinMargin()) {

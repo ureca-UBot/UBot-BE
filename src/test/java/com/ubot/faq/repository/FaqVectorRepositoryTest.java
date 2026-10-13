@@ -20,6 +20,8 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.policy.FaqQuestionNormalizer;
+import com.ubot.faq.config.FaqCacheProperties;
+import com.ubot.faq.service.FaqSemanticCacheService;
 
 @SpringBootTest
 @Import(PgvectorTestConfiguration.class)
@@ -532,39 +534,39 @@ class FaqVectorRepositoryTest {
         insertAlias(1L, profileId, "다른 표현 둘", vectorOf(0));
         var candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
         assertThat(candidates).extracting(c -> c.faq().faqId()).containsExactly(1L, 2L);
-        assertThat(candidates.getFirst().registered()).isTrue();
-        assertThat(candidates.get(1).registered()).isFalse();
+        assertThat(candidates.getFirst().faq().cacheable()).isTrue();
         assertThat(candidates.get(1).faq().cacheable()).isFalse();
         assertThat(candidates.getFirst().faq().question()).isEqualTo("유심 재발급");
     }
 
     @Test
-    void aliasesFromAnotherProfileNeverBecomeRegisteredCandidates() {
+    void aliasesFromAnotherProfileNeverAffectCandidateScores() {
         jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
         repository.saveVectorForFaq(1L, profileId, FaqVectorType.QUESTION, 1, vectorOf(1));
         repository.saveVectorForFaq(1L, otherProfileId, FaqVectorType.QUESTION, 1, vectorOf(0));
         insertAlias(1L, otherProfileId, "다른 프로필 표현", vectorOf(0));
         var candidate = repository.getSemanticCandidates(vectorOf(0), profileId).getFirst();
         assertThat(candidate.faq().faqId()).isEqualTo(1L);
-        assertThat(candidate.registered()).isFalse();
+        assertThat(candidate.matchedQuestion()).isEqualTo("유심 재발급");
         assertThat(candidate.faq().similarityScore()).isZero();
     }
 
     @Test
     void staleContentVersionRevocationAndPersonalIntentInvalidateAliases() {
         jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        repository.saveVectorForFaq(1L, profileId, FaqVectorType.QUESTION, 1, vectorOf(1));
         insertAlias(1L, profileId, "검토한 표현", vectorOf(0));
-        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isTrue();
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().faq().similarityScore()).isEqualTo(1.0);
         jdbcTemplate.update("UPDATE faq SET answer = '바뀐 답변' WHERE id = 1");
-        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().faq().similarityScore()).isZero();
         jdbcTemplate.update("UPDATE faq SET answer = '매장에서 재발급할 수 있습니다.', version = 2 WHERE id = 1");
         repository.updateVectorVersionForFaq(1L, profileId, FaqVectorType.QUESTION, 2);
-        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().faq().similarityScore()).isZero();
         jdbcTemplate.update("UPDATE faq SET version = 1, cacheable = false WHERE id = 1");
         repository.updateVectorVersionForFaq(1L, profileId, FaqVectorType.QUESTION, 1);
-        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().faq().similarityScore()).isZero();
         jdbcTemplate.update("UPDATE faq SET cacheable = true, intent = 'USER_DATA' WHERE id = 1");
-        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().registered()).isFalse();
+        assertThat(repository.getSemanticCandidates(vectorOf(0), profileId).getFirst().faq().similarityScore()).isZero();
     }
 
     @Test
@@ -598,7 +600,28 @@ class FaqVectorRepositoryTest {
 
         assertThat(qaResult.similarityScore()).isEqualTo(1.0);
         assertThat(cacheResult.faq().similarityScore()).isZero();
-        assertThat(cacheResult.registered()).isTrue();
+        assertThat(cacheResult.faq().cacheable()).isTrue();
+    }
+
+    @Test
+    void approvedCanonicalQuestionCanBeSelectedWithoutRegisteredExpressions() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM faq_cache_question", Long.class)).isZero();
+
+        var candidates = repository.getSemanticCandidates(vectorOf(0), profileId);
+        var properties = new FaqCacheProperties();
+        properties.setEnabled(true);
+        properties.setSemanticEnabled(true);
+
+        assertThat(candidates.getFirst().matchedQuestion()).isEqualTo("유심 재발급");
+        assertThat(candidates.getFirst().faq().similarityScore()).isEqualTo(1.0);
+        assertThat(new FaqSemanticCacheService(properties).select(1L, candidates))
+                .contains(candidates.getFirst().faq());
+
+        // 승인하지 않은 공식 질문이 가장 가까우면 하위 승인 FAQ로 건너뛰지 않는다.
+        jdbcTemplate.update("UPDATE faq SET cacheable = false WHERE id = 1");
+        assertThat(new FaqSemanticCacheService(properties).select(1L,
+                repository.getSemanticCandidates(vectorOf(0), profileId))).isEmpty();
     }
 
     private void insertFaq(

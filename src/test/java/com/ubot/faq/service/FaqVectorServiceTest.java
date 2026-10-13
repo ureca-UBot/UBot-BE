@@ -441,7 +441,7 @@ class FaqVectorServiceTest {
             when(profiles.findOrCreate(provider,model,EmbeddingClient.DIMENSIONS,2)).thenReturn(42L);
             var baseline = List.of(new FaqSearchResponseDto(1L,"질문","답변",.8,Intent.GENERAL));
             var candidates = List.of(new SemanticFaqCandidateResponseDto(
-                    new FaqSearchResponseDto(14L,"공식 질문","공식 답변",.98,Intent.GENERAL,true,1),"등록 표현",true));
+                    new FaqSearchResponseDto(14L,"공식 질문","공식 답변",.98,Intent.GENERAL,true,1),"등록 표현"));
             when(vectors.getSimilarList(vector,42L, FaqVectorType.QUESTION,3)).thenReturn(baseline);
             when(vectors.getSemanticCandidates(vector,42L)).thenReturn(candidates);
             var shared = new FaqVectorService(new EmbeddingService(client),

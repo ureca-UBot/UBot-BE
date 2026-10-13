@@ -9,6 +9,7 @@ import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.dto.response.FaqAnswerSearchResponseDto;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.faq.service.FaqSemanticCacheService;
 import com.ubot.faq.dto.response.SemanticFaqCandidateResponseDto;
@@ -18,6 +19,7 @@ import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.List;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -68,7 +70,7 @@ public class ChatAnswerProcessor {
 		List<SemanticFaqCandidateResponseDto> semanticCandidates = List.of();
 		try {
 			if (semanticCacheService.shouldSearch(attempt.getQuestion(), attempt.isResearch())) {
-				var search = faqVectorService.searchWithSemanticCache(attempt.getQuestion(), topK);
+				FaqAnswerSearchResponseDto search = faqVectorService.searchWithSemanticCache(attempt.getQuestion(), topK);
 				results = search.baseline();
 				semanticCandidates = search.semantic();
 			} else {
@@ -81,20 +83,20 @@ public class ChatAnswerProcessor {
 		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, 검색결과=[{}]",
 				attempt.getId(), attempt.getIntent(), results == null ? 0 : results.size(),
 				highestSimilarity(results), formatSearchResults(results));
-		if (results == null || results.isEmpty()) {
-			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
-			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
-			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
-		}
-		var selected = semanticCacheService.select(attempt.getId(), semanticCandidates);
+		Optional<FaqSearchResponseDto> selected = semanticCacheService.select(attempt.getId(), semanticCandidates);
 		checkCancellation.run();
 		if (selected.isPresent()) {
-			var official = faqCacheService.getOfficialAnswer(selected.get());
+			Optional<String> official = faqCacheService.getOfficialAnswer(selected.get());
 			checkCancellation.run();
 			if (official.isPresent()) {
 				logRoute(attempt, "FAQ_OFFICIAL", List.of(selected.get()), started);
 				return ChatAnswerResult.answered(new AiAnswer(official.get(), null, false), List.of(selected.get()));
 			}
+		}
+		if (results == null || results.isEmpty()) {
+			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
+			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
+			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
 		}
 		List<FaqSearchResponseDto> filteredResults = results.stream()
 				.limit(topK)

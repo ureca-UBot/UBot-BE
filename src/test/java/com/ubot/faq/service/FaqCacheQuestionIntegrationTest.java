@@ -120,16 +120,17 @@ class FaqCacheQuestionIntegrationTest {
         mvc.perform(post(ROUTE).with(administrator()).contentType(MediaType.APPLICATION_JSON).content(REQUEST))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].id").value(id.intValue()));
         assertThat(rowCount()).isEqualTo(1);
-        assertThat(vectors.getSemanticCandidates(vector(0), profileId).getFirst().registered()).isTrue();
+        assertThat(vectors.getSemanticCandidates(vector(0), profileId).getFirst().faq().similarityScore()).isEqualTo(1.0);
 
         mvc.perform(delete(ROUTE + "/" + id).with(administrator())).andExpect(status().isOk());
         mvc.perform(get(ROUTE).with(administrator())).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].enabled").value(false))
                 .andExpect(jsonPath("$.data[0].valid").value(false));
-        assertThat(vectors.getSemanticCandidates(vector(0), profileId).getFirst().registered()).isFalse();
+        assertThat(vectors.getSemanticCandidates(vector(0), profileId).getFirst().faq().similarityScore()).isZero();
         mvc.perform(delete(ROUTE + "/" + id).with(administrator())).andExpect(status().isOk());
         mvc.perform(post(ROUTE).with(administrator()).contentType(MediaType.APPLICATION_JSON).content(REQUEST))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].enabled").value(true));
+        assertThat(vectors.getSemanticCandidates(vector(0), profileId).getFirst().faq().similarityScore()).isEqualTo(1.0);
     }
 
     @Test
@@ -239,10 +240,11 @@ class FaqCacheQuestionIntegrationTest {
         var old = service.getFaqCacheQuestionList(14L).getFirst();
         assertThat(old.normalizationVersion()).isZero();
         assertThat(old.valid()).isFalse();
-        assertThat(vectors.getSemanticCandidates(vector(0),profileId).getFirst().registered()).isFalse();
+        assertThat(vectors.getSemanticCandidates(vector(0),profileId).getFirst().faq().similarityScore()).isZero();
         var refreshed = service.registerFaqCacheQuestions(14L,request("esim이 뭐야?"));
         assertThat(refreshed.getFirst().id()).isEqualTo(old.id());
         assertThat(refreshed.getFirst().valid()).isTrue();
+        assertThat(vectors.getSemanticCandidates(vector(0),profileId).getFirst().faq().similarityScore()).isEqualTo(1.0);
         assertThat(rowCount()).isEqualTo(1);
     }
 
