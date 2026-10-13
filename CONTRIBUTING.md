@@ -192,6 +192,7 @@ DB extension과 테이블·인덱스의 생성·변경은 Flyway 마이그레이
 - 이미 `develop`에 들어간 마이그레이션 파일은 **수정하지 않습니다.** 변경이 필요하면 새 번호의 파일을 추가합니다.
 - PR을 올리기 전 `develop`을 반영했을 때 같은 번호가 이미 있으면, 내 파일의 번호를 다음 번호로 바꿉니다.
 - 앱을 실행하면 마이그레이션이 자동으로 적용됩니다. 적용 이력은 `flyway_schema_history` 테이블에서 확인할 수 있습니다.
+- 통째로 덮어써도 되는 객체(프로시저·함수)만 반복 마이그레이션 `R__{설명}.sql`로 둡니다(예: `R__purge_expired_data.sql`). 내용이 바뀔 때마다 모든 `V` 파일 뒤에 다시 실행되므로 `CREATE OR REPLACE`로 작성하고, 인자를 바꿀 때는 이전 시그니처를 `DROP ... IF EXISTS`로 먼저 지웁니다. 테이블·컬럼·FK·인덱스 변경은 `R` 파일에 넣지 않습니다.
 
 기존 로컬 DB에 테이블이 이미 있어도 동작하도록 `application.yml`에 `baseline-on-migrate: true`, `baseline-version: 0`이 설정되어 있습니다.
 
