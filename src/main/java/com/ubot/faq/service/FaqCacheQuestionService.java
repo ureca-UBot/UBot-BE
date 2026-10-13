@@ -8,15 +8,20 @@ import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.request.FaqCacheQuestionCreateRequestDto;
 import com.ubot.faq.config.FaqSemanticCacheProperties;
 import com.ubot.faq.dto.response.FaqCacheQuestionResponseDto;
+import com.ubot.faq.entity.Faq;
+import com.ubot.faq.entity.FaqCacheQuestion;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.policy.FaqQuestionNormalizer;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqCacheQuestionRepository;
-import com.ubot.faq.repository.FaqCacheQuestionRepository.FaqSnapshot;
+import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.repository.FaqVectorRepository;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
@@ -28,15 +33,20 @@ public class FaqCacheQuestionService {
     private final EmbeddingService embeddingService;
     private final EmbeddingProfileService profileService;
     private final FaqCacheQuestionRepository repository;
+    private final FaqRepository faqRepository;
+    private final FaqVectorRepository faqVectors;
     private final FaqSemanticCacheProperties properties;
     private final TransactionTemplate transactions;
 
     public FaqCacheQuestionService(EmbeddingService embeddingService, EmbeddingProfileService profileService,
-                                  FaqCacheQuestionRepository repository, FaqSemanticCacheProperties properties,
+                                  FaqCacheQuestionRepository repository, FaqRepository faqRepository,
+                                  FaqVectorRepository faqVectors, FaqSemanticCacheProperties properties,
                                   PlatformTransactionManager manager) {
         this.embeddingService = embeddingService;
         this.profileService = profileService;
         this.repository = repository;
+        this.faqRepository = faqRepository;
+        this.faqVectors = faqVectors;
         this.properties = properties;
         this.transactions = new TransactionTemplate(manager);
     }
@@ -45,7 +55,9 @@ public class FaqCacheQuestionService {
     public List<FaqCacheQuestionResponseDto> registerFaqCacheQuestions(
             Long faqId, FaqCacheQuestionCreateRequestDto request) {
         Long profileId = profileService.getCurrentProfileId();
-        FaqSnapshot snapshot = repository.getActiveFaq(faqId, profileId)
+        FaqSnapshot snapshot = faqRepository.findActiveCacheRegistrationSnapshotById(faqId)
+                .map(faq -> new FaqSnapshot(faq.getId(), faq.getQuestion(), faq.getAnswer(), faq.getVersion(),
+                        faq.getIntent(), faq.isCacheable(), faqVectors.hasCurrentVector(faqId, profileId, faq.getVersion())))
                 .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
         validateRegistration(snapshot);
         var unique = new LinkedHashMap<String, String>();
@@ -56,41 +68,75 @@ public class FaqCacheQuestionService {
             }
             unique.putIfAbsent(normalized, question);
         }
-        List<String> questions = List.copyOf(unique.values());
-        List<String> normalizedQuestions = List.copyOf(unique.keySet());
+        // 정규화 키와 원문을 묶어 임베딩 순서와 저장할 입력이 어긋나지 않게 한다.
+        var questions = List.copyOf(unique.entrySet());
+        List<String> normalizedQuestions = questions.stream().map(Map.Entry::getKey).toList();
         // The model call happens before a transaction or a FAQ row lock is held.
         List<PGvector> vectors = embedQuestions(normalizedQuestions);
         return transactions.execute(status -> {
-            FaqSnapshot current = repository.getActiveFaqForUpdate(faqId, profileId)
+            // 같은 FAQ의 등록·비활성화를 직렬화한다. 조회 후 저장 방식에서도 중복 행을 만들지 않는다.
+            Faq currentFaq = faqRepository.findActiveByIdForUpdate(faqId)
                     .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CACHE_FAQ_CHANGED));
+            FaqSnapshot current = snapshot(currentFaq, profileId);
             if (!snapshot.equals(current)) {
                 throw new FaqException(FaqErrorCode.FAQ_CACHE_FAQ_CHANGED);
             }
             validateRegistration(current);
-            List<FaqCacheQuestionResponseDto> registered = new ArrayList<>();
+            List<FaqCacheQuestion> registered = new ArrayList<>();
             for (int index = 0; index < questions.size(); index++) {
-                registered.add(repository.upsertQuestion(current, profileId, questions.get(index), vectors.get(index)));
+                var question = questions.get(index);
+                FaqCacheQuestion entity = repository.findByFaq_IdAndNormalizedQuestionAndProfileId(
+                                faqId, question.getKey(), profileId)
+                        .orElseGet(() -> FaqCacheQuestion.builder().faq(currentFaq).profileId(profileId).build());
+                entity.register(question.getValue(), question.getKey(), vectors.get(index).toArray());
+                registered.add(repository.save(entity));
             }
-            return List.copyOf(registered);
+            repository.flush();
+            return registered.stream()
+                    .map(entity -> toResponse(entity, currentFaq, profileId, current.currentVector())).toList();
         });
     }
 
     public List<FaqCacheQuestionResponseDto> getFaqCacheQuestionList(Long faqId) {
         Long profileId = profileService.getCurrentProfileId();
-        repository.getActiveFaq(faqId, profileId)
-                .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
-        return repository.getQuestionList(faqId, profileId);
+        return transactions.execute(status -> {
+            Faq faq = faqRepository.findActiveById(faqId)
+                    .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+            boolean currentVector = faqVectors.hasCurrentVector(faqId, profileId, faq.getVersion());
+            return repository.findAllByFaq_IdOrderByIdAsc(faqId).stream()
+                    .map(entity -> toResponse(entity, faq, profileId, currentVector)).toList();
+        });
     }
 
     public void deactivateFaqCacheQuestion(Long faqId, Long questionId) {
         transactions.executeWithoutResult(status -> {
-            if (!repository.lockActiveFaq(faqId)) {
-                throw new FaqException(FaqErrorCode.FAQ_NOT_FOUND);
-            }
-            if (repository.deactivateQuestion(faqId, questionId) == 0) {
-                throw new FaqException(FaqErrorCode.FAQ_CACHE_QUESTION_NOT_FOUND);
-            }
+            faqRepository.findActiveByIdForUpdate(faqId)
+                    .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+            FaqCacheQuestion question = repository.findByIdAndFaq_Id(questionId, faqId)
+                    .orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_CACHE_QUESTION_NOT_FOUND));
+            question.deactivate();
         });
+    }
+
+    private FaqSnapshot snapshot(Faq faq, Long profileId) {
+        return new FaqSnapshot(faq.getId(), faq.getQuestion(), faq.getAnswer(), faq.getVersion(), faq.getIntent(),
+                faq.isCacheable(), faqVectors.hasCurrentVector(faq.getId(), profileId, faq.getVersion()));
+    }
+
+    private FaqCacheQuestionResponseDto toResponse(FaqCacheQuestion question, Faq faq, Long profileId, boolean currentVector) {
+        boolean valid = question.isEnabled() && Objects.equals(question.getProfileId(), profileId)
+                && question.getNormalizationVersion() == FaqQuestionNormalizer.VERSION
+                && faq.getDeletedAt() == null && faq.isCacheable() && faq.getIntent() == Intent.GENERAL
+                && question.getFaqVersion() == faq.getVersion()
+                && Objects.equals(question.getFaqQuestion(), faq.getQuestion())
+                && Objects.equals(question.getFaqAnswer(), faq.getAnswer()) && currentVector;
+        return new FaqCacheQuestionResponseDto(question.getId(), faq.getId(), question.getProfileId(),
+                question.getQuestion(), question.isEnabled(), valid, question.getFaqVersion(), faq.getVersion(),
+                question.getCreatedAt(), question.getNormalizedQuestion(), question.getNormalizationVersion());
+    }
+
+    private record FaqSnapshot(Long faqId, String question, String answer, int version,
+                               Intent intent, boolean cacheable, boolean currentVector) {
     }
 
     private void validateRegistration(FaqSnapshot faq) {

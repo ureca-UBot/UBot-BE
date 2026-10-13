@@ -35,6 +35,9 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -141,8 +144,8 @@ class FaqCacheQuestionIntegrationTest {
                 VALUES ('openai-compatible','other-model',1024,1) RETURNING profile_id
                 """, Long.class);
         jdbc.update("""
-                INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer)
-                SELECT id,?,'다른 모델 표현',?,version,question,answer FROM faq WHERE id=14
+                INSERT INTO faq_cache_question(faq_id,profile_id,question,normalized_question,vector,faq_version,faq_question,faq_answer)
+                SELECT id,?,'다른 모델 표현','다른 모델 표현',?,version,question,answer FROM faq WHERE id=14
                 """, other, vector(0));
         assertThat(service.getFaqCacheQuestionList(14L)).hasSize(2);
         assertThat(service.getFaqCacheQuestionList(14L).get(1).valid()).isFalse();
@@ -158,6 +161,18 @@ class FaqCacheQuestionIntegrationTest {
         assertThatThrownBy(() -> service.registerFaqCacheQuestions(14L, request("새 표현")))
                 .isInstanceOf(FaqException.class)
                 .extracting(e -> ((FaqException) e).getErrorCode()).isEqualTo(FaqErrorCode.FAQ_CACHE_FAQ_CHANGED);
+        assertThat(rowCount()).isZero();
+    }
+
+    @Test
+    void faqEditDuringEmbeddingIsDetectedInTheAdministratorRequest() throws Exception {
+        when(embedding.embedTexts(anyList())).thenAnswer(call -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            jdbc.update("UPDATE faq SET question='바뀐 공식 질문',version=version+1 WHERE id=14");
+            return List.of(vector(0));
+        });
+        mvc.perform(post(ROUTE).with(administrator()).contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("FAQ-009"));
         assertThat(rowCount()).isZero();
     }
 
@@ -200,6 +215,10 @@ class FaqCacheQuestionIntegrationTest {
         verify(embedding).embedTexts(List.of("esim이 뭐야?"));
         var second = service.registerFaqCacheQuestions(14L, request("esim이 뭐야????"));
         assertThat(second.getFirst().id()).isEqualTo(first.getFirst().id());
+        assertThat(second.getFirst().createdAt()).isEqualTo(first.getFirst().createdAt());
+        assertThat(second.getFirst().question()).isEqualTo("esim이 뭐야????");
+        assertThat(jdbc.queryForObject("SELECT question FROM faq_cache_question WHERE id=?",
+                String.class, first.getFirst().id())).isEqualTo("esim이 뭐야????");
         assertThat(rowCount()).isEqualTo(1);
         service.deactivateFaqCacheQuestion(14L, first.getFirst().id());
         assertThat(service.getFaqCacheQuestionList(14L).getFirst().valid()).isFalse();
@@ -212,8 +231,8 @@ class FaqCacheQuestionIntegrationTest {
     @Test
     void unversionedImportsCannotBecomeCacheCandidatesBeforeJavaRegistration() {
         jdbc.update("""
-                INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer)
-                SELECT id,?,'esim이 뭐야??',?,version,question,answer FROM faq WHERE id=14
+                INSERT INTO faq_cache_question(faq_id,profile_id,question,normalized_question,vector,faq_version,faq_question,faq_answer)
+                SELECT id,?,'esim이 뭐야??','esim이 뭐야?',?,version,question,answer FROM faq WHERE id=14
                 """, profileId, vector(0));
         var old = service.getFaqCacheQuestionList(14L).getFirst();
         assertThat(old.normalizationVersion()).isZero();
@@ -226,7 +245,7 @@ class FaqCacheQuestionIntegrationTest {
     }
 
     @Test
-    void entityMapsTheVectorAndDatabaseGeneratedColumnsAndSupportsScopedDeactivation() {
+    void entityNormalizesInJavaAndMapsVectorAndDatabaseTimestamp() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             var entity = FaqCacheQuestion.builder().faq(entityManager.getReference(Faq.class,14L))
                     .profileId(profileId).question("  esim이  뭐야？？？ ").normalizationVersion(1)
@@ -237,17 +256,44 @@ class FaqCacheQuestionIntegrationTest {
             Long id = entity.getId();
             assertThat(entity.getNormalizedQuestion()).isEqualTo("esim이 뭐야?");
             assertThat(entity.getCreatedAt()).isNotNull();
+            assertThat(jdbc.queryForObject("SELECT normalized_question FROM faq_cache_question WHERE id=?",
+                    String.class, id)).isEqualTo(entity.getNormalizedQuestion());
             entityManager.clear();
             var loaded = entityManager.find(FaqCacheQuestion.class,id);
             assertThat(loaded.getFaq().getId()).isEqualTo(14L);
             assertThat(loaded.getProfileId()).isEqualTo(profileId);
             assertThat(loaded.getVector()).containsExactly(vector(0).toArray());
             assertThat(loaded.getNormalizationVersion()).isEqualTo(1);
-            assertThat(cacheQuestions.deactivateQuestion(15L,id)).isZero();
-            assertThat(cacheQuestions.deactivateQuestion(14L,id)).isEqualTo(1);
+            assertThat(cacheQuestions.findByIdAndFaq_Id(id,15L)).isEmpty();
+            cacheQuestions.findByIdAndFaq_Id(id,14L).orElseThrow().deactivate();
+            cacheQuestions.flush();
             entityManager.clear();
             assertThat(entityManager.find(FaqCacheQuestion.class,id).isEnabled()).isFalse();
         });
+    }
+
+    @Test
+    void concurrentNormalizedRegistrationsKeepOneRowWithTheEmbeddedInput() throws Exception {
+        var bothEmbedding = new CountDownLatch(2);
+        when(embedding.embedTexts(anyList())).thenAnswer(call -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            List<String> inputs = call.getArgument(0);
+            assertThat(inputs).containsExactly("esim이 뭐야?");
+            bothEmbedding.countDown();
+            assertThat(bothEmbedding.await(10, TimeUnit.SECONDS)).isTrue();
+            return List.of(vector(0));
+        });
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> service.registerFaqCacheQuestions(14L, request("  esim이  뭐야？？？ ")));
+            var second = executor.submit(() -> service.registerFaqCacheQuestions(14L, request("esim이\t뭐야??")));
+            var firstResult = first.get(20, TimeUnit.SECONDS).getFirst();
+            var secondResult = second.get(20, TimeUnit.SECONDS).getFirst();
+            assertThat(firstResult.id()).isEqualTo(secondResult.id());
+            assertThat(rowCount()).isEqualTo(1);
+            assertThat(service.getFaqCacheQuestionList(14L).getFirst().normalizedQuestion()).isEqualTo("esim이 뭐야?");
+            assertThat(jdbc.queryForObject("SELECT vector = ? FROM faq_cache_question WHERE id=?",
+                    Boolean.class, vector(0), firstResult.id())).isTrue();
+        }
     }
 
     @Test

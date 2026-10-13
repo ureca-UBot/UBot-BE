@@ -1,17 +1,17 @@
 package com.ubot.faq.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.faq.policy.FaqQuestionNormalizer;
-import java.text.Normalizer;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -26,38 +26,65 @@ class FaqQuestionNormalizationMigrationTest {
     @Autowired private JdbcTemplate jdbc;
 
     @Test
-    void freshSchemaRejectsNormalizedDuplicatesWithoutReactivatingAnExistingExpression() {
+    void freshSchemaRequiresAJavaSuppliedKeyRatherThanADatabaseExpression() {
         prepareSchema();
-        PGvector vector = vector();
-        Long canonical = insert("esim이 뭐야?",false,vector);
-        Long changed = insert("이심을 설명해줘？？",true,vector);
-
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM faq_cache_question", Integer.class)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT enabled FROM faq_cache_question WHERE id=?",Boolean.class,canonical)).isFalse();
-        assertThat(jdbc.queryForObject("SELECT normalization_version FROM faq_cache_question WHERE id=?",Integer.class,canonical)).isZero();
-        assertThat(jdbc.queryForObject("SELECT normalization_version FROM faq_cache_question WHERE id=?",Integer.class,changed)).isZero();
-        assertThat(jdbc.queryForObject("SELECT question FROM faq_cache_question WHERE id=?",String.class,changed)).isEqualTo("이심을 설명해줘？？");
-        assertThat(jdbc.queryForObject("SELECT normalized_question FROM faq_cache_question WHERE id=?",String.class,changed)).isEqualTo("이심을 설명해줘?");
-        assertThat(jdbc.queryForObject("SELECT vector = ? FROM faq_cache_question WHERE id=?",Boolean.class,vector,changed)).isTrue();
-        int duplicate = jdbc.update("""
-                INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer)
-                VALUES (14,1,' esim이  뭐야？？？ ',?,1,'공식 질문','공식 답변') ON CONFLICT DO NOTHING
-                """,vector);
-        assertThat(duplicate).isZero();
-        assertThat(jdbc.queryForObject("SELECT enabled FROM faq_cache_question WHERE id=?",Boolean.class,canonical)).isFalse();
+        assertThat(jdbc.queryForObject("""
+                SELECT is_generated FROM information_schema.columns
+                WHERE table_schema = 'normalization_initial' AND table_name = 'faq_cache_question'
+                  AND column_name = 'normalized_question'
+                """, String.class)).isEqualTo("NEVER");
+        assertThat(jdbc.queryForObject("""
+                SELECT is_nullable FROM information_schema.columns
+                WHERE table_schema = 'normalization_initial' AND table_name = 'faq_cache_question'
+                  AND column_name = 'normalized_question'
+                """, String.class)).isEqualTo("NO");
+        assertThat(jdbc.queryForObject("""
+                SELECT identity_generation FROM information_schema.columns
+                WHERE table_schema = 'normalization_initial' AND table_name = 'faq_cache_question' AND column_name = 'id'
+                """, String.class)).isEqualTo("BY DEFAULT");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM pg_constraint WHERE conrelid='normalization_initial.faq_cache_question'::regclass
+                  AND conname='uq_faq_cache_question_normalized' AND contype='u'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM pg_indexes WHERE schemaname='normalization_initial'
+                  AND tablename='faq_cache_question' AND indexname='idx_faq_cache_question_profile_faq'
+                """, Integer.class)).isEqualTo(1);
     }
 
     @Test
-    void databaseGeneratedKeyMatchesJavaIncludingUnicodeAndLineBoundaries() {
+    void javaSuppliedKeysKeepTheDatabaseUniqueConstraintAndOriginalQuestion() {
         prepareSchema();
-        for (String question : List.of("  eSim이  뭐야？？？  ","esim이\t뭐야!!","esim이\u00A0\u3000뭐야！！",
-                Normalizer.normalize("이심이 뭐야?",Normalizer.Form.NFD),"번호이동 없이 번호를 유지해요?",
-                "eSIM이 뭐야?? 발급은??", "esim이 뭐야? \n", "esim이 뭐야?\r\n  ","\u00A0\u3000")) {
-            jdbc.update("DELETE FROM faq_cache_question");
-            Long id = insert(question,true,vector());
-            assertThat(jdbc.queryForObject("SELECT normalized_question FROM faq_cache_question WHERE id=?",String.class,id))
-                    .as(question).isEqualTo(FaqQuestionNormalizer.normalize(question));
-        }
+        String original = "  esim이  뭐야？？？ ";
+        String normalized = FaqQuestionNormalizer.normalize(original);
+        Long id = jdbc.queryForObject("""
+                INSERT INTO faq_cache_question(faq_id,profile_id,question,normalized_question,vector,
+                    faq_version,faq_question,faq_answer,enabled)
+                VALUES (14,1,?,?,?,1,'공식 질문','공식 답변',false) RETURNING id
+                """, Long.class, original, normalized, vector());
+        assertThat(jdbc.queryForObject("SELECT question FROM faq_cache_question WHERE id=?", String.class, id)).isEqualTo(original);
+        assertThat(jdbc.queryForObject("SELECT normalized_question FROM faq_cache_question WHERE id=?", String.class, id))
+                .isEqualTo(normalized);
+        // Direct imports remain untrusted until a normalized embedding is explicitly registered.
+        assertThat(jdbc.queryForObject("SELECT normalization_version FROM faq_cache_question WHERE id=?", Integer.class, id)).isZero();
+        String duplicate = "esim이\t뭐야??";
+        int inserted = jdbc.update("""
+                INSERT INTO faq_cache_question(faq_id,profile_id,question,normalized_question,vector,
+                    faq_version,faq_question,faq_answer)
+                VALUES (14,1,?,?,?,1,'공식 질문','공식 답변') ON CONFLICT DO NOTHING
+                """, duplicate, FaqQuestionNormalizer.normalize(duplicate), vector());
+        assertThat(inserted).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM faq_cache_question", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT enabled FROM faq_cache_question WHERE id=?", Boolean.class, id)).isFalse();
+    }
+
+    @Test
+    void missingNormalizedKeyIsRejectedInsteadOfSilentlyGenerated() {
+        prepareSchema();
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer)
+                VALUES (14,1,'esim이 뭐야?',?,1,'공식 질문','공식 답변')
+                """, vector())).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private void prepareSchema() {
@@ -76,13 +103,6 @@ class FaqQuestionNormalizationMigrationTest {
             new ResourceDatabasePopulator(new ClassPathResource("db/migration/" + name)).populate(connection);
             return null;
         });
-    }
-
-    private Long insert(String question, boolean enabled, PGvector vector) {
-        return jdbc.queryForObject("""
-                INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer,enabled)
-                VALUES (14,1,?,?,1,'공식 질문','공식 답변',?) RETURNING id
-                """,Long.class,question,vector,enabled);
     }
 
     private PGvector vector() {

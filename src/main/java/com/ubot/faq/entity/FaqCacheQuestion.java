@@ -1,5 +1,6 @@
 package com.ubot.faq.entity;
 
+import com.ubot.faq.policy.FaqQuestionNormalizer;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -8,6 +9,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -44,9 +47,7 @@ public class FaqCacheQuestion {
     @Column(name = "question")
     private String question;
 
-    // Flyway가 생성 컬럼의 식을 관리하며 Hibernate는 DB가 계산한 값을 읽습니다.
-    @Generated(event = {EventType.INSERT, EventType.UPDATE})
-    @Column(name = "normalized_question")
+    @Column(name = "normalized_question", nullable = false)
     private String normalizedQuestion;
 
     @Column(name = "normalization_version")
@@ -73,4 +74,28 @@ public class FaqCacheQuestion {
     @Generated(event = EventType.INSERT)
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    /** 이미 임베딩한 입력과 현재 FAQ 내용을 저장하고, 명시적인 재등록만 표현을 재활성화한다. */
+    public void register(String question, String normalizedQuestion, float[] vector) {
+        this.question = question;
+        this.normalizedQuestion = normalizedQuestion;
+        this.vector = vector.clone();
+        this.normalizationVersion = FaqQuestionNormalizer.VERSION;
+        this.faqVersion = faq.getVersion();
+        this.faqQuestion = faq.getQuestion();
+        this.faqAnswer = faq.getAnswer();
+        this.enabled = true;
+    }
+
+    public void deactivate() {
+        this.enabled = false;
+    }
+
+    @PrePersist
+    @PreUpdate
+    private void normalizeQuestion() {
+        // 엔티티 저장도 등록·검색과 같은 Java 규칙을 사용한다.
+        // 벡터의 생성 경로는 알 수 없으므로 normalizationVersion은 자동 승인하지 않는다.
+        normalizedQuestion = FaqQuestionNormalizer.normalize(question);
+    }
 }

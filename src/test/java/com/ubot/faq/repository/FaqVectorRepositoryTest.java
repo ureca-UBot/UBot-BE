@@ -17,6 +17,7 @@ import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.policy.FaqQuestionNormalizer;
 
 @SpringBootTest
 @Import(PgvectorTestConfiguration.class)
@@ -394,9 +395,10 @@ class FaqVectorRepositoryTest {
 
     private void insertAlias(Long faqId, Long aliasProfileId, String question, PGvector vector) {
         jdbcTemplate.update("""
-                INSERT INTO faq_cache_question(faq_id, profile_id, question, vector, faq_version, faq_question, faq_answer, normalization_version)
-                SELECT id, ?, ?, ?, version, question, answer, 1 FROM faq WHERE id = ?
-                """, aliasProfileId, question, vector, faqId);
+                INSERT INTO faq_cache_question(faq_id, profile_id, question, normalized_question, vector,
+                    faq_version, faq_question, faq_answer, normalization_version)
+                SELECT id, ?, ?, ?, ?, version, question, answer, 1 FROM faq WHERE id = ?
+                """, aliasProfileId, question, FaqQuestionNormalizer.normalize(question), vector, faqId);
     }
 
     private void insertFaq(
