@@ -48,7 +48,8 @@ BEGIN
     CALL purge_in_batches('refresh_tokens', 'id',
             format('expired_at < %L', now_at), batch_size);
 
-    -- 2. 마지막 활동 후 3개월이 지난 대화 (question_log → faq_log, answer_attempts_history → unanswered_questions CASCADE)
+    -- 2. 마지막 활동 후 3개월이 지난 대화 (question_log → faq_log, answer_attempts_history CASCADE)
+    --    미답변 질문은 attempt_id만 NULL이 되고 그룹과 함께 4단계에서 지워집니다.
     CALL purge_in_batches('conversations', 'conversation_id',
             format('updated_at < %L', log_cutoff), batch_size);
 
@@ -58,7 +59,9 @@ BEGIN
     CALL purge_in_batches('answer_attempts_history', 'attempt_id',
             format('conversation_id IS NULL AND created_at < %L', log_cutoff), batch_size);
 
-    -- 4. 처리가 끝난 미답변 그룹 (질문·임베딩 CASCADE). PENDING·ON_HOLD는 관리자 검토 대상이라 남깁니다.
+    -- 4. 처리가 끝난 미답변 그룹 (질문·임베딩 CASCADE)
+    --    PENDING·ON_HOLD는 관리자 검토 대상이라 그룹과 질문을 모두 남깁니다. 질문을 지우면 question_count와 중심 벡터가
+    --    다음 질문이 들어올 때 남은 질문만으로 다시 계산돼 관리자 우선순위가 흔들립니다.
     CALL purge_in_batches('unanswered_question_groups', 'id',
             format($c$status IN ('APPROVED', 'REJECTED') AND updated_at < %L$c$, log_cutoff), batch_size);
 

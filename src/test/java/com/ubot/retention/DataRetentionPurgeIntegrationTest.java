@@ -72,7 +72,7 @@ class DataRetentionPurgeIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("마지막 활동이 3개월 지난 대화는 질문·검색·답변 시도·미답변 질문과 함께 지워지고 진행 중인 대화는 남는다")
+	@DisplayName("마지막 활동이 3개월 지난 대화는 질문·검색·답변 시도와 함께 지워지고 진행 중인 대화는 남는다")
 	void purgesConversationsInactiveForThreeMonths() {
 		Long userId = createUser(null);
 		Long faqId = createFaq(createCategory(null), userId, null);
@@ -92,25 +92,32 @@ class DataRetentionPurgeIntegrationTest {
 		assertThat(exists("question_log", "id", oldQuestion)).isFalse();
 		assertThat(count("faq_log", "question_log_id", oldQuestion)).isZero();
 		assertThat(exists("answer_attempts_history", "attempt_id", oldAttempt)).isFalse();
-		assertThat(exists("unanswered_questions", "id", unansweredQuestion)).isFalse();
 		// 진행 중인 대화는 안의 질문이 오래됐어도 대화 단위로 남깁니다.
 		assertThat(exists("conversations", "conversation_id", activeConversation)).isTrue();
 		assertThat(exists("question_log", "id", activeQuestion)).isTrue();
-		// 검토 대기 중인 그룹은 질문이 모두 지워져도 남깁니다.
+		// 검토 대기 중인 그룹의 미답변 질문은 시도 로그가 지워져도 연결만 끊고 남깁니다.
 		assertThat(exists("unanswered_question_groups", "id", pendingGroup)).isTrue();
+		assertThat(exists("unanswered_questions", "id", unansweredQuestion)).isTrue();
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT attempt_id FROM unanswered_questions WHERE id = ?", Long.class, unansweredQuestion)).isNull();
 	}
 
 	@Test
-	@DisplayName("처리가 끝난 미답변 그룹만 3개월 뒤 지워진다")
+	@DisplayName("처리가 끝난 미답변 그룹만 3개월 뒤 질문과 함께 지워진다")
 	void purgesOnlyClosedUnansweredGroups() {
+		Long userId = createUser(null);
 		Long approved = createUnansweredGroup("APPROVED", fourMonthsAgo);
 		Long onHold = createUnansweredGroup("ON_HOLD", fourMonthsAgo);
 		Long recentlyApproved = createUnansweredGroup("APPROVED", now.minusDays(1));
+		Long approvedQuestion = createUnansweredQuestion(createAttempt(userId, null, now.minusDays(1)), approved);
+		Long onHoldQuestion = createUnansweredQuestion(createAttempt(userId, null, now.minusDays(1)), onHold);
 
 		purge();
 
 		assertThat(exists("unanswered_question_groups", "id", approved)).isFalse();
+		assertThat(exists("unanswered_questions", "id", approvedQuestion)).isFalse();
 		assertThat(exists("unanswered_question_groups", "id", onHold)).isTrue();
+		assertThat(exists("unanswered_questions", "id", onHoldQuestion)).isTrue();
 		assertThat(exists("unanswered_question_groups", "id", recentlyApproved)).isTrue();
 	}
 

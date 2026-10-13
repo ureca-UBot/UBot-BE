@@ -26,10 +26,14 @@ ALTER TABLE answer_attempts_history
     ADD CONSTRAINT answer_attempts_history_user_id_fkey
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE;
 
+-- 미답변 질문은 답변 시도 로그(3개월)가 아니라 그룹을 따라 지웁니다.
+-- 검토 대기·보류 중인 그룹의 질문이 지워지면 question_count와 중심 벡터가 남은 질문으로 다시 계산돼 관리자 우선순위가 흔들리므로,
+-- 시도 로그가 지워지면 연결만 끊고 질문은 그룹이 처리된 뒤 함께 지웁니다. 질문 텍스트는 이미 question 컬럼에 있습니다.
 ALTER TABLE unanswered_questions
+    ALTER COLUMN attempt_id DROP NOT NULL,
     DROP CONSTRAINT unanswered_questions_attempt_id_fkey,
     ADD CONSTRAINT unanswered_questions_attempt_id_fkey
-        FOREIGN KEY (attempt_id) REFERENCES answer_attempts_history (attempt_id) ON DELETE CASCADE,
+        FOREIGN KEY (attempt_id) REFERENCES answer_attempts_history (attempt_id) ON DELETE SET NULL,
     DROP CONSTRAINT unanswered_questions_group_id_fkey,
     ADD CONSTRAINT unanswered_questions_group_id_fkey
         FOREIGN KEY (group_id) REFERENCES unanswered_question_groups (id) ON DELETE CASCADE;
