@@ -1,4 +1,10 @@
-"""Register reviewed expressions for an existing embedding profile. Default: validate only."""
+"""Legacy experiment upsert tool. Default: validate only.
+
+Catalog omission does not deactivate stored expressions; --apply enables every
+provided expression. Use the Java administrator API for operational management.
+Imports retain normalization_version=0 and use raw text as a provisional key;
+they cannot participate in semantic caching until the Java API re-registers them.
+"""
 import argparse
 import json
 import math
@@ -114,11 +120,16 @@ def main():
                     OR NOT EXISTS(SELECT 1 FROM faq_embeddings fe WHERE fe.faq_id=f.id
                         AND fe.profile_id=r.profile_id AND fe.vector_type='QUESTION' AND fe.faq_version=f.version))
             THEN RAISE EXCEPTION 'FAQ approval/content/vector changed; no expressions registered'; END IF;
+            IF EXISTS(SELECT 1 FROM semantic_import_rows r JOIN faq_cache_question c
+                ON c.faq_id=r.faq_id AND c.profile_id=r.profile_id AND c.normalized_question=r.question
+                WHERE c.normalization_version<>0)
+            THEN RAISE EXCEPTION 'Java-managed expressions require the administrator API; no expressions registered'; END IF;
         END $validation$;
-        INSERT INTO faq_cache_question(faq_id,profile_id,question,vector,faq_version,faq_question,faq_answer,enabled)
-        SELECT faq_id,profile_id,question,vector::vector,faq_version,faq_question,faq_answer,true
+        INSERT INTO faq_cache_question(faq_id,profile_id,question,normalized_question,normalization_version,
+            vector,faq_version,faq_question,faq_answer,enabled)
+        SELECT faq_id,profile_id,question,question,0,vector::vector,faq_version,faq_question,faq_answer,true
         FROM semantic_import_rows
-        ON CONFLICT(faq_id,question,profile_id) DO UPDATE SET
+        ON CONFLICT(faq_id,normalized_question,profile_id) DO UPDATE SET
             vector=EXCLUDED.vector,faq_version=EXCLUDED.faq_version,
             faq_question=EXCLUDED.faq_question,faq_answer=EXCLUDED.faq_answer,enabled=true;
         COMMIT;"""

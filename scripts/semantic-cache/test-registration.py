@@ -59,7 +59,7 @@ def main():
             INSERT INTO embedding_profiles VALUES(1,'ollama','bge-m3:567m',1024,1),
                                                  (2,'openai-compatible','ubot-embedding',1024,1);
             INSERT INTO faq VALUES(14,'eSIM이 무엇인가요?','공식 정의',1,'GENERAL',true,NULL);""")
-        db((ROOT/'src/main/resources/db/migration/V29__create_faq_cache_questions.sql').read_text(encoding='utf-8'))
+        db((ROOT/'src/main/resources/db/migration/V30__create_faq_cache_questions.sql').read_text(encoding='utf-8'))
         vector=json.dumps([1.0]+[0.0]*1023)
         db(f"INSERT INTO faq_embeddings VALUES(14,1,'QUESTION',1,'{vector}'),(14,2,'QUESTION',1,'{vector}');")
         server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
@@ -85,6 +85,7 @@ def main():
             for _ in range(2):
                 result=invoke(1,True);assert result.returncode==0,result.stderr
             assert db('SELECT count(*) FROM faq_cache_question WHERE profile_id=1;')=='2'
+            assert db('SELECT count(*) FROM faq_cache_question WHERE normalization_version<>0;')=='0'
             assert db("SELECT question FROM faq_cache_question WHERE question LIKE '%$$%';")=="eSIM이 뭐야? $$ '"
             result=invoke(2,True);assert result.returncode==0,result.stderr
             assert db('SELECT count(*) FROM faq_cache_question WHERE profile_id=2;')=='2'
@@ -97,9 +98,17 @@ def main():
             assert db('SELECT count(*) FROM faq_cache_question;')=='4'
             previous_requests=len(requests);result=invoke(1,True)
             assert result.returncode!=0 and len(requests)==previous_requests
+            db("UPDATE faq SET cacheable=true WHERE id=14;")
+            db("UPDATE faq_cache_question SET normalization_version=1,enabled=false "
+               "WHERE profile_id=1 AND question='eSIM이 무엇인가요?';")
+            result=invoke(1,True)
+            assert result.returncode!=0 and 'Java-managed expressions require the administrator API' in result.stderr
+            assert db('SELECT count(*) FROM faq_cache_question;')=='4'
+            assert db('SELECT count(*) FROM faq_cache_question WHERE normalization_version=1 AND NOT enabled;')=='1'
             print(json.dumps({'dryRunHasNoWritesOrModelCalls':True,'registrationIdempotent':True,
                   'quotedTextPreserved':True,'bothProvidersIsolated':True,
                   'revocationDuringEmbeddingRollsBack':True,'unapprovedFaqHasNoModelCalls':True,
+                  'legacyImportsRemainUnversioned':True,'javaManagedExpressionsPreserved':True,
                   'realModelCalls':0,'existingDatabaseTouched':False}),flush=True)
     finally:
         if server: server.shutdown();server.server_close()

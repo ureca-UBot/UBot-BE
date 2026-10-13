@@ -25,7 +25,8 @@ public record FaqResponseDto(
 				faq.getQuestion(),
 				faq.getAnswer(),
 				faq.getVersion(),
-				faq.getAdmin().getId(),
+				// 등록한 관리자가 삭제되면 FK가 SET NULL로 비워집니다.
+				faq.getAdmin() == null ? null : faq.getAdmin().getId(),
 				faq.getIntent(),
 				faq.isCacheable(),
 				faq.getCreatedAt(),

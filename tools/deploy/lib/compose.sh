@@ -42,7 +42,10 @@ start_common_infrastructure() {
     up -d \
     postgres \
     redis \
-    prometheus
+    prometheus \
+    postgres-exporter \
+    redis-exporter \
+    cadvisor
 
   if ! docker network inspect "${APP_NETWORK}" >/dev/null 2>&1; then
     echo "ERROR: Docker network ${APP_NETWORK} was not created"

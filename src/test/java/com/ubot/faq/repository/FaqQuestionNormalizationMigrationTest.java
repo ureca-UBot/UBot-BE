@@ -95,7 +95,7 @@ class FaqQuestionNormalizationMigrationTest {
         jdbc.execute("INSERT INTO faq VALUES (14)");
         jdbc.execute("CREATE TABLE embedding_profiles(profile_id BIGINT PRIMARY KEY)");
         jdbc.execute("INSERT INTO embedding_profiles VALUES (1)");
-        executeMigration("V29__create_faq_cache_questions.sql");
+        executeMigration("V30__create_faq_cache_questions.sql");
     }
 
     private void executeMigration(String name) {
