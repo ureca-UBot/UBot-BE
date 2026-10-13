@@ -38,7 +38,6 @@ public class ServiceOperationMonitoringService {
     private ServiceMonitoringOverviewResponse queryOverview(ServiceMonitoringRange range) {
         Instant end = Instant.now();
         Instant start = end.minus(range.duration());
-        String duration = range.value();
 
         ServiceMonitoringOverviewResponse.ServiceStatuses statuses = new ServiceMonitoringOverviewResponse.ServiceStatuses(
                 toStatus(queryNow("up{job=\"ubot-backend\"}", end)),
@@ -74,7 +73,7 @@ public class ServiceOperationMonitoringService {
                 new ServiceMonitoringOverviewResponse.Backend(
                         queryRange("process_cpu_usage", start, end, range.step()),
                         queryRange(heapUsageQuery(), start, end, range.step()),
-                        queryRange("rate(jvm_gc_pause_seconds_sum[5m])", start, end, range.step()),
+                        queryRange("sum(rate(jvm_gc_pause_seconds_sum[5m]))", start, end, range.step()),
                         queryRange("jvm_threads_live_threads", start, end, range.step())
                 ),
                 new ServiceMonitoringOverviewResponse.DatabasePoolSeries(
@@ -150,8 +149,9 @@ public class ServiceOperationMonitoringService {
     }
 
     private String errorRateQuery(String status, String window) {
-        return "sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*|UNKNOWN\",status=~\"" + status
-                + "\"}[" + window + "])) / sum(rate(" + API_REQUESTS + "[" + window + "]))";
+        return "(sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*|UNKNOWN\",status=~\""
+                + status + "\"}[" + window + "])) or vector(0))"
+                + " / sum(rate(" + API_REQUESTS + "[" + window + "]))";
     }
 
     private String latencyQuery(double quantile, String window) {

@@ -72,6 +72,12 @@ public class PrometheusQueryClient {
                     .retrieve()
                     .body(JsonNode.class);
             if (response == null || !"success".equals(response.path("status").asString())) {
+                log.warn(
+                        "Prometheus가 비정상 응답을 반환했습니다. path={}, errorType={}, error={}",
+                        path,
+                        response == null ? null : response.path("errorType").asString(),
+                        response == null ? null : response.path("error").asString()
+                );
                 throw new OperationMonitoringException(OperationMonitoringErrorCode.PROMETHEUS_UNAVAILABLE);
             }
             return response;
