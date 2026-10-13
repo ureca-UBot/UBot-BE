@@ -18,13 +18,14 @@ management:
           - prometheus
   metrics:
     distribution:
-      # Prometheus/Grafana에서 API p95/p99를 계산할 수 있도록 HTTP Timer bucket을 노출한다.
       percentiles-histogram:
         http.server.requests: true
 
 operation-monitoring:
   prometheus:
     base-url: ${PROMETHEUS_BASE_URL:http://localhost:19090}
+    connect-timeout: ${PROMETHEUS_CONNECT_TIMEOUT:2s}
+    read-timeout: ${PROMETHEUS_READ_TIMEOUT:10s}
 
 app:
   ai:

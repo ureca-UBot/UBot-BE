@@ -1,4 +1,4 @@
-package com.ubot.faqmonitoring;
+package com.ubot.monitoring.faqmonitoring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

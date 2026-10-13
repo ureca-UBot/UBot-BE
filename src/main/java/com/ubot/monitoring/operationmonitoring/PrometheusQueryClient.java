@@ -2,6 +2,7 @@ package com.ubot.monitoring.operationmonitoring;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,6 +12,7 @@ import com.ubot.monitoring.operationmonitoring.exception.OperationMonitoringErro
 import com.ubot.monitoring.operationmonitoring.exception.OperationMonitoringException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -26,9 +28,23 @@ public class PrometheusQueryClient {
 
     public PrometheusQueryClient(
             RestClient.Builder restClientBuilder,
-            @Value("${operation-monitoring.prometheus.base-url}") String baseUrl
+            @Value("${operation-monitoring.prometheus.base-url}") String baseUrl,
+            @Value("${operation-monitoring.prometheus.connect-timeout:2s}") Duration connectTimeout,
+            @Value("${operation-monitoring.prometheus.read-timeout:10s}") Duration readTimeout
     ) {
-        this.restClient = restClientBuilder.baseUrl(baseUrl).build();
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
+                .build();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(readTimeout);
+        this.restClient = restClientBuilder
+                .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
+                .build();
+    }
+
+    PrometheusQueryClient(RestClient restClient) {
+        this.restClient = restClient;
     }
 
     public List<PrometheusSeries> query(String query, Instant at) {
@@ -54,8 +70,8 @@ public class PrometheusQueryClient {
             JsonNode response = restClient.get()
                     .uri(uriBuilder -> {
                         uriBuilder.path(path);
-                        queryParameters.forEach(uriBuilder::queryParam);
-                        return uriBuilder.build();
+                        queryParameters.forEach((name, ignored) -> uriBuilder.queryParam(name, "{" + name + "}"));
+                        return uriBuilder.build(queryParameters);
                     })
                     .retrieve()
                     .body(JsonNode.class);
