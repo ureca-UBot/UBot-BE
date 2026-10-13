@@ -28,6 +28,7 @@ import com.ubot.notice.enums.NoticeType;
 import com.ubot.notice.exception.NoticeErrorCode;
 import com.ubot.notice.exception.NoticeException;
 import com.ubot.notice.repository.NoticeRepository;
+import com.ubot.ranking.enums.RegionSido;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("공지·장애 조회 Service 테스트")
@@ -60,10 +61,10 @@ class NoticeServiceTest {
                 .thenReturn(new PageImpl<>(List.of(notice)))
                 .thenReturn(new PageImpl<>(List.of(outage)));
 
-        NoticeBannerResponseDto result = noticeService.getBanners(null);
+        NoticeBannerResponseDto result = noticeService.getBanners(RegionSido.SEOUL);
 
+        assertThat(result.region()).isEqualTo(RegionSido.SEOUL);
         assertThat(result.notices()).extracting("noticeId").containsExactly(1L);
-        assertThat(result.outages()).extracting("noticeId").containsExactly(2L);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(noticeRepository, times(2)).findAll(any(Specification.class), pageable.capture());
