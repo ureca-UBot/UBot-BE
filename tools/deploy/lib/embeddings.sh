@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 지금 Embedding Profile에서 검색에 쓰는 유형의 FAQ 벡터를 확인하고, 모자라면 임시 백엔드로 백필합니다.
+# 지금 Embedding Profile에서 검색에 쓰는 유형의 활성 variant 벡터를 확인하고, 모자라면 임시 백엔드로 백필합니다.
 # 정하는 값: BACKFILL_AFTER_SWITCH
 # 쓰는 값: COMPOSE, EMBEDDING_ENGINE, EMBEDDING_PROFILE_VERSION, FAQ_SEARCH_VECTOR_TYPE
 
@@ -15,18 +15,19 @@ run_psql() {
 }
 
 
-# 삭제되지 않은 FAQ가 모두 지금 Embedding Profile에서 검색에 쓰는 유형(FAQ_SEARCH_VECTOR_TYPE)의 벡터를 가지고 있는지 확인한다.
-# 백필은 유형과 관계없이 모자란 벡터를 모두 채우지만, 여기서는 검색에 쓰는 유형만 본다.
-# 반환값: 0 모두 있음(FAQ가 없는 경우 포함), 1 모자람, 2 확인 실패
+# 활성 FAQ마다 원본 질문 variant가 있고, 활성 variant 모두 현재 Profile에서 검색에 쓰는 유형의 벡터를 갖는지 확인한다.
+# 반환값: 0 모두 있음(FAQ가 없는 경우 포함), 1 벡터 모자람/마이그레이션 전 스키마, 2 확인 실패/원본 variant 누락
 # 조건문 안에서 호출하면 set -e가 적용되지 않으므로, 조회 결과를 직접 검사한다.
 check_faq_embedding_coverage() {
   local provider
   local model
   local faq_table
+  local variant_table
   local embedding_tables
   local profile_id
   local active_count
   local covered_count
+  local missing_faq_count
 
   case "${EMBEDDING_ENGINE}" in
     ollama)
@@ -66,21 +67,71 @@ check_faq_embedding_coverage() {
       ;;
   esac
 
+  # 마이그레이션 전에는 variant 테이블이 없다. 새 이미지의 백필 러너가 pending migration을 확인한 뒤
+  # 교체 후 백필하도록 여기서는 '모자람'으로 돌려준다.
+  variant_table="$(
+    run_psql -c "SELECT to_regclass('public.faq_question_variants') IS NOT NULL;" </dev/null \
+      || true
+  )"
+
+  case "${variant_table}" in
+    f)
+      echo "FAQ variant table does not exist yet. Backfill will run after migration."
+      return 1
+      ;;
+    t)
+      ;;
+    *)
+      echo "ERROR: could not check the FAQ variant table"
+      return 2
+      ;;
+  esac
+
   active_count="$(
-    run_psql -c "SELECT COUNT(*) FROM faq WHERE deleted_at IS NULL;" </dev/null \
+    run_psql -c "
+      SELECT COUNT(*)
+      FROM faq_question_variants v
+      JOIN faq f ON f.id = v.origin_faq_id
+      WHERE v.deleted_at IS NULL AND f.deleted_at IS NULL;
+    " </dev/null \
       || true
   )"
 
   if ! [[ "${active_count}" =~ ^[0-9]+$ ]]; then
-    echo "ERROR: could not count active FAQs"
+    echo "ERROR: could not count active FAQ variants"
     return 2
   fi
 
-  echo "Active FAQ count: ${active_count}"
+  echo "Active FAQ variant count: ${active_count}"
 
-  # FAQ가 없으면 백필할 것도 없음.
+  missing_faq_count="$(
+    run_psql -c "
+      SELECT COUNT(*)
+      FROM faq f
+      WHERE f.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM faq_question_variants v
+          WHERE v.origin_faq_id = f.id
+            AND v.question = f.question
+            AND v.deleted_at IS NULL
+        );
+    " </dev/null \
+      || true
+  )"
+
+  if ! [[ "${missing_faq_count}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: could not count FAQs without an original-question variant"
+    return 2
+  fi
+
+  if [ "${missing_faq_count}" -ne 0 ]; then
+    echo "Missing FAQ variants: ${missing_faq_count} active FAQs have no original-question variant"
+    return 2
+  fi
+
+  # 활성 variant가 없으면 백필할 것도 없음.
   if [ "${active_count}" -eq 0 ]; then
-    echo "No active FAQs. Embedding coverage check passed."
+    echo "No active FAQ variants. Embedding coverage check passed."
     return 0
   fi
 
@@ -128,25 +179,29 @@ SQL
       -v vector_type="${FAQ_SEARCH_VECTOR_TYPE}" \
       <<'SQL' || true
 SELECT COUNT(*)
-FROM faq f
-JOIN faq_embeddings fe
-  ON fe.faq_id = f.id
-WHERE f.deleted_at IS NULL
-  AND fe.profile_id = :'profile_id'
-  AND fe.vector_type = :'vector_type'
-  AND fe.faq_version = f.version;
+FROM faq_question_variants v
+JOIN faq f ON f.id = v.origin_faq_id
+WHERE v.deleted_at IS NULL
+  AND f.deleted_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM faq_embeddings fe
+    WHERE fe.faq_question_variant_id = v.id
+      AND fe.profile_id = :'profile_id'
+      AND fe.vector_type = :'vector_type'
+      AND fe.faq_version = f.version
+  );
 SQL
   )"
 
   if ! [[ "${covered_count}" =~ ^[0-9]+$ ]]; then
-    echo "ERROR: could not count FAQ embeddings"
+    echo "ERROR: could not count covered FAQ variants"
     return 2
   fi
 
-  echo "Current FAQ embedding count (${FAQ_SEARCH_VECTOR_TYPE}): ${covered_count}/${active_count}"
+  echo "Current FAQ variant embeddings (${FAQ_SEARCH_VECTOR_TYPE}): ${covered_count}/${active_count}"
 
   if [ "${covered_count}" -ne "${active_count}" ]; then
-    echo "Missing FAQ embeddings (${FAQ_SEARCH_VECTOR_TYPE}): $((active_count - covered_count))"
+    echo "FAQ variants missing ${FAQ_SEARCH_VECTOR_TYPE} embeddings: $((active_count - covered_count))"
     return 1
   fi
 
@@ -210,7 +265,7 @@ prepare_embeddings_before_switch() {
       check_faq_embedding_coverage || coverage=$?
 
       if [ "${coverage}" -ne 0 ]; then
-        echo "ERROR: embedding backfill finished but FAQ embeddings are still missing"
+        echo "ERROR: embedding backfill finished but FAQ variant embeddings are still missing"
         echo "The running backend was not changed."
         exit 1
       fi
@@ -250,7 +305,7 @@ finish_embeddings_after_switch() {
     check_faq_embedding_coverage || coverage=$?
 
     if [ "${coverage}" -ne 0 ]; then
-      echo "ERROR: FAQ embeddings are still missing after the backfill"
+      echo "ERROR: FAQ variant embeddings are still missing after the backfill"
       echo "Run tools/backfill-embeddings.ps1 or retry the deployment."
       exit 1
     fi
@@ -264,7 +319,7 @@ finish_embeddings_after_switch() {
 
   # 교체 전 확인과 교체 사이에 등록되거나 수정된 FAQ가 있을 수 있다. 배포는 실패로 처리하지 않는다.
   if [ "${coverage}" -ne 0 ]; then
-    echo "WARNING: some FAQs have no vector for the current embedding profile."
+    echo "WARNING: some FAQ variants have no vector for the current embedding profile."
     echo "Run tools/backfill-embeddings.ps1 to fill them."
   fi
 }
