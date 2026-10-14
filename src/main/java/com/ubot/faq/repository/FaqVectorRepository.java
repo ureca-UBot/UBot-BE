@@ -26,38 +26,7 @@ public class FaqVectorRepository {
             FaqVectorType vectorType,
             int topK
     ) {
-        String sql = """
-                SELECT
-                    f.id,
-                    f.question,
-                    f.answer,
-                    f.intent,
-                    1 - (fe.vector <=> ?) AS similarity_score
-                FROM faq f
-                JOIN faq_embeddings fe
-                  ON fe.faq_id = f.id
-                WHERE f.deleted_at IS NULL
-                  AND fe.profile_id = ?
-                  AND fe.vector_type = ?
-                  AND fe.faq_version = f.version
-                ORDER BY similarity_score DESC
-                LIMIT ?
-                """;
-
-        return jdbcTemplate.query(
-                sql,
-                (rs, rowNum) -> new FaqSearchResponseDto(
-                        rs.getLong("id"),
-                        rs.getString("question"),
-                        rs.getString("answer"),
-                        rs.getDouble("similarity_score"),
-                        Intent.valueOf(rs.getString("intent"))
-                ),
-                queryEmbedding,
-                profileId,
-                vectorType.name(),
-                topK
-        );
+        return search(queryEmbedding, profileId, vectorType, null, topK);
     }
 
     public List<FaqSearchResponseDto> getSimilarListByIntent(
@@ -67,40 +36,60 @@ public class FaqVectorRepository {
             Intent intent,
             int topK
     ) {
-        String sql = """
-                SELECT
-                    f.id,
-                    f.question,
-                    f.answer,
-                    f.intent,
-                    1 - (fe.vector <=> ?) AS similarity_score
-                FROM faq f
-                JOIN faq_embeddings fe
-                  ON fe.faq_id = f.id
-                WHERE f.deleted_at IS NULL
-                  AND f.intent = ?
-                  AND fe.profile_id = ?
-                  AND fe.vector_type = ?
-                  AND fe.faq_version = f.version
-                ORDER BY similarity_score DESC
-                LIMIT ?
-                """;
+        return search(queryEmbedding, profileId, vectorType, intent, topK);
+    }
 
-        return jdbcTemplate.query(
-                sql,
-                (rs, rowNum) -> new FaqSearchResponseDto(
-                        rs.getLong("id"),
-                        rs.getString("question"),
-                        rs.getString("answer"),
-                        rs.getDouble("similarity_score"),
-                        Intent.valueOf(rs.getString("intent"))
-                ),
-                queryEmbedding,
-                intent.name(),
-                profileId,
-                vectorType.name(),
-                topK
-        );
+    private List<FaqSearchResponseDto> search(
+            PGvector queryEmbedding, Long profileId, FaqVectorType vectorType, Intent intent, int topK
+    ) {
+        String intentFilter = intent == null ? "" : "AND f.intent = ?";
+        String sql = """
+                WITH scored AS (
+                    SELECT
+                        f.id AS faq_id,
+                        f.question AS faq_question,
+                        f.answer,
+                        f.intent,
+                        v.id AS variant_id,
+                        v.question AS variant_question,
+                        1 - (fe.vector <=> ?) AS similarity_score
+                    FROM faq_embeddings fe
+                    JOIN faq_question_variants v ON v.id = fe.faq_question_variant_id
+                    JOIN faq f ON f.id = v.origin_faq_id
+                    WHERE v.deleted_at IS NULL
+                      AND f.deleted_at IS NULL
+                      AND fe.profile_id = ?
+                      AND fe.vector_type = ?
+                      AND fe.faq_version = f.version
+                      %s
+                ), ranked AS (
+                    SELECT scored.*,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY faq_id
+                               ORDER BY similarity_score DESC, variant_id ASC
+                           ) AS faq_rank
+                    FROM scored
+                )
+                SELECT faq_id, faq_question, answer, intent,
+                       variant_id, variant_question, similarity_score
+                FROM ranked
+                WHERE faq_rank = 1
+                ORDER BY similarity_score DESC, faq_id ASC
+                LIMIT ?
+                """.formatted(intentFilter);
+
+        Object[] params = intent == null
+                ? new Object[] {queryEmbedding, profileId, vectorType.name(), topK}
+                : new Object[] {queryEmbedding, profileId, vectorType.name(), intent.name(), topK};
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new FaqSearchResponseDto(
+                rs.getLong("faq_id"),
+                rs.getString("faq_question"),
+                rs.getString("answer"),
+                rs.getDouble("similarity_score"),
+                Intent.valueOf(rs.getString("intent")),
+                rs.getLong("variant_id"),
+                rs.getString("variant_question")
+        ), params);
     }
 
     public void saveVectorForVariant(
