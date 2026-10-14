@@ -79,16 +79,16 @@ public class FaqVectorService {
         );
     }
 
-    /** 새 FAQ의 벡터를 유형마다 하나씩 만들어 저장합니다. */
-    public void saveVectorsForFaq(
-            Long faqId,
+    /** 새 variant의 벡터를 유형마다 하나씩 만들어 저장합니다. */
+    public void saveVectorsForVariant(
+            Long variantId,
             Integer faqVersion,
             String question,
             String answer
     ) {
         for (FaqVectorType vectorType : FaqVectorType.values()) {
             saveVector(
-                    faqId,
+                    variantId,
                     faqVersion,
                     vectorType,
                     question,
@@ -97,38 +97,29 @@ public class FaqVectorService {
         }
     }
 
-    /** 수정한 FAQ의 벡터를 맞춥니다. 바뀐 텍스트가 들어가는 유형만 다시 임베딩하고, 나머지는 FAQ 버전만 갱신합니다. */
-    public void updateVectorsForFaq(
-            Long faqId,
+    /** 유지되는 variant는 답변 변경 시 질문·답변 벡터만 다시 만들고, 두 유형 모두 FAQ 버전을 갱신합니다. */
+    public void updateVectorsForVariant(
+            Long variantId,
             Integer faqVersion,
             String question,
             String answer,
-            boolean questionChanged,
             boolean answerChanged
     ) {
-        for (FaqVectorType vectorType : FaqVectorType.values()) {
-            if (vectorType.needsReembedding(questionChanged, answerChanged)) {
-                saveVector(
-                        faqId,
-                        faqVersion,
-                        vectorType,
-                        question,
-                        answer
-                );
-                continue;
-            }
+        Long profileId = embeddingProfileService.getCurrentProfileId();
+        faqVectorRepository.updateVectorVersionForVariant(
+                variantId, profileId, faqVersion);
 
-            faqVectorRepository.updateVectorVersionForFaq(
-                    faqId,
-                    embeddingProfileService.getCurrentProfileId(),
-                    vectorType,
-                    faqVersion
-            );
+        if (answerChanged) {
+            saveVector(variantId, faqVersion, FaqVectorType.QUESTION_ANSWER, question, answer);
         }
     }
 
+    public void deleteVectorsForVariant(Long variantId) {
+        faqVectorRepository.deleteVectorsForVariant(variantId);
+    }
+
     private void saveVector(
-            Long faqId,
+            Long variantId,
             Integer faqVersion,
             FaqVectorType vectorType,
             String question,
@@ -141,8 +132,8 @@ public class FaqVectorService {
         );
         Long profileId = embeddingProfileService.getCurrentProfileId();
 
-        faqVectorRepository.saveVectorForFaq(
-                faqId,
+        faqVectorRepository.saveVectorForVariant(
+                variantId,
                 profileId,
                 vectorType,
                 faqVersion,
@@ -150,8 +141,8 @@ public class FaqVectorService {
         );
 
         log.info(
-                "FAQ 벡터를 저장했습니다: FAQID={}, version={}, profileId={}, 유형={}, 처리시간={}ms",
-                faqId,
+                "FAQ 벡터를 저장했습니다: variantId={}, version={}, profileId={}, 유형={}, 처리시간={}ms",
+                variantId,
                 faqVersion,
                 profileId,
                 vectorType,

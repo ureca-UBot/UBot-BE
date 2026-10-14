@@ -8,9 +8,9 @@ import org.springframework.stereotype.Service;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
-import com.ubot.faq.entity.Faq;
+import com.ubot.faq.entity.FaqQuestionVariant;
 import com.ubot.faq.enums.FaqVectorType;
-import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.repository.FaqQuestionVariantRepository;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -23,7 +23,7 @@ public class FaqEmbeddingBackfillService {
 
     private static final int BATCH_SIZE = 100;
 
-    private final FaqRepository faqRepository;
+    private final FaqQuestionVariantRepository faqQuestionVariantRepository;
     private final FaqVectorRepository faqVectorRepository;
     private final EmbeddingService embeddingService;
     private final EmbeddingProfileService embeddingProfileService;
@@ -35,10 +35,10 @@ public class FaqEmbeddingBackfillService {
         int pageNumber = 0;
         int updatedCount = 0;
 
-        Page<Faq> page;
+        Page<FaqQuestionVariant> page;
 
         do {
-            page = faqRepository.findAllByDeletedAtIsNull(
+            page = faqQuestionVariantRepository.findAllActive(
                     PageRequest.of(
                             pageNumber,
                             BATCH_SIZE,
@@ -46,15 +46,15 @@ public class FaqEmbeddingBackfillService {
                     )
             );
 
-            for (Faq faq : page.getContent()) {
+            for (FaqQuestionVariant variant : page.getContent()) {
                 // 유형마다 따로 확인합니다. QUESTION 벡터가 있어도 QUESTION_ANSWER 벡터는 없을 수 있습니다.
                 for (FaqVectorType vectorType : FaqVectorType.values()) {
                     if (
                             faqVectorRepository.hasCurrentVector(
-                                    faq.getId(),
+                                    variant.getId(),
                                     profileId,
                                     vectorType,
-                                    faq.getVersion()
+                                    variant.getOriginFaq().getVersion()
                             )
                     ) {
                         continue;
@@ -63,25 +63,25 @@ public class FaqEmbeddingBackfillService {
                     PGvector vector =
                             embeddingService.embedText(
                                     vectorType.toEmbeddingText(
-                                            faq.getQuestion(),
-                                            faq.getAnswer()
+                                            variant.getQuestion(),
+                                            variant.getOriginFaq().getAnswer()
                                     )
                             );
 
-                    faqVectorRepository.saveVectorForFaq(
-                            faq.getId(),
+                    faqVectorRepository.saveVectorForVariant(
+                            variant.getId(),
                             profileId,
                             vectorType,
-                            faq.getVersion(),
+                            variant.getOriginFaq().getVersion(),
                             vector
                     );
 
                     updatedCount++;
 
                     log.info(
-                            "FAQ embedding backfill: faqId={}, version={}, profileId={}, vectorType={}",
-                            faq.getId(),
-                            faq.getVersion(),
+                            "FAQ embedding backfill: variantId={}, version={}, profileId={}, vectorType={}",
+                            variant.getId(),
+                            variant.getOriginFaq().getVersion(),
                             profileId,
                             vectorType
                     );

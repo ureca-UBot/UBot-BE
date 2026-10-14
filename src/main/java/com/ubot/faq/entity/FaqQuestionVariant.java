@@ -9,6 +9,7 @@ import java.util.Objects;
 
 /** 원본 FAQ에 연결된 변형 질문. 답변은 원본 FAQ, 벡터는 faq_embeddings에서 관리한다. */
 @Entity
+@Table(name = "faq_question_variants")
 @Getter
 @Builder
 @AllArgsConstructor
