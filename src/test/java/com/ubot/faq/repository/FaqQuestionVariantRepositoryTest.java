@@ -145,12 +145,12 @@ class FaqQuestionVariantRepositoryTest {
     void rejectsInvalidVectorOwners() {
         FaqQuestionVariant variant = createVariant(originFaqId, "이심이 뭐야?");
         assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO faq_embeddings(profile_id, vector_type, source_version, vector)
+                INSERT INTO faq_embeddings(profile_id, vector_type, faq_version, vector)
                 VALUES (?, 'QUESTION', 1, ?::vector)
                 """, profileId, vectorOf(0).toString()))
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbcTemplate.update("""
-                INSERT INTO faq_embeddings(faq_id, variant_id, profile_id, vector_type, source_version, vector)
+                INSERT INTO faq_embeddings(faq_id, variant_id, profile_id, vector_type, faq_version, vector)
                 VALUES (?, ?, ?, 'QUESTION', 1, ?::vector)
                 """, originFaqId, variant.getId(), profileId, vectorOf(0).toString()))
                 .isInstanceOf(DataIntegrityViolationException.class);

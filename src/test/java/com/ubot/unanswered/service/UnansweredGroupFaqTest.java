@@ -92,7 +92,7 @@ class UnansweredGroupFaqTest {
 				      ON f.id = fe.faq_id
 				    WHERE fe.faq_id = ?
 				      AND fe.vector_type = 'QUESTION'
-				      AND fe.source_version = f.version
+				      AND fe.faq_version = f.version
 				      AND fe.vector IS NOT NULL
 				)
 				""",

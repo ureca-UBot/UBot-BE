@@ -40,7 +40,7 @@ public class FaqVectorRepository {
                 WHERE f.deleted_at IS NULL
                   AND fe.profile_id = ?
                   AND fe.vector_type = ?
-                  AND fe.source_version = f.version
+                  AND fe.faq_version = f.version
                 ORDER BY similarity_score DESC
                 LIMIT ?
                 """;
@@ -82,7 +82,7 @@ public class FaqVectorRepository {
                   AND f.intent = ?
                   AND fe.profile_id = ?
                   AND fe.vector_type = ?
-                  AND fe.source_version = f.version
+                  AND fe.faq_version = f.version
                 ORDER BY similarity_score DESC
                 LIMIT ?
                 """;
@@ -117,13 +117,13 @@ public class FaqVectorRepository {
                     faq_id,
                     profile_id,
                     vector_type,
-                    source_version,
+                    faq_version,
                     vector
                 )
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (faq_id, profile_id, vector_type) WHERE variant_id IS NULL
                 DO UPDATE SET
-                    source_version = EXCLUDED.source_version,
+                    faq_version = EXCLUDED.faq_version,
                     vector = EXCLUDED.vector,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -144,7 +144,7 @@ public class FaqVectorRepository {
         jdbcTemplate.update(
                 """
                 UPDATE faq_embeddings
-                SET source_version = ?,
+                SET faq_version = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE faq_id = ?
                   AND profile_id = ?
@@ -169,7 +169,7 @@ public class FaqVectorRepository {
                 WHERE faq_id = ?
                   AND profile_id = ?
                   AND vector_type = ?
-                  AND source_version = ?
+                  AND faq_version = ?
                 """,
                 Integer.class,
                 faqId,
