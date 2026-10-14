@@ -14,6 +14,10 @@ import com.ubot.contract.enums.InstallmentStatus;
 import com.ubot.contract.service.ContractService;
 import com.ubot.plan.dto.response.PlanSummaryResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
+import com.ubot.subscription.dto.response.SubscriptionRoamingResponseDto;
+import com.ubot.subscription.enums.SubscriptionAddonStatus;
+import com.ubot.subscription.enums.SubscriptionBundleStatus;
+import com.ubot.subscription.enums.SubscriptionRoamingStatus;
 import com.ubot.subscription.enums.SubscriptionStatus;
 import com.ubot.subscription.service.SubscriptionService;
 import com.ubot.usage.dto.response.UsageAllowanceResponseDto;
@@ -30,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -37,7 +42,9 @@ import org.springframework.util.StringUtils;
 
 /**
  * USER_DATA 질문에서 도구 호출을 줄이려고 LLM에 미리 넣는 사용자 정보를 조회하고 문자열로 정리합니다.
- * 자주 묻는 정보(프로필, 요금제, 최근 사용량, 최근 청구·미납, 약정·할부)만 담고, 나머지는 UserDataTools가 조회합니다.
+ * 프로필, 요금제, 최근 사용량, 최근 청구·미납, 약정·할부, 부가서비스·결합·로밍을 담고,
+ * 그보다 이전 달의 사용량·청구서만 UserDataTools가 조회합니다.
+ * 부가서비스·결합·로밍을 도구로 두면 작은 모델이 도구를 부르지 않고 청구서 항목이나 요금제 이름으로 목록을 지어내서 미리 넣습니다.
  * 회선·사용량·청구 한 건을 문자열로 만드는 형식은 UserDataTools와 같이 씁니다.
  */
 @Component
@@ -48,14 +55,14 @@ public class UserDataSummarizer {
     static final int RECENT_BILLING_COUNT = 6;
 
     static final String NO_SUBSCRIPTION_MESSAGE = "이용 중인 회선이 없습니다.";
-    static final String FEE_GUIDE =
-            "'이번 달 요금'은 가장 최근 청구서 기준으로 답하고 몇 월 청구분인지 밝히세요. "
-                    + "아직 청구되지 않은 이번 달 사용분 요금은 계산하지 말고, 요금제 월정액과 현재까지 사용량만 참고로 안내하세요.";
+    // "이번 달 요금"을 어떻게 답할지 지시문으로 적으면 모델이 도구가 필요한 질문에서도 바로 답하려 합니다.
+    // 지시문 대신 청구서 줄 자체에 사용자가 묻는 표현을 붙여, 이번 달 요금 질문은 이 줄로 답하게 합니다.
+    static final String LATEST_BILLING_LABEL = "최근 청구서(이번 달 요금·청구 금액·납부 상태)";
     // "도구로 조회하지 마세요" 같은 금지형 문장은 작은 모델이 도구 전체를 쓰지 말라는 뜻으로 받아들여 도구를 호출하지 않습니다.
     // 그래서 이 자료에 무엇이 있는지 알려 주고, 없는 정보는 도구로 조회하라고 긍정형으로만 안내합니다.
     // 가장 최근 달을 다시 조회하지 않게 하는 것은 UserDataTools가 코드로 막습니다.
     static final String TOOL_GUIDE =
-            "그보다 이전 달의 사용량·청구서, 부가서비스, 결합, 로밍을 물으면 답하기 전에 반드시 도구를 호출해 조회하세요.";
+            "그보다 이전 달의 사용량·청구서를 물으면 답하기 전에 반드시 도구를 호출해 조회하세요.";
     // DB에 없는 값을 LLM이 지어내지 않고 확인할 수 없다고 답하게 합니다.
     static final String UNAVAILABLE_NOTICE =
             "제공되지 않는 정보: 소액결제, 포인트·멤버십, 할인반환금(위약금), 요금제 변경 가능 여부, "
@@ -97,7 +104,6 @@ public class UserDataSummarizer {
             }
         }
         return text.append('\n')
-                .append(FEE_GUIDE).append('\n')
                 .append(coverageNotice(summary)).append(TOOL_GUIDE).append('\n')
                 .append(UNAVAILABLE_NOTICE)
                 .toString();
@@ -150,7 +156,17 @@ public class UserDataSummarizer {
                 latestUsage,
                 recentBillings.isEmpty() ? null : recentBillings.getFirst(),
                 unpaidBillings,
-                contractService.getMyContract(userId, subscriptionId));
+                contractService.getMyContract(userId, subscriptionId),
+                subscriptionService.getMyAddonList(userId, subscriptionId).stream()
+                        .filter(addon -> addon.status() == SubscriptionAddonStatus.ACTIVE)
+                        .toList(),
+                subscriptionService.getMyBundleList(userId, subscriptionId).stream()
+                        .filter(bundle -> bundle.status() == SubscriptionBundleStatus.ACTIVE)
+                        .toList(),
+                subscriptionService.getMyRoamingList(userId, subscriptionId).stream()
+                        .filter(roaming -> roaming.status() == SubscriptionRoamingStatus.ACTIVE
+                                || roaming.status() == SubscriptionRoamingStatus.SCHEDULED)
+                        .toList());
     }
 
     private Profile toProfile(UserResponseDto user, LocalDate baseDate) {
@@ -172,7 +188,7 @@ public class UserDataSummarizer {
         text.append("- 요금제: ").append(formatPlan(summary.plan().summary())).append('\n');
         text.append("- 최근 사용량: ")
                 .append(summary.latestUsage() == null ? "기록 없음" : formatUsage(summary.latestUsage())).append('\n');
-        text.append("- 최근 청구: ")
+        text.append("- ").append(LATEST_BILLING_LABEL).append(": ")
                 .append(summary.latestBilling() == null ? "기록 없음" : formatBilling(summary.latestBilling())).append('\n');
         text.append("- 미납: ");
         if (summary.unpaidBillings().isEmpty()) {
@@ -188,7 +204,34 @@ public class UserDataSummarizer {
         text.append("- 약정·할부: ")
                 .append(summary.activeContract() == null ? "이용 중인 약정 없음" : formatContract(summary.activeContract()))
                 .append('\n');
+        // 목록이 없으면 청구서의 "부가서비스 요금"이나 요금제 이름을 보고 목록을 지어내므로, 비어 있어도 "없음"으로 적습니다.
+        text.append("- 부가서비스(이용 중): ")
+                .append(joinOrNone(summary.addons(), addon -> valueOrUnknown(addon.name())
+                        + " 월 " + won(addon.monthlyFee())
+                        + "(" + valueOrUnknown(toDate(addon.subscribedAt())) + " 가입)"))
+                .append('\n');
+        text.append("- 결합 상품(이용 중): ")
+                .append(joinOrNone(summary.bundles(), bundle -> valueOrUnknown(bundle.name())
+                        + " 할인 " + won(bundle.appliedDiscountAmount())
+                        + "(" + valueOrUnknown(toDate(bundle.joinedAt())) + " 가입)"))
+                .append('\n');
+        text.append("- 로밍(이용 중·예약): ")
+                .append(joinOrNone(summary.roamings(), UserDataSummarizer::formatRoaming))
+                .append('\n');
         return text.toString();
+    }
+
+    private static <T> String joinOrNone(List<T> items, Function<T, String> formatter) {
+        return items.isEmpty() ? "없음" : items.stream().map(formatter).collect(Collectors.joining(", "));
+    }
+
+    private static String formatRoaming(SubscriptionRoamingResponseDto roaming) {
+        return valueOrUnknown(roaming.name())
+                + " | " + (roaming.status() == SubscriptionRoamingStatus.ACTIVE ? "이용 중" : "이용 예정")
+                + " | " + valueOrUnknown(roaming.country())
+                + " | " + valueOrUnknown(roaming.startDate()) + "~" + valueOrUnknown(roaming.endDate())
+                + " | 일 " + won(roaming.dailyFee())
+                + " | 데이터 " + (roaming.dataAmountMb() == null ? UNKNOWN : megabytes(roaming.dataAmountMb()));
     }
 
     // ---- UserDataTools와 같이 쓰는 형식 ----
@@ -239,10 +282,12 @@ public class UserDataSummarizer {
                         usage.remainingSmsCount() == null ? null : usage.remainingSmsCount() + "건", allowance);
     }
 
-    /** billing_records.billing_month는 청구서가 나온 달이고, 금액은 전월 사용분입니다. */
+    /** billing_records.billing_month는 청구서가 나온 달이고, 금액은 전월 사용분입니다. 예: "2026-10 청구분(9월 사용분)" */
     static String formatBilling(BillingRecordResponseDto billing) {
         StringBuilder text = new StringBuilder();
-        text.append(billing.billingMonth()).append(" 청구분(전월 사용분): 총 ").append(won(billing.totalAmount()))
+        text.append(billing.billingMonth()).append(" 청구분(")
+                .append(billing.billingMonth().minusMonths(1).getMonthValue()).append("월 사용분): 총 ")
+                .append(won(billing.totalAmount()))
                 .append("(기본료 ").append(won(billing.baseFee()))
                 .append(", 부가서비스 ").append(won(billing.addonFee()))
                 .append(", 로밍 ").append(won(billing.roamingFee()))

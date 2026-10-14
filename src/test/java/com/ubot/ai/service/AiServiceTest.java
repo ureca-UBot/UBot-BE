@@ -130,7 +130,7 @@ class AiServiceTest {
         verify(llmService).generateAnswer(request.capture());
         assertThat(request.getValue().toolCallbacks())
                 .extracting(callback -> callback.getToolDefinition().name())
-                .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth", "getAddons", "getBundles", "getRoamings");
+                .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth");
         assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.USER_ID, 7L);
     }
 

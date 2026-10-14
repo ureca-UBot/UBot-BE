@@ -30,7 +30,7 @@ class AiToolRegistryTest {
         var callbacks = registry.resolve(Set.of(AiTool.USER_DATA_LOOKUP));
 
         assertThat(callbacks).extracting(callback -> callback.getToolDefinition().name())
-                .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth", "getAddons", "getBundles", "getRoamings");
+                .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth");
         // 사용자 ID는 서버가 ToolContext로 넣으므로 LLM이 채우는 스키마에는 없어야 합니다.
         assertThat(callbacks).allSatisfy(callback -> assertThat(callback.getToolDefinition().inputSchema())
                 .contains("phoneLast4").doesNotContain("userId").doesNotContain("toolContext"));

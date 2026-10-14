@@ -22,7 +22,13 @@ import com.ubot.billing.dto.response.BillingRecordResponseDto;
 import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.billing.service.BillingService;
 import com.ubot.contract.service.ContractService;
+import com.ubot.subscription.dto.response.SubscriptionAddonResponseDto;
+import com.ubot.subscription.dto.response.SubscriptionBundleResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
+import com.ubot.subscription.dto.response.SubscriptionRoamingResponseDto;
+import com.ubot.subscription.enums.SubscriptionAddonStatus;
+import com.ubot.subscription.enums.SubscriptionBundleStatus;
+import com.ubot.subscription.enums.SubscriptionRoamingStatus;
 import com.ubot.subscription.enums.SubscriptionStatus;
 import com.ubot.subscription.service.SubscriptionService;
 import com.ubot.usage.service.UsageService;
@@ -127,7 +133,8 @@ class UserDataSummarizerTest {
         assertThat(summarizer.format(summary))
                 .contains("이용 중인 회선: 4개", "[회선 1] 010-****-1111 (이용 중", "[회선 2] 010-****-3333 (일시정지",
                         "[회선 4] 010-****-5555 (이용 중",
-                        "최근 사용량: 기록 없음", "최근 청구: 기록 없음", "미납: 없음(최근 6개월 청구 기준)", "이용 중인 약정 없음")
+                        "최근 사용량: 기록 없음", "최근 청구서(이번 달 요금·청구 금액·납부 상태): 기록 없음",
+                        "미납: 없음(최근 6개월 청구 기준)", "이용 중인 약정 없음")
                 .doesNotContain("010-2222", "2222-2222");
     }
 
@@ -165,17 +172,57 @@ class UserDataSummarizerTest {
                 .contains("- 요금제: 5G 스탠다드 | 월정액 75,000원 | 데이터 150.0GB(소진 후 최대 5Mbps) | 음성 무제한 | 문자 무제한")
                 .contains("- 최근 사용량: 2026-10 사용량(2026-10-11까지 집계, 미확정): 데이터 12.3GB 사용, 잔여 137.7GB"
                         + " | 음성 120분 사용, 잔여 무제한 | 문자 3건 사용, 잔여 무제한")
-                .contains("- 최근 청구: 2026-10 청구분(전월 사용분): 총 78,000원(기본료 75,000원, 부가서비스 3,000원, 로밍 0원, 기타 0원, 할인 -0원)"
+                // 이번 달 요금을 묻는 여러 표현이 이 줄로 답해지도록 라벨에 붙입니다.
+                .contains("- 최근 청구서(이번 달 요금·청구 금액·납부 상태): 2026-10 청구분(9월 사용분): 총 78,000원"
+                        + "(기본료 75,000원, 부가서비스 3,000원, 로밍 0원, 기타 0원, 할인 -0원)"
                         + " | 납부 기한 2026-10-25 | 미납")
                 .contains("- 미납: 2026-10 청구분 미납액 78,000원(납부 기한 2026-10-25, 미납)")
                 .contains("- 약정·할부: 선택약정 2024-03-02~2026-03-01 | 약정 할인 18,750원"
                         + " | 단말 할부: iPhone 15, 월 50,000원, 24개월 중 19개월 납부, 잔여 250,000원, 만료 2026-03-01")
-                .contains(UserDataSummarizer.FEE_GUIDE,
-                        "이 자료에는 가장 최근 달(사용량 2026-10, 청구서 2026-10 청구분)만 있습니다. " + UserDataSummarizer.TOOL_GUIDE)
-                // 금지형 안내는 작은 모델이 도구를 아예 호출하지 않게 만듭니다.
-                .doesNotContain("조회하지 마세요")
+                .contains("이 자료에는 가장 최근 달(사용량 2026-10, 청구서 2026-10 청구분)만 있습니다. " + UserDataSummarizer.TOOL_GUIDE)
+                // 금지형 안내는 작은 모델이 도구를 아예 호출하지 않게 만들고,
+                // "이번 달 요금은 ~ 답하세요" 같은 답변 지시문은 도구가 필요한 질문에서도 바로 답하게 만듭니다.
+                .doesNotContain("조회하지 마세요", "'이번 달 요금'은")
                 .endsWith(UserDataSummarizer.UNAVAILABLE_NOTICE)
                 .doesNotContain("010-1234-5678", "01012345678", SIM_IDENTIFIER, "USIM");
+    }
+
+    @Test
+    void 부가서비스와_결합은_이용_중인_것만_로밍은_이용_중이거나_예약된_것만_담는다() {
+        givenSingleSubscription();
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, 1)).thenReturn(page(List.of()));
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, 6)).thenReturn(page(List.of()));
+        LocalDateTime joined = LocalDateTime.of(2025, 1, 2, 9, 0);
+        when(subscriptionService.getMyAddonList(USER_ID, 1L)).thenReturn(List.of(
+                new SubscriptionAddonResponseDto(1L, 10L, "V컬러링", 3300, SubscriptionAddonStatus.ACTIVE, joined, null),
+                new SubscriptionAddonResponseDto(2L, 11L, "지니뮤직", 7900, SubscriptionAddonStatus.ACTIVE, joined, null),
+                new SubscriptionAddonResponseDto(3L, 12L, "해지된 서비스", 1100, SubscriptionAddonStatus.CANCELED, joined, joined)));
+        when(subscriptionService.getMyBundleList(USER_ID, 1L)).thenReturn(List.of(
+                new SubscriptionBundleResponseDto(1L, 20L, "인터넷 결합", 5500, SubscriptionBundleStatus.ACTIVE, joined, null),
+                new SubscriptionBundleResponseDto(2L, 21L, "끝난 결합", 1000, SubscriptionBundleStatus.ENDED, joined, joined)));
+        when(subscriptionService.getMyRoamingList(USER_ID, 1L)).thenReturn(List.of(
+                roaming("일본 데이터 로밍", SubscriptionRoamingStatus.SCHEDULED),
+                roaming("지난 로밍", SubscriptionRoamingStatus.EXPIRED)));
+
+        UserDataSummary summary = summarizer.summarize(USER_ID);
+
+        assertThat(summarizer.format(summary))
+                .contains("- 약정·할부: 이용 중인 약정 없음\n"
+                        + "- 부가서비스(이용 중): V컬러링 월 3,300원(2025-01-02 가입), 지니뮤직 월 7,900원(2025-01-02 가입)\n"
+                        + "- 결합 상품(이용 중): 인터넷 결합 할인 5,500원(2025-01-02 가입)\n"
+                        + "- 로밍(이용 중·예약): 일본 데이터 로밍 | 이용 예정 | 일본 | 2026-10-20~2026-10-24 | 일 11,000원 | 데이터 3.0GB\n")
+                .doesNotContain("해지된 서비스", "끝난 결합", "지난 로밍");
+    }
+
+    @Test
+    void 부가서비스_결합_로밍이_없어도_없음으로_적는다() {
+        givenSingleSubscription();
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, 1)).thenReturn(page(List.of()));
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, 6)).thenReturn(page(List.of()));
+
+        // 목록 줄이 아예 없으면 청구서의 부가서비스 요금이나 요금제 이름으로 목록을 지어냅니다.
+        assertThat(summarizer.format(summarizer.summarize(USER_ID)))
+                .contains("- 부가서비스(이용 중): 없음\n", "- 결합 상품(이용 중): 없음\n", "- 로밍(이용 중·예약): 없음\n");
     }
 
     @Test
@@ -186,6 +233,11 @@ class UserDataSummarizerTest {
         assertThat(UserDataSummarizer.maskPhone("+82 10 1234 5678")).isEqualTo("********5678");
         assertThat(UserDataSummarizer.maskPhone("123")).isEqualTo("****");
         assertThat(UserDataSummarizer.maskPhone(null)).isEqualTo("****");
+    }
+
+    private SubscriptionRoamingResponseDto roaming(String name, SubscriptionRoamingStatus status) {
+        return new SubscriptionRoamingResponseDto(1L, 30L, name, "일본", 11000, 3072L,
+                LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 24), status, null);
     }
 
     private void givenSingleSubscription() {

@@ -2,13 +2,7 @@ package com.ubot.ai.tool;
 
 import com.ubot.billing.dto.response.BillingRecordResponseDto;
 import com.ubot.billing.service.BillingService;
-import com.ubot.subscription.dto.response.SubscriptionAddonResponseDto;
-import com.ubot.subscription.dto.response.SubscriptionBundleResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
-import com.ubot.subscription.dto.response.SubscriptionRoamingResponseDto;
-import com.ubot.subscription.enums.SubscriptionAddonStatus;
-import com.ubot.subscription.enums.SubscriptionBundleStatus;
-import com.ubot.subscription.enums.SubscriptionRoamingStatus;
 import com.ubot.subscription.service.SubscriptionService;
 import com.ubot.usage.dto.response.UsageRecordResponseDto;
 import com.ubot.usage.service.UsageService;
@@ -31,8 +25,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 /**
- * UserDataSummarizer가 미리 넣지 않은 사용자 가입 정보를 LLM이 필요할 때 조회하는 도구입니다.
- * 미리 넣은 정보와 겹치지 않게, 월별 조회는 요약에 들어간 가장 최근 달을 다시 돌려주지 않습니다.
+ * UserDataSummarizer가 미리 넣지 않은 지난 달 사용량·청구서를 LLM이 필요할 때 조회하는 도구입니다.
+ * 미리 넣은 정보와 겹치지 않게, 요약에 들어간 가장 최근 달은 다시 돌려주지 않습니다.
  * 사용자 ID는 LLM이 아니라 서버가 ToolContext로 넣고, 회선 소유권은 각 서비스가 다시 확인합니다.
  */
 @Slf4j
@@ -89,72 +83,6 @@ public class UserDataTools {
                 (userId, subscription) -> billingService.getMyBillingRecordList(
                         userId, subscription.subscriptionId(), null, 0, LOOKUP_MONTHS).content(),
                 BillingRecordResponseDto::billingMonth, UserDataSummarizer::formatBilling);
-    }
-
-    @Tool(description = "사용자 회선에 가입된 부가서비스 목록과 월 요금을 조회한다.")
-    public String getAddons(
-            @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
-            ToolContext toolContext) {
-        return lookup(phoneLast4, toolContext, (userId, subscription) -> {
-            List<SubscriptionAddonResponseDto> addons = subscriptionService
-                    .getMyAddonList(userId, subscription.subscriptionId()).stream()
-                    .filter(addon -> addon.status() == SubscriptionAddonStatus.ACTIVE)
-                    .toList();
-            if (addons.isEmpty()) {
-                return "이용 중인 부가서비스가 없습니다.";
-            }
-            return addons.stream()
-                    .map(addon -> "- " + UserDataSummarizer.valueOrUnknown(addon.name())
-                            + " | 월 " + UserDataSummarizer.won(addon.monthlyFee())
-                            + " | " + UserDataSummarizer.valueOrUnknown(UserDataSummarizer.toDate(addon.subscribedAt())) + " 가입")
-                    .collect(Collectors.joining("\n"));
-        });
-    }
-
-    @Tool(description = "사용자 회선이 가입된 결합 상품과 결합 할인 금액을 조회한다.")
-    public String getBundles(
-            @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
-            ToolContext toolContext) {
-        return lookup(phoneLast4, toolContext, (userId, subscription) -> {
-            List<SubscriptionBundleResponseDto> bundles = subscriptionService
-                    .getMyBundleList(userId, subscription.subscriptionId()).stream()
-                    .filter(bundle -> bundle.status() == SubscriptionBundleStatus.ACTIVE)
-                    .toList();
-            if (bundles.isEmpty()) {
-                return "가입된 결합 상품이 없습니다.";
-            }
-            return bundles.stream()
-                    .map(bundle -> "- " + UserDataSummarizer.valueOrUnknown(bundle.name())
-                            + " | 할인 " + UserDataSummarizer.won(bundle.appliedDiscountAmount())
-                            + " | " + UserDataSummarizer.valueOrUnknown(UserDataSummarizer.toDate(bundle.joinedAt())) + " 가입")
-                    .collect(Collectors.joining("\n"));
-        });
-    }
-
-    @Tool(description = "사용자 회선의 이용 중이거나 예약된 로밍 상품(국가, 기간, 일 요금, 데이터 제공량)을 조회한다.")
-    public String getRoamings(
-            @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
-            ToolContext toolContext) {
-        return lookup(phoneLast4, toolContext, (userId, subscription) -> {
-            List<SubscriptionRoamingResponseDto> roamings = subscriptionService
-                    .getMyRoamingList(userId, subscription.subscriptionId()).stream()
-                    .filter(roaming -> roaming.status() == SubscriptionRoamingStatus.ACTIVE
-                            || roaming.status() == SubscriptionRoamingStatus.SCHEDULED)
-                    .toList();
-            if (roamings.isEmpty()) {
-                return "이용 중이거나 예약된 로밍 상품이 없습니다.";
-            }
-            return roamings.stream()
-                    .map(roaming -> "- " + UserDataSummarizer.valueOrUnknown(roaming.name())
-                            + " | " + (roaming.status() == SubscriptionRoamingStatus.ACTIVE ? "이용 중" : "이용 예정")
-                            + " | " + UserDataSummarizer.valueOrUnknown(roaming.country())
-                            + " | " + UserDataSummarizer.valueOrUnknown(roaming.startDate())
-                            + "~" + UserDataSummarizer.valueOrUnknown(roaming.endDate())
-                            + " | 일 " + UserDataSummarizer.won(roaming.dailyFee())
-                            + " | 데이터 " + (roaming.dataAmountMb() == null
-                                    ? "정보 없음" : UserDataSummarizer.megabytes(roaming.dataAmountMb())))
-                    .collect(Collectors.joining("\n"));
-        });
     }
 
     /**

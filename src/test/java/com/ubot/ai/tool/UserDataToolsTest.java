@@ -12,20 +12,12 @@ import static org.mockito.Mockito.when;
 
 import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.billing.service.BillingService;
-import com.ubot.subscription.dto.response.SubscriptionAddonResponseDto;
-import com.ubot.subscription.dto.response.SubscriptionBundleResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
-import com.ubot.subscription.dto.response.SubscriptionRoamingResponseDto;
-import com.ubot.subscription.enums.SubscriptionAddonStatus;
-import com.ubot.subscription.enums.SubscriptionBundleStatus;
-import com.ubot.subscription.enums.SubscriptionRoamingStatus;
 import com.ubot.subscription.enums.SubscriptionStatus;
 import com.ubot.subscription.exception.SubscriptionErrorCode;
 import com.ubot.subscription.exception.SubscriptionException;
 import com.ubot.subscription.service.SubscriptionService;
 import com.ubot.usage.service.UsageService;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +55,7 @@ class UserDataToolsTest {
 
     @Test
     void 사용자_ID가_없으면_조회하지_않고_로그인을_안내한다() {
-        String result = tools.getAddons(null, new ToolContext(Map.of("question", "부가서비스 알려줘")));
+        String result = tools.getUsageByMonth("2026-09", null, new ToolContext(Map.of("question", "지난달 사용량 알려줘")));
 
         assertThat(result).isEqualTo(UserDataTools.LOGIN_REQUIRED_MESSAGE);
         verifyNoInteractions(subscriptionService, usageService, billingService);
@@ -89,7 +81,7 @@ class UserDataToolsTest {
                         billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
 
         assertThat(tools.getBillingByMonth("2026-9", null, LOGGED_IN))
-                .contains("2026-09 청구분(전월 사용분): 총 78,000원", "납부 완료(2026-09-20, 자동이체)");
+                .contains("2026-09 청구분(8월 사용분): 총 78,000원", "납부 완료(2026-09-20, 자동이체)");
         assertThat(tools.getBillingByMonth("2026-08", null, LOGGED_IN))
                 .isEqualTo("010-****-5678 회선\n2026-08 청구서 기록이 없습니다.");
     }
@@ -118,7 +110,7 @@ class UserDataToolsTest {
                 subscription(2L, "010-9999-0001", SubscriptionStatus.SUSPENDED),
                 subscription(3L, "010-8888-0002", SubscriptionStatus.TERMINATED));
 
-        String result = tools.getAddons(null, LOGGED_IN);
+        String result = tools.getBillingByMonth("2026-09", null, LOGGED_IN);
 
         assertThat(result)
                 .startsWith("어느 회선인지 정할 수 없습니다.")
@@ -132,10 +124,12 @@ class UserDataToolsTest {
         givenSubscriptions(
                 subscription(1L, "010-1234-5678", SubscriptionStatus.ACTIVE),
                 subscription(2L, "010-9999-0001", SubscriptionStatus.ACTIVE));
-        when(subscriptionService.getMyAddonList(USER_ID, 2L)).thenReturn(List.of());
+        when(usageService.getMyUsageRecordList(USER_ID, 2L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of()));
 
-        assertThat(tools.getAddons("0001", LOGGED_IN)).isEqualTo("010-****-0001 회선\n이용 중인 부가서비스가 없습니다.");
-        assertThat(tools.getAddons("4321", LOGGED_IN))
+        assertThat(tools.getUsageByMonth("2026-09", "0001", LOGGED_IN))
+                .isEqualTo("010-****-0001 회선\n2026-09 사용량 기록이 없습니다.");
+        assertThat(tools.getUsageByMonth("2026-09", "4321", LOGGED_IN))
                 .startsWith("끝자리가 4321인 회선이 없습니다.")
                 .contains("010-****-5678", "010-****-0001");
     }
@@ -144,7 +138,7 @@ class UserDataToolsTest {
     void 해지_회선만_있으면_이용_중인_회선이_없다고_알린다() {
         givenSubscriptions(subscription(1L, "010-1234-5678", SubscriptionStatus.TERMINATED));
 
-        assertThat(tools.getBundles(null, LOGGED_IN)).isEqualTo(UserDataTools.NO_SUBSCRIPTION_MESSAGE);
+        assertThat(tools.getUsageByMonth("2026-09", null, LOGGED_IN)).isEqualTo(UserDataTools.NO_SUBSCRIPTION_MESSAGE);
     }
 
     @ParameterizedTest
@@ -171,39 +165,6 @@ class UserDataToolsTest {
                 .thenThrow(new SubscriptionException(SubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND));
 
         assertThat(tools.getUsageByMonth("2026-10", null, LOGGED_IN)).isEqualTo(UserDataTools.LOOKUP_FAILED_MESSAGE);
-    }
-
-    @Test
-    void 부가서비스와_결합은_이용_중인_것만_보여_준다() {
-        givenSubscriptions();
-        LocalDateTime joined = LocalDateTime.of(2025, 1, 2, 9, 0);
-        when(subscriptionService.getMyAddonList(USER_ID, 1L)).thenReturn(List.of(
-                new SubscriptionAddonResponseDto(1L, 10L, "V컬러링", 3300, SubscriptionAddonStatus.ACTIVE, joined, null),
-                new SubscriptionAddonResponseDto(2L, 11L, "해지된 서비스", 1100, SubscriptionAddonStatus.CANCELED, joined, joined)));
-        when(subscriptionService.getMyBundleList(USER_ID, 1L)).thenReturn(List.of(
-                new SubscriptionBundleResponseDto(1L, 20L, "인터넷 결합", 5500, SubscriptionBundleStatus.ACTIVE, joined, null),
-                new SubscriptionBundleResponseDto(2L, 21L, "끝난 결합", 1000, SubscriptionBundleStatus.ENDED, joined, joined)));
-
-        assertThat(tools.getAddons(null, LOGGED_IN))
-                .isEqualTo("010-****-5678 회선\n- V컬러링 | 월 3,300원 | 2025-01-02 가입");
-        assertThat(tools.getBundles(null, LOGGED_IN))
-                .isEqualTo("010-****-5678 회선\n- 인터넷 결합 | 할인 5,500원 | 2025-01-02 가입");
-    }
-
-    @Test
-    void 로밍은_이용_중이거나_예정인_것만_보여_준다() {
-        givenSubscriptions();
-        when(subscriptionService.getMyRoamingList(USER_ID, 1L)).thenReturn(List.of(
-                roaming("일본 데이터 로밍", SubscriptionRoamingStatus.SCHEDULED),
-                roaming("지난 로밍", SubscriptionRoamingStatus.EXPIRED)));
-
-        assertThat(tools.getRoamings(null, LOGGED_IN)).isEqualTo("010-****-5678 회선\n"
-                + "- 일본 데이터 로밍 | 이용 예정 | 일본 | 2026-10-20~2026-10-24 | 일 11,000원 | 데이터 3.0GB");
-    }
-
-    private SubscriptionRoamingResponseDto roaming(String name, SubscriptionRoamingStatus status) {
-        return new SubscriptionRoamingResponseDto(1L, 30L, name, "일본", 11000, 3072L,
-                LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 24), status, null);
     }
 
     private void givenSubscriptions() {
