@@ -2,64 +2,41 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$faqCsvPath = Join-Path $PSScriptRoot '..\src\main\resources\seed\baseline-faqs.csv'
-$metadataPath = Join-Path $PSScriptRoot '..\src\main\resources\seed\baseline-faqs.metadata.json'
+$seedPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\seed')).Path
 $migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\db\migration')).Path
+$sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
 
 function Invoke-Checked {
-    param([Parameter(Mandatory)] [scriptblock] $Command, [Parameter(Mandatory)] [string] $FailureMessage)
+    param([scriptblock] $Command, [string] $Message)
     & $Command
-    if ($LASTEXITCODE -ne 0) { throw $FailureMessage }
+    if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
-function Escape-SqlLiteral([string] $Value) { return $Value.Replace("'", "''") }
+# Finish every file and vector check before removing the PostgreSQL volume.
+Invoke-Checked { python -X utf8 (Join-Path $PSScriptRoot 'validate_baseline_seed.py') } 'Baseline seed CSV validation failed.'
 
-if (-not (Test-Path -LiteralPath $faqCsvPath)) { throw "FAQ CSV를 찾을 수 없습니다: $faqCsvPath" }
-$faqRows = @(Import-Csv -LiteralPath $faqCsvPath -Encoding UTF8)
-if ($faqRows.Count -eq 0) { throw 'FAQ CSV에 데이터가 없습니다.' }
-
-$headers = @($faqRows[0].PSObject.Properties.Name)
-foreach ($header in @('category', 'question', 'answer', 'intent', 'vector')) {
-    if ($headers -notcontains $header) { throw "FAQ CSV에 $header 컬럼이 없습니다." }
+$containerId = (& docker compose ps --all --quiet postgres).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the PostgreSQL container.' }
+$volume = $null
+if ($containerId) {
+    $container = (& docker inspect $containerId | ConvertFrom-Json)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the PostgreSQL volume.' }
+    $volume = @($container.Mounts | Where-Object { $_.Destination -eq '/var/lib/postgresql' } | Select-Object -ExpandProperty Name)[0]
+    if (-not $volume) { throw 'Could not locate the PostgreSQL volume.' }
+    Invoke-Checked { docker compose rm --force --stop postgres } 'Could not remove the PostgreSQL container.'
 }
-foreach ($row in $faqRows) {
-    foreach ($header in @('category', 'question', 'answer', 'intent', 'vector')) {
-        if ([string]::IsNullOrWhiteSpace($row.$header)) { throw "FAQ CSV에 비어 있는 $header 값이 있습니다." }
-    }
-    if ($row.vector[0] -ne '[' -or $row.vector[-1] -ne ']') { throw 'FAQ CSV의 vector 값은 pgvector 배열 형식이어야 합니다.' }
-}
+if ($volume) { Invoke-Checked { docker volume rm $volume } 'Could not remove the PostgreSQL volume.' }
 
-if (-not (Test-Path -LiteralPath $metadataPath)) { throw "FAQ 벡터 메타데이터를 찾을 수 없습니다: $metadataPath" }
-$metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($metadata.dimensions -ne 1024 -or (@($metadata.inputColumns) -join ',') -ne 'question') {
-    throw 'FAQ 벡터는 question 컬럼만으로 만든 1024차원이어야 합니다. generate_faq_vectors.py 를 --input-columns question 으로 다시 실행하세요.'
-}
-if ([string]::IsNullOrWhiteSpace([string] $metadata.embeddingModel)) { throw 'FAQ 벡터 메타데이터에 embeddingModel 값이 없습니다.' }
-$embeddingModel = Escape-SqlLiteral ([string] $metadata.embeddingModel)
-
-$postgresContainerId = (& docker compose ps --all --quiet postgres).Trim()
-if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL 컨테이너 정보를 확인하지 못했습니다.' }
-$postgresVolume = $null
-if ($postgresContainerId) {
-    $container = (& docker inspect $postgresContainerId | ConvertFrom-Json)
-    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL 데이터 볼륨을 확인하지 못했습니다.' }
-    $postgresVolume = @($container.Mounts | Where-Object { $_.Destination -eq '/var/lib/postgresql' } | Select-Object -ExpandProperty Name)[0]
-    if (-not $postgresVolume) { throw 'PostgreSQL 데이터 볼륨을 찾지 못했습니다.' }
-    Invoke-Checked { docker compose rm --force --stop postgres } 'PostgreSQL 컨테이너를 제거하지 못했습니다.'
-}
-if ($postgresVolume) { Invoke-Checked { docker volume rm $postgresVolume } "PostgreSQL 데이터 볼륨($postgresVolume)을 삭제하지 못했습니다." }
-
-Invoke-Checked { docker compose up -d --build postgres } 'PostgreSQL 컨테이너를 시작하지 못했습니다.'
-$postgresContainerId = (& docker compose ps --quiet postgres).Trim()
-if (-not $postgresContainerId) { throw '새 PostgreSQL 컨테이너를 찾지 못했습니다.' }
-$postgresContainer = (& docker inspect $postgresContainerId | ConvertFrom-Json)
-$network = @($postgresContainer.NetworkSettings.Networks.PSObject.Properties.Name)[0]
-if (-not $network) { throw 'PostgreSQL Docker 네트워크를 찾지 못했습니다.' }
-
+Invoke-Checked { docker compose up -d --build postgres } 'Could not start PostgreSQL.'
+$containerId = (& docker compose ps --quiet postgres).Trim()
+if (-not $containerId) { throw 'Could not locate the new PostgreSQL container.' }
+$container = (& docker inspect $containerId | ConvertFrom-Json)
+$network = @($container.NetworkSettings.Networks.PSObject.Properties.Name)[0]
+if (-not $network) { throw 'Could not locate the PostgreSQL Docker network.' }
 $databaseName = (& docker compose exec -T postgres printenv POSTGRES_DB).Trim()
 $databaseUser = (& docker compose exec -T postgres printenv POSTGRES_USER).Trim()
 $databasePassword = (& docker compose exec -T postgres printenv POSTGRES_PASSWORD).Trim()
-if (-not $databaseName -or -not $databaseUser -or -not $databasePassword) { throw 'PostgreSQL 접속 정보를 읽지 못했습니다.' }
+if (-not $databaseName -or -not $databaseUser -or -not $databasePassword) { throw 'Could not read PostgreSQL connection settings.' }
 
 Invoke-Checked {
     docker run --rm --network $network `
@@ -68,81 +45,39 @@ Invoke-Checked {
         "-url=jdbc:postgresql://postgres:5432/$databaseName" `
         "-user=$databaseUser" "-password=$databasePassword" `
         '-baselineOnMigrate=true' '-baselineVersion=0' '-connectRetries=10' migrate
-} 'Flyway 마이그레이션 적용에 실패했습니다.'
+} 'Flyway migration failed.'
 
-$temporarySqlPath = Join-Path ([System.IO.Path]::GetTempPath()) "ubot-baseline-seed-$([guid]::NewGuid()).sql"
 try {
-    $sql = [System.Text.StringBuilder]::new()
-    [void] $sql.AppendLine('BEGIN;')
-    [void] $sql.AppendLine('CREATE EXTENSION IF NOT EXISTS pgcrypto;')
-    [void] $sql.AppendLine(@"
-INSERT INTO users (email, password_hash, name, "role")
-VALUES
-  ('user@user.com', crypt('12345678', gen_salt('bf')), 'Default User', 'USER'),
-  ('admin@admin.com', crypt('12345678', gen_salt('bf')), 'Default Admin', 'ADMIN');
-CREATE TEMP TABLE baseline_faq_seed (
-  category TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
-  intent TEXT NOT NULL, vector vector(1024) NOT NULL
-) ON COMMIT DROP;
-"@)
-    foreach ($row in $faqRows) {
-        $category = Escape-SqlLiteral $row.category; $question = Escape-SqlLiteral $row.question
-        $answer = Escape-SqlLiteral $row.answer; $intent = Escape-SqlLiteral $row.intent; $vector = Escape-SqlLiteral $row.vector
-        [void] $sql.AppendLine("INSERT INTO baseline_faq_seed VALUES ('$category', '$question', '$answer', '$intent', '$vector');")
+    for ($part = 1; $part -le 5; $part++) {
+        foreach ($prefix in @('baseline-faqs', 'baseline-faq-variants')) {
+            $filename = "$prefix-$part.csv"
+            Invoke-Checked { docker cp (Join-Path $seedPath $filename) "${containerId}:/tmp/$filename" } "Could not copy $filename."
+        }
     }
-    [void] $sql.AppendLine(@"
-INSERT INTO faq_category (name) SELECT DISTINCT category FROM baseline_faq_seed ORDER BY category;
-INSERT INTO faq (category_id, question, answer, intent, admin_id)
-SELECT category.id, seed.question, seed.answer, seed.intent, admin.user_id
-FROM baseline_faq_seed seed
-JOIN faq_category category ON category.name = seed.category
-JOIN users admin ON admin.email = 'admin@admin.com';
-INSERT INTO embedding_profiles (provider, model_name, dimensions, profile_version)
-VALUES ('ollama', '$embeddingModel', 1024, 1)
-ON CONFLICT (provider, model_name, dimensions, profile_version) DO NOTHING;
-INSERT INTO faq_embeddings (faq_id, profile_id, vector_type, faq_version, vector)
-SELECT faq.id, profile.profile_id, 'QUESTION', faq.version, seed.vector
-FROM baseline_faq_seed seed
-JOIN faq ON faq.question = seed.question
-JOIN embedding_profiles profile
-  ON profile.provider = 'ollama' AND profile.model_name = '$embeddingModel'
- AND profile.dimensions = 1024 AND profile.profile_version = 1;
-COMMIT;
-"@)
-    [System.IO.File]::WriteAllText($temporarySqlPath, $sql.ToString(), [System.Text.UTF8Encoding]::new($false))
-    Invoke-Checked { docker cp $temporarySqlPath "${postgresContainerId}:/tmp/baseline-seed.sql" } '기본 데이터 SQL을 PostgreSQL 컨테이너에 복사하지 못했습니다.'
-    Invoke-Checked { docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U $databaseUser -d $databaseName -f /tmp/baseline-seed.sql } '기본 데이터 삽입에 실패했습니다.'
+    Invoke-Checked { docker cp $sqlPath "${containerId}:/tmp/seed-baseline.sql" } 'Could not copy seed SQL.'
+    Invoke-Checked {
+        docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
+            -U $databaseUser -d $databaseName -f /tmp/seed-baseline.sql
+    } 'Baseline seed import failed.'
 } finally {
-    Remove-Item -LiteralPath $temporarySqlPath -ErrorAction SilentlyContinue
-    if ($postgresContainerId) { docker exec $postgresContainerId rm -f /tmp/baseline-seed.sql 2>$null }
+    if ($containerId) {
+        docker exec $containerId sh -c 'rm -f /tmp/baseline-faqs-*.csv /tmp/baseline-faq-variants-*.csv /tmp/seed-baseline.sql' 2>$null
+    }
 }
 
-$verificationOutput = & docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
-    -U $databaseUser -d $databaseName -At -F '|' -c @"
+$verification = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
+    -U $databaseUser -d $databaseName -At -F '|' -c @'
 SELECT
-  (SELECT
-    count(*) = 2
-    AND count(*) FILTER (WHERE email = 'user@user.com' AND "role" = 'USER'
-      AND crypt('12345678', password_hash) = password_hash) = 1
-    AND count(*) FILTER (WHERE email = 'admin@admin.com' AND "role" = 'ADMIN'
-      AND crypt('12345678', password_hash) = password_hash) = 1
-   FROM users) AS users_ok,
-  (SELECT count(*) = 17 FROM faq_category) AS categories_ok,
-  (SELECT count(*) = 1000 FROM faq) AS faqs_ok,
-  (SELECT
-    count(*) = 1000
-    AND min(vector_dims(vector)) = 1024
-    AND max(vector_dims(vector)) = 1024
-   FROM faq_embeddings
-   WHERE vector_type = 'QUESTION') AS faq_vectors_ok;
-"@
-
-if ($LASTEXITCODE -ne 0) { throw '기본 데이터 검증 쿼리 실행에 실패했습니다.' }
-
-$verification = ($verificationOutput | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 1).Trim()
-if ($verification -ne 't|t|t|t') {
-    throw "기본 데이터 검증에 실패했습니다. 검증 결과: $verification"
+  (SELECT count(*) FROM users),
+  (SELECT count(*) FROM faq_category),
+  (SELECT count(*) FROM faq),
+  (SELECT count(*) FROM faq_question_variants),
+  (SELECT count(*) FROM faq_embeddings WHERE vector_type = 'QUESTION_ANSWER'),
+  (SELECT count(*) FROM faq_embeddings WHERE vector_type <> 'QUESTION_ANSWER'),
+  (SELECT min(vector_dims(vector)) FROM faq_embeddings),
+  (SELECT max(vector_dims(vector)) FROM faq_embeddings);
+'@).Trim()
+if ($LASTEXITCODE -ne 0 -or $verification -ne '2|17|1000|5000|5000|0|1024|1024') {
+    throw "Baseline seed verification failed: $verification"
 }
-
-Write-Host 'DB Reset Completed.'
-Write-Host 'FAQ 벡터는 QUESTION 유형만 넣었습니다. QUESTION_ANSWER 벡터는 백엔드를 시작한 뒤 tools\backfill-embeddings.ps1로 채웁니다.'
+Write-Host 'DB reset and baseline seed completed: 1000 FAQs, 5000 variants, 5000 QUESTION_ANSWER vectors.'

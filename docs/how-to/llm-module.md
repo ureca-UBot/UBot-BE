@@ -296,7 +296,7 @@ WHERE f.deleted_at IS NULL;
 
 배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)는 CSV의 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. 그래서 `AI_MODE=ollama`(기본)에서 `QUESTION`으로 검색할 때는 시드 뒤에 백필이 필요 없고, vLLM처럼 다른 Profile을 쓸 때 실행합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)). CSV에는 `QUESTION` 벡터만 있으므로, `QUESTION_ANSWER` 벡터는 어느 모드에서든 백필로 채웁니다.
+시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)는 variant CSV의 `QUESTION_ANSWER` 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. `QUESTION` 유형이나 vLLM처럼 다른 Profile을 검색하려면 백필로 해당 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|
