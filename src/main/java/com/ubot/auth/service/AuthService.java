@@ -17,6 +17,7 @@ import com.ubot.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,12 +37,16 @@ public class AuthService {
 	private final PasswordEncoder passwordEncoder;
 	private final JwtUtil jwtUtil;
 	private final RefreshTokenService refreshTokenService;
+	private final LoginAttemptService loginAttemptService;
+	private final AccessTokenRevocationService accessTokenRevocationService;
 	private final UserService userService;
+	private static final String DUMMY_PASSWORD_HASH = new BCryptPasswordEncoder().encode("timing-equalizer");
+
 	private static final Pattern EMAIL_PATTERN =
 			Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
 	@Transactional
-	public LoginResponseDto loginUser(LoginRequestDto requestDto) {
+	public LoginResponseDto loginUser(LoginRequestDto requestDto, String ip) {
 		if (requestDto == null
 				|| !StringUtils.hasText(requestDto.email())
 				|| !StringUtils.hasText(requestDto.password())) {
@@ -49,21 +54,26 @@ public class AuthService {
 		}
 
 		String email = requestDto.email().trim().toLowerCase(Locale.ROOT);
-		User user = userService.getActiveUserByEmail(email).orElse(null);
+		loginAttemptService.validateNotLocked(email, ip);
 
-		if (user == null
-				|| !passwordEncoder.matches(requestDto.password(), user.getHashedPassword())
-		) {
+		User user = userService.getActiveUserByEmail(email).orElse(null);
+		boolean passwordMatches = passwordEncoder.matches(
+				requestDto.password(),
+				user == null ? DUMMY_PASSWORD_HASH : user.getHashedPassword());
+
+		if (user == null || !passwordMatches) {
+			loginAttemptService.recordFailure(email, ip);
 			throw new UserException(UserErrorCode.LOGIN_FAILED);
 		}
 
+		loginAttemptService.recordSuccess(email);
 		String accessToken = jwtUtil.createAccessToken(user);
-		String refreshToken = refreshTokenService.createOrUpdate(user);
+		String refreshToken = refreshTokenService.issue(user);
 
 		return new LoginResponseDto(accessToken, refreshToken);
 	}
 
-	@Transactional
+	@Transactional(noRollbackFor = MyJwtException.class)
 	public LoginResponseDto refreshAccessToken(RefreshTokenRequestDto requestDto) {
 		if (requestDto == null
 				|| !StringUtils.hasText(requestDto.refreshToken())
@@ -83,7 +93,7 @@ public class AuthService {
 			throw new MyJwtException(JwtErrorCode.DELETED_USER_TOKEN);
 		}
 		String accessToken = jwtUtil.createAccessToken(user);
-		String refreshToken = refreshTokenService.createOrUpdate(user);
+		String refreshToken = refreshTokenService.rotate(storedRefreshToken);
 		log.info("접근 토큰을 재발급했습니다: 사용자ID={}", user.getId());
 
 		return new LoginResponseDto(accessToken, refreshToken);
@@ -92,6 +102,7 @@ public class AuthService {
 	@Transactional
 	public void logoutUser(Long userId) {
 		refreshTokenService.deleteByUserId(userId);
+		accessTokenRevocationService.revokeAll(userId);
 	}
 
 	public void signupUser(SignupRequestDto requestDto) {

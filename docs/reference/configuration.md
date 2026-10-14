@@ -116,6 +116,7 @@ src/main/resources/
 | `JWT_SECRET` | `JwtUtil` | 안내 문구 (**변경 필수**) | 없음 |
 | `JWT_ACCESS_TOKEN_EXPIRATION_MILLIS` | `JwtUtil` | `600000` (10분) | `3600000` (1시간) |
 | `JWT_REFRESH_TOKEN_EXPIRATION_DAYS` | `RefreshTokenService` | `14` | `14` |
+| `CORS_ALLOWED_ORIGINS` | `SecurityConfig` | (빈 값) | (빈 값, 같은 origin만 허용) |
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택. CD는 서버 `.env`의 이 값이 `prod`인지 검사 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.

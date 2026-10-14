@@ -7,7 +7,9 @@ import com.ubot.auth.dto.request.RefreshTokenRequestDto;
 import com.ubot.auth.dto.request.SignupRequestDto;
 import com.ubot.auth.dto.response.LoginResponseDto;
 import com.ubot.auth.service.AuthService;
+import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,11 +22,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AuthController {
 	private final AuthService authService;
+	private final ClientIpResolver clientIpResolver;
 
 	@PostMapping("/login")
 	public ApiResponse<LoginResponseDto> loginUser(
-			@RequestBody LoginRequestDto requestDto){
-		return ApiResponse.success(authService.loginUser(requestDto));
+			@RequestBody LoginRequestDto requestDto,
+			HttpServletRequest request){
+		return ApiResponse.success(authService.loginUser(requestDto, clientIpResolver.resolve(request)));
 	}
 
 	@PostMapping("/refresh")

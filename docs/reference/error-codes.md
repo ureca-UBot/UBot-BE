@@ -54,10 +54,13 @@
 | `JWT-005` | 401 | `DELETED_USER_TOKEN` | 삭제된 유저의 토큰입니다. |
 | `JWT-006` | 409 | `DUPLICATED_CREATE_REFRESH_TOKEN` | 이미 RefreshToken이 생성되었습니다. |
 | `JWT-007` | 401 | `EXPIRED_ACCESS_TOKEN` | 해당 AccessToken은 만료된 토큰입니다. |
+| `JWT-008` | 401 | `REFRESH_TOKEN_REUSED` | 이미 사용된 RefreshToken입니다. 다시 로그인해주세요. |
+| `JWT-009` | 401 | `REVOKED_ACCESS_TOKEN` | 로그아웃된 AccessToken입니다. 다시 로그인해주세요. |
 
 
-- `JWT-007`이 오면 `/auth/refresh`로 재발급합니다. 재발급 요청이 `JWT-001`·`JWT-002`·`JWT-003`·`JWT-005`로 거절되면 다시 로그인해야 합니다. 흐름은 [프론트 연동 가이드](../how-to/frontend-integration.md#인증) 참고.
+- `JWT-007`이 오면 `/auth/refresh`로 재발급합니다. 재발급 요청이 `JWT-001`·`JWT-002`·`JWT-003`·`JWT-005`·`JWT-008`로 거절되면 다시 로그인해야 합니다. 흐름은 [프론트 연동 가이드](../how-to/frontend-integration.md#인증) 참고.
 - `JWT-004`: 서명·형식이 잘못된 access token. 재발급으로 해결되지 않습니다.
+- `JWT-009`: 로그아웃했거나 refresh token 재사용이 감지된 뒤의 access token. 만료 전이어도 거부합니다. 재발급으로 해결되지 않으므로 다시 로그인해야 합니다.
 
 ## 사용자
 
@@ -76,6 +79,7 @@
 | `USER-011` | 400 | `INVALID_GENDER_FORMAT` | 성별 입력이 올바르지 않습니다. |
 | `USER-012` | 400 | `INVALID_RESIDENCE_FORMAT` | 사는 지역 입력이 올바르지 않습니다. |
 | `USER-013` | 400 | `INVALID_USER_UPDATE_REQUEST` | 수정할 항목이 없습니다. |
+| `USER-014` | 429 | `LOGIN_TEMPORARILY_LOCKED` | 로그인 실패가 반복되어 잠시 로그인할 수 없습니다. 잠시 후 다시 시도해주세요. |
 
 
 - `USER-001`: 토큰은 유효하지만 사용자가 탈퇴(`deleted_at`)했거나 없을 때 인증 필터에서도 발생합니다.

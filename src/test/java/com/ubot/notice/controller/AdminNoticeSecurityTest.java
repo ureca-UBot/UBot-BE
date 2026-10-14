@@ -19,6 +19,7 @@ import com.ubot.auth.config.JwtAccessDeniedHandler;
 import com.ubot.auth.config.JwtAuthenticationEntryPoint;
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.auth.config.SecurityConfig;
+import com.ubot.auth.service.AccessTokenRevocationService;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.notice.service.AdminNoticeService;
 import com.ubot.user.repository.UserRepository;
@@ -39,6 +40,9 @@ class AdminNoticeSecurityTest {
 
     @MockitoBean
     private AdminNoticeService adminNoticeService;
+
+    @MockitoBean
+    private AccessTokenRevocationService accessTokenRevocationService;
 
     @MockitoBean
     private JwtUtil jwtUtil;

@@ -22,7 +22,8 @@ public enum UserErrorCode implements ErrorCode {
     INVALID_NAME_FORMAT(HttpStatus.BAD_REQUEST, "USER-010", "이름 입력이 올바르지 않습니다."),
     INVALID_GENDER_FORMAT(HttpStatus.BAD_REQUEST, "USER-011", "성별 입력이 올바르지 않습니다."),
     INVALID_RESIDENCE_FORMAT(HttpStatus.BAD_REQUEST, "USER-012", "사는 지역 입력이 올바르지 않습니다."),
-    INVALID_USER_UPDATE_REQUEST(HttpStatus.BAD_REQUEST, "USER-013", "수정할 항목이 없습니다.");
+    INVALID_USER_UPDATE_REQUEST(HttpStatus.BAD_REQUEST, "USER-013", "수정할 항목이 없습니다."),
+    LOGIN_TEMPORARILY_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "USER-014", "로그인 실패가 반복되어 잠시 로그인할 수 없습니다. 잠시 후 다시 시도해주세요.");
 
     private final HttpStatus status;
     private final String code;
