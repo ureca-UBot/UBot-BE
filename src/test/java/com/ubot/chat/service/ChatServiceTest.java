@@ -28,6 +28,7 @@ import com.ubot.faq.entity.Faq;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
@@ -115,7 +116,7 @@ class ChatServiceTest {
 				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, embeddingService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
-				vector, ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
 		service = new ChatService(attemptsService, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attemptsService, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);
