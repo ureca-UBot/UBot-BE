@@ -57,12 +57,14 @@ public class Faq {
 			FaqCategory category,
 			String question,
 			String answer,
-			Intent intent
+			Intent intent,
+			boolean cacheable
 	){
 		this.faqCategory = category;
 		this.question = question;
 		this.answer = answer;
 		this.intent = intent;
+		this.cacheable = cacheable;
 		this.updatedAt = LocalDateTime.now();
 		this.version++;
 	}

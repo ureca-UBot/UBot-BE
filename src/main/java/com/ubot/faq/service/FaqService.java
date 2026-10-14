@@ -54,6 +54,7 @@ public class FaqService {
 				.question(requestDto.question())
 				.answer(requestDto.answer())
 				.intent(requestDto.intent())
+				.cacheable(requestDto.cacheable())
 				.createdAt(LocalDateTime.now())
 				.updatedAt(LocalDateTime.now())
 				.build();
@@ -131,7 +132,8 @@ public class FaqService {
 		        category,
 		        requestDto.question(),
 		        requestDto.answer(),
-		        requestDto.intent()
+		        requestDto.intent(),
+		        requestDto.cacheable()
 		);
 
 		Faq savedFaq = faqRepository.save(faq);
