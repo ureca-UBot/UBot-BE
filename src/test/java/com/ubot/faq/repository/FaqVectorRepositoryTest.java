@@ -234,7 +234,7 @@ class FaqVectorRepositoryTest {
 
         Integer savedVersion = jdbcTemplate.queryForObject(
                 """
-                SELECT faq_version
+                SELECT source_version
                 FROM faq_embeddings
                 WHERE faq_id = ?
                   AND profile_id = ?
@@ -260,7 +260,7 @@ class FaqVectorRepositoryTest {
 
         Integer savedVersion = jdbcTemplate.queryForObject(
                 """
-                SELECT faq_version
+                SELECT source_version
                 FROM faq_embeddings
                 WHERE faq_id = ?
                   AND profile_id = ?

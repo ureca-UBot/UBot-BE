@@ -1,6 +1,5 @@
 package com.ubot.faq.entity;
 
-import com.pgvector.PGvector;
 import com.ubot.faq.enums.Intent;
 import com.ubot.user.entity.User;
 import jakarta.persistence.*;
@@ -36,6 +35,9 @@ public class Faq {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "intent")
 	private Intent intent;
+
+	@Column(name = "cacheable", nullable = false)
+	private boolean cacheable;
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "admin_id")

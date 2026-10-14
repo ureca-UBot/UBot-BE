@@ -39,7 +39,7 @@ public class FaqVectorRepository {
                 WHERE f.deleted_at IS NULL
                   AND fe.profile_id = ?
                   AND fe.vector_type = ?
-                  AND fe.faq_version = f.version
+                  AND fe.source_version = f.version
                 ORDER BY similarity_score DESC
                 LIMIT ?
                 """;
@@ -81,7 +81,7 @@ public class FaqVectorRepository {
                   AND f.intent = ?
                   AND fe.profile_id = ?
                   AND fe.vector_type = ?
-                  AND fe.faq_version = f.version
+                  AND fe.source_version = f.version
                 ORDER BY similarity_score DESC
                 LIMIT ?
                 """;
@@ -116,13 +116,13 @@ public class FaqVectorRepository {
                     faq_id,
                     profile_id,
                     vector_type,
-                    faq_version,
+                    source_version,
                     vector
                 )
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (faq_id, profile_id, vector_type)
+                ON CONFLICT (faq_id, profile_id, vector_type) WHERE variant_id IS NULL
                 DO UPDATE SET
-                    faq_version = EXCLUDED.faq_version,
+                    source_version = EXCLUDED.source_version,
                     vector = EXCLUDED.vector,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -143,7 +143,7 @@ public class FaqVectorRepository {
         jdbcTemplate.update(
                 """
                 UPDATE faq_embeddings
-                SET faq_version = ?,
+                SET source_version = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE faq_id = ?
                   AND profile_id = ?
@@ -168,7 +168,7 @@ public class FaqVectorRepository {
                 WHERE faq_id = ?
                   AND profile_id = ?
                   AND vector_type = ?
-                  AND faq_version = ?
+                  AND source_version = ?
                 """,
                 Integer.class,
                 faqId,
@@ -177,6 +177,26 @@ public class FaqVectorRepository {
                 faqVersion
         );
 
+        return count != null && count > 0;
+    }
+
+    public void saveVectorForVariant(Long variantId, Long profileId, FaqVectorType vectorType,
+                                     Integer variantVersion, PGvector embedding) {
+        jdbcTemplate.update("""
+                INSERT INTO faq_embeddings (variant_id, profile_id, vector_type, source_version, vector)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (variant_id, profile_id, vector_type) WHERE faq_id IS NULL
+                DO UPDATE SET source_version = EXCLUDED.source_version,
+                              vector = EXCLUDED.vector, updated_at = CURRENT_TIMESTAMP
+                """, variantId, profileId, vectorType.name(), variantVersion, embedding);
+    }
+
+    public boolean hasCurrentVariantVector(Long variantId, Long profileId, FaqVectorType vectorType,
+                                           Integer variantVersion) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM faq_embeddings
+                WHERE variant_id = ? AND profile_id = ? AND vector_type = ? AND source_version = ?
+                """, Integer.class, variantId, profileId, vectorType.name(), variantVersion);
         return count != null && count > 0;
     }
 }
