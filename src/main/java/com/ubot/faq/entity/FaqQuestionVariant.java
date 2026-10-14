@@ -8,6 +8,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
@@ -19,6 +20,7 @@ import lombok.NoArgsConstructor;
 
 /** 원본 FAQ에 연결된 변형 질문. 답변은 원본 FAQ, 벡터는 faq_embeddings에서 관리한다. */
 @Entity
+@Table(name = "faq_question_variants")
 @Getter
 @Builder
 @AllArgsConstructor
@@ -29,19 +31,19 @@ public class FaqQuestionVariant {
     @Column(name = "id")
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "origin_faq_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "origin_faq_id")
     private Faq originFaq;
 
-    @Column(name = "question", nullable = false, length = 160)
+    @Column(name = "question")
     private String question;
 
     @Builder.Default
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
     @Builder.Default
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
     @Column(name = "deleted_at")

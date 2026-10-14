@@ -65,8 +65,8 @@ class FaqQuestionVariantRepositoryTest {
         saveVariantVector(variant, vectorOf(1));
 
         assertThat(faqRepository.findById(originFaqId).orElseThrow().isCacheable()).isFalse();
-        assertThat(variantRepository.findActiveByOriginFaqIdAndQuestion(originFaqId, "이심이 뭐야?"))
-                .isPresent();
+        assertThat(variantRepository.findById(variant.getId()).orElseThrow().getQuestion())
+                .isEqualTo("이심이 뭐야?");
         assertThat(variant.getCreatedAt()).isNotNull();
         assertThat(variant.getUpdatedAt()).isNotNull();
         assertThat(variant.getDeletedAt()).isNull();
@@ -184,8 +184,10 @@ class FaqQuestionVariantRepositoryTest {
         FaqQuestionVariant replacement = createVariant(originFaqId, "이심이 뭐야?");
 
         assertThat(replacement.getId()).isNotEqualTo(firstVariant.getId());
-        assertThat(variantRepository.findAllActiveByOriginFaqId(originFaqId))
-                .extracting(FaqQuestionVariant::getId).containsExactly(replacement.getId());
+        assertThat(variantRepository.findById(firstVariant.getId()).orElseThrow().getDeletedAt())
+                .isNotNull();
+        assertThat(variantRepository.findById(replacement.getId()).orElseThrow().getDeletedAt())
+                .isNull();
     }
 
     @Test
@@ -196,20 +198,20 @@ class FaqQuestionVariantRepositoryTest {
         variant.delete();
         variantRepository.saveAndFlush(variant);
 
-        assertThat(variantRepository.findAllActiveByOriginFaqId(originFaqId)).isEmpty();
+        assertThat(variantRepository.findById(variant.getId()).orElseThrow().getDeletedAt())
+                .isNotNull();
         assertThat(vectorRepository.hasCurrentVariantVector(variant.getId(), profileId)).isFalse();
         assertThat(vectorRepository.saveVectorForVariant(
                 variant.getId(), profileId, variant.getUpdatedAt(), vectorOf(2))).isFalse();
     }
 
     @Test
-    @DisplayName("원본 FAQ soft delete 후 변형 조회와 벡터 사용을 막는다")
+    @DisplayName("원본 FAQ soft delete 후 변형 벡터 사용과 재저장을 막는다")
     void softDeletedOriginIsNotUsable() {
         FaqQuestionVariant variant = createVariant(originFaqId, "이심이 뭐야?");
         saveVariantVector(variant, vectorOf(1));
         jdbcTemplate.update("UPDATE faq SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?", originFaqId);
 
-        assertThat(variantRepository.findAllActiveByOriginFaqId(originFaqId)).isEmpty();
         assertThat(vectorRepository.hasCurrentVariantVector(variant.getId(), profileId)).isFalse();
         assertThat(vectorRepository.saveVectorForVariant(
                 variant.getId(), profileId, variant.getUpdatedAt(), vectorOf(2))).isFalse();
@@ -236,7 +238,7 @@ class FaqQuestionVariantRepositoryTest {
         saveVariantVector(variant, vectorOf(1));
         jdbcTemplate.update("DELETE FROM faq WHERE id = ?", originFaqId);
 
-        assertThat(variantRepository.findAllActiveByOriginFaqId(originFaqId)).isEmpty();
+        assertThat(variantRepository.findById(variant.getId())).isEmpty();
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM faq_embeddings", Integer.class)).isZero();
     }
 

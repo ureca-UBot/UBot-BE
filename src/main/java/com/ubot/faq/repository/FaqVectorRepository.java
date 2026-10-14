@@ -186,14 +186,14 @@ public class FaqVectorRepository {
                                         LocalDateTime sourceUpdatedAt, PGvector embedding) {
         int savedCount = jdbcTemplate.update("""
                 WITH current_variant AS (
-                    SELECT v.id, v.updated_at FROM faq_question_variant v
+                    SELECT v.id, v.updated_at FROM faq_question_variants v
                     JOIN faq f ON f.id = v.origin_faq_id
                     WHERE v.id = ? AND v.updated_at = ? AND v.deleted_at IS NULL AND f.deleted_at IS NULL
                     FOR UPDATE OF v
                 )
-                INSERT INTO faq_embeddings (variant_id, profile_id, vector_type, source_updated_at, vector)
+                INSERT INTO faq_embeddings (faq_question_variant_id, profile_id, vector_type, source_updated_at, vector)
                 SELECT id, ?, 'QUESTION', updated_at, ? FROM current_variant
-                ON CONFLICT (variant_id, profile_id, vector_type) WHERE faq_id IS NULL
+                ON CONFLICT (faq_question_variant_id, profile_id, vector_type)
                 DO UPDATE SET source_updated_at = EXCLUDED.source_updated_at,
                               vector = EXCLUDED.vector, updated_at = CURRENT_TIMESTAMP
                 """, variantId, sourceUpdatedAt, profileId, embedding);
@@ -203,9 +203,9 @@ public class FaqVectorRepository {
     public boolean hasCurrentVariantVector(Long variantId, Long profileId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM faq_embeddings fe
-                JOIN faq_question_variant v ON v.id = fe.variant_id
+                JOIN faq_question_variants v ON v.id = fe.faq_question_variant_id
                 JOIN faq f ON f.id = v.origin_faq_id
-                WHERE fe.variant_id = ? AND fe.profile_id = ? AND fe.vector_type = 'QUESTION'
+                WHERE fe.faq_question_variant_id = ? AND fe.profile_id = ? AND fe.vector_type = 'QUESTION'
                   AND fe.source_updated_at = v.updated_at AND v.deleted_at IS NULL AND f.deleted_at IS NULL
                 """, Integer.class, variantId, profileId);
         return count != null && count > 0;
