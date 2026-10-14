@@ -21,12 +21,25 @@ public class QuestionLogService {
 	@Value("${ranking.window-minutes}")
 	private int rankingWindowMinutes;
 
+	/**
+	 * 하위 질문 하나를 질문 로그 한 행으로 저장합니다. question은 사용자가 입력한 원문이고, 랭킹 중복 판정은 subQuestion으로 합니다.
+	 * 질문을 나누지 않았으면 subQuestion에 원문을, subQuestionIndex에 0을 넘깁니다.
+	 */
 	@Transactional
-	QuestionLog saveAndFlush(Long userId, Long conversationId, String question, String answer, String userIp){
+	QuestionLog saveAndFlush(
+			Long userId,
+			Long conversationId,
+			Long attemptId,
+			String question,
+			String subQuestion,
+			int subQuestionIndex,
+			String answer,
+			String userIp
+	){
 
 		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
 
-		String normalizedQuestion = question
+		String normalizedQuestion = subQuestion
 				.strip()
 				.toLowerCase(Locale.ROOT)
 				.replaceAll("\\s+", " ")
@@ -59,7 +72,10 @@ public class QuestionLogService {
 		QuestionLog questionLog = QuestionLog.builder()
 				.userId(userId)
 				.conversationId(conversationId)
+				.attemptId(attemptId)
 				.userQuestion(question)
+				.subQuestion(subQuestion)
+				.subQuestionIndex(subQuestionIndex)
 				.normalizedQuestion(normalizedQuestion)
 				.answer(answer)
 				.rankingEligible(rankingEligible)

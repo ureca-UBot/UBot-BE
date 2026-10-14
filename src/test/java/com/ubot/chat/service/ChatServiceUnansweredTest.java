@@ -1,6 +1,7 @@
 package com.ubot.chat.service;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -63,7 +64,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
-		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.NO_FAQ, null, null);
+		verify(unanswered).createUnansweredQuestion(1L, 0, "질문", UnansweredReason.NO_FAQ, null, null);
 	}
 
 	@Test
@@ -76,14 +77,14 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
-		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
+		verify(unanswered).createUnansweredQuestion(1L, 0, "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
 	}
 
 	@Test
 	@DisplayName("미응답 저장이 실패해도 채팅 실패 기록은 그대로 남긴다")
 	void keepsChatFailureWhenRecordFails() {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
-		doThrow(new RuntimeException("embedding down")).when(unanswered).createUnansweredQuestion(any(), any(), any(), any(), any());
+		doThrow(new RuntimeException("embedding down")).when(unanswered).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any());
 
 		service.createChat(1L, "질문", null);
 		jobs.poll().run();
@@ -106,6 +107,6 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, "질문", null);
 		jobs.poll().run();
 
-		verify(unanswered, never()).createUnansweredQuestion(any(), any(), any(), any(), any());
+		verify(unanswered, never()).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any());
 	}
 }

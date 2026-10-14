@@ -90,6 +90,7 @@ class DataRetentionPurgeIntegrationTest {
 		createFaqLog(oldQuestion, faqId);
 		createFaqLog(activeQuestion, faqId);
 		Long oldAttempt = createAttempt(userId, oldConversation, fourMonthsAgo);
+		jdbcTemplate.update("UPDATE question_log SET attempt_id = ? WHERE id = ?", oldAttempt, oldQuestion);
 		Long pendingGroup = createUnansweredGroup("PENDING", fourMonthsAgo);
 		Long unansweredQuestion = createUnansweredQuestion(oldAttempt, pendingGroup);
 
@@ -102,6 +103,9 @@ class DataRetentionPurgeIntegrationTest {
 		assertThat(isAnonymized(oldQuestion)).isTrue();
 		assertThat(isAnonymized(guestQuestion)).isTrue();
 		assertThat(count("faq_log", "question_log_id", oldQuestion)).isOne();
+		// 답변 시도가 먼저 지워지므로 질문 로그는 시도와의 연결만 끊깁니다.
+		assertThat(jdbcTemplate.queryForObject(
+				"SELECT attempt_id FROM question_log WHERE id = ?", Long.class, oldQuestion)).isNull();
 		// 진행 중인 대화는 안의 질문이 오래됐어도 대화 기록 화면에 쓰이므로 그대로 둡니다.
 		assertThat(exists("conversations", "conversation_id", activeConversation)).isTrue();
 		assertThat(isAnonymized(activeQuestion)).isFalse();
@@ -248,6 +252,7 @@ class DataRetentionPurgeIntegrationTest {
 	private boolean isAnonymized(Long questionLogId) {
 		return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
 				SELECT anonymized_at IS NOT NULL AND user_question = '' AND llm_question = ''
+				       AND normalized_question = '' AND sub_question = ''
 				       AND user_id IS NULL AND conversation_id IS NULL
 				FROM question_log WHERE id = ?
 				""", Boolean.class, questionLogId));
@@ -308,8 +313,9 @@ class DataRetentionPurgeIntegrationTest {
 
 	private Long createQuestionLog(Long userId, Long conversationId, LocalDateTime createdAt) {
 		Long id = jdbcTemplate.queryForObject("""
-				INSERT INTO question_log (user_id, user_question, llm_question, conversation_id, created_at)
-				VALUES (?, 'q', 'q', ?, ?)
+				INSERT INTO question_log (user_id, user_question, sub_question, normalized_question, llm_question,
+				                          conversation_id, created_at)
+				VALUES (?, 'q', 'q', 'q', 'q', ?, ?)
 				RETURNING id
 				""", Long.class, userId, conversationId, createdAt);
 		questionLogIds.add(id);
@@ -342,7 +348,7 @@ class DataRetentionPurgeIntegrationTest {
 
 	private Long createUnansweredQuestion(Long attemptId, Long groupId) {
 		return jdbcTemplate.queryForObject("""
-				INSERT INTO unanswered_questions (attempt_id, group_id, question, reason)
+				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, reason)
 				VALUES (?, ?, 'q', 'NO_FAQ')
 				RETURNING id
 				""", Long.class, attemptId, groupId);

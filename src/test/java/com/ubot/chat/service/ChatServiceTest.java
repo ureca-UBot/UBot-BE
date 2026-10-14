@@ -99,12 +99,16 @@ class ChatServiceTest {
 				.thenAnswer(call -> saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
 						&& a.getIdempotencyKey().equals(call.getArgument(1)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
-		when(questions.saveAndFlush(any(), any(), anyString(), anyString(), isNull())).thenAnswer(call -> {
+		when(questions.saveAndFlush(any(), any(), any(), anyString(), anyString(), anyInt(), anyString(), isNull()))
+				.thenAnswer(call -> {
 			QuestionLog result = QuestionLog.builder()
 					.userId(call.getArgument(0))
 					.conversationId(call.getArgument(1))
-					.userQuestion(call.getArgument(2))
-					.answer(call.getArgument(3))
+					.attemptId(call.getArgument(2))
+					.userQuestion(call.getArgument(3))
+					.subQuestion(call.getArgument(4))
+					.subQuestionIndex(call.getArgument(5))
+					.answer(call.getArgument(6))
 					.build();
 			ReflectionTestUtils.setField(result, "id", 10L);
 			return result;
@@ -162,7 +166,8 @@ class ChatServiceTest {
 				.doesNotContain("event:", "data:");
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
-		verify(questions).saveAndFlush(1L, null, "질문", "생성된 답변", null);
+		// 질문을 나누기 전까지는 원문을 하위 질문 1개(순번 0)로 저장하고 답변 시도와 연결합니다.
+		verify(questions).saveAndFlush(1L, null, saved.getFirst().getId(), "질문", "질문", 0, "생성된 답변", null);
 		verify(faqLogs).saveAll(argThat(items -> {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(list::add);
@@ -492,7 +497,7 @@ class ChatServiceTest {
 				ChatAttemptsService.createGuestIdempotencyKey(7L, "질문", attempt.getCreatedAt())).hasSize(64);
 		assertThat(ChatAttemptsService.createGuestIdempotencyKey(8L, "질문", attempt.getCreatedAt()))
 				.isNotEqualTo(attempt.getIdempotencyKey());
-		verify(questions).saveAndFlush(null, 7L, "질문", "생성된 답변", null);
+		verify(questions).saveAndFlush(null, 7L, attempt.getId(), "질문", "질문", 0, "생성된 답변", null);
 	}
 
 	@Test void guestQuestionLimitCountsAnswersAndMissingFaqButNotSystemFailures() {

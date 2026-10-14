@@ -1,6 +1,7 @@
 package com.ubot.unanswered.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.BDDMockito.given;
 
 import java.util.UUID;
@@ -19,6 +20,7 @@ import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.unanswered.entity.UnansweredQuestion;
 import com.ubot.unanswered.entity.UnansweredQuestionGroup;
 import com.ubot.unanswered.enums.UnansweredGroupStatus;
 import com.ubot.unanswered.enums.UnansweredReason;
@@ -106,6 +108,7 @@ class UnansweredQuestionServiceTest {
     void similarQuestionsJoinSameGroup() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
+                0,
                 "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -114,6 +117,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
+                0,
                 "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.INSUFFICIENT_FAQ,
                 null,
@@ -171,6 +175,7 @@ class UnansweredQuestionServiceTest {
     void differentQuestionCreatesNewGroup() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
+                0,
                 "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -179,6 +184,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("요금제 해지 위약금"),
+                0,
                 "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -197,6 +203,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attemptId,
+                0,
                 "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -205,6 +212,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attemptId,
+                0,
                 "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -234,6 +242,7 @@ class UnansweredQuestionServiceTest {
     void rejectedGroupIsNotJoined() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
+                0,
                 "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -249,6 +258,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
+                0,
                 "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -264,6 +274,7 @@ class UnansweredQuestionServiceTest {
     void doesNotJoinGroupFromAnotherProfile() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
+                0,
                 "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -277,6 +288,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
+                0,
                 "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -287,7 +299,96 @@ class UnansweredQuestionServiceTest {
                 .isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("한 답변 시도에서 실패한 하위 질문은 각각 저장한다")
+    void savesEachFailedSubQuestionOfOneAttempt() {
+        Long attemptId =
+                attempt("해외 데이터랑 해지 위약금 알려줘");
+
+        service.createUnansweredQuestion(
+                attemptId,
+                0,
+                "해외에서 데이터가 안 돼요",
+                UnansweredReason.NO_FAQ,
+                null,
+                null
+        );
+
+        service.createUnansweredQuestion(
+                attemptId,
+                1,
+                "요금제 해지 위약금",
+                UnansweredReason.NO_FAQ,
+                null,
+                null
+        );
+
+        assertThat(questionRepository.findAll())
+                .extracting(
+                        UnansweredQuestion::getSubQuestionIndex,
+                        UnansweredQuestion::getSubQuestion
+                )
+                .containsExactlyInAnyOrder(
+                        tuple(0, "해외에서 데이터가 안 돼요"),
+                        tuple(1, "요금제 해지 위약금")
+                );
+    }
+
+    @Test
+    @DisplayName("재시도가 다시 실패해도 이미 기록한 하위 질문은 저장하지 않고, 새 하위 질문만 저장한다")
+    void retryDoesNotRecordSameSubQuestionAgain() {
+        String idempotencyKey = UUID.randomUUID().toString();
+        Long firstAttempt = attempt("해외에서 데이터가 안 돼요", idempotencyKey, 1);
+        Long retryAttempt = attempt("해외에서 데이터가 안 돼요", idempotencyKey, 2);
+
+        service.createUnansweredQuestion(
+                firstAttempt,
+                0,
+                "해외에서 데이터가 안 돼요",
+                UnansweredReason.NO_FAQ,
+                null,
+                null
+        );
+
+        // 재시도는 하위 질문을 다시 만들므로 순번이 달라져도 같은 문장이면 건너뜁니다.
+        service.createUnansweredQuestion(
+                retryAttempt,
+                1,
+                "해외에서 데이터가 안 돼요",
+                UnansweredReason.NO_FAQ,
+                null,
+                null
+        );
+
+        service.createUnansweredQuestion(
+                retryAttempt,
+                0,
+                "요금제 해지 위약금",
+                UnansweredReason.NO_FAQ,
+                null,
+                null
+        );
+
+        assertThat(questionRepository.findAll())
+                .extracting(
+                        UnansweredQuestion::getAttemptId,
+                        UnansweredQuestion::getSubQuestion
+                )
+                .containsExactlyInAnyOrder(
+                        tuple(firstAttempt, "해외에서 데이터가 안 돼요"),
+                        tuple(retryAttempt, "요금제 해지 위약금")
+                );
+    }
+
     private Long attempt(String question) {
+        return attempt(question, UUID.randomUUID().toString(), 1);
+    }
+
+    private Long attempt(
+            String question,
+            String idempotencyKey,
+            int attemptCount
+    ) {
         return jdbcTemplate.queryForObject(
                 """
                 INSERT INTO answer_attempts_history (
@@ -297,13 +398,14 @@ class UnansweredQuestionServiceTest {
                     status,
                     idempotency_key
                 )
-                VALUES (?, ?, 1, 'FAIL', ?)
+                VALUES (?, ?, ?, 'FAIL', ?)
                 RETURNING attempt_id
                 """,
                 Long.class,
                 userId,
                 question,
-                UUID.randomUUID().toString()
+                attemptCount,
+                idempotencyKey
         );
     }
 

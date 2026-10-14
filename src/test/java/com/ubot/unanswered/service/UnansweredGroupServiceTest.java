@@ -137,7 +137,7 @@ class UnansweredGroupServiceTest {
 				Long.class, userId, question, UUID.randomUUID().toString());
 		jdbcTemplate.update(
 				"""
-				INSERT INTO unanswered_questions (attempt_id, group_id, question, reason, created_at)
+				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, reason, created_at)
 				VALUES (?, ?, ?, 'NO_FAQ', ?::timestamp)
 				""",
 				attemptId, groupId, question, createdAt);

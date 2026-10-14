@@ -110,8 +110,10 @@ public class ChatAnswerProcessor {
 			return;
 		}
 		try {
+			// 질문을 나누기 전까지는 원문을 하위 질문 1개(순번 0)로 기록합니다.
 			unansweredQuestionService.createUnansweredQuestion(
 					attempt.getId(),
+					0,
 					attempt.getQuestion(),
 					reason,
 					bestResult == null ? null : bestResult.faqId(),

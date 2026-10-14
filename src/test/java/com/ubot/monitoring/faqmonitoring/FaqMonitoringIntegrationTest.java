@@ -193,7 +193,7 @@ class FaqMonitoringIntegrationTest {
 				VALUES ('미응답 질문', 1, 'PENDING', ?) RETURNING id
 				""", Long.class, createdAt);
 		jdbcTemplate.update("""
-				INSERT INTO unanswered_questions (attempt_id, group_id, question, reason, created_at)
+				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, reason, created_at)
 				VALUES (?, ?, '미응답 질문', 'NO_FAQ', ?)
 				""", attemptId, groupId, createdAt);
 	}

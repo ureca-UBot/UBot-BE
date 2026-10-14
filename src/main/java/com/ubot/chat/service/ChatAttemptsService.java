@@ -205,10 +205,14 @@ public class ChatAttemptsService {
 				return currentAttempt;
 			}
 
+			// 질문을 나누기 전까지는 원문을 하위 질문 1개(순번 0)로 저장합니다.
 			QuestionLog questionLog = questionLogService.saveAndFlush(
 					currentAttempt.getUserId(),
 					currentAttempt.getConversationId(),
+					currentAttempt.getId(),
 					currentAttempt.getQuestion(),
+					currentAttempt.getQuestion(),
+					0,
 					answer,
 					userIp);
 

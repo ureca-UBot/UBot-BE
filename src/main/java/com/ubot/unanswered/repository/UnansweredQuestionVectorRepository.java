@@ -80,8 +80,9 @@ public class UnansweredQuestionVectorRepository {
 
     public void saveQuestion(
             Long attemptId,
+            int subQuestionIndex,
             Long groupId,
-            String question,
+            String subQuestion,
             PGvector vector,
             Long profileId,
             UnansweredReason reason,
@@ -92,19 +93,21 @@ public class UnansweredQuestionVectorRepository {
                 """
                 INSERT INTO unanswered_questions (
                     attempt_id,
+                    sub_question_index,
                     group_id,
-                    question,
+                    sub_question,
                     reason,
                     best_faq_id,
                     best_similarity
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """,
                 Long.class,
                 attemptId,
+                subQuestionIndex,
                 groupId,
-                question,
+                subQuestion,
                 reason.name(),
                 bestFaqId,
                 bestSimilarity

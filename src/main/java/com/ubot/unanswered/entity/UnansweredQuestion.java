@@ -24,8 +24,12 @@ public class UnansweredQuestion {
 	@Column(name = "group_id")
 	private Long groupId;
 
-	@Column(name = "question")
-	private String question;
+	// 실패한 하위 질문입니다. 질문을 나누지 않았으면 사용자가 입력한 원문과 같습니다.
+	@Column(name = "sub_question")
+	private String subQuestion;
+
+	@Column(name = "sub_question_index")
+	private int subQuestionIndex;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "reason")

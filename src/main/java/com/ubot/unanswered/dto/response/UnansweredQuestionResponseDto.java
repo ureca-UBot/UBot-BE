@@ -16,7 +16,7 @@ public record UnansweredQuestionResponseDto(
 	public static UnansweredQuestionResponseDto from(UnansweredQuestion question){
 		return new UnansweredQuestionResponseDto(
 				question.getId(),
-				question.getQuestion(),
+				question.getSubQuestion(),
 				question.getReason(),
 				question.getBestFaqId(),
 				question.getBestSimilarity(),

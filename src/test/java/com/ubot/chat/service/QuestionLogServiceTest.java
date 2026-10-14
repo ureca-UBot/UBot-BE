@@ -43,7 +43,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, null," 질문 ? ", "답변", ip);
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null, 100L, " 질문 ? ", " 질문 ? ", 0, "답변", ip);
 
 		assertThat(saved.getUserId()).isEqualTo(1L);
 		assertThat(saved.getUserQuestion()).isEqualTo(" 질문 ? ");
@@ -54,13 +54,31 @@ class QuestionLogServiceTest {
 	}
 
 	@Test
+	@DisplayName("하위 질문은 원문과 함께 답변 시도에 연결해 저장하고, 랭킹 중복 판정은 하위 질문으로 한다")
+	void savesSubQuestionAndNormalizesItForRanking() {
+		when(ipRegionResolver.resolve("127.0.0.1")).thenReturn(Optional.empty());
+		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
+				anyLong(), anyString(), any(), any())).thenReturn(false);
+
+		QuestionLog saved = questionLogService.saveAndFlush(
+				1L, null, 100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량?", 1, "답변", "127.0.0.1");
+
+		assertThat(saved.getAttemptId()).isEqualTo(100L);
+		assertThat(saved.getUserQuestion()).isEqualTo("5G 프리미엄 요금이랑 데이터 알려줘");
+		assertThat(saved.getSubQuestion()).isEqualTo("5G 프리미엄 데이터 제공량?");
+		assertThat(saved.getSubQuestionIndex()).isEqualTo(1);
+		assertThat(saved.getNormalizedQuestion()).isEqualTo("5g 프리미엄 데이터 제공량");
+		verify(questionLogRepository).acquireAdvisoryLock(("1:5g 프리미엄 데이터 제공량").hashCode());
+	}
+
+	@Test
 	@DisplayName("할당된 지역이 없는 IP는 지역을 null로 저장한다")
 	void savesNullRegionWhenIpHasNoAssignedRegion() {
 		when(ipRegionResolver.resolve("127.0.0.1")).thenReturn(Optional.empty());
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, null,"질문", "답변", "127.0.0.1");
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null, 100L, "질문", "질문", 0, "답변", "127.0.0.1");
 
 		assertThat(saved.getRegion()).isNull();
 		assertThat(saved.getRankingEligible()).isTrue();
@@ -71,7 +89,7 @@ class QuestionLogServiceTest {
 	void savesGuestQuestionWithoutLockOrRankingCheck() {
 		when(ipRegionResolver.resolve("region-ip")).thenReturn(Optional.of(RegionSido.SEOUL));
 
-		QuestionLog saved = questionLogService.saveAndFlush(null, 7L, "질문", "답변", "region-ip");
+		QuestionLog saved = questionLogService.saveAndFlush(null, 7L, 100L, "질문", "질문", 0, "답변", "region-ip");
 
 		assertThat(saved.getUserId()).isNull();
 		assertThat(saved.getConversationId()).isEqualTo(7L);
@@ -88,7 +106,7 @@ class QuestionLogServiceTest {
 		when(questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
 				anyLong(), anyString(), any(), any())).thenReturn(true);
 
-		QuestionLog saved = questionLogService.saveAndFlush(1L, null,"질문", "답변", "region-ip");
+		QuestionLog saved = questionLogService.saveAndFlush(1L, null, 100L, "질문", "질문", 0, "답변", "region-ip");
 
 		assertThat(saved.getRankingEligible()).isFalse();
 		assertThat(saved.getRegion()).isEqualTo(RegionSido.SEOUL);
