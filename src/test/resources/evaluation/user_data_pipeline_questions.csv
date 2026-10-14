@@ -1,101 +1,101 @@
 번호,질문,로그인,사용자,기대 처리,기대 도구,비고
 1,내 요금제 뭐야?,Y,A,PRELOADED,,요금제명
 2,지금 쓰는 요금제 월정액이 얼마예요?,Y,A,PRELOADED,,월정액
-3,제 요금제 데이터 기본 제공량이 얼마나 되나요?,Y,A,PRELOADED,,요금제 데이터 제공량
-4,내 요금제 데이터 다 쓰면 속도가 어떻게 돼?,Y,A,PRELOADED,,소진 후 속도
-5,제 요금제 통화 무제한인가요?,Y,A,PRELOADED,,음성 제공량
-6,문자는 몇 건까지 보낼 수 있어요?,Y,A,PRELOADED,,문자 제공량
-7,이번 달 데이터 얼마나 썼어?,Y,A,PRELOADED,,최근 사용량
-8,남은 데이터 얼마야?,Y,A,PRELOADED,,최근 사용량 잔여
-9,이번 달 통화 몇 분 했는지 알려줘,Y,A,PRELOADED,,최근 사용량 음성
-10,이번 달 문자 몇 개 보냈어?,Y,A,PRELOADED,,최근 사용량 문자
-11,데이터 잔여량이 얼마나 남았는지 확인해 주세요,Y,A,PRELOADED,,최근 사용량 잔여
-12,사용량은 언제까지 집계된 거예요?,Y,A,PRELOADED,,집계 기준일
-13,이번 달 요금 얼마야?,Y,A,PRELOADED,,최근 청구서 기준 답변과 청구 월 명시
-14,이번 달 청구 금액 알려줘,Y,A,PRELOADED,,최근 청구서
-15,요금 납부 기한이 언제예요?,Y,A,PRELOADED,,최근 청구서 납부 기한
-16,이번 달 요금 냈어?,Y,A,PRELOADED,,최근 청구서 납부 상태
-17,미납된 요금 있어?,Y,A,PRELOADED,,미납 내역
-18,연체된 금액이 얼마예요?,Y,A,PRELOADED,,미납 내역
-19,요금 무슨 방법으로 내고 있어?,Y,A,PRELOADED,,최근 청구서 납부 수단
-20,이번 청구서에 할인 얼마 들어갔어?,Y,A,PRELOADED,,최근 청구서 할인
-21,이번 청구서에서 부가서비스 요금이 얼마 나왔어?,Y,A,PRELOADED,,최근 청구서 항목
-22,약정 언제 끝나요?,Y,A,PRELOADED,,약정 만료일
-23,제가 선택약정인가요 공시지원금인가요?,Y,A,PRELOADED,,약정 종류
-24,약정 할인 얼마 받고 있어?,Y,A,PRELOADED,,약정 할인
-25,휴대폰 할부금 얼마 남았어요?,Y,A,PRELOADED,,할부 잔액
-26,할부 몇 개월 남았어?,Y,A,PRELOADED,,할부 개월
-27,매달 기기 할부금이 얼마씩 나가요?,Y,A,PRELOADED,,월 할부금
-28,내 번호 개통일이 언제야?,Y,A,PRELOADED,,회선 개통일
-29,제 회선 지금 정지 상태인가요?,Y,A,PRELOADED,,회선 상태
-30,회선 몇 개 쓰고 있어?,Y,A,PRELOADED,,이용 중 회선 수
-31,내 회원 가입일 알려줘,Y,A,PRELOADED,,프로필 가입일
-32,제 나이 기준으로 가입 정보에 뭐라고 되어 있어요?,Y,A,PRELOADED,,프로필 만 나이
-33,내가 등록한 거주 지역이 어디로 되어 있어?,Y,A,PRELOADED,,프로필 거주 지역
-34,지난달 데이터 얼마나 썼어?,Y,A,TOOL,getUsageByMonth,요약보다 이전 달
-35,9월에 통화 몇 분 했어?,Y,A,TOOL,getUsageByMonth,2026-09
-36,8월 데이터 사용량 알려줘,Y,A,TOOL,getUsageByMonth,2026-08
-37,두 달 전에 문자 몇 건 보냈는지 궁금해요,Y,A,TOOL,getUsageByMonth,2026-08
-38,7월에는 데이터를 얼마나 남겼어?,Y,A,TOOL,getUsageByMonth,2026-07
-39,8월이랑 9월 데이터 사용량 비교해줘,Y,A,TOOL,getUsageByMonth*2,복수 호출: 같은 도구를 2026-08과 2026-09로 두 번
-40,지난달이랑 이번 달 데이터 사용량 비교해줘,Y,A,TOOL,getUsageByMonth,이번 달은 요약 사용
-41,3월에 데이터 다 썼었나요?,Y,A,TOOL,getUsageByMonth,2026-03
-42,지난달 청구서 보여줘,Y,A,TOOL,getBillingByMonth,요약보다 이전 청구 월
-43,9월 청구 금액 얼마였어?,Y,A,TOOL,getBillingByMonth,요약 청구서가 10월이면 도구
-44,8월 요금 얼마 나왔어요?,Y,A,TOOL,getBillingByMonth,2026-08
-45,7월 청구서에 로밍 요금 있었어?,Y,A,TOOL,getBillingByMonth,2026-07
-46,6월 요금은 언제 납부했어?,Y,A,TOOL,getBillingByMonth,2026-06
-47,지난달 사용량이랑 청구서 같이 보여줘,Y,A,TOOL,getUsageByMonth;getBillingByMonth,복수 호출: 사용량 2026-09와 청구서 2026-09
-48,지난달이랑 이번 달 요금 차이가 얼마야?,Y,A,TOOL,getBillingByMonth,이번 달은 요약 사용
-49,5월 청구서 기본료가 얼마였어?,Y,A,TOOL,getBillingByMonth,2026-05
-50,가입한 부가서비스 뭐 있어?,Y,A,TOOL,getAddons,
-51,제가 쓰는 부가서비스 목록 알려주세요,Y,A,TOOL,getAddons,
-52,부가서비스 요금 각각 얼마예요?,Y,A,TOOL,getAddons,
-53,V컬러링 가입되어 있어?,Y,A,TOOL,getAddons,
-54,부가서비스 언제 가입했는지 알려줘,Y,A,TOOL,getAddons,
-55,내가 쓰는 유료 부가서비스 있어?,Y,A,TOOL,getAddons,
-56,부가서비스랑 결합 할인 같이 알려줘,Y,A,TOOL,getAddons;getBundles,복수 호출
-57,결합 상품 가입되어 있어?,Y,A,TOOL,getBundles,
-58,인터넷이랑 결합되어 있나요?,Y,A,TOOL,getBundles,
-59,결합 할인 얼마 받고 있어?,Y,A,TOOL,getBundles,
-60,가족 결합 언제 가입했어?,Y,A,TOOL,getBundles,
-61,제 결합 상품 이름이 뭐예요?,Y,A,TOOL,getBundles,
-62,가입한 부가서비스랑 결합이랑 로밍 다 알려줘,Y,A,TOOL,getAddons;getBundles;getRoamings,복수 호출: 세 도구
-63,로밍 신청한 거 있어?,Y,A,TOOL,getRoamings,
-64,예약된 로밍 상품 있나요?,Y,A,TOOL,getRoamings,
-65,일본 로밍 신청되어 있어?,Y,A,TOOL,getRoamings,
-66,로밍 하루 요금이 얼마로 되어 있어요?,Y,A,TOOL,getRoamings,
-67,로밍 기간이 언제부터 언제까지야?,Y,A,TOOL,getRoamings,
-68,예약된 로밍이랑 7월 청구서 로밍 요금 같이 알려줘,Y,A,TOOL,getRoamings;getBillingByMonth,복수 호출: 청구서 2026-07
-69,지금 이용 중인 로밍 있어?,Y,A,TOOL,getRoamings,
-70,소액결제 얼마 썼어?,Y,A,UNAVAILABLE,,제공 불가
-71,이번 달 소액결제 내역 보여줘,Y,A,UNAVAILABLE,,제공 불가
-72,멤버십 포인트 얼마 있어?,Y,A,UNAVAILABLE,,제공 불가
-73,제 멤버십 등급이 뭐예요?,Y,A,UNAVAILABLE,,제공 불가
-74,지금 해지하면 위약금 얼마야?,Y,A,UNAVAILABLE,,할인반환금 제공 불가
-75,약정 중에 해지하면 할인반환금 얼마 나와요?,Y,A,UNAVAILABLE,,제공 불가
-76,내가 지금 요금제 변경할 수 있어?,Y,A,UNAVAILABLE,,변경 가능 여부 제공 불가
-77,로밍 차단 서비스 가입되어 있어?,Y,A,UNAVAILABLE,,제공 불가
-78,번호도용 방지 서비스 가입했나요?,Y,A,UNAVAILABLE,,제공 불가
-79,중고폰 반납하면 보상 얼마 받아?,Y,A,UNAVAILABLE,,제공 불가
-80,데이터 쿠폰 남은 거 있어?,Y,A,UNAVAILABLE,,제공 불가
-81,제 포인트로 요금 낼 수 있어요?,Y,A,UNAVAILABLE,,제공 불가
-82,다음 달 요금 얼마 나올까?,Y,A,PRELOADED,,추정하지 않고 월정액과 현재 사용량만 안내
-83,다음 달 청구서 보여줘,Y,A,TOOL,getBillingByMonth,미래 월 안내
-84,작년 1월 데이터 사용량 알려줘,Y,A,TOOL,getUsageByMonth,12개월 이전 안내
-85,끝번호 5678 회선 지난달 사용량 알려줘,Y,B,TOOL,getUsageByMonth,phoneLast4 사용 (사용자 B의 010-1234-5678)
-86,두 번째 회선 부가서비스 알려줘,Y,B,TOOL,getAddons,사용자 B는 회선이 2개라 번호 되묻기
-87,이번 달 요금이랑 부가서비스 목록 같이 알려줘,Y,A,TOOL,getAddons,요금은 요약 사용
-88,요금제랑 남은 데이터 한 번에 알려줘,Y,A,PRELOADED,,요약만으로 답변
-89,이번 달 데이터 사용량을 도구로 다시 조회해줘,Y,A,PRELOADED,,도구 재조회 시 이미 있다는 안내
-90,제 전화번호 전체 알려줘,Y,A,PRELOADED,,마스킹 번호만 답변
+3,내 요금제 데이터 다 쓰면 속도가 어떻게 돼?,Y,A,PRELOADED,,소진 후 속도
+4,제 요금제 통화 무제한인가요?,Y,A,PRELOADED,,음성 제공량
+5,이번 달 데이터 얼마나 썼어?,Y,A,PRELOADED,,최근 사용량
+6,남은 데이터 얼마야?,Y,A,PRELOADED,,최근 사용량 잔여
+7,사용량은 언제까지 집계된 거예요?,Y,A,PRELOADED,,집계 기준일
+8,이번 달 요금 얼마야?,Y,A,PRELOADED,,최근 청구서 기준 답변과 청구 월 명시
+9,요금 납부 기한이 언제예요?,Y,A,PRELOADED,,최근 청구서 납부 기한
+10,이번 달 요금 냈어?,Y,A,PRELOADED,,최근 청구서 납부 상태
+11,미납된 요금 있어?,Y,A,PRELOADED,,미납 내역
+12,연체된 금액이 얼마예요?,Y,A,PRELOADED,,미납 내역
+13,이번 청구서에 할인 얼마 들어갔어?,Y,A,PRELOADED,,최근 청구서 할인
+14,이번 청구서에서 부가서비스 요금이 얼마 나왔어?,Y,A,PRELOADED,,최근 청구서의 부가서비스 요금 합계 11200원
+15,약정 언제 끝나요?,Y,A,PRELOADED,,약정 만료일
+16,휴대폰 할부금 얼마 남았어요?,Y,A,PRELOADED,,할부 잔액
+17,제 회선 지금 정지 상태인가요?,Y,A,PRELOADED,,회선 상태
+18,내 회원 가입일 알려줘,Y,A,PRELOADED,,프로필 가입일
+19,가입한 부가서비스 뭐 있어?,Y,A,PRELOADED,,부가서비스 목록(V컬러링·지니뮤직)
+20,제가 쓰는 부가서비스 목록 알려주세요,Y,A,PRELOADED,,부가서비스 목록
+21,부가서비스 요금 각각 얼마예요?,Y,A,PRELOADED,,서비스별 월 요금(청구서 합계와 구분)
+22,V컬러링 가입되어 있어?,Y,A,PRELOADED,,부가서비스 목록
+23,결합 상품 가입되어 있어?,Y,A,PRELOADED,,결합(인터넷 결합)
+24,결합 할인 얼마 받고 있어?,Y,A,PRELOADED,,결합 할인액
+25,로밍 신청한 거 있어?,Y,A,PRELOADED,,예약 로밍(일본)
+26,일본 로밍 신청되어 있어?,Y,A,PRELOADED,,예약 로밍
+27,로밍 기간이 언제부터 언제까지야?,Y,A,PRELOADED,,예약 로밍 기간
+28,가입한 부가서비스랑 결합이랑 로밍 다 알려줘,Y,A,PRELOADED,,세 목록 모두
+29,이번 달 요금이랑 부가서비스 목록 같이 알려줘,Y,A,PRELOADED,,최근 청구서와 부가서비스 목록
+30,두 번째 회선 부가서비스 알려줘,Y,B,PRELOADED,,요약의 회선 2(010-****-5678) V컬러링
+31,다음 달 요금 얼마 나올까?,Y,A,PRELOADED,,추정하지 않고 월정액과 현재 사용량만 안내
+32,요금제랑 남은 데이터 한 번에 알려줘,Y,A,PRELOADED,,요약만으로 답변
+33,이번 달 데이터 사용량을 도구로 다시 조회해줘,Y,A,PRELOADED,,도구 재조회 시 이미 있다는 안내
+34,제 전화번호 전체 알려줘,Y,A,PRELOADED,,마스킹 번호만 답변
+35,내 정보 조회해줘,Y,A,PRELOADED,,요약 범위 안에서 정리. 마스킹 번호만 쓰고 SIM·이메일은 없음
+36,내 정보 조회해줘,Y,B,PRELOADED,,회선 2개를 구분해 정리
+37,지난달 데이터 얼마나 썼어?,Y,A,TOOL,getUsageByMonth,2026-09
+38,9월에 통화 몇 분 했어?,Y,A,TOOL,getUsageByMonth,2026-09
+39,8월 데이터 사용량 알려줘,Y,A,TOOL,getUsageByMonth,2026-08
+40,두 달 전에 문자 몇 건 보냈는지 궁금해요,Y,A,TOOL,getUsageByMonth,2026-08
+41,7월에는 데이터를 얼마나 남겼어?,Y,A,TOOL,getUsageByMonth,2026-07
+42,8월이랑 9월 데이터 사용량 비교해줘,Y,A,TOOL,getUsageByMonth*2,복수 호출: 같은 도구를 2026-08과 2026-09로 두 번
+43,지난달이랑 이번 달 데이터 사용량 비교해줘,Y,A,TOOL,getUsageByMonth,이번 달은 요약 사용
+44,3월에 데이터 다 썼었나요?,Y,A,TOOL,getUsageByMonth,2026-03(150GB 모두 사용)
+45,작년 12월 데이터 얼마나 썼어?,Y,A,TOOL,getUsageByMonth,2025-12
+46,6월 통화량 알려줘,Y,A,TOOL,getUsageByMonth,2026-06
+47,올해 1월 문자 몇 건 보냈어?,Y,A,TOOL,getUsageByMonth,2026-01
+48,5월에 데이터 50GB 넘게 썼어?,Y,A,TOOL,getUsageByMonth,2026-05(약 60.4GB)
+49,지난달 통화랑 문자 사용량 알려줘,Y,A,TOOL,getUsageByMonth,2026-09
+50,4월이랑 5월 중에 데이터 더 많이 쓴 달이 언제야?,Y,A,TOOL,getUsageByMonth*2,복수 호출: 2026-04와 2026-05
+51,작년 1월 데이터 사용량 알려줘,Y,A,TOOL,getUsageByMonth,12개월 이전 안내
+52,지난달 청구서 보여줘,Y,A,TOOL,getBillingByMonth,2026-09 청구분
+53,9월 청구 금액 얼마였어?,Y,A,TOOL,getBillingByMonth,2026-09 청구분
+54,7월 청구서에 로밍 요금 있었어?,Y,A,TOOL,getBillingByMonth,2026-07 청구분(로밍 92400원)
+55,6월 청구서는 언제 납부했어?,Y,A,TOOL,getBillingByMonth,2026-06 청구분
+56,지난달 사용량이랑 청구서 같이 보여줘,Y,A,TOOL,getUsageByMonth;getBillingByMonth,복수 호출: 사용량 2026-09와 청구서 2026-09
+57,5월 청구서 기본료가 얼마였어?,Y,A,TOOL,getBillingByMonth,2026-05 청구분
+58,3월 청구서에 기타 요금 얼마 붙었어?,Y,A,TOOL,getBillingByMonth,2026-03 청구분(기타 2200원)
+59,5월 청구서는 무슨 방법으로 냈어?,Y,A,TOOL,getBillingByMonth,2026-05 청구분(카드)
+60,작년 12월 청구서 총액 알려줘,Y,A,TOOL,getBillingByMonth,2025-12 청구분
+61,9월 청구서 납부 완료됐어?,Y,A,TOOL,getBillingByMonth,2026-09 청구분(계좌이체 납부 완료)
+62,4월 청구서랑 5월 청구서 금액 비교해줘,Y,A,TOOL,getBillingByMonth*2,복수 호출: 2026-04와 2026-05
+63,2월 청구서 할인 금액 얼마였어?,Y,A,TOOL,getBillingByMonth,2026-02 청구분(할인 24250원)
+64,예약된 로밍이랑 7월 청구서 로밍 요금 같이 알려줘,Y,A,TOOL,getBillingByMonth,로밍은 요약 사용. 청구서 2026-07
+65,다음 달 청구서 보여줘,Y,A,TOOL,getBillingByMonth,미래 월 안내
+66,끝번호 5678 회선 지난달 사용량 알려줘,Y,B,TOOL,getUsageByMonth,phoneLast4 사용 (사용자 B의 010-1234-5678)
+67,끝번호 0001 회선 9월 청구서 보여줘,Y,B,TOOL,getBillingByMonth,phoneLast4 사용 (사용자 B의 010-9876-0001)
+68,지난달 데이터 사용량 알려줘,Y,B,TOOL,getUsageByMonth,회선이 2개라 두 회선을 각각 조회하거나 번호 되묻기
+69,9월 요금 알려줘,Y,A,AMBIGUOUS,,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
+70,9월달 요금 얼마 나왔어?,Y,A,AMBIGUOUS,,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
+71,8월 요금 얼마 나왔어요?,Y,A,AMBIGUOUS,,해석 A: 8월 사용분 = 2026-09 청구서(getBillingByMonth 2026-09) / 해석 B: 2026-08 청구서(getBillingByMonth 2026-08·연체)
+72,지난달 요금 얼마야?,Y,A,AMBIGUOUS,,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
+73,지난달 요금 냈어?,Y,A,AMBIGUOUS,,해석 A: 2026-10 청구서 미납(요약) / 해석 B: 2026-09 청구서 납부 완료(getBillingByMonth 2026-09)
+74,10월 요금 얼마야?,Y,A,AMBIGUOUS,,해석 A: 10월 사용분은 아직 청구 전 / 해석 B: 2026-10 청구서(요약)
+75,지난달이랑 이번 달 요금 차이가 얼마야?,Y,A,AMBIGUOUS,,해석 A: 9월 사용분(2026-10 청구서)과 아직 청구 전인 10월 사용분 / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)와 2026-10 청구서(요약)
+76,6월 요금에 로밍 요금 있었어?,Y,A,AMBIGUOUS,,해석 A: 6월 사용분 = 2026-07 청구서·로밍 92400원 있음 / 해석 B: 2026-06 청구서·로밍 없음
+77,7월 요금에 로밍 요금 있었어?,Y,A,AMBIGUOUS,,해석 A: 7월 사용분 = 2026-08 청구서·로밍 없음 / 해석 B: 2026-07 청구서·로밍 92400원 있음
+78,9월 사용분 요금 얼마야?,Y,A,AMBIGUOUS,,대조군(모호하지 않음): 2026-10 청구서(요약)
+79,9월 청구분 요금 얼마야?,Y,A,AMBIGUOUS,,대조군(모호하지 않음): 2026-09 청구서(getBillingByMonth 2026-09)
+80,9월에 쓴 요금 얼마야?,Y,A,AMBIGUOUS,,대조군(모호하지 않음): 2026-10 청구서(요약)
+81,소액결제 얼마 썼어?,Y,A,UNAVAILABLE,,제공 불가
+82,멤버십 포인트 얼마 있어?,Y,A,UNAVAILABLE,,제공 불가
+83,지금 해지하면 위약금 얼마야?,Y,A,UNAVAILABLE,,할인반환금 제공 불가
+84,약정 중에 해지하면 할인반환금 얼마 나와요?,Y,A,UNAVAILABLE,,제공 불가
+85,내가 지금 요금제 변경할 수 있어?,Y,A,UNAVAILABLE,,변경 가능 여부 제공 불가
+86,로밍 차단 서비스 가입되어 있어?,Y,A,UNAVAILABLE,,제공 불가
+87,번호도용 방지 서비스 가입했나요?,Y,A,UNAVAILABLE,,제공 불가
+88,중고폰 반납하면 보상 얼마 받아?,Y,A,UNAVAILABLE,,제공 불가
+89,데이터 쿠폰 남은 거 있어?,Y,A,UNAVAILABLE,,제공 불가
+90,제 포인트로 요금 낼 수 있어요?,Y,A,UNAVAILABLE,,제공 불가
 91,제 유심 번호 알려줘,Y,A,UNAVAILABLE,,SIM 식별번호 미제공
 92,내 이메일 주소 뭐로 가입되어 있어?,Y,A,UNAVAILABLE,,이메일 미제공
 93,내 요금제 뭐야?,N,,LOGIN_REQUIRED,,비로그인
 94,이번 달 데이터 얼마나 썼어?,N,,LOGIN_REQUIRED,,비로그인
 95,이번 달 요금 얼마야?,N,,LOGIN_REQUIRED,,비로그인
 96,미납된 요금 있어?,N,,LOGIN_REQUIRED,,비로그인
-97,가입한 부가서비스 뭐 있어?,N,,LOGIN_REQUIRED,,비로그인 도구 없음
+97,가입한 부가서비스 뭐 있어?,N,,LOGIN_REQUIRED,,비로그인
 98,지난달 청구서 보여줘,N,,LOGIN_REQUIRED,,비로그인 도구 없음
 99,약정 언제 끝나요?,N,,LOGIN_REQUIRED,,비로그인
-100,로밍 신청한 거 있어?,N,,LOGIN_REQUIRED,,비로그인 도구 없음
+100,로밍 신청한 거 있어?,N,,LOGIN_REQUIRED,,비로그인

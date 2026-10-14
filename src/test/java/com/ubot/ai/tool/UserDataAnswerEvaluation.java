@@ -79,6 +79,10 @@ class UserDataAnswerEvaluation {
     // USER_DATA 핸들러를 고르는 용도입니다. 핸들러는 FAQ를 자료에 넣지 않습니다.
     private static final FaqSearchResponseDto USER_DATA_FAQ =
             new FaqSearchResponseDto(0L, "평가용 USER_DATA FAQ", "평가용", 1.0, Intent.USER_DATA);
+    private static final String AMBIGUOUS = "AMBIGUOUS";
+    private static final String MATCHED = "일치";
+    private static final String MISMATCHED = "불일치";
+    private static final String COMPARED = "비교";
 
     @TestConfiguration(proxyBeanMethods = false)
     static class FixedClockConfiguration {
@@ -98,7 +102,7 @@ class UserDataAnswerEvaluation {
         keys.put("AI_CHAT_ENGINE", "app.ai.chat-engine");
         keys.put("AI_EMBEDDING_ENGINE", "app.ai.embedding-engine");
         keys.put("OLLAMA_BASE_URL", "ollama.base-url");
-        for (String key : List.of("OLLAMA_CHAT_MODEL", "LLM_BASE_URL", "LLM_MODEL", "LLM_CONNECT_TIMEOUT", "LLM_READ_TIMEOUT")) {
+        for (String key : List.of("OLLAMA_CHAT_MODEL", "LLM_BASE_URL", "LLM_MODEL", "LLM_CONNECT_TIMEOUT")) {
             keys.put(key, key);
         }
         keys.forEach((envKey, property) -> {
@@ -107,6 +111,8 @@ class UserDataAnswerEvaluation {
                 registry.add(property, () -> value);
             }
         });
+        // 채팅 응답 제한 시간(LLM_READ_TIMEOUT)은 .env 값(120s)을 쓰면 CPU에서 긴 답변을 만들다 끊기므로 평가용 값을 따로 둡니다.
+        registry.add("LLM_READ_TIMEOUT", () -> firstNonBlank(env.get("EVAL_LLM_READ_TIMEOUT"), "600s"));
     }
 
     @Autowired
@@ -145,9 +151,6 @@ class UserDataAnswerEvaluation {
     void recordToolCalls() {
         doAnswer(recording()).when(userDataTools).getUsageByMonth(any(), any(), any());
         doAnswer(recording()).when(userDataTools).getBillingByMonth(any(), any(), any());
-        doAnswer(recording()).when(userDataTools).getAddons(any(), any());
-        doAnswer(recording()).when(userDataTools).getBundles(any(), any());
-        doAnswer(recording()).when(userDataTools).getRoamings(any(), any());
     }
 
     @Test
@@ -166,8 +169,7 @@ class UserDataAnswerEvaluation {
         for (Question question : questions) {
             Result result = ask(question, question.user().isEmpty() ? null : userIds.get(question.user()));
             results.add(result);
-            System.out.printf("[%d/%d] %s %s%n", results.size(), questions.size(),
-                    result.matched() ? "일치" : "불일치", question.text());
+            System.out.printf("[%d/%d] %s %s%n", results.size(), questions.size(), result.verdict(), question.text());
             consecutiveErrors = result.error() == null ? 0 : consecutiveErrors + 1;
             if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
                 abortReason = "LLM 호출이 " + MAX_CONSECUTIVE_ERRORS + "번 연속 실패해 중단했습니다. 마지막 오류: " + result.error();
@@ -217,11 +219,15 @@ class UserDataAnswerEvaluation {
                 judge(question, enabledTools, questionCalls, error));
     }
 
-    private boolean judge(Question question, List<String> enabledTools, List<ToolCall> questionCalls, String error) {
-        if (error != null) {
-            return false;
+    private String judge(Question question, List<String> enabledTools, List<ToolCall> questionCalls, String error) {
+        // 사용한 달과 청구된 달 중 어느 쪽으로 읽어도 되는 요금 질문은 정답을 정하지 않고, 어떻게 답했는지만 비교합니다.
+        if (AMBIGUOUS.equals(question.expected())) {
+            return COMPARED;
         }
-        return switch (question.expected()) {
+        if (error != null) {
+            return MISMATCHED;
+        }
+        boolean matched = switch (question.expected()) {
             // 적힌 도구를 모두, 적힌 횟수 이상 호출해야 일치입니다. 그 밖의 도구를 더 불러도 불일치로 보지 않습니다.
             case "TOOL" -> expectedToolCounts(question.expectedTool()).entrySet().stream()
                     .allMatch(expected -> questionCalls.stream()
@@ -229,9 +235,10 @@ class UserDataAnswerEvaluation {
             case "LOGIN_REQUIRED" -> questionCalls.isEmpty() && enabledTools.isEmpty();
             default -> questionCalls.isEmpty();
         };
+        return matched ? MATCHED : MISMATCHED;
     }
 
-    /** "getAddons;getBundles"는 각 1번, "getUsageByMonth*2"는 2번 호출을 뜻합니다. */
+    /** "getUsageByMonth;getBillingByMonth"는 각 1번, "getUsageByMonth*2"는 2번 호출을 뜻합니다. */
     static Map<String, Integer> expectedToolCounts(String expectedTool) {
         Map<String, Integer> counts = new LinkedHashMap<>();
         for (String token : expectedTool.split(";")) {
@@ -289,9 +296,6 @@ class UserDataAnswerEvaluation {
             text.append("\n[최근 ").append(RECORD_MONTHS).append("개월 청구서] 맨 위가 요약에 들어간 청구서입니다.\n");
             billingService.getMyBillingRecordList(userId, subscription.subscriptionId(), null, 0, RECORD_MONTHS).content()
                     .forEach(billing -> text.append("- ").append(UserDataSummarizer.formatBilling(billing)).append('\n'));
-            text.append("\n[getAddons]\n").append(userDataTools.getAddons(last4, context)).append('\n');
-            text.append("\n[getBundles]\n").append(userDataTools.getBundles(last4, context)).append('\n');
-            text.append("\n[getRoamings]\n").append(userDataTools.getRoamings(last4, context)).append('\n');
             text.append("```\n\n");
         }
         return text.toString();
@@ -303,18 +307,24 @@ class UserDataAnswerEvaluation {
             Map<String, Long> userIds, String abortReason) {
         StringBuilder md = new StringBuilder();
         long matched = results.stream().filter(Result::matched).count();
+        List<Result> compared = results.stream().filter(Result::compared).toList();
         md.append("# USER_DATA 답변 평가 결과\n\n");
         md.append("- 실행 시각: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append('\n');
         md.append("- 채팅 엔진: ").append(aiRuntimeProperties.resolvedChatEngine())
                 .append(" / 모델: ").append(llmService.getModelName()).append('\n');
         md.append("- 기준일: ").append(BASE_TIME.toLocalDate()).append(" (Asia/Seoul 고정)\n");
-        md.append("- 결과: ").append(matched).append(" / ").append(results.size()).append(" 일치");
+        md.append("- 결과: ").append(matched).append(" / ").append(results.size() - compared.size()).append(" 일치");
+        if (!compared.isEmpty()) {
+            md.append(" (").append(AMBIGUOUS).append(" ").append(compared.size()).append("개는 판정하지 않고 비교만 함)");
+        }
         if (results.size() < total) {
             md.append(" (전체 ").append(total).append("개 중 ").append(results.size()).append("개만 실행)");
         }
         md.append('\n');
         md.append("- 판정 기준: PRELOADED·UNAVAILABLE은 도구 미호출, LOGIN_REQUIRED는 도구 미호출이면서 도구가 켜지지 않음, ")
-                .append("TOOL은 기대 도구를 모두 호출(`a;b`는 각 1번 이상, `a*2`는 2번 이상). 오류는 불일치입니다. 답변 내용의 정확성은 아래 정답 데이터와 비교해 사람이 확인합니다.\n");
+                .append("TOOL은 기대 도구를 모두 호출(`a;b`는 각 1번 이상, `a*2`는 2번 이상). 오류는 불일치입니다. ")
+                .append(AMBIGUOUS).append("(사용한 달과 청구된 달 중 어느 쪽으로도 읽히는 요금 질문)는 판정하지 않습니다. ")
+                .append("답변 내용의 정확성은 아래 정답 데이터와 비교해 사람이 확인합니다.\n");
         if (abortReason != null) {
             md.append("\n> **중단됨:** ").append(abortReason).append('\n');
         }
@@ -323,10 +333,11 @@ class UserDataAnswerEvaluation {
         Map<String, List<Result>> byExpected = results.stream()
                 .collect(Collectors.groupingBy(result -> result.question().expected(), LinkedHashMap::new, Collectors.toList()));
         byExpected.forEach((expected, group) -> md.append("| ").append(expected).append(" | ")
-                .append(group.stream().filter(Result::matched).count()).append(" | ").append(group.size()).append(" |\n"));
+                .append(AMBIGUOUS.equals(expected) ? COMPARED : String.valueOf(group.stream().filter(Result::matched).count()))
+                .append(" | ").append(group.size()).append(" |\n"));
 
         md.append("\n## 불일치 목록\n\n");
-        List<Result> mismatched = results.stream().filter(result -> !result.matched()).toList();
+        List<Result> mismatched = results.stream().filter(result -> MISMATCHED.equals(result.verdict())).toList();
         if (mismatched.isEmpty()) {
             md.append("없음\n");
         } else {
@@ -340,6 +351,20 @@ class UserDataAnswerEvaluation {
             }
         }
 
+        if (!compared.isEmpty()) {
+            md.append("\n## 모호한 요금 질문 비교\n\n")
+                    .append("청구서는 전월 사용분을 그달에 청구합니다. 그래서 \"9월 요금\"은 9월에 쓴 요금(10월 청구서)으로도, ")
+                    .append("9월에 청구된 요금(9월 청구서)으로도 읽힙니다. 도구를 부르지 않았다면 요약의 최근 청구서로 답한 것입니다.\n\n")
+                    .append("| 번호 | 질문 | 가능한 해석 | 실제 도구 호출 | 답변 |\n|---|---|---|---|---|\n");
+            for (Result result : compared) {
+                md.append("| ").append(result.question().number())
+                        .append(" | ").append(cell(result.question().text()))
+                        .append(" | ").append(cell(result.question().note()))
+                        .append(" | ").append(cell(actualLabel(result)))
+                        .append(" | ").append(cell(result.answer() == null ? "(답변 없음)" : result.answer())).append(" |\n");
+            }
+        }
+
         md.append("\n## 사용자별 정답 데이터\n\n");
         groundTruth.forEach((key, text) -> md.append("### 사용자 ").append(key)
                 .append(" (user_id=").append(userIds.get(key)).append(")\n\n").append(text));
@@ -348,7 +373,7 @@ class UserDataAnswerEvaluation {
         for (Result result : results) {
             Question question = result.question();
             md.append("### ").append(question.number()).append(". ").append(question.text())
-                    .append(" — ").append(result.matched() ? "일치" : "불일치").append("\n\n");
+                    .append(" — ").append(result.verdict()).append("\n\n");
             md.append("- 사용자: ").append(userLabel(question)).append('\n');
             md.append("- 기대: ").append(expectedLabel(question));
             if (!question.note().isBlank()) {
@@ -385,7 +410,7 @@ class UserDataAnswerEvaluation {
                     question.expectedTool(), String.join(" ; ", result.enabledTools()),
                     result.calls().stream().map(call -> call.name() + "(" + call.arguments() + ")")
                             .collect(Collectors.joining(" ; ")),
-                    result.matched() ? "일치" : "불일치",
+                    result.verdict(),
                     result.answer() == null ? "" : result.answer(),
                     String.valueOf(result.elapsedMillis()),
                     result.error() == null ? "" : result.error())));
@@ -505,7 +530,16 @@ class UserDataAnswerEvaluation {
     private record ToolCall(String name, String arguments, String returned) {
     }
 
+    /** verdict는 MATCHED, MISMATCHED, COMPARED 중 하나입니다. */
     private record Result(Question question, List<String> enabledTools, List<ToolCall> calls, String answer,
-            String error, long elapsedMillis, boolean matched) {
+            String error, long elapsedMillis, String verdict) {
+
+        boolean matched() {
+            return MATCHED.equals(verdict);
+        }
+
+        boolean compared() {
+            return COMPARED.equals(verdict);
+        }
     }
 }

@@ -61,7 +61,7 @@ FROM subscriptions s,
 WHERE s.phone_number = '010-2468-1357';
 
 -- 청구서: 2025-11 ~ 2026-10. 기본 61,950원 = 월정액 75,000 + 부가서비스 11,200 - 약정 18,750 - 결합 5,500
--- 2026-03 청구분은 기타 요금 2,200원(데이터 안심옵션 마지막 달), 2026-07 청구분은 미국 로밍 7일 92,400원이 있습니다.
+-- 2026-03 청구분은 기타 요금 2,200원(데이터 안심옵션 마지막 달), 2026-07 청구분은 6월에 쓴 미국 로밍 7일 92,400원이 있습니다.
 -- 2026-10은 미납(기한 전), 2026-08은 연체, 나머지는 납부 완료입니다.
 INSERT INTO billing_records (subscription_id, billing_month, base_fee, addon_fee, roaming_fee, extra_fee,
     discount_amount, total_amount, due_date, payment_status, paid_amount, payment_method, paid_at)
@@ -113,13 +113,13 @@ SELECT s.subscription_id, b.bundle_product_id, TIMESTAMP '2025-03-02 11:00', 'AC
 FROM subscriptions s, bundle_products b
 WHERE s.phone_number = '010-2468-1357' AND b.code = 'EVAL-BUNDLE-NET';
 
--- 로밍: 예약 1건(일본), 만료 1건(미국)
+-- 로밍: 예약 1건(일본), 만료 1건(미국, 6월 사용 → 2026-07 청구분)
 INSERT INTO subscription_roamings (subscription_id, roaming_product_id, start_date, end_date, status,
     product_name_snapshot, daily_fee_snapshot, data_amount_mb_snapshot)
 SELECT s.subscription_id, r.roaming_product_id, v.start_date, v.end_date, v.status, r.name, r.daily_fee, r.data_amount_mb
 FROM subscriptions s
      JOIN (VALUES ('EVAL-ROAMING-JP', DATE '2026-10-20', DATE '2026-10-24', 'SCHEDULED'),
-                  ('EVAL-ROAMING-US', DATE '2026-07-01', DATE '2026-07-07', 'EXPIRED'))
+                  ('EVAL-ROAMING-US', DATE '2026-06-10', DATE '2026-06-16', 'EXPIRED'))
          AS v(code, start_date, end_date, status) ON TRUE
      JOIN roaming_products r ON r.code = v.code
 WHERE s.phone_number = '010-2468-1357';
