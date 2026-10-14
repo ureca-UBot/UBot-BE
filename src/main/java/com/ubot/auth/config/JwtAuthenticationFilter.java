@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.ubot.auth.exception.JwtErrorCode;
 import com.ubot.auth.exception.MyJwtException;
+import com.ubot.auth.service.AccessTokenRevocationService;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.user.entity.User;
 import com.ubot.user.exception.UserErrorCode;
@@ -31,6 +32,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private final JwtUtil jwtUtil;
 	private final UserRepository userRepository;
+	private final AccessTokenRevocationService accessTokenRevocationService;
 	private final HandlerExceptionResolver handlerExceptionResolver;
 
 	// 사용자 정보를 쓰지 않는 공개 조회 경로입니다. 토큰 상태와 상관없이 처리하려고 토큰 검사를 건너뜁니다.
@@ -39,9 +41,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	public JwtAuthenticationFilter(
 			JwtUtil jwtUtil,
 			UserRepository userRepository,
+			AccessTokenRevocationService accessTokenRevocationService,
 			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
 		this.jwtUtil = jwtUtil;
 		this.userRepository = userRepository;
+		this.accessTokenRevocationService = accessTokenRevocationService;
 		this.handlerExceptionResolver = handlerExceptionResolver;
 	}
 
@@ -77,6 +81,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		} catch (JwtException | IllegalArgumentException e) {
 			log.warn("유효하지 않은 접근 토큰이 전달되었습니다: 경로={}", request.getRequestURI());
 			resolveException(request, response, new MyJwtException(JwtErrorCode.INVALID_ACCESS_TOKEN));
+			return;
+		}
+
+		if (accessTokenRevocationService.isRevoked(userId, jwtUtil.getIssuedAt(token))) {
+			log.info("로그아웃된 접근 토큰이 전달되었습니다: 사용자ID={}, 경로={}", userId, request.getRequestURI());
+			resolveException(request, response, new MyJwtException(JwtErrorCode.REVOKED_ACCESS_TOKEN));
 			return;
 		}
 

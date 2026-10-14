@@ -18,6 +18,7 @@ import com.ubot.auth.config.JwtAccessDeniedHandler;
 import com.ubot.auth.config.JwtAuthenticationEntryPoint;
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.auth.config.SecurityConfig;
+import com.ubot.auth.service.AccessTokenRevocationService;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.store.service.AdminStoreService;
 import com.ubot.user.repository.UserRepository;
@@ -38,6 +39,9 @@ class AdminStoreSecurityTest {
 
     @MockitoBean
     private AdminStoreService adminStoreService;
+
+    @MockitoBean
+    private AccessTokenRevocationService accessTokenRevocationService;
 
     @MockitoBean
     private JwtUtil jwtUtil;
