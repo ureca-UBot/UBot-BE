@@ -83,6 +83,18 @@ src/main/resources/
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
 | `FAQ_SEARCH_VECTOR_TYPE` | `FaqVectorService`, CD: FAQ 검색에 쓰는 벡터 유형. `QUESTION`(질문만) 또는 `QUESTION_ANSWER`(질문+답변). 바꾸기 전에 그 유형의 벡터를 백필해야 함([FAQ 벡터 유형](../how-to/llm-module.md#faq-벡터-유형)) | `QUESTION` | 키가 없으면 `QUESTION`. 빈 값이나 다른 값이면 기동 실패 |
+| `FAQ_RERANK_ENABLED` | `FaqRetrievalService`: 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로만 정함([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
+| `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |
+| `FAQ_RERANK_MODEL` | `FaqRetrievalConfig`: Reranker 서버에 요청할 모델 이름. Compose의 `RERANKER_SERVED_MODEL_NAME`과 같아야 함 | `ubot-reranker` | 키가 없으면 `ubot-reranker` |
+| `FAQ_RERANK_BASE_URL` | `FaqRetrievalConfig`: Reranker 서버 주소. 이 주소의 `/v1/rerank`를 호출 | `http://localhost:8002` | 키가 없으면 `http://localhost:8002` |
+| `FAQ_RERANK_CONNECT_TIMEOUT` | `FaqRetrievalConfig`: Reranker 서버 연결 제한 시간 | `500ms` | 키가 없으면 `500ms` |
+| `FAQ_RERANK_READ_TIMEOUT` | `FaqRetrievalConfig`: Reranker 응답 제한 시간. 넘으면 실패로 처리 | `1500ms` | 키가 없으면 `1500ms` |
+| `FAQ_RERANK_FALLBACK_ENABLED` | `FaqRetrievalService`: Reranker를 쓰지 못했을 때 이미 받아 둔 벡터 검색 상위 `CHAT_TOP_K`개로 답할지 여부. `false`면 그 요청은 실패 | `true` | 키가 없으면 `true` |
+| `FAQ_RERANK_MAX_CONCURRENT` | `FaqRetrievalService`: 동시에 나가는 Reranker 호출 수의 한도. 넘치는 요청은 기다리지 않고 벡터 검색 결과로 답함 | `32` | 키가 없으면 `32` |
+| `FAQ_RERANK_FAILURE_THRESHOLD` | `FaqRetrievalService`: 연속으로 이만큼 실패하면 Reranker 호출을 건너뛰기 시작 | `5` | 키가 없으면 `5` |
+| `FAQ_RERANK_FAILURE_COOLDOWN` | `FaqRetrievalService`: 연속 실패 뒤 Reranker를 호출하지 않는 시간. 지나면 한 건만 보내 보고 성공하면 재개 | `10s` | 키가 없으면 `10s` |
+| `RERANKER_PORT` | Docker Compose: Reranker 서버의 호스트 포트. `reranker` 프로필로 띄울 때만 사용 | `8002` | Spring에서 읽지 않음 |
+| `VLLM_RERANKER_GPU_MEMORY_UTILIZATION` | Docker Compose: Reranker 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
 | `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |

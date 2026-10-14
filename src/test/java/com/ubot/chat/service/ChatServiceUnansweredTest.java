@@ -14,6 +14,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.enums.UnansweredReason;
@@ -41,7 +42,7 @@ class ChatServiceUnansweredTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				vector, ai, unanswered, ChatTestFixtures.collector());
+				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);
