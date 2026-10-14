@@ -225,6 +225,9 @@ BACKEND_IMAGE=ubot-be:<이전 커밋 SHA> docker compose -p ubot --env-file .env
 
 - 배포된 백엔드는 `prod` 프로필로 실행됩니다. Swagger UI와 API 문서가 꺼져 있고, `/actuator/health`는 상세 없이 상태만 반환합니다.
 - Nginx는 HTTP 80만 사용합니다. TLS(HTTPS) 설정은 없습니다(후속 작업).
+- Nginx는 `server` 블록에서 보안 응답 헤더(`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`)를 붙입니다. `location` 블록에 `add_header`를 하나라도 추가하면 그 location에서는 `server` 블록의 헤더가 모두 빠지므로, 세 줄을 함께 넣어야 합니다.
+- 로그인 실패 제한은 Nginx가 넘기는 `X-Real-IP`로 IP를 셉니다. Nginx 앞에 로드밸런서를 두면 모든 요청이 로드밸런서 IP로 보여 한 사람의 실패로 전체 로그인이 막힐 수 있습니다. 이때는 Nginx에 `set_real_ip_from <로드밸런서 대역>`과 `real_ip_header X-Forwarded-For`를 함께 설정합니다.
+- 백엔드를 여러 대 띄우면 모두 같은 Redis를 써야 합니다. 로그인 실패 횟수, 로그아웃 차단, 랭킹, ShedLock이 Redis에 있습니다.
 - 백엔드만 새로 띄우고 Nginx를 그대로 두면 Nginx가 이전 백엔드 주소로 요청을 보내 502가 날 수 있습니다(#77 리뷰). 그래서 배포 스크립트는 백엔드 교체 뒤 Nginx를 강제로 다시 만듭니다. 서버에서 손으로 백엔드를 교체했다면 Nginx도 다시 만드세요.
 
 ```bash

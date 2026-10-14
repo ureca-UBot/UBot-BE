@@ -20,6 +20,7 @@ import com.ubot.auth.config.JwtAccessDeniedHandler;
 import com.ubot.auth.config.JwtAuthenticationEntryPoint;
 import com.ubot.auth.config.JwtAuthenticationFilter;
 import com.ubot.auth.config.SecurityConfig;
+import com.ubot.auth.service.AccessTokenRevocationService;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.chat.util.IpRegionResolver;
@@ -52,6 +53,9 @@ class NoticeSecurityTest {
 
     @MockitoBean
     private IpRegionResolver ipRegionResolver;
+
+    @MockitoBean
+    private AccessTokenRevocationService accessTokenRevocationService;
 
     @MockitoBean
     private JwtUtil jwtUtil;

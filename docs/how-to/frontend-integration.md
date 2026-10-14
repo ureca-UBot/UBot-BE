@@ -39,7 +39,7 @@ UBot-FE는 GitHub Pages(`https://ureca-ubot.github.io/UBot-FE/`)에 배포되고
 
 | 막히는 이유 | 현재 상태 |
 |---|---|
-| CORS | 백엔드에 CORS 설정이 없습니다(`SecurityConfig`, `@CrossOrigin`, `WebMvcConfigurer` 모두 없음). 다른 origin에서의 브라우저 요청은 차단됩니다. |
+| CORS | `CORS_ALLOWED_ORIGINS`에 적은 origin만 허용합니다(`SecurityConfig`). 기본값은 비어 있어 다른 origin에서의 브라우저 요청은 차단됩니다. GitHub Pages에서 호출하려면 `https://ureca-ubot.github.io`를 넣습니다. |
 | HTTPS | GitHub Pages는 HTTPS, 백엔드 Nginx는 HTTP만 엽니다. 브라우저가 HTTPS 페이지의 HTTP 요청(mixed content)을 차단합니다. HTTPS 적용은 후속 작업입니다([deploy.md](../deploy.md#배포-범위)). |
 
 `/api` 접두사는 Nginx가 처리합니다. `/api/`로 시작하는 요청은 `/api`를 떼어 백엔드로 넘기고, 접두사 없는 경로도 그대로 넘깁니다. 그래서 UBot-FE의 두 API 클라이언트가 `/api`를 붙이는 방식이 달라도(아래 표) 둘 다 Nginx를 거치면 동작합니다.
@@ -80,12 +80,15 @@ UBot-FE는 GitHub Pages(`https://ureca-ubot.github.io/UBot-FE/`)에 배포되고
 API 호출 → 401 JWT-007 (access token 만료)
         → POST /auth/refresh { refreshToken }
             성공 → 새 토큰 두 개 저장 → 원래 요청 재시도
-            JWT-001 / JWT-002 / JWT-003 / JWT-005 → 토큰 삭제, 다시 로그인
+            JWT-001 / JWT-002 / JWT-003 / JWT-005 / JWT-008 → 토큰 삭제, 다시 로그인
 ```
 
 - Refresh token은 사용자당 하나이고, 로그인·재발급 때마다 **새 값으로 교체**됩니다(유효 기간 `JWT_REFRESH_TOKEN_EXPIRATION_DAYS`, 기본 14일). 다른 기기나 탭에서 로그인하면 이전 refresh token은 `JWT-001`이 됩니다.
 - 같은 refresh token으로 재발급을 동시에 두 번 보내면 먼저 처리된 쪽이 토큰을 바꾸므로 나중 요청은 `JWT-001`로 실패합니다. 재발급은 한 번에 하나만 보내야 합니다. UBot-FE `apiClient`의 `refreshTokens()`가 진행 중인 재발급을 공유해 이를 막고 있습니다.
+- 교체된 지 10초가 지난 이전 refresh token이 다시 오면 탈취로 보고 그 사용자의 refresh token을 지운 뒤 `JWT-008`을 반환합니다. 10초 안에 온 경우는 동시 요청으로 보고 `JWT-001`만 반환합니다.
+- 같은 이메일로 로그인에 5번, 같은 IP에서 20번 실패하면 15분 동안 `USER-014`(429)로 로그인을 막습니다. 로그인에 성공하면 이메일 실패 횟수는 초기화됩니다.
 - `JWT-004`(서명·형식 오류)는 재발급으로 해결되지 않습니다.
+- 로그아웃하거나 refresh token 재사용이 감지되면 그 사용자에게 이미 발급된 access token도 만료 전에 거부되고 `JWT-009`가 옵니다. 토큰을 지우고 다시 로그인하게 합니다. 차단 정보는 Redis에 저장하며, Redis에 연결할 수 없으면 차단 없이 통과시킵니다.
 - 토큰이 유효해도 탈퇴한 사용자면 `USER-001`(404)이 옵니다.
 
 ## 채팅
