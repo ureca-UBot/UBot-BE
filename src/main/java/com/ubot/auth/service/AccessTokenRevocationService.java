@@ -27,7 +27,7 @@ public class AccessTokenRevocationService {
 	public void revokeAll(Long userId) {
 		try {
 			redisTemplate.opsForValue().set(
-					key(userId), String.valueOf(Instant.now().getEpochSecond()), accessTokenLifetime);
+					key(userId), String.valueOf(Instant.now().toEpochMilli()), accessTokenLifetime);
 		} catch (DataAccessException e) {
 			log.warn("접근 토큰 차단 정보를 저장하지 못했습니다: 사용자ID={}", userId, e);
 		}
@@ -44,7 +44,7 @@ public class AccessTokenRevocationService {
 			log.warn("접근 토큰 차단 정보를 조회하지 못해 차단 없이 진행합니다: 사용자ID={}", userId, e);
 			return false;
 		}
-		return revokedAt != null && issuedAt.getEpochSecond() < Long.parseLong(revokedAt);
+		return revokedAt != null && issuedAt.toEpochMilli() <= Long.parseLong(revokedAt);
 	}
 
 	private String key(Long userId) {

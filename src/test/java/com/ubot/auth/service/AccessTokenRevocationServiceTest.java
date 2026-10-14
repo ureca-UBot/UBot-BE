@@ -36,13 +36,13 @@ class AccessTokenRevocationServiceTest {
 	}
 
 	@Test
-	@DisplayName("로그아웃 전에 발급된 토큰만 막고, 이후에 발급된 토큰은 통과시킨다")
+	@DisplayName("로그아웃 시각까지 밀리초 단위로 발급된 토큰은 막고, 이후에 발급된 토큰은 통과시킨다")
 	void rejectsOnlyTokensIssuedBeforeRevocation() {
-		when(values.get("auth:access-revoked-before:7")).thenReturn("1000");
+		when(values.get("auth:access-revoked-before:7")).thenReturn("1000500");
 
-		assertThat(service.isRevoked(7L, Instant.ofEpochSecond(999))).isTrue();
-		assertThat(service.isRevoked(7L, Instant.ofEpochSecond(1000))).isFalse();
-		assertThat(service.isRevoked(7L, Instant.ofEpochSecond(1001))).isFalse();
+		assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000100))).isTrue();
+		assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000500))).isTrue();
+		assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000501))).isFalse();
 	}
 
 	@Test

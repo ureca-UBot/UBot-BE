@@ -8,12 +8,16 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -71,17 +75,25 @@ class LoginAttemptServiceTest {
 	}
 
 	@Test
-	@DisplayName("첫 실패에만 만료 시간을 건다")
-	void setsExpireOnFirstFailureOnly() {
-		String emailKey = "login:fail:email:" + EMAIL;
-		String ipKey = "login:fail:ip:" + IP;
-		when(valueOperations.increment(emailKey)).thenReturn(1L);
-		when(valueOperations.increment(ipKey)).thenReturn(7L);
-
+	@DisplayName("실패 횟수 증가와 만료 시간 설정을 한 번의 Redis 스크립트로 실행한다")
+	void incrementsWithExpireAtomically() {
 		service.recordFailure(EMAIL, IP);
 
-		verify(redisTemplate).expire(emailKey, LoginAttemptService.LOCK_DURATION);
-		verify(redisTemplate, never()).expire(ipKey, LoginAttemptService.LOCK_DURATION);
+		verify(redisTemplate).execute(LoginAttemptService.INCREMENT_WITH_EXPIRE,
+				List.of("login:fail:email:" + EMAIL), "900");
+		verify(redisTemplate).execute(LoginAttemptService.INCREMENT_WITH_EXPIRE,
+				List.of("login:fail:ip:" + IP), "900");
+		verify(valueOperations, never()).increment(anyString());
+		verify(redisTemplate, never()).expire(anyString(), any(Duration.class));
+	}
+
+	@Test
+	@DisplayName("Redis에 실패 횟수를 저장할 수 없어도 예외를 던지지 않는다")
+	void ignoresRedisFailureOnRecord() {
+		when(redisTemplate.execute(eq(LoginAttemptService.INCREMENT_WITH_EXPIRE), anyList(), anyString()))
+				.thenThrow(new RedisConnectionFailureException("down"));
+
+		assertThatCode(() -> service.recordFailure(EMAIL, IP)).doesNotThrowAnyException();
 	}
 
 	@Test
