@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,12 +28,14 @@ import com.ubot.faq.dto.request.FaqUpdateRequestDto;
 import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
+import com.ubot.faq.entity.FaqQuestionVariant;
 import com.ubot.faq.entity.OldFaq;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqCategoryRepository;
 import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.repository.FaqQuestionVariantRepository;
 import com.ubot.faq.repository.OldFaqRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.exception.UserException;
@@ -47,6 +50,9 @@ class FaqServiceTest {
     private final FaqVectorService vectorService =
             mock(FaqVectorService.class);
 
+    private final FaqQuestionVariantRepository variantRepository =
+            mock(FaqQuestionVariantRepository.class);
+
     private final FaqCategoryRepository categoryRepository =
             mock(FaqCategoryRepository.class);
 
@@ -60,6 +66,7 @@ class FaqServiceTest {
             new FaqService(
                     faqRepository,
                     vectorService,
+                    variantRepository,
                     categoryRepository,
                     oldFaqRepository,
                     userRepository
@@ -94,6 +101,13 @@ class FaqServiceTest {
         when(faqRepository.save(any(Faq.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
+        when(variantRepository.save(any(FaqQuestionVariant.class)))
+                .thenAnswer(invocation -> FaqQuestionVariant.builder()
+                        .id(100L)
+                        .originFaq(invocation.getArgument(0, FaqQuestionVariant.class).getOriginFaq())
+                        .question(invocation.getArgument(0, FaqQuestionVariant.class).getQuestion())
+                        .build());
+
         FaqResponseDto result =
                 service.createFaq(
                         request,
@@ -107,8 +121,8 @@ class FaqServiceTest {
                 .isEqualTo(1);
 
         verify(vectorService)
-                .saveVectorsForFaq(
-                        result.id(),
+                .saveVectorsForVariant(
+                        100L,
                         1,
                         request.question(),
                         request.answer()
@@ -116,6 +130,29 @@ class FaqServiceTest {
 
         verify(faqRepository, times(1))
                 .save(any(Faq.class));
+    }
+
+    @Test
+    @DisplayName("FAQ 생성 시 원본 질문과 요청한 유사 질문을 각각 variant와 벡터로 저장한다")
+    void createFaq_savesOriginalAndSimilarVariants() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        when(categoryRepository.findByIdAndDeletedAtIsNull(2L))
+                .thenReturn(Optional.of(category(2L, "요금제")));
+        when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        AtomicLong nextId = new AtomicLong(100L);
+        when(variantRepository.save(any(FaqQuestionVariant.class))).thenAnswer(invocation -> {
+            FaqQuestionVariant value = invocation.getArgument(0);
+            return variant(nextId.getAndIncrement(), value.getOriginFaq(), value.getQuestion());
+        });
+
+        FaqResponseDto result = service.createFaq(new FaqCreateRequestDto(
+                2L, "원본 질문", "답변", Intent.GENERAL, true, List.of("유사 질문 1", "유사 질문 2")), 1L);
+
+        assertThat(result.cacheable()).isTrue();
+        assertThat(result.similarQuestions()).containsExactly("유사 질문 1", "유사 질문 2");
+        verify(vectorService).saveVectorsForVariant(100L, 1, "원본 질문", "답변");
+        verify(vectorService).saveVectorsForVariant(101L, 1, "유사 질문 1", "답변");
+        verify(vectorService).saveVectorsForVariant(102L, 1, "유사 질문 2", "답변");
     }
 
     @Test
@@ -204,6 +241,13 @@ class FaqServiceTest {
         when(faqRepository.save(faq))
                 .thenReturn(faq);
 
+        FaqQuestionVariant oldVariant = variant(100L, faq, "기존 질문");
+        when(variantRepository.findByOriginFaqIdAndDeletedAtIsNullOrderByIdAsc(10L))
+                .thenReturn(List.of(oldVariant));
+        when(variantRepository.save(any(FaqQuestionVariant.class)))
+                .thenAnswer(invocation -> variant(101L, faq,
+                        invocation.getArgument(0, FaqQuestionVariant.class).getQuestion()));
+
         FaqResponseDto result =
                 service.updateActiveFaq(
                         new FaqUpdateRequestDto(
@@ -225,14 +269,14 @@ class FaqServiceTest {
         assertThat(history.getValue().getQuestion())
                 .isEqualTo("기존 질문");
 
+        assertThat(oldVariant.getDeletedAt()).isNotNull();
+        verify(vectorService).deleteVectorsForVariant(100L);
         verify(vectorService)
-                .updateVectorsForFaq(
-                        10L,
+                .saveVectorsForVariant(
+                        101L,
                         4,
                         "새 질문",
-                        "새 답변",
-                        true,
-                        true
+                        "새 답변"
                 );
 
         assertThat(result.version())
@@ -251,6 +295,9 @@ class FaqServiceTest {
 
         givenUpdatableFaq(faq);
 
+        when(variantRepository.findByOriginFaqIdAndDeletedAtIsNullOrderByIdAsc(10L))
+                .thenReturn(List.of(variant(100L, faq, "같은 질문")));
+
         FaqResponseDto result =
                 service.updateActiveFaq(
                         new FaqUpdateRequestDto(
@@ -264,12 +311,11 @@ class FaqServiceTest {
                 );
 
         verify(vectorService)
-                .updateVectorsForFaq(
-                        10L,
+                .updateVectorsForVariant(
+                        100L,
                         2,
                         "같은 질문",
                         "답변",
-                        false,
                         false
                 );
 
@@ -309,6 +355,9 @@ class FaqServiceTest {
         when(faqRepository.save(faq))
                 .thenReturn(faq);
 
+        when(variantRepository.findByOriginFaqIdAndDeletedAtIsNullOrderByIdAsc(10L))
+                .thenReturn(List.of(variant(100L, faq, "같은 질문")));
+
         FaqResponseDto result =
                 service.updateActiveFaq(
                         new FaqUpdateRequestDto(
@@ -322,17 +371,46 @@ class FaqServiceTest {
                 );
 
         verify(vectorService)
-                .updateVectorsForFaq(
-                        10L,
+                .updateVectorsForVariant(
+                        100L,
                         2,
                         "같은 질문",
                         "수정 답변",
-                        false,
                         true
                 );
 
         assertThat(result.version())
                 .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("원본 질문이 같으면 요청 목록에 남은 variant를 유지하고 빠진 variant를 삭제한다")
+    void updateFaq_reconcilesSimilarQuestionsAndCacheable() {
+        Faq faq = faq(10L, "원본", 1, category(2L, "기존"));
+        givenUpdatableFaq(faq);
+        FaqQuestionVariant original = variant(100L, faq, "원본");
+        FaqQuestionVariant kept = variant(101L, faq, "유지");
+        FaqQuestionVariant removed = variant(102L, faq, "제거");
+        when(variantRepository.findByOriginFaqIdAndDeletedAtIsNullOrderByIdAsc(10L))
+                .thenReturn(List.of(original, kept, removed));
+        when(variantRepository.save(any(FaqQuestionVariant.class)))
+                .thenAnswer(invocation -> variant(103L, faq,
+                        invocation.getArgument(0, FaqQuestionVariant.class).getQuestion()));
+
+        FaqResponseDto result = service.updateActiveFaq(new FaqUpdateRequestDto(
+                10L, 2L, "원본", "답변", Intent.GENERAL, true, List.of("유지", "신규")), 9L);
+
+        ArgumentCaptor<OldFaq> oldFaq = ArgumentCaptor.forClass(OldFaq.class);
+        verify(oldFaqRepository).saveAndFlush(oldFaq.capture());
+        assertThat(oldFaq.getValue().isCacheable()).isFalse();
+        assertThat(result.cacheable()).isTrue();
+        assertThat(result.version()).isEqualTo(2);
+        assertThat(result.similarQuestions()).containsExactly("유지", "신규");
+        assertThat(removed.getDeletedAt()).isNotNull();
+        verify(vectorService).updateVectorsForVariant(100L, 2, "원본", "답변", false);
+        verify(vectorService).updateVectorsForVariant(101L, 2, "유지", "답변", false);
+        verify(vectorService).deleteVectorsForVariant(102L);
+        verify(vectorService).saveVectorsForVariant(103L, 2, "신규", "답변");
     }
 
     @Test
@@ -523,6 +601,14 @@ class FaqServiceTest {
                 .version(version)
                 .createdAt(now)
                 .updatedAt(now)
+                .build();
+    }
+
+    private FaqQuestionVariant variant(Long id, Faq faq, String question) {
+        return FaqQuestionVariant.builder()
+                .id(id)
+                .originFaq(faq)
+                .question(question)
                 .build();
     }
 }

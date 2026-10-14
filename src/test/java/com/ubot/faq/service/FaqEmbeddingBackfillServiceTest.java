@@ -21,8 +21,9 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.entity.Faq;
+import com.ubot.faq.entity.FaqQuestionVariant;
 import com.ubot.faq.enums.FaqVectorType;
-import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.repository.FaqQuestionVariantRepository;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 @DisplayName("FAQ 임베딩 백필 서비스 테스트")
@@ -30,8 +31,8 @@ class FaqEmbeddingBackfillServiceTest {
 
     private static final Long PROFILE_ID = 10L;
 
-    private final FaqRepository faqRepository =
-            mock(FaqRepository.class);
+    private final FaqQuestionVariantRepository variantRepository =
+            mock(FaqQuestionVariantRepository.class);
 
     private final FaqVectorRepository faqVectorRepository =
             mock(FaqVectorRepository.class);
@@ -44,7 +45,7 @@ class FaqEmbeddingBackfillServiceTest {
 
     private final FaqEmbeddingBackfillService service =
             new FaqEmbeddingBackfillService(
-                    faqRepository,
+                    variantRepository,
                     faqVectorRepository,
                     embeddingService,
                     embeddingProfileService
@@ -100,7 +101,7 @@ class FaqEmbeddingBackfillServiceTest {
                 );
 
         verify(faqVectorRepository)
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         2L,
                         PROFILE_ID,
                         FaqVectorType.QUESTION,
@@ -109,7 +110,7 @@ class FaqEmbeddingBackfillServiceTest {
                 );
 
         verify(faqVectorRepository)
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         2L,
                         PROFILE_ID,
                         FaqVectorType.QUESTION_ANSWER,
@@ -150,7 +151,7 @@ class FaqEmbeddingBackfillServiceTest {
                 .embedText("질문");
 
         verify(faqVectorRepository)
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         1L,
                         PROFILE_ID,
                         FaqVectorType.QUESTION_ANSWER,
@@ -161,7 +162,7 @@ class FaqEmbeddingBackfillServiceTest {
         verify(
                 faqVectorRepository,
                 never()
-        ).saveVectorForFaq(
+        ).saveVectorForVariant(
                 anyLong(),
                 anyLong(),
                 eq(FaqVectorType.QUESTION),
@@ -198,7 +199,7 @@ class FaqEmbeddingBackfillServiceTest {
         verify(
                 faqVectorRepository,
                 never()
-        ).saveVectorForFaq(
+        ).saveVectorForVariant(
                 any(),
                 any(),
                 any(),
@@ -211,10 +212,16 @@ class FaqEmbeddingBackfillServiceTest {
         when(embeddingProfileService.getCurrentProfileId())
                 .thenReturn(PROFILE_ID);
 
-        when(faqRepository.findAllByDeletedAtIsNull(any(Pageable.class)))
+        when(variantRepository.findAllActive(any(Pageable.class)))
                 .thenReturn(
                         new PageImpl<>(
-                                List.of(faqs)
+                                java.util.Arrays.stream(faqs)
+                                        .map(faq -> FaqQuestionVariant.builder()
+                                                .id(faq.getId())
+                                                .originFaq(faq)
+                                                .question(faq.getQuestion())
+                                                .build())
+                                        .toList()
                         )
                 );
     }

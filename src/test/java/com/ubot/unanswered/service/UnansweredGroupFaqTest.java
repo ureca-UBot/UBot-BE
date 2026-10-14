@@ -88,9 +88,13 @@ class UnansweredGroupFaqTest {
 				SELECT EXISTS (
 				    SELECT 1
 				    FROM faq_embeddings fe
+				    JOIN faq_question_variants fqv
+				      ON fqv.id = fe.faq_question_variant_id
 				    JOIN faq f
-				      ON f.id = fe.faq_id
-				    WHERE fe.faq_id = ?
+				      ON f.id = fqv.origin_faq_id
+				    WHERE f.id = ?
+				      AND fqv.question = f.question
+				      AND fqv.deleted_at IS NULL
 				      AND fe.vector_type = 'QUESTION'
 				      AND fe.faq_version = f.version
 				      AND fe.vector IS NOT NULL

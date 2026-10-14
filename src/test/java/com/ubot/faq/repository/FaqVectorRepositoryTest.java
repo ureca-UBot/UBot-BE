@@ -86,7 +86,7 @@ class FaqVectorRepositoryTest {
                 "2026-01-01 00:00:00"
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 profileId,
                 FaqVectorType.QUESTION,
@@ -94,7 +94,7 @@ class FaqVectorRepositoryTest {
                 vectorOf(0)
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 2L,
                 profileId,
                 FaqVectorType.QUESTION,
@@ -102,7 +102,7 @@ class FaqVectorRepositoryTest {
                 vectorOf(1)
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 3L,
                 profileId,
                 FaqVectorType.QUESTION,
@@ -131,9 +131,39 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
+    @DisplayName("같은 FAQ의 variant가 상위 점수를 차지해도 FAQ별 한 건을 고른 뒤 topK를 적용한다")
+    void getSimilarList_selectsBestVariantPerFaqBeforeTopK() {
+        repository.saveVectorForVariant(1L, profileId, FaqVectorType.QUESTION, 1, vectorOf(1));
+        insertVariant(11L, 1L, "유심을 다시 발급받고 싶어요", null);
+        insertVariant(12L, 1L, "유심 재발급 방법", null);
+        repository.saveVectorForVariant(11L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+        repository.saveVectorForVariant(12L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+
+        List<FaqSearchResponseDto> results = repository.getSimilarList(
+                vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
+
+        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
+        assertThat(results.getFirst().variantId()).isEqualTo(11L);
+        assertThat(results.getFirst().question()).isEqualTo("유심 재발급");
+        assertThat(results.getFirst().variantQuestion()).isEqualTo("유심을 다시 발급받고 싶어요");
+    }
+
+    @Test
+    @DisplayName("soft delete된 variant의 높은 점수는 검색에 사용하지 않는다")
+    void getSimilarList_ignoresDeletedVariant() {
+        insertVariant(11L, 1L, "삭제된 표현", "2026-01-01 00:00:00");
+        repository.saveVectorForVariant(11L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+
+        List<FaqSearchResponseDto> results = repository.getSimilarList(
+                vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
+
+        assertThat(results.getFirst().variantId()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("다른 임베딩 프로필의 벡터는 검색하지 않는다")
     void getSimilarList_doesNotUseAnotherProfile() {
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 otherProfileId,
                 FaqVectorType.QUESTION,
@@ -160,14 +190,14 @@ class FaqVectorRepositoryTest {
         jdbcTemplate.update(
                 """
                 DELETE FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                 """,
                 1L,
                 profileId
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 otherProfileId,
                 FaqVectorType.QUESTION,
@@ -224,7 +254,7 @@ class FaqVectorRepositoryTest {
                 """
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 profileId,
                 FaqVectorType.QUESTION,
@@ -236,7 +266,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT faq_version
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = 'QUESTION'
                 """,
@@ -251,10 +281,9 @@ class FaqVectorRepositoryTest {
     @Test
     @DisplayName("질문이 바뀌지 않으면 벡터는 유지하고 FAQ 버전만 갱신한다")
     void updateVectorVersionForFaq_updatesOnlyVersion() {
-        repository.updateVectorVersionForFaq(
+        repository.updateVectorVersionForVariant(
                 1L,
                 profileId,
-                FaqVectorType.QUESTION,
                 2
         );
 
@@ -262,7 +291,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT faq_version
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = 'QUESTION'
                 """,
@@ -275,7 +304,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT vector
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = 'QUESTION'
                 """,
@@ -321,7 +350,7 @@ class FaqVectorRepositoryTest {
     @Test
     @DisplayName("같은 FAQ와 프로필에 질문 벡터와 질문+답변 벡터를 각각 저장한다")
     void saveVectorForFaq_keepsOneVectorPerType() {
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 profileId,
                 FaqVectorType.QUESTION_ANSWER,
@@ -333,7 +362,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT vector_type
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                 ORDER BY vector_type
                 """,
@@ -356,7 +385,7 @@ class FaqVectorRepositoryTest {
     @DisplayName("검색은 지정한 유형의 벡터만 쓰고, 그 유형의 벡터가 없는 FAQ는 다른 유형으로 대체하지 않는다")
     void getSimilarList_usesOnlyRequestedVectorType() {
         // FAQ 2에만 질문+답변 벡터가 있고, 그 벡터는 검색 벡터와 같다.
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 2L,
                 profileId,
                 FaqVectorType.QUESTION_ANSWER,
@@ -388,9 +417,9 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
-    @DisplayName("벡터 버전 갱신은 지정한 유형에만 적용한다")
-    void updateVectorVersionForFaq_updatesOnlyRequestedVectorType() {
-        repository.saveVectorForFaq(
+    @DisplayName("벡터 버전 갱신은 현재 variant의 두 유형에 적용한다")
+    void updateVectorVersionForVariant_updatesBothTypes() {
+        repository.saveVectorForVariant(
                 1L,
                 profileId,
                 FaqVectorType.QUESTION_ANSWER,
@@ -398,10 +427,9 @@ class FaqVectorRepositoryTest {
                 vectorOf(3)
         );
 
-        repository.updateVectorVersionForFaq(
+        repository.updateVectorVersionForVariant(
                 1L,
                 profileId,
-                FaqVectorType.QUESTION,
                 2
         );
 
@@ -421,7 +449,7 @@ class FaqVectorRepositoryTest {
                         FaqVectorType.QUESTION_ANSWER,
                         2
                 )
-        ).isFalse();
+        ).isTrue();
 
         assertThat(
                 repository.hasCurrentVector(
@@ -430,7 +458,7 @@ class FaqVectorRepositoryTest {
                         FaqVectorType.QUESTION_ANSWER,
                         1
                 )
-        ).isTrue();
+        ).isFalse();
     }
 
     @Test
@@ -448,7 +476,7 @@ class FaqVectorRepositoryTest {
                     null
             );
 
-            repository.saveVectorForFaq(
+            repository.saveVectorForVariant(
                     faqId,
                     profileId,
                     FaqVectorType.QUESTION,
@@ -456,7 +484,7 @@ class FaqVectorRepositoryTest {
                     vectorNear(10 + offset, 0.01f)
             );
 
-            repository.saveVectorForFaq(
+            repository.saveVectorForVariant(
                     faqId,
                     profileId,
                     FaqVectorType.QUESTION_ANSWER,
@@ -557,6 +585,23 @@ class FaqVectorRepositoryTest {
                 answer,
                 deletedAt
         );
+        jdbcTemplate.update(
+                """
+                INSERT INTO faq_question_variants (id, origin_faq_id, question, deleted_at)
+                VALUES (?, ?, ?, ?::timestamp)
+                """,
+                id, id, question, deletedAt
+        );
+    }
+
+    private void insertVariant(Long id, Long faqId, String question, String deletedAt) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO faq_question_variants (id, origin_faq_id, question, deleted_at)
+                VALUES (?, ?, ?, ?::timestamp)
+                """,
+                id, faqId, question, deletedAt
+        );
     }
 
     private String storedVector(
@@ -567,7 +612,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT vector::text
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = ?
                 """,
