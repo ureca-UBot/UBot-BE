@@ -37,6 +37,9 @@ public class Faq {
 	@Column(name = "intent")
 	private Intent intent;
 
+	@Column(name = "cacheable")
+	private boolean cacheable;
+
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "admin_id")
 	private User admin;
