@@ -9,13 +9,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** 원본 FAQ에 연결된 변형 질문·답변. 벡터는 faq_embeddings에서 관리한다. */
+/** 원본 FAQ에 연결된 변형 질문. 답변은 원본 FAQ, 벡터는 faq_embeddings에서 관리한다. */
 @Entity
 @Getter
 @Builder
@@ -31,23 +33,28 @@ public class FaqQuestionVariant {
     @JoinColumn(name = "origin_faq_id", nullable = false)
     private Faq originFaq;
 
-    @Builder.Default
-    @Column(name = "version", nullable = false)
-    private int version = 1;
-
     @Column(name = "question", nullable = false, length = 160)
     private String question;
 
-    @Column(name = "answer", nullable = false)
-    private String answer;
-
     @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
-    public void update(String question, String answer) {
+    @Builder.Default
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    public void update(String question) {
+        if (Objects.equals(this.question, question)) return;
         this.question = question;
-        this.answer = answer;
-        this.version++;
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+        this.updatedAt = now.isAfter(updatedAt) ? now : updatedAt.plus(1, ChronoUnit.MICROS);
+    }
+
+    public void delete() {
+        this.deletedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
     }
 }

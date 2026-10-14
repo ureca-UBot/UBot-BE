@@ -1,6 +1,7 @@
 package com.ubot.faq.repository;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -180,23 +181,33 @@ public class FaqVectorRepository {
         return count != null && count > 0;
     }
 
-    public void saveVectorForVariant(Long variantId, Long profileId, FaqVectorType vectorType,
-                                     Integer variantVersion, PGvector embedding) {
-        jdbcTemplate.update("""
-                INSERT INTO faq_embeddings (variant_id, profile_id, vector_type, source_version, vector)
-                VALUES (?, ?, ?, ?, ?)
+    /** 임베딩 중 질문이 변경·삭제됐으면 저장하지 않는다. 원본 답변은 변형 벡터에 포함하지 않는다. */
+    public boolean saveVectorForVariant(Long variantId, Long profileId,
+                                        LocalDateTime sourceUpdatedAt, PGvector embedding) {
+        int savedCount = jdbcTemplate.update("""
+                WITH current_variant AS (
+                    SELECT v.id, v.updated_at FROM faq_question_variant v
+                    JOIN faq f ON f.id = v.origin_faq_id
+                    WHERE v.id = ? AND v.updated_at = ? AND v.deleted_at IS NULL AND f.deleted_at IS NULL
+                    FOR UPDATE OF v
+                )
+                INSERT INTO faq_embeddings (variant_id, profile_id, vector_type, source_updated_at, vector)
+                SELECT id, ?, 'QUESTION', updated_at, ? FROM current_variant
                 ON CONFLICT (variant_id, profile_id, vector_type) WHERE faq_id IS NULL
-                DO UPDATE SET source_version = EXCLUDED.source_version,
+                DO UPDATE SET source_updated_at = EXCLUDED.source_updated_at,
                               vector = EXCLUDED.vector, updated_at = CURRENT_TIMESTAMP
-                """, variantId, profileId, vectorType.name(), variantVersion, embedding);
+                """, variantId, sourceUpdatedAt, profileId, embedding);
+        return savedCount > 0;
     }
 
-    public boolean hasCurrentVariantVector(Long variantId, Long profileId, FaqVectorType vectorType,
-                                           Integer variantVersion) {
+    public boolean hasCurrentVariantVector(Long variantId, Long profileId) {
         Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM faq_embeddings
-                WHERE variant_id = ? AND profile_id = ? AND vector_type = ? AND source_version = ?
-                """, Integer.class, variantId, profileId, vectorType.name(), variantVersion);
+                SELECT COUNT(*) FROM faq_embeddings fe
+                JOIN faq_question_variant v ON v.id = fe.variant_id
+                JOIN faq f ON f.id = v.origin_faq_id
+                WHERE fe.variant_id = ? AND fe.profile_id = ? AND fe.vector_type = 'QUESTION'
+                  AND fe.source_updated_at = v.updated_at AND v.deleted_at IS NULL AND f.deleted_at IS NULL
+                """, Integer.class, variantId, profileId);
         return count != null && count > 0;
     }
 }
