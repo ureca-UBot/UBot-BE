@@ -90,7 +90,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
           → ChatAnswerProcessor.generateAnswer (가상 스레드에서 실행, 답변 또는 실패 코드를 돌려줌)
               → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
                   → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성 (기본은 Ollama /api/embed)
-                  → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색 (FAQ_SEARCH_VECTOR_TYPE 유형의 벡터 전체와 비교, HNSW 인덱스 미사용)
+                  → FaqVectorRepository : 활성 FAQ의 활성 질문 표현 대상 pgvector 코사인 유사도 검색 (FAQ_SEARCH_VECTOR_TYPE 유형의 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환, HNSW 인덱스 미사용)
               → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
               → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
                  → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
@@ -193,8 +193,8 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 ## FAQ 관리 흐름
 
-- **생성**: FAQ를 저장한 뒤 질문 벡터(`QUESTION`)와 질문+답변 벡터(`QUESTION_ANSWER`)를 지금 Embedding Profile로 만들어 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
-- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 질문이 바뀌었으면 두 벡터를 다시 임베딩하고, 답변만 바뀌었으면 질문+답변 벡터만 다시 임베딩합니다. 다시 임베딩하지 않는 벡터는 `faq_version`만 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
+- **생성**: FAQ와 원본·유사 질문 variant를 저장한 뒤 각 variant의 질문 벡터(`QUESTION`)와 질문+답변 벡터(`QUESTION_ANSWER`)를 지금 Embedding Profile로 만들어 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
+- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 원본 질문이 바뀌면 기존 variant를 종료하고 새 variant를 만들어 두 유형을 임베딩합니다. 원본 질문이 같으면 추가·제거된 유사 질문만 생성·종료하고, 유지되는 variant는 답변 변경 시 `QUESTION_ANSWER`만 다시 임베딩합니다. 유지되는 벡터의 `faq_version`은 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
 - **삭제·복구**: `deleted_at`으로 soft delete합니다. 삭제된 FAQ는 벡터 검색에서 제외되고, `/admin/faqs/restore`로 복구할 수 있습니다.
 - 벡터는 JPA 엔티티에 매핑하지 않고 `FaqVectorRepository`(JdbcTemplate)로만 읽고 씁니다.
 - 생성·수정 시 임베딩 HTTP 호출이 `@Transactional` 안에서 일어나므로, 임베딩 서버 응답을 기다리는 동안 DB 연결을 사용합니다.

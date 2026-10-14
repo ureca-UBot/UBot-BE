@@ -52,8 +52,9 @@ ORDER BY extname;
 |---|---|
 | `users` | 회원. `role`은 `USER` 또는 `ADMIN`, `deleted_at`이 있으면 탈퇴 |
 | `refresh_tokens` | 사용자당 refresh token 1개 |
-| `faq_category`, `faq` | FAQ와 카테고리. `faq.intent`에 처리 의도. 벡터는 `faq_embeddings`에 있음 |
-| `embedding_profiles`, `faq_embeddings` | 임베딩 서버별 Profile과, Profile별 FAQ 질문 임베딩(1024차원) |
+| `faq_category`, `faq` | FAQ와 카테고리. `faq.intent`에 처리 의도, `faq.cacheable`에 캐시 허용 여부 저장 |
+| `faq_question_variants` | FAQ의 원본 질문과 유사 질문. `origin_faq_id`로 FAQ를 참조하고 `deleted_at`으로 표현을 종료 |
+| `embedding_profiles`, `faq_embeddings` | 임베딩 서버별 Profile과 variant별 `QUESTION`·`QUESTION_ANSWER` 임베딩(1024차원). `faq_question_variant_id`로 표현을 참조 |
 | `old_faq` | FAQ 수정 전 버전 (`faq_id`, `version`) |
 | `answer_attempts_history` | 채팅 답변 시도 1회당 1행. `status`(`PENDING`/`SUCCESS`/`FAIL`), `error_code`, `idempotency_key` |
 | `question_log` | 성공한 질문과 생성 답변(`llm_question` 컬럼) |

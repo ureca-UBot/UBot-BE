@@ -213,10 +213,11 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V15` | `unanswered_question_groups`(대표 질문, 중심 벡터, 질문 수, 처리 상태 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED`), `unanswered_questions`(질문 벡터, 원인 `NO_FAQ`/`INSUFFICIENT_FAQ`, 가장 가까운 FAQ) |
 | `V23` | `embedding_profiles`(엔진·모델 이름·차원·버전의 조합), `faq_embeddings`(Profile별 FAQ 벡터, HNSW cosine 인덱스), `unanswered_question_embeddings`, `unanswered_group_embeddings`(Profile별 미응답 질문 벡터와 묶음 중심 벡터) |
 | `V25` | 예전 벡터 컬럼 삭제 (`faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`) |
+| `V32` | `faq`, `old_faq`에 `cacheable` 추가, `faq_question_variants` 생성 및 기존 질문 이관, `faq_embeddings`의 연결 키를 FAQ ID에서 variant ID로 변경 |
 
-표에 없는 버전(`V16`~`V22`, `V24`)은 각 SQL 파일을 참고하세요. FAQ와 관리자 계정은 마이그레이션에 포함되어 있지 않습니다. 로컬에서는 `tools/reset-local-db.ps1`이 기본 계정과 FAQ 1,000건, 그 벡터를 넣습니다([안내](../how-to/reset-local-db.md)).
+표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/reset-local-db.ps1`이 기본 계정, FAQ 1,000건, 질문 표현과 `QUESTION_ANSWER` 벡터 각 5,000건을 넣습니다([안내](../how-to/reset-local-db.md)).
 
-벡터는 `V23`의 Profile 테이블에만 있습니다. `V15`까지 쓰던 벡터 컬럼은 `V25`에서 지웠습니다.
+FAQ 벡터는 `faq_embeddings`에 variant ID와 Profile ID별로 저장합니다. `V15`까지 쓰던 엔티티의 벡터 컬럼은 `V25`에서 지웠습니다.
 
 ## Ollama 관련 설정 두 곳
 

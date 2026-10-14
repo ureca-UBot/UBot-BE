@@ -301,7 +301,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `LLM-004`, `CHAT-016` | `LLM_READ_TIMEOUT`, `CHAT_RESPONSE_TIMEOUT_MILLIS`, 모델 크기·GPU 사용 여부 |
 | `LLM-005` | 모델 설정, 애플리케이션 로그 |
 
-FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_embeddings`에 벡터가 없어 검색에 나오지 않습니다. [백필](how-to/llm-module.md#백필)을 실행하면 벡터가 없는 FAQ만 임베딩합니다.
+FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_question_variants`에 질문 표현이 없어 검색에 나오지 않습니다. 먼저 원본 질문의 variant를 만들어야 합니다. 그 뒤 [백필](how-to/llm-module.md#백필)을 실행하면 누락된 variant 벡터를 채웁니다. 관리자 API로 FAQ를 등록하면 variant와 벡터가 함께 생성됩니다.
 
 채팅 응답의 `answer`에는 답변 문장만 들어갑니다. 2026-10-12 이전에 저장된 대화 기록은 JSON 문자열 그대로일 수 있습니다. 모델 출력 JSON을 읽을 수 없으면 `LLM-005`로 실패합니다([LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리)).
 
