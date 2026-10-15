@@ -37,7 +37,7 @@ final class ChatTestFixtures {
 	/** 판정 LLM을 부르지 않고 원문을 하위 질문 하나로 쓰는 정리기입니다. 재검색은 원본 질문 로그가 없으므로 원문을 씁니다. */
 	static SubQuestionPlanner originalSubQuestions() {
 		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class), mock(QuestionLogRepository.class),
-				mock(SubQuestionPromptService.class), mock(LlmService.class));
+				mock(SubQuestionPromptService.class), mock(LlmService.class), mock(SubQuestionGuard.class));
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

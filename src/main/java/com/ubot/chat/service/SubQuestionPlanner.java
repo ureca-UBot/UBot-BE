@@ -31,18 +31,21 @@ public class SubQuestionPlanner {
 	private final QuestionLogRepository questionLogRepository;
 	private final SubQuestionPromptService subQuestionPromptService;
 	private final LlmService llmService;
+	private final SubQuestionGuard subQuestionGuard;
 
 	public SubQuestionPlanner(
 			@Value("${CHAT_SUB_QUESTION_ENABLED:true}") boolean enabled,
 			ConversationTurnRepository conversationTurnRepository,
 			QuestionLogRepository questionLogRepository,
 			SubQuestionPromptService subQuestionPromptService,
-			LlmService llmService) {
+			LlmService llmService,
+			SubQuestionGuard subQuestionGuard) {
 		this.enabled = enabled;
 		this.conversationTurnRepository = conversationTurnRepository;
 		this.questionLogRepository = questionLogRepository;
 		this.subQuestionPromptService = subQuestionPromptService;
 		this.llmService = llmService;
+		this.subQuestionGuard = subQuestionGuard;
 	}
 
 	SubQuestionPlan plan(AnswerAttemptsHistory attempt) {
@@ -60,12 +63,16 @@ public class SubQuestionPlanner {
 			LlmResponseDto response = llmService.generateAnswer(
 					subQuestionPromptService.createPrompt(attempt.getQuestion(), history));
 			List<String> subQuestions = SubQuestionFormat.parse(response.answer());
-			// 질문 원문은 남기지 않고 개수와 원문에서 바뀌었는지만 남깁니다.
-			log.info("하위 질문을 정리했습니다: 시도ID={}, 이전대화수={}, 하위질문수={}, 다시씀={}, 처리시간={}ms",
-					attempt.getId(), history.size(), subQuestions.size(),
-					subQuestions.size() > 1 || !subQuestions.getFirst().equals(attempt.getQuestion()),
-					elapsedMillis(startedAt));
-			return new SubQuestionPlan(subQuestions, SubQuestionPlan.Source.LLM);
+			SubQuestionGuard.Result guarded = subQuestionGuard.check(attempt.getQuestion(), history, subQuestions);
+			// 질문 원문은 남기지 않고 개수, 원문에서 바뀌었는지, 가드 결과만 남깁니다.
+			log.info("하위 질문을 정리했습니다: 시도ID={}, 이전대화수={}, 하위질문수={}, 다시씀={}, 가드={}, 가드사유={}, 처리시간={}ms",
+					attempt.getId(), history.size(), guarded.subQuestions().size(),
+					guarded.subQuestions().size() > 1 || !guarded.subQuestions().getFirst().equals(attempt.getQuestion()),
+					guarded.outcome(), guarded.reasons(), elapsedMillis(startedAt));
+			if (guarded.fallback()) {
+				return SubQuestionPlan.original(attempt.getQuestion(), SubQuestionPlan.Source.GUARD_FALLBACK);
+			}
+			return new SubQuestionPlan(guarded.subQuestions(), SubQuestionPlan.Source.LLM);
 		} catch (GlobalException | DataAccessException exception) {
 			// 판정은 검색 품질을 높이는 단계라, 실패해도 답변 전체를 실패시키지 않고 원문으로 진행합니다.
 			// 작업이 취소된 경우는 다음 단계의 취소 확인에서 멈춥니다.

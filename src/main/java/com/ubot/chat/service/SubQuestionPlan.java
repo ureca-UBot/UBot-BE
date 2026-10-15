@@ -18,6 +18,8 @@ record SubQuestionPlan(List<String> subQuestions, Source source) {
 		ORIGINAL,
 		/** 판정 LLM 호출이나 응답 해석에 실패해 원문을 썼습니다. */
 		LLM_FAILED,
+		/** 판정 LLM의 출력이 뜻을 바꿨을 수 있어 가드가 원문으로 돌렸습니다. */
+		GUARD_FALLBACK,
 		/** 의도 재검색이라 원본 시도의 하위 질문을 다시 썼습니다. */
 		REUSED
 	}

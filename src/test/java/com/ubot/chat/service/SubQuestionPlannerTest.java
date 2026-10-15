@@ -21,7 +21,9 @@ import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.SubQuestionPromptService;
+import java.util.EnumSet;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,10 +36,17 @@ class SubQuestionPlannerTest {
 	private final QuestionLogRepository questionLogs = mock(QuestionLogRepository.class);
 	private final SubQuestionPromptService prompts = mock(SubQuestionPromptService.class);
 	private final LlmService llm = mock(LlmService.class);
+	private final SubQuestionGuard guard = mock(SubQuestionGuard.class);
 	private final LlmRequestDto request = new LlmRequestDto(List.of());
 
+	@BeforeEach
+	void passGuard() {
+		when(guard.check(any(), any(), any())).thenAnswer(invocation -> new SubQuestionGuard.Result(
+				invocation.getArgument(2), false, EnumSet.noneOf(SubQuestionGuard.Reason.class)));
+	}
+
 	private SubQuestionPlanner planner(boolean enabled) {
-		return new SubQuestionPlanner(enabled, turns, questionLogs, prompts, llm);
+		return new SubQuestionPlanner(enabled, turns, questionLogs, prompts, llm, guard);
 	}
 
 	@Test
@@ -53,6 +62,30 @@ class SubQuestionPlannerTest {
 
 		assertThat(plan.subQuestions()).containsExactly("5G 프리미엄 요금제 데이터 제공량");
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM);
+	}
+
+	@Test
+	@DisplayName("가드가 고친 하위 질문을 쓰고, 가드가 원문으로 돌리면 원문 하나로 진행한다")
+	void appliesGuardResult() {
+		var history = List.of(new ConversationTurn(List.of("매장 예약 방법"), "앱에서 예약할 수 있습니다."));
+		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
+		when(prompts.createPrompt(any(), any())).thenReturn(request);
+		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+				"{\"sub_questions\": [\"제주도 연동 매장 예약 가능吗?\"]}"));
+		when(guard.check("제주도 연동 매장 예약 가능해요?", history, List.of("제주도 연동 매장 예약 가능吗?")))
+				.thenReturn(new SubQuestionGuard.Result(List.of("제주도 연동 매장 예약 가능?"), false,
+						EnumSet.of(SubQuestionGuard.Reason.FOREIGN_SCRIPT_REMOVED)));
+		when(guard.check("며칠부터 정지돼요?", history, List.of("제주도 연동 매장 예약 가능吗?")))
+				.thenReturn(new SubQuestionGuard.Result(List.of("며칠부터 정지돼요?"), true,
+						EnumSet.of(SubQuestionGuard.Reason.NEW_INTERROGATIVE)));
+
+		SubQuestionPlan modified = planner(true).plan(attempt(10L, 7L, "제주도 연동 매장 예약 가능해요?"));
+		SubQuestionPlan fallback = planner(true).plan(attempt(10L, 7L, "며칠부터 정지돼요?"));
+
+		assertThat(modified.subQuestions()).containsExactly("제주도 연동 매장 예약 가능?");
+		assertThat(modified.source()).isEqualTo(SubQuestionPlan.Source.LLM);
+		assertThat(fallback.subQuestions()).containsExactly("며칠부터 정지돼요?");
+		assertThat(fallback.source()).isEqualTo(SubQuestionPlan.Source.GUARD_FALLBACK);
 	}
 
 	@Test
@@ -105,7 +138,7 @@ class SubQuestionPlannerTest {
 
 		assertThat(plan.subQuestions()).containsExactly("유심 재발급");
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL);
-		verifyNoInteractions(turns, prompts, llm);
+		verifyNoInteractions(turns, prompts, llm, guard);
 	}
 
 	@Test

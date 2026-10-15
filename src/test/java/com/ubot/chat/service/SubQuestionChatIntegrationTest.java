@@ -119,7 +119,7 @@ class SubQuestionChatIntegrationTest {
 				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
 		answerReturns("재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다.");
 
-		var response = ask("유심 재발급이랑 해외 로밍 요금 알려줘");
+		var response = ask("유심 재발급 방법이랑 해외 로밍 요금 알려줘");
 
 		assertThat(response.status()).isEqualTo("SUCCESS");
 		List<QuestionLog> logs = questionLogs.findAll().stream()
@@ -127,9 +127,9 @@ class SubQuestionChatIntegrationTest {
 		assertThat(logs).extracting(QuestionLog::getUserQuestion, QuestionLog::getSubQuestion,
 						QuestionLog::getSubQuestionIndex, QuestionLog::getAnswer)
 				.containsExactly(
-						tuple("유심 재발급이랑 해외 로밍 요금 알려줘", "유심 재발급 방법", 0,
+						tuple("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "유심 재발급 방법", 0,
 								"재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다."),
-						tuple("유심 재발급이랑 해외 로밍 요금 알려줘", "해외 로밍 요금", 1,
+						tuple("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "해외 로밍 요금", 1,
 								"재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다."));
 		assertThat(faqLogs.findAll()).singleElement().satisfies(faqLog -> {
 			assertThat(faqLog.getQuestionLogId()).isEqualTo(logs.getFirst().getId());
@@ -140,11 +140,11 @@ class SubQuestionChatIntegrationTest {
 				.containsExactly(tuple(1, "해외 로밍 요금"));
 		// 답변 LLM에는 원문과 함께 하위 질문별 근거가 갑니다.
 		assertThat(answerRequest().messages().getLast().content())
-				.contains("유심 재발급이랑 해외 로밍 요금 알려줘", "## 하위 질문 1: 유심 재발급 방법",
+				.contains("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "## 하위 질문 1: 유심 재발급 방법",
 						"[FAQ ID: " + reissueFaqId + "]", "## 하위 질문 2: 해외 로밍 요금");
 		assertThat(conversationService.getConversationMessageList(userId, conversationPublicId))
 				.singleElement().satisfies(message -> {
-					assertThat(message.question()).isEqualTo("유심 재발급이랑 해외 로밍 요금 알려줘");
+					assertThat(message.question()).isEqualTo("유심 재발급 방법이랑 해외 로밍 요금 알려줘");
 					assertThat(message.answer()).isEqualTo("재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다.");
 				});
 	}
@@ -156,7 +156,7 @@ class SubQuestionChatIntegrationTest {
 		when(vector.getSimilarList("유심 재발급 방법", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
 		answerReturns("매장에서 재발급할 수 있습니다.");
-		ask("유심 재발급 어떻게 해?");
+		ask("유심 재발급 방법 알려줘");
 
 		judgeReturns("유심 재발급 비용");
 		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(

@@ -20,6 +20,9 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 
 COPY --from=builder /app/app.jar app.jar
+# 빌드 단계의 Gradle이 받은 Kiwi 형태소 분석기 모델입니다. 모델이 없으면 백엔드가 기동하지 않습니다.
+COPY --from=builder /app/.kiwi/model kiwi-model
+ENV KIWI_MODEL_PATH=/app/kiwi-model
 
 EXPOSE 8080
 
