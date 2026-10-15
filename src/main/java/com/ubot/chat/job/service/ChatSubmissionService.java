@@ -8,6 +8,8 @@ import com.ubot.chat.job.repository.ChatJobRepository;
 import com.ubot.chat.job.stream.ChatJobMessage;
 import com.ubot.chat.job.stream.ChatJobStream;
 import java.util.function.Supplier;
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -22,6 +24,8 @@ public class ChatSubmissionService {
 	private final ChatJobRepository chatJobRepository;
 	private final ChatJobStream chatJobStream;
 	private final TransactionTemplate transactionTemplate;
+	@Value("${app.chat.worker.max-queue-wait:10m}")
+	private Duration maxQueueWait = Duration.ofMinutes(10);
 
 	public ChatSubmissionService(
 			ChatJobRepository chatJobRepository,
@@ -36,7 +40,7 @@ public class ChatSubmissionService {
 	public ChatSubmission submit(Supplier<AnswerAttemptsHistory> createAttempt, ChatRequestContext context) {
 		ChatSubmission submission = transactionTemplate.execute(status -> {
 			AnswerAttemptsHistory attempt = createAttempt.get();
-			ChatJob job = chatJobRepository.saveAndFlush(ChatJob.queue(attempt.getId(), context));
+			ChatJob job = chatJobRepository.saveAndFlush(ChatJob.queue(attempt.getId(), context, maxQueueWait));
 			log.info("답변 작업을 접수했습니다: 작업ID={}, 시도ID={}, 재시도횟수={}",
 					job.getId(), attempt.getId(), attempt.getAttemptCount());
 			return ChatSubmission.of(job, attempt);

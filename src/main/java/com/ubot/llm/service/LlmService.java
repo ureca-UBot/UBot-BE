@@ -1,6 +1,8 @@
 package com.ubot.llm.service;
 
 import com.ubot.llm.client.LlmClient;
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -44,10 +46,12 @@ public class LlmService {
 	public LlmResponseDto generateAnswer(LlmRequestDto request) {
         // API 호출 전에 메시지 누락·공백·마지막 역할을 확인합니다.
         validateRequest(request);
+        AnswerProgress.report(Phase.WAITING_FOR_MODEL);
         acquirePermit();
         // 실제 모델 통신은 LlmClient 구현체에 맡깁니다.
 		long startedAt = System.nanoTime();
 		try {
+			AnswerProgress.report(Phase.GENERATING);
 			LlmResponseDto response = llmClient.generateAnswer(request);
 			if(response == null)
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);

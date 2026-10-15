@@ -1,8 +1,8 @@
 package com.ubot.chat.job.entity;
 
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.chat.job.dto.ChatJobResult;
 import com.ubot.chat.job.dto.ChatRequestContext;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,6 +11,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import lombok.AccessLevel;
@@ -36,6 +37,16 @@ public class ChatJob {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "execution_status")
 	private ChatJobStatus status;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "phase")
+	private Phase phase;
+
+	@Column(name = "phase_updated_at")
+	private LocalDateTime phaseUpdatedAt;
+
+	@Column(name = "deadline_at")
+	private LocalDateTime deadlineAt;
 
 	@Column(name = "created_at")
 	private LocalDateTime createdAt;
@@ -74,8 +85,15 @@ public class ChatJob {
 	}
 
 	public static ChatJob queue(Long attemptId, ChatRequestContext context) {
+		return queue(attemptId, context, Duration.ofMinutes(10));
+	}
+
+	public static ChatJob queue(Long attemptId, ChatRequestContext context, Duration maxQueueWait) {
 		ChatJob job = new ChatJob(attemptId);
 		job.requestContext = context;
+		job.phase = Phase.WAITING;
+		job.phaseUpdatedAt = job.createdAt;
+		job.deadlineAt = job.phaseUpdatedAt.plus(maxQueueWait);
 		return job;
 	}
 
@@ -103,5 +121,8 @@ public class ChatJob {
 		this.updatedAt = this.finishedAt;
 		// 좌표·지역은 종료와 같은 트랜잭션에서 지움
 		this.requestContext = null;
+		this.phase = null;
+		this.phaseUpdatedAt = this.finishedAt;
+		this.deadlineAt = null;
 	}
 }

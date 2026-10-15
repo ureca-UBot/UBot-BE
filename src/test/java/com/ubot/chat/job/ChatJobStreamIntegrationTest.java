@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.job.dto.ChatJobResult;
@@ -354,9 +355,64 @@ class ChatJobStreamIntegrationTest {
 	@Test
 	void expiredQueuedJobCannotBeClaimedBeforeCleanupRuns() {
 		ChatJob job = queueJob("만료된 질문");
-		jdbc.update("update chat_jobs set created_at = CURRENT_TIMESTAMP - interval '11 minutes' where job_id = ?", job.getId());
+		jdbc.update("update chat_jobs set deadline_at = CURRENT_TIMESTAMP - interval '1 second' where job_id = ?", job.getId());
 		assertThat(queue.claim(job.getId(), now())).isEmpty();
+		assertThat(queue.findExpiredQueued(100, 0)).contains(job.getId());
 		assertThat(jobs.findById(job.getId()).orElseThrow().getStatus()).isEqualTo(ChatJobStatus.QUEUED);
+	}
+
+	@Test
+	void phaseAndDeadlineSurviveReloadAndPhaseDoesNotExtendDeadline() {
+		ChatJob job = queueJob("진행 단계");
+		assertThat(jobs.findById(job.getId()).orElseThrow().getPhase()).isEqualTo(Phase.WAITING);
+		assertThat(job.getDeadlineAt()).isEqualTo(job.getPhaseUpdatedAt().plus(Duration.ofMinutes(10)));
+		LocalDateTime started = queue.claim(job.getId(), now()).orElseThrow();
+		LocalDateTime deadline = started.plusSeconds(180);
+		for (Phase phase : List.of(Phase.SEARCHING, Phase.COLLECTING_CONTEXT, Phase.WAITING_FOR_MODEL, Phase.GENERATING)) {
+			assertThat(queue.updatePhase(job.getId(), started, phase)).isEqualTo(1);
+			ChatJob reloaded = jobs.findById(job.getId()).orElseThrow();
+			assertThat(reloaded.getPhase()).isEqualTo(phase);
+			assertThat(reloaded.getPhaseUpdatedAt()).isNotNull();
+			assertThat(reloaded.getDeadlineAt()).isEqualTo(deadline);
+		}
+	}
+
+	@Test
+	void previousOwnerAndFinishedJobCannotUpdatePhase() {
+		ChatJob job = queueJob("실행 권한");
+		LocalDateTime old = queue.claim(job.getId(), now().minusMinutes(10)).orElseThrow();
+		queue.updatePhase(job.getId(), old, Phase.GENERATING);
+		LocalDateTime current = queue.takeOver(job.getId(), now(), now().minusMinutes(1)).orElseThrow();
+		assertThat(queue.updatePhase(job.getId(), old, Phase.GENERATING)).isZero();
+		assertThat(queue.updatePhase(job.getId(), current, Phase.SEARCHING)).isEqualTo(1);
+		ChatJob running = jobs.findById(job.getId()).orElseThrow();
+		assertThat(running.getDeadlineAt()).isEqualTo(current.plusSeconds(180));
+		running.fail();
+		jobs.saveAndFlush(running);
+		assertThat(queue.updatePhase(job.getId(), current, Phase.GENERATING)).isZero();
+		ChatJob finished = jobs.findById(job.getId()).orElseThrow();
+		assertThat(finished.getPhase()).isNull();
+		assertThat(finished.getDeadlineAt()).isNull();
+	}
+
+	@Test
+	void releaseReturnsToWaitingWithOriginalQueueLimit() {
+		ChatJob job = queueJob("반납");
+		LocalDateTime started = queue.claim(job.getId(), now()).orElseThrow();
+		queue.updatePhase(job.getId(), started, Phase.GENERATING);
+		assertThat(queue.release(job.getId(), started)).isEqualTo(1);
+		ChatJob released = jobs.findById(job.getId()).orElseThrow();
+		assertThat(released.getPhase()).isEqualTo(Phase.WAITING);
+		assertThat(released.getDeadlineAt()).isEqualTo(job.getDeadlineAt());
+	}
+
+	@Test
+	void legacyJobsWithNoProgressUseExistingQueueTimeout() {
+		ChatJob job = queueJob("이전 버전 작업");
+		jdbc.update("update chat_jobs set phase = null, phase_updated_at = null, deadline_at = null, "
+				+ "created_at = CURRENT_TIMESTAMP - interval '11 minutes' where job_id = ?", job.getId());
+		assertThat(queue.findExpiredQueued(100, 0)).contains(job.getId());
+		assertThat(queue.claim(job.getId(), now())).isEmpty();
 	}
 
 	@Test

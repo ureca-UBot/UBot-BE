@@ -58,7 +58,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("답변 Worker 테스트")
 class ChatJobWorkerTest {
-	private static final LocalDateTime STARTED_AT = LocalDateTime.of(2026, 10, 15, 9, 0);
+	private LocalDateTime STARTED_AT = LocalDateTime.now();
 	private static final ChatRequestContext CONTEXT = new ChatRequestContext(null, null, RegionSido.SEOUL);
 	private static final Duration RECLAIM_IDLE = Duration.ofMinutes(5);
 	// RECLAIM_IDLE만 주는 생성자의 기본 heartbeat 기준
@@ -139,6 +139,33 @@ class ChatJobWorkerTest {
 
 		verify(stream).ack(message.messageId());
 		verifyNoInteractions(processor, completion);
+	}
+
+	@Test
+	void progressStorageFailureDoesNotFailAnswer() {
+		queueJobs(1);
+		when(queue.updatePhase(anyLong(), any(), any())).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("진행 저장 실패"));
+		when(processor.process(any(), any(), any())).thenAnswer(call -> {
+			com.ubot.ai.progress.AnswerProgress.report(com.ubot.ai.progress.AnswerProgress.Phase.SEARCHING);
+			return answered();
+		});
+		worker = worker(1, Duration.ofSeconds(20));
+		worker.processAvailableJobs();
+		verify(completion).complete(eq(1L), any(), eq(answered()), any());
+		verify(stream).ack("message-1");
+	}
+
+	@Test
+	void executionDoesNotRestartTimeoutAfterClaimDelay() {
+		queueJobs(1);
+		LocalDateTime expiredStart = LocalDateTime.now().minusMinutes(10);
+		when(queue.claim(anyLong(), any())).thenReturn(Optional.of(expiredStart));
+		when(processor.process(any(), any(), any())).thenReturn(answered());
+		worker = worker(1, Duration.ofSeconds(20));
+		worker.processAvailableJobs();
+		verify(completion).complete(1L, expiredStart,
+				ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT), RegionSido.SEOUL);
+		verify(stream).ack("message-1");
 	}
 
 	@Test
@@ -428,7 +455,7 @@ class ChatJobWorkerTest {
 	@Test
 	@DisplayName("정리 작업은 대기 한도를 넘긴 작업을 CHAT-016으로 끝낸다")
 	void recoveryFailsJobsPastQueueWait() {
-		when(queue.findQueuedOlderThan(eq(Duration.ofMinutes(10)), anyInt())).thenReturn(List.of(12L, 13L));
+		when(queue.findExpiredQueued(anyInt(), eq(0L))).thenReturn(List.of(12L, 13L));
 		worker = worker(1, Duration.ofSeconds(20));
 
 		worker.recover();
@@ -441,9 +468,9 @@ class ChatJobWorkerTest {
 	@DisplayName("대기 한도를 넘긴 작업이 많으면 100건씩 이어서 끝내되, 한 번에 1,000건을 넘기지 않는다")
 	void expiresQueuedJobsInPagesUpToLimit() {
 		List<Long> firstPage = java.util.stream.LongStream.rangeClosed(1, 100).boxed().toList();
-		when(queue.findQueuedOlderThan(eq(Duration.ofMinutes(10)), eq(100))).thenReturn(firstPage);
-		when(queue.findQueuedOlderThanAfter(eq(Duration.ofMinutes(10)), eq(100), anyLong())).thenAnswer(call -> {
-			long after = call.getArgument(2);
+		when(queue.findExpiredQueued(100, 0L)).thenReturn(firstPage);
+		when(queue.findExpiredQueued(eq(100), org.mockito.ArgumentMatchers.longThat(id -> id > 0))).thenAnswer(call -> {
+			long after = call.getArgument(1);
 			return java.util.stream.LongStream.rangeClosed(after + 1, after + 100).boxed().toList();
 		});
 		when(completion.failQueued(anyLong(), eq(ChatErrorCode.RESPONSE_TIMEOUT))).thenReturn(true);
@@ -454,19 +481,19 @@ class ChatJobWorkerTest {
 		verify(completion, org.mockito.Mockito.times(1000)).failQueued(anyLong(), eq(ChatErrorCode.RESPONSE_TIMEOUT));
 		verify(completion).failQueued(1000L, ChatErrorCode.RESPONSE_TIMEOUT);
 		verify(completion, never()).failQueued(1001L, ChatErrorCode.RESPONSE_TIMEOUT);
-		verify(queue).findQueuedOlderThanAfter(Duration.ofMinutes(10), 100, 900L);
-		verify(queue, never()).findQueuedOlderThanAfter(Duration.ofMinutes(10), 100, 1000L);
+		verify(queue).findExpiredQueued(100, 900L);
+		verify(queue, never()).findExpiredQueued(100, 1000L);
 	}
 
 	@Test
 	@DisplayName("대기 한도를 넘긴 작업이 한 페이지보다 적으면 다음 페이지를 찾지 않는다")
 	void stopsExpiringWhenPageIsNotFull() {
-		when(queue.findQueuedOlderThan(eq(Duration.ofMinutes(10)), eq(100))).thenReturn(List.of(12L, 13L));
+		when(queue.findExpiredQueued(100, 0L)).thenReturn(List.of(12L, 13L));
 		worker = worker(1, Duration.ofSeconds(20));
 
 		worker.recover();
 
-		verify(queue, never()).findQueuedOlderThanAfter(eq(Duration.ofMinutes(10)), anyInt(), anyLong());
+		verify(queue, never()).findExpiredQueued(anyInt(), org.mockito.ArgumentMatchers.longThat(id -> id > 0));
 	}
 
 	@Test
@@ -668,6 +695,7 @@ class ChatJobWorkerTest {
 
 	// QUEUED 작업 count개와 각 메시지. 선점은 STARTED_AT으로 성공함
 	private List<ReceivedChatJob> storeJobs(int count) {
+		STARTED_AT = LocalDateTime.now();
 		List<ReceivedChatJob> messages = new ArrayList<>();
 		for (long id = 1; id <= count; id++) {
 			ChatJob job = ChatJob.queue(id, CONTEXT);
@@ -676,7 +704,7 @@ class ChatJobWorkerTest {
 			messages.add(new ReceivedChatJob("message-" + id, new ChatJobMessage(id, CONTEXT)));
 		}
 		when(jobs.findById(anyLong())).thenAnswer(call -> Optional.ofNullable(storedJobs.get(call.<Long>getArgument(0))));
-		when(queue.claim(anyLong(), any())).thenReturn(Optional.of(STARTED_AT));
+		when(queue.claim(anyLong(), any())).thenAnswer(call -> Optional.ofNullable(call.<Long>getArgument(0) == 1L ? STARTED_AT : call.<LocalDateTime>getArgument(1)));
 		when(completion.complete(anyLong(), any(), any(), any())).thenReturn(new Completion(true, null));
 		when(attempts.findById(anyLong())).thenAnswer(call -> Optional.of(AnswerAttemptsHistory.builder()
 				.id(call.getArgument(0)).userId(1L).question("질문").attemptCount(1).status("PENDING").build()));

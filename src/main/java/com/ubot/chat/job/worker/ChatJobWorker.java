@@ -1,5 +1,7 @@
 package com.ubot.chat.job.worker;
 
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.job.dto.ChatJobResult;
@@ -203,7 +205,7 @@ public class ChatJobWorker implements SmartLifecycle {
 	private void expireQueued() {
 		int expired = 0;
 		int scanned = 0;
-		List<Long> batch = queueRepository.findQueuedOlderThan(properties.maxQueueWait(), RECOVERY_BATCH);
+		List<Long> batch = queueRepository.findExpiredQueued(RECOVERY_BATCH, 0);
 		while (!batch.isEmpty() && !Thread.currentThread().isInterrupted()) {
 			for (Long jobId : batch) {
 				if (completionService.failQueued(jobId, ChatErrorCode.RESPONSE_TIMEOUT)) {
@@ -215,7 +217,7 @@ public class ChatJobWorker implements SmartLifecycle {
 			if (batch.size() < RECOVERY_BATCH || scanned >= EXPIRE_SCAN_LIMIT) {
 				break;
 			}
-			batch = queueRepository.findQueuedOlderThanAfter(properties.maxQueueWait(), RECOVERY_BATCH, batch.getLast());
+			batch = queueRepository.findExpiredQueued(RECOVERY_BATCH, batch.getLast());
 		}
 		if (expired > 0) {
 			log.warn("대기 한도를 넘긴 답변 작업을 실패로 끝냈습니다: 작업수={}", expired);
@@ -489,11 +491,15 @@ public class ChatJobWorker implements SmartLifecycle {
 		try {
 			log.info("답변 작업을 시작합니다: 작업ID={}, 메시지ID={}", message.jobId(), received.messageId());
 			AnswerAttemptsHistory attempt = answerAttemptsHistoryRepository.findById(claimed.attemptId()).orElseThrow();
-			job.computation = computations.submit(() -> jobProcessor.process(
-					attempt, message.context().location(), job::checkActive));
+			job.computation = computations.submit(() -> AnswerProgress.observe(
+					phase -> reportPhase(job, phase),
+					() -> jobProcessor.process(attempt, message.context().location(), job::checkActive)));
 			ChatJobOutcome outcome;
 			try {
-				outcome = job.computation.get(properties.executionTimeout().toMillis(), TimeUnit.MILLISECONDS);
+				// 선점 때 안내한 마감까지의 시간만 사용. 단계 전환으로 시간을 연장하지 않음.
+				long remaining = Duration.between(now(), claimed.startedAt().plus(properties.executionTimeout())).toMillis();
+				if (remaining <= 0) throw new TimeoutException("답변 처리 제한 시간이 지났습니다.");
+				outcome = job.computation.get(remaining, TimeUnit.MILLISECONDS);
 				job.checkActive();
 			} catch (TimeoutException exception) {
 				count("timeouts");
@@ -530,6 +536,17 @@ public class ChatJobWorker implements SmartLifecycle {
 					System.nanoTime() - executionStarted, TimeUnit.NANOSECONDS);
 			if (job.computation != null) job.computation.cancel(true);
 			runningJobs.remove(job);
+		}
+	}
+
+	// 진행 안내 저장 실패는 답변 자체를 실패시키지 않음. 소유권은 기존 취소/완료 검사로도 보호됨.
+	private void reportPhase(RunningJob job, Phase phase) {
+		if (job.lost || Thread.currentThread().isInterrupted()) return;
+		try {
+			queueRepository.updatePhase(job.received.message().jobId(), job.startedAt, phase);
+		} catch (RuntimeException exception) {
+			log.warn("답변 진행 단계를 저장하지 못했습니다: 작업ID={}, 단계={}",
+					job.received.message().jobId(), phase, exception);
 		}
 	}
 

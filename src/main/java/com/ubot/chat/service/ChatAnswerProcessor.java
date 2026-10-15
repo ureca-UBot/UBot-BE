@@ -1,6 +1,8 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.service.AiService;
@@ -55,6 +57,7 @@ public class ChatAnswerProcessor {
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
 		checkCancellation.run();
 		// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
+		AnswerProgress.report(Phase.SEARCHING);
 		RetrievalOutcome outcome;
 		try {
 			outcome = searchFaqs(attempt);
@@ -87,6 +90,7 @@ public class ChatAnswerProcessor {
 		}
 		checkCancellation.run();
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
+		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		AnswerMaterials materials = chatContextCollector.collect(
 				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
 		AiAnswer answer = aiService.generateAnswer(materials);

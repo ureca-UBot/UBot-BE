@@ -201,4 +201,39 @@ class LlmServiceTest {
     void rejectsNonPositiveLimit() {
         assertThatThrownBy(() -> new LlmService(llmClient, 0)).isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void reportsWaitingUntilModelPermitIsAcquired() throws Exception {
+        var limited = new LlmService(llmClient, 1);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var secondWaiting = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        var phases = new java.util.concurrent.CopyOnWriteArrayList<com.ubot.ai.progress.AnswerProgress.Phase>();
+        when(llmClient.generateAnswer(request)).thenAnswer(call -> {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                if (!releaseFirst.await(5, TimeUnit.SECONDS)) throw new AssertionError("첫 호출 해제 시간 초과");
+            }
+            return new LlmResponseDto("답변");
+        });
+        var first = CompletableFuture.supplyAsync(() -> limited.generateAnswer(request));
+        try {
+            assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            var second = CompletableFuture.supplyAsync(() -> com.ubot.ai.progress.AnswerProgress.observe(phase -> {
+                phases.add(phase);
+                secondWaiting.countDown();
+            }, () -> limited.generateAnswer(request)));
+            assertThat(secondWaiting.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(phases).containsExactly(com.ubot.ai.progress.AnswerProgress.Phase.WAITING_FOR_MODEL);
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+            assertThat(phases).containsExactly(com.ubot.ai.progress.AnswerProgress.Phase.WAITING_FOR_MODEL,
+                    com.ubot.ai.progress.AnswerProgress.Phase.GENERATING);
+        } finally {
+            releaseFirst.countDown();
+        }
+    }
 }

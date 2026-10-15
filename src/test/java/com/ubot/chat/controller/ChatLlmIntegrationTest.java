@@ -129,6 +129,37 @@ class ChatLlmIntegrationTest {
 				Long.class, category, "유심 재발급", "매장 방문");
 	}
 
+	@Test void progressIsVisibleDuringSearchAndGenerationAndClearedOnCompletion() throws Exception {
+		var submitted = mvc.perform(post("/chat/questions").header("Authorization", authorization)
+				.contentType("application/json").content("{\"question\":\"진행 확인\"}"))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.data.phase").value("WAITING"))
+				.andExpect(jsonPath("$.data.phaseUpdatedAt").isString())
+				.andExpect(jsonPath("$.data.deadlineAt").isString())
+				.andExpect(jsonPath("$.data.serverTime").isString()).andReturn();
+		long id = ChatJobTestFlow.jobId(submitted);
+		var expectedDeadline = new java.util.concurrent.atomic.AtomicReference<java.time.Instant>();
+		when(vector.getSimilarList("진행 확인", 3)).thenAnswer(call -> {
+			var state = query.getStatus(id, user.getId(), java.util.Optional.empty());
+			assertThat(state.phase()).isEqualTo(com.ubot.ai.progress.AnswerProgress.Phase.SEARCHING);
+			expectedDeadline.set(state.deadlineAt());
+			return List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.9, Intent.GENERAL));
+		});
+		when(llm.generateAnswer(any())).thenAnswer(call -> {
+			var state = query.getStatus(id, user.getId(), java.util.Optional.empty());
+			assertThat(state.phase()).isEqualTo(com.ubot.ai.progress.AnswerProgress.Phase.GENERATING);
+			assertThat(state.deadlineAt()).isEqualTo(expectedDeadline.get());
+			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+			return new LlmResponseDto("완료");
+		});
+		worker.processAvailableJobs();
+		mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"))
+				.andExpect(jsonPath("$.data.phase").isEmpty())
+				.andExpect(jsonPath("$.data.deadlineAt").isEmpty());
+		assertThat(expectedDeadline.get()).isNotNull();
+	}
+
 	@Test void successfulNewQuestionReturnsFinalJsonAfterRealJpaWrites() throws Exception {
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(faqId, "재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
@@ -443,7 +474,7 @@ class ChatLlmIntegrationTest {
 				: post("/chat/questions").contentType("application/json").content("{\"question\":\"질문\"}");
 		var submitted = flow.submit(request.header("Authorization", authorization));
 		// Worker가 못 가져간 채 대기 한도를 넘긴 작업
-		jdbc.update("update chat_jobs set created_at = created_at - interval '1 hour'");
+		jdbc.update("update chat_jobs set deadline_at = CURRENT_TIMESTAMP - interval '1 hour'");
 
 		worker.recover();
 
@@ -657,9 +688,11 @@ class ChatLlmIntegrationTest {
 		assertThat(result.answer()).isEqualTo("지도 답변");
 		assertThat(result.store()).isEqualTo(store);
 		redis.opsForValue().set("chat:jobs:result:" + id, "broken-cache");
-		assertThat(query.getStatus(id, null, java.util.Optional.of(conversation))).isEqualTo(result);
+		assertThat(query.getStatus(id, null, java.util.Optional.of(conversation)))
+				.usingRecursiveComparison().ignoringFields("serverTime").isEqualTo(result);
 		redis.delete("chat:jobs:result:" + id);
-		assertThat(query.getStatus(id, null, java.util.Optional.of(conversation))).isEqualTo(result);
+		assertThat(query.getStatus(id, null, java.util.Optional.of(conversation)))
+				.usingRecursiveComparison().ignoringFields("serverTime").isEqualTo(result);
 	}
 
 	@ParameterizedTest
