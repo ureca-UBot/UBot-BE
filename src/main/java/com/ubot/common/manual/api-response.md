@@ -97,22 +97,7 @@ return ResponseEntity.ok(ApiResponse.success("사용자 정보를 조회했습�
 }
 ```
 
-채팅 API(`ChatException`)는 실패해도 `data`에 시도 정보(`ChatResponseDto`)를 담아, 클라이언트가 재시도 여부를 판단할 수 있게 합니다.
-
-```json
-{
-  "success": false,
-  "code": "CHAT-013",
-  "message": "정확한 답변을 찾지 못했습니다.",
-  "data": {
-    "answer": "정확한 답변을 찾지 못했습니다.",
-    "status": "FAIL",
-    "idempotencyKey": "3f2a...(64자리)",
-    "attemptCount": 1,
-    "retryable": true
-  }
-}
-```
+채팅 답변 생성 실패(예: `CHAT-013`)는 오류 응답으로 오지 않습니다. 질문 접수는 `202`로 끝나고, 답변 상태 조회(`GET /chat/jobs/{jobId}`)가 `200`과 함께 `data.status: "FAILED"`, `errorCode`, `retryable`을 돌려줍니다.
 
 오류 코드의 정의와 `UserException`, `ChatException`처럼 도메인 예외를 작성하는 방법은 [exception.md](exception.md)를 참고하세요.
 

@@ -52,6 +52,8 @@ start_application
 
 health_check
 
+worker_health_check
+
 cleanup_old_backend_images
 
 finish_embeddings_after_switch

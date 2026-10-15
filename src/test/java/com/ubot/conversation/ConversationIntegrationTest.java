@@ -3,7 +3,10 @@ package com.ubot.conversation;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
+import com.ubot.chat.job.stream.ChatJobStream;
+import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -28,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.annotation.DirtiesContext;
@@ -40,11 +44,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
@@ -53,7 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=3"})
-@Import(PgvectorTestConfiguration.class)
+@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("회원 대화방 통합 테스트")
@@ -68,6 +70,8 @@ class ConversationIntegrationTest {
 	@Autowired UnansweredQuestionRepository unansweredQuestions;
 	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@Autowired JdbcTemplate jdbc;
+	@Autowired StringRedisTemplate redis;
+	@Autowired ChatJobWorker worker;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean LlmClient llm;
 
@@ -76,6 +80,9 @@ class ConversationIntegrationTest {
 
 	@BeforeEach
 	void setup() {
+		redis.delete(ChatJobStream.STREAM_KEY);
+		redis.delete(redis.keys("chat:jobs:result:*"));
+		redis.delete(redis.keys("chat:jobs:published:*"));
 		unansweredQuestions.deleteAllInBatch();
 		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -189,13 +196,14 @@ class ConversationIntegrationTest {
 	@DisplayName("답변에 실패해도 응답에 대화방 ID를 주고, 그 ID로 이어 질문하면 같은 대화방을 쓴다")
 	void failedAnswerStillReturnsConversationId() throws Exception {
 		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(List.of());
-		var pending = mvc.perform(question("결과 없는 질문", null).header("Authorization", bearer(member)))
-				.andExpect(request().asyncStarted()).andReturn();
-		pending.getAsyncResult(10_000);
-		String body = mvc.perform(asyncDispatch(pending))
-				.andExpect(jsonPath("$.data.status").value("FAIL"))
-				.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+		var submitted = mvc.perform(question("결과 없는 질문", null).header("Authorization", bearer(member)))
+				.andExpect(status().isAccepted()).andReturn();
+		worker.processAvailableJobs();
+		String body = submitted.getResponse().getContentAsString(StandardCharsets.UTF_8);
 		UUID conversationId = UUID.fromString(objectMapper.readTree(body).path("data").path("conversationId").asString());
+		String jobId = objectMapper.readTree(body).path("data").path("jobId").asString();
+		mvc.perform(get("/chat/jobs/{jobId}", jobId).header("Authorization", bearer(member)))
+				.andExpect(jsonPath("$.data.status").value("FAILED"));
 
 		assertThat(jdbc.queryForObject(
 				"select count(*) from conversations where public_id = ?", Long.class, conversationId)).isEqualTo(1);
@@ -215,10 +223,9 @@ class ConversationIntegrationTest {
 	}
 
 	private UUID complete(MockHttpServletRequestBuilder request) throws Exception {
-		var pending = mvc.perform(request).andExpect(request().asyncStarted()).andReturn();
-		pending.getAsyncResult(10_000);
-		String body = mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
+		String body = mvc.perform(request).andExpect(status().isAccepted())
 				.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+		worker.processAvailableJobs();
 		JsonNode conversationId = objectMapper.readTree(body).path("data").path("conversationId");
 		return conversationId.isString() ? UUID.fromString(conversationId.asString()) : null;
 	}

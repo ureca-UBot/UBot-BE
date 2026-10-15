@@ -8,12 +8,23 @@ public record ServiceMonitoringOverviewResponse(
         Window window,
         ServiceStatuses services,
         Summary summary,
-        Series series
+        Series series,
+        Worker worker
 ) {
+    public ServiceMonitoringOverviewResponse(Window window, ServiceStatuses services, Summary summary, Series series) {
+        this(window, services, summary, series, null);
+    }
+
+    public record Worker(Double queued, Double oldestQueuedSeconds, Double active,
+                         Double failuresPerSecond, Double meanExecutionSeconds) {
+    }
     public record Window(String range, Instant from, Instant to, long sampleIntervalSeconds) {
     }
 
-    public record ServiceStatuses(ServiceStatus backend, ServiceStatus postgres, ServiceStatus redis) {
+    public record ServiceStatuses(ServiceStatus backend, ServiceStatus postgres, ServiceStatus redis, ServiceStatus worker) {
+        public ServiceStatuses(ServiceStatus backend, ServiceStatus postgres, ServiceStatus redis) {
+            this(backend, postgres, redis, ServiceStatus.UNKNOWN);
+        }
     }
 
     public enum ServiceStatus {

@@ -42,4 +42,5 @@ public interface QuestionLogRepository extends JpaRepository<QuestionLog, Long> 
 	void acquireAdvisoryLock(@Param("lockKey") long lockKey);
 
 	List<QuestionLog> findAllByConversationIdOrderByCreatedAtAscIdAsc(Long conversationId);
+
 }

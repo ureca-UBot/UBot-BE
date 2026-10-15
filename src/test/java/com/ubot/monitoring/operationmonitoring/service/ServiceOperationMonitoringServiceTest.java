@@ -58,7 +58,7 @@ class ServiceOperationMonitoringServiceTest {
         ArgumentCaptor<String> queryCaptor = ArgumentCaptor.forClass(String.class);
         verify(prometheusQueryClient, atLeastOnce()).queryRange(queryCaptor.capture(), any(), any(), any());
         assertThat(queryCaptor.getAllValues())
-                .contains("sum(rate(jvm_gc_pause_seconds_sum[5m]))");
+                .contains("sum(rate(jvm_gc_pause_seconds_sum{job=\"ubot-backend\"}[5m]))");
     }
 
     @Test
@@ -101,5 +101,23 @@ class ServiceOperationMonitoringServiceTest {
 
     private PrometheusSeries series(Map<String, String> labels, double value) {
         return new PrometheusSeries(labels, List.of(new PrometheusPoint(AT, value)));
+    }
+
+    @Test
+    void workerFailureAndQueueAreVisibleWhileBackendRemainsUp() {
+        when(prometheusQueryClient.query(any(), any())).thenAnswer(invocation -> {
+            String query = invocation.getArgument(0);
+            if (query.contains("chat_worker_ready")) return List.of(series(Map.of(), 0.0));
+            if (query.equals("max(chat_jobs_queued)")) return List.of(series(Map.of(), 17.0));
+            if (query.contains("chat_worker_completed_total")) return List.of(series(Map.of(), 2.0));
+            return List.of(series(Map.of(), 1.0));
+        });
+        var overview = service.getOverview(ServiceMonitoringRange.ONE_HOUR);
+        assertThat(overview.services().backend()).isEqualTo(
+                com.ubot.monitoring.operationmonitoring.dto.ServiceMonitoringOverviewResponse.ServiceStatus.UP);
+        assertThat(overview.services().worker()).isEqualTo(
+                com.ubot.monitoring.operationmonitoring.dto.ServiceMonitoringOverviewResponse.ServiceStatus.DOWN);
+        assertThat(overview.worker().queued()).isEqualTo(17.0);
+        assertThat(overview.worker().failuresPerSecond()).isEqualTo(2.0);
     }
 }

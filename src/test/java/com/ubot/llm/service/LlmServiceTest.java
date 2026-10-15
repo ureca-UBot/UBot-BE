@@ -17,12 +17,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.tool.ToolCallback;
@@ -33,8 +39,12 @@ class LlmServiceTest {
     @Mock
     private LlmClient llmClient;
 
-    @InjectMocks
     private LlmService llmService;
+
+    @BeforeEach
+    void setUp() {
+        llmService = new LlmService(llmClient);
+    }
 
     @Test
     void generateAnswerReturnsGeneratedAnswer() {
@@ -112,5 +122,83 @@ class LlmServiceTest {
         when(llmClient.generateAnswer(request)).thenThrow(failure);
 
         assertThatThrownBy(() -> llmService.generateAnswer(request)).isSameAs(failure);
+    }
+
+    @Test
+    void limitsConcurrentModelCalls() throws Exception {
+        var limited = new LlmService(llmClient, 1);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        when(llmClient.generateAnswer(request)).thenAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                releaseFirst.await(5, TimeUnit.SECONDS);
+            }
+            return new LlmResponseDto("답변");
+        });
+
+        var first = CompletableFuture.supplyAsync(() -> limited.generateAnswer(request));
+        assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        var second = CompletableFuture.supplyAsync(() -> limited.generateAnswer(request));
+        Thread.sleep(200);
+        assertThat(calls.get()).as("앞 호출이 끝나기 전에는 모델을 부르지 않음").isEqualTo(1);
+
+        releaseFirst.countDown();
+        assertThat(first.get(5, TimeUnit.SECONDS).answer()).isEqualTo("답변");
+        assertThat(second.get(5, TimeUnit.SECONDS).answer()).isEqualTo("답변");
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void releasesPermitWhenModelCallFails() {
+        var limited = new LlmService(llmClient, 1);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
+        when(llmClient.generateAnswer(request))
+                .thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT))
+                .thenReturn(new LlmResponseDto("답변"));
+
+        assertThatThrownBy(() -> limited.generateAnswer(request)).isInstanceOf(LlmException.class);
+        assertThat(limited.generateAnswer(request).answer()).isEqualTo("답변");
+    }
+
+    @Test
+    void cancelledWhileWaitingDoesNotCallModel() throws Exception {
+        var limited = new LlmService(llmClient, 1);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        when(llmClient.generateAnswer(request)).thenAnswer(invocation -> {
+            calls.incrementAndGet();
+            firstStarted.countDown();
+            releaseFirst.await(5, TimeUnit.SECONDS);
+            return new LlmResponseDto("답변");
+        });
+        var first = CompletableFuture.supplyAsync(() -> limited.generateAnswer(request));
+        assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+        var failure = new AtomicReference<Throwable>();
+        Thread waiting = Thread.ofVirtual().start(() -> {
+            try {
+                limited.generateAnswer(request);
+            } catch (Throwable exception) {
+                failure.set(exception);
+            }
+        });
+        Thread.sleep(200);
+        waiting.interrupt();
+        waiting.join(5_000);
+
+        assertThat(failure.get()).isInstanceOf(CancellationException.class);
+        releaseFirst.countDown();
+        first.get(5, TimeUnit.SECONDS);
+        assertThat(calls.get()).as("취소된 호출은 모델을 부르지 않음").isEqualTo(1);
+    }
+
+    @Test
+    void rejectsNonPositiveLimit() {
+        assertThatThrownBy(() -> new LlmService(llmClient, 0)).isInstanceOf(IllegalStateException.class);
     }
 }

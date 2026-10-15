@@ -70,6 +70,7 @@ src/main/resources/
 | `OLLAMA_CHAT_MODEL` | Spring (`spring.ai.ollama.chat.model`), `LlmConfig`, `ollama-init`(값이 있으면 채팅 모델도 내려받음) | `qwen3:4b-instruct-2507-q4_K_M` (프롬프트와 함께 검증한 모델) | 빈 값. 줄이 없어도 기동되며 `LlmConfig`는 빈 값 허용 |
 | `LLM_CONNECT_TIMEOUT` | LLM 전용 HTTP 연결 제한 시간 | `3s` | `LlmConfig` 기본값 `3s` |
 | `LLM_READ_TIMEOUT` | LLM 전용 HTTP 응답 제한 시간 | `120s` | `LlmConfig` 기본값 `120s` |
+| `LLM_MAX_CONCURRENT` | `LlmService`: 프로세스 하나가 모델 서버에 동시에 보내는 호출 수의 상한. 시간 초과로 끊긴 호출이 끝나기 전까지는 허가를 쥐고 있어, Worker가 슬롯을 먼저 돌려줘도 모델 서버에 걸리는 호출은 상한을 넘지 않음 | 비움(`CHAT_WORKER_CONCURRENCY`와 같음) | `app.chat.worker.concurrency` |
 | `LLM_BASE_URL` | `LlmConfig`: 답변 생성 엔진이 `vllm`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8000/v1` | `http://localhost:8000/v1` |
 | `LLM_MODEL` | `LlmConfig`: 답변 생성 엔진이 `vllm`일 때 요청에 넣는 모델 이름. `LLM_SERVED_MODEL_NAME`과 같아야 함. `tools/ubot.ps1`의 준비 확인에도 사용 | `ubot-chat` | `ubot-chat` |
 | `LLM_PORT` | Docker Compose: vLLM 답변 생성 서버의 호스트 포트. `tools/ubot.ps1`의 준비 확인에도 사용 | `8000` | Spring에서 읽지 않음 |
@@ -95,7 +96,20 @@ src/main/resources/
 | `FAQ_RERANK_FAILURE_COOLDOWN` | `FaqRetrievalService`: 연속 실패 뒤 Reranker를 호출하지 않는 시간. 지나면 한 건만 보내 보고 성공하면 재개 | `10s` | 키가 없으면 `10s` |
 | `RERANKER_PORT` | Docker Compose: Reranker 서버의 호스트 포트. `reranker` 프로필로 띄울 때만 사용 | `8002` | Spring에서 읽지 않음 |
 | `VLLM_RERANKER_GPU_MEMORY_UTILIZATION` | Docker Compose: Reranker 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
-| `CHAT_RESPONSE_TIMEOUT_MILLIS` | `ChatController`: 채팅 응답 대기 제한 시간(밀리초) | `180000` (180초) | `180000` |
+| `APP_ROLE` | `AppRole`(`app.role`): 프로세스 역할. `api`는 접수·상태 조회와 나머지 API·스케줄러, `worker`는 답변 Worker만(랭킹·보관 기간 삭제 스케줄러 없음, HTTP는 `/actuator`만 받고 나머지는 `404 G-004`), `all`은 둘 다. 배포 Compose는 `backend=api`, `ai-worker=worker`로 정함 | `all` | `all`. 다른 값이면 기동되지 않음 |
+| `CHAT_WORKER_CONCURRENCY` | `ChatJobWorker`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
+| `CHAT_WORKER_READ_BLOCK` | 새 메시지가 없을 때 다음 읽기까지 쉬는 간격. 실행 슬롯은 반환함 | `2s` | `2s` |
+| `CHAT_WORKER_CONSUMER_NAME` | `ChatJobWorker`: Redis Streams 그룹(`chat-workers`) 안의 Worker 이름. Worker마다 달라야 함. 빈 값으로 두면 기동 실패 | 주석 처리 | `HOSTNAME`(컨테이너 ID), 없으면 `local` |
+| `CHAT_WORKER_MAX_QUEUE_WAIT` | `ChatJobWorker`: 접수 뒤 이 시간 안에 시작하지 못한 작업을 `CHAT-016`으로 실패 처리. 발행 표시는 이보다 1분 길게 둠 | `10m` | `10m` |
+| `CHAT_WORKER_REPUBLISH_AFTER` | `ChatJobWorker`: 이 시간 넘게 대기 중인데 발행 표시가 없는 작업(발행 실패, Redis 데이터 유실)을 다시 발행. `CHAT_WORKER_MAX_QUEUE_WAIT`보다 짧아야 하며 아니면 기동 실패 | `30s` | `30s` |
+| `CHAT_WORKER_HEARTBEAT_TIMEOUT` | 실행 중인 작업의 DB heartbeat가 이 시간 이상 없으면 Worker가 죽은 것으로 보고 메시지를 회수. heartbeat는 이 값의 3분의 1(최대 15초)마다 갱신. `CHAT_WORKER_RECLAIM_IDLE`보다 길 수 없음 | `1m` | `1m` |
+| `CHAT_WORKER_RECLAIM_IDLE` | 이 시간 이상 ACK되지 않은 메시지는 작업 상태를 보지 않고 회수 시도(마지막 안전망). 메시지도 없이 heartbeat가 두 배 동안 없으면 실패 처리 | `5m` | `5m` |
+| `CHAT_WORKER_MAX_DELIVERIES` | `ChatJobWorker`: 한 메시지를 Worker에 전달하는 최대 횟수. 다 쓰면 다시 실행하지 않고 `CHAT-015`로 실패 처리. 1 미만이면 기동 실패 | `3` | `3` |
+| `CHAT_WORKER_RECOVERY_INTERVAL` | `ChatJobWorker`: 발행이 빠진 작업을 다시 발행하고, 방치된 메시지를 넘겨받고, 오래 기다리거나 멈춘 작업을 정리하는 간격 | `15s` | `15s` |
+| `CHAT_WORKER_RESULT_TTL` | Redis 결과 캐시 TTL. DB 원본은 지도까지 보존함 | `24h` | `24h` |
+| `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM을 포함한 전체 실행 제한. 초과 시 CHAT-016, 취소 요청 및 늦은 결과 폐기 | `180s` | `180s` |
+| `CHAT_WORKER_SHUTDOWN_WAIT` | Worker 종료 시 실행 중인 작업을 기다리는 시간. 넘기면 대기열에 돌려놓고 다시 발행. 컨테이너 종료 유예 시간(`stop_grace_period`, ECS `stopTimeout`)보다 짧아야 함 | `20s` | `20s` |
+| `DB_POOL_MAX_SIZE` | HikariCP(`spring.datasource.hikari.maximum-pool-size`): 프로세스 하나의 DB 연결 수. API와 Worker를 합쳐 PostgreSQL `max_connections`보다 작아야 함 | `10` | `10` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 응답 제한 시간 | `10s` | `10s` |
@@ -188,7 +202,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 | 설정 | 값 | 위치 |
 |---|---|---|
-| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V25`) | — |
+| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V33`) | — |
 | `baseline-on-migrate` | `true` | `application.yml` |
 | `baseline-version` | `0` | `application.yml` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
@@ -213,7 +227,9 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V15` | `unanswered_question_groups`(대표 질문, 중심 벡터, 질문 수, 처리 상태 `PENDING`/`APPROVED`/`ON_HOLD`/`REJECTED`), `unanswered_questions`(질문 벡터, 원인 `NO_FAQ`/`INSUFFICIENT_FAQ`, 가장 가까운 FAQ) |
 | `V23` | `embedding_profiles`(엔진·모델 이름·차원·버전의 조합), `faq_embeddings`(Profile별 FAQ 벡터, HNSW cosine 인덱스), `unanswered_question_embeddings`, `unanswered_group_embeddings`(Profile별 미응답 질문 벡터와 묶음 중심 벡터) |
 | `V25` | 예전 벡터 컬럼 삭제 (`faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`) |
+| `V31` | `chat_jobs`(답변 작업: 답변 시도와 1:1, 상태 `QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`, 시작·종료 시각). 시도를 지우면 함께 지워짐 |
 | `V32` | `faq`, `old_faq`에 `cacheable` 추가, `faq_question_variants` 생성 및 기존 질문 이관, `faq_embeddings`의 연결 키를 FAQ ID에서 variant ID로 변경 |
+| `V33` | `chat_jobs`에 요청 정보(`request_context`)·성공 결과(`result_payload`) JSONB, `heartbeat_at`, `updated_at`과 복구용 인덱스 추가. 요청 좌표·지역은 작업 종료와 같은 트랜잭션에서 삭제 |
 
 표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/reset-local-db.ps1`이 기본 계정과 번호가 붙은 시드 CSV 전체의 FAQ·질문 표현·`QUESTION_ANSWER` 벡터를 넣습니다([안내](../how-to/reset-local-db.md)).
 
@@ -257,16 +273,21 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | Health 상세 표시 | `local`은 `always`, `prod`는 `never` | `application-local.yml`, `application-prod.yml` |
 | 인증 없이 호출 가능한 경로, `ADMIN` 경로 | [architecture.md#인증](../architecture.md#인증) | `SecurityConfig` |
 | 채팅 질문 최대 길이 | 4000자 | `ChatRequestDto`, `ChatService` |
-| 채팅 답변 생성 Executor | 가상 스레드, 동시 처리 수 제한 없음, 종료 대기 150초 | `AsyncConfig` |
+| 답변 작업 스트림 | 키 `chat:jobs`, 그룹 `chat-workers`, 수동 ACK. 발행 표시 `chat:jobs:published:{jobId}`, 결과 키 `chat:jobs:result:{jobId}` | `ChatJobStream`, `ChatJobResultStore` |
+| 다시 발행 | 정리 한 번에 대기 작업 최대 1,000건의 발행 표시를 확인하고, 최대 100건을 다시 발행 | `ChatJobWorker` |
+| 넘겨받기 | 정리 한 번에 방치된 메시지 최대 100건을 확인하고, 그중 빈 슬롯 수만큼 넘겨받음. 메시지를 잃은 작업은 한 번에 최대 100건을 실패 처리 | `ChatJobWorker` |
+| 스트림 정리 | 정리마다 모든 메시지가 ACK된 앞부분을 `XTRIM MINID`로 지움 | `ChatJobStream` |
+| 답변 Worker 종료 대기 | 실행 중인 작업을 20초 기다린 뒤 끝나지 않은 작업은 대기 상태로 돌려놓고 메시지를 다시 발행함. 배포 Compose의 `stop_grace_period`는 35초 | `ChatJobWorker`, `docker-compose.deploy.yml` |
+| 정리 작업 한 번에 처리하는 작업 수 | 대기 초과 최대 100건 | `ChatJobWorker` |
 | Ollama 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `OllamaEmbeddingClient` |
 | 임베딩 차원 | 1024 (DB 컬럼 `vector(1024)`와 같음). 다른 차원의 응답은 거절 | `EmbeddingClient` |
 | Nginx 프록시 응답 제한 시간 | `180s`. 임베딩 백필 경로만 `3600s` | `infra/nginx/nginx.conf` |
+| Nginx `/chat/jobs/`·`/api/chat/jobs/` (상태 조회) | 게스트 요청 속도 제한을 적용하지 않음 | `infra/nginx/nginx.conf` |
 | Nginx `/chat/`·`/api/chat/` 게스트 요청 속도 제한 (IP별, `Authorization: Bearer …`가 없는 요청) | `CHAT_GUEST_RATE_LIMIT_RATE`(기본 `30r/m`), `CHAT_GUEST_RATE_LIMIT_BURST`(기본 `10`) | `.env`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` |
 | 테스트 타임존 | `Asia/Seoul` | `build.gradle` |
 | 테스트 JVM 최대 힙 | `1024m` | `build.gradle` |
 | DB 타임존 | `V6__set_database_timezone.sql` | 마이그레이션 |
 
-`CHAT_RESPONSE_TIMEOUT_MILLIS`를 바꿀 때는 Nginx 제한 시간과의 관계를 [deploy.md](../deploy.md#주의할-점)에서 확인하세요.
 
 ## 자동 테스트 구성
 

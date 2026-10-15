@@ -24,7 +24,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * FAQ 검색·유사도 판정·미응답 처리·intent별 자료 수집·AI 호출로 답변을 계산합니다. 결과 저장과 응답 확정은
- * ChatAnswerExecutor가 합니다.
+ * Worker(ChatJobProcessor·ChatJobCompletionService)가 합니다.
  */
 @Slf4j
 @Component

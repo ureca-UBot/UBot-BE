@@ -2,23 +2,21 @@ package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
+import com.ubot.chat.job.entity.ChatJobStatus;
+import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -29,22 +27,28 @@ class ChatServiceResearchTest {
     private final FaqVectorService vector = mock(FaqVectorService.class);
     private final AiService ai = mock(AiService.class);
     private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
+    private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
-    private final Deque<Runnable> jobs = new ArrayDeque<>();
-    private final ChatService service = new ChatService(attempts, filter, new ChatAnswerExecutor(
-            new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()),
-            attempts, jobs::add));
+    private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, new ChatAnswerProcessor(
+            FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()));
+    private final ChatService service = new ChatService(attempts, filter, harness.submissionService,
+            ipRegionResolver);
 
     @Test
-    @DisplayName("재검색 attempt를 만들어 답변 생성을 시작한다")
-    void createsResearchAttemptAndStartsGeneration() {
+    @DisplayName("재검색 attempt를 만들어 작업으로 접수한다")
+    void createsResearchAttemptAndQueuesJob() {
         AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
+        when(attempt.getId()).thenReturn(9L);
         when(attempts.createResearchAttempt(1L, KEY, Intent.STORE_DATA)).thenReturn(attempt);
 
         service.researchChat(1L, KEY, Intent.STORE_DATA, null, null);
 
         verify(attempts).createResearchAttempt(1L, KEY, Intent.STORE_DATA);
-        assertThat(jobs).hasSize(1);
+        assertThat(harness.jobs).singleElement().satisfies(job -> {
+            assertThat(job.getAttemptId()).isEqualTo(9L);
+            assertThat(job.getStatus()).isEqualTo(ChatJobStatus.QUEUED);
+        });
+        verifyNoInteractions(vector, ai);
     }
 
     @Test
@@ -67,7 +71,7 @@ class ChatServiceResearchTest {
                 .isInstanceOf(ChatException.class);
 
         verifyNoInteractions(attempts);
-        assertThat(jobs).isEmpty();
+        assertThat(harness.jobs).isEmpty();
     }
 
     @Test
@@ -81,8 +85,8 @@ class ChatServiceResearchTest {
     }
 
     @Test
-    @DisplayName("재검색 attempt 생성이 거절되면 답변 생성을 시작하지 않는다")
-    void doesNotStartWhenAttemptCreationIsRejected() {
+    @DisplayName("재검색 attempt 생성이 거절되면 작업을 접수하지 않는다")
+    void doesNotQueueWhenAttemptCreationIsRejected() {
         when(attempts.createResearchAttempt(1L, KEY, Intent.USER_DATA))
                 .thenThrow(new ChatException(ChatErrorCode.ALREADY_RESEARCHED));
 
@@ -90,6 +94,6 @@ class ChatServiceResearchTest {
                 .isInstanceOfSatisfying(ChatException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.ALREADY_RESEARCHED));
 
-        assertThat(jobs).isEmpty();
+        assertThat(harness.jobs).isEmpty();
     }
 }
