@@ -1,4 +1,5 @@
 \set ON_ERROR_STOP on
+-- Run through the reset PowerShell scripts, which replace the CSV copy markers below.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \if :{?faq_only}
@@ -17,16 +18,8 @@ INSERT INTO users (email, password_hash, name, "role") VALUES
 
 CREATE TEMP TABLE seed_faq (faq_id BIGINT, category TEXT, question TEXT, answer TEXT, intent TEXT) ON COMMIT DROP;
 CREATE TEMP TABLE seed_variant (origin_faq_id BIGINT, variant_id BIGINT, question TEXT, vector_text TEXT) ON COMMIT DROP;
-\copy seed_faq (faq_id, category, question, answer, intent) FROM '/tmp/baseline-faqs-1.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_faq (faq_id, category, question, answer, intent) FROM '/tmp/baseline-faqs-2.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_faq (faq_id, category, question, answer, intent) FROM '/tmp/baseline-faqs-3.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_faq (faq_id, category, question, answer, intent) FROM '/tmp/baseline-faqs-4.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_faq (faq_id, category, question, answer, intent) FROM '/tmp/baseline-faqs-5.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_variant (origin_faq_id, variant_id, question, vector_text) FROM '/tmp/baseline-faq-variants-1.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_variant (origin_faq_id, variant_id, question, vector_text) FROM '/tmp/baseline-faq-variants-2.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_variant (origin_faq_id, variant_id, question, vector_text) FROM '/tmp/baseline-faq-variants-3.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_variant (origin_faq_id, variant_id, question, vector_text) FROM '/tmp/baseline-faq-variants-4.csv' WITH (FORMAT csv, HEADER true)
-\copy seed_variant (origin_faq_id, variant_id, question, vector_text) FROM '/tmp/baseline-faq-variants-5.csv' WITH (FORMAT csv, HEADER true)
+-- __FAQ_COPIES__
+-- __VARIANT_COPIES__
 
 INSERT INTO faq_category (name) SELECT DISTINCT category FROM seed_faq ORDER BY category;
 INSERT INTO faq (id, category_id, question, answer, intent, admin_id)
@@ -45,6 +38,6 @@ FROM seed_variant seed
 JOIN faq ON faq.id = seed.origin_faq_id
 JOIN embedding_profiles profile ON profile.provider = 'ollama'
   AND profile.model_name = 'bge-m3:567m' AND profile.dimensions = 1024 AND profile.profile_version = 1;
-SELECT setval(pg_get_serial_sequence('faq', 'id'), 1000, true);
-SELECT setval(pg_get_serial_sequence('faq_question_variants', 'id'), 5000, true);
+SELECT setval(pg_get_serial_sequence('faq', 'id'), (SELECT max(id) FROM faq), true);
+SELECT setval(pg_get_serial_sequence('faq_question_variants', 'id'), (SELECT max(id) FROM faq_question_variants), true);
 COMMIT;

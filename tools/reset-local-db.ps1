@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $seedPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\seed')).Path
 $migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\db\migration')).Path
 $sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
+. (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 
 function Invoke-Checked {
     param([scriptblock] $Command, [string] $Message)
@@ -13,7 +14,9 @@ function Invoke-Checked {
 }
 
 # Finish every file and vector check before removing the PostgreSQL volume.
-Invoke-Checked { python -X utf8 (Join-Path $PSScriptRoot 'validate_baseline_seed.py') } 'Baseline seed CSV validation failed.'
+$seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
+$parts = [int[]] $seedSummary.parts
+$renderedSql = New-FaqSeedSql -TemplatePath $sqlPath -Parts $parts
 
 $containerId = (& docker compose ps --all --quiet postgres).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the PostgreSQL container.' }
@@ -48,21 +51,17 @@ Invoke-Checked {
 } 'Flyway migration failed.'
 
 try {
-    for ($part = 1; $part -le 5; $part++) {
-        foreach ($prefix in @('baseline-faqs', 'baseline-faq-variants')) {
-            $filename = "$prefix-$part.csv"
-            Invoke-Checked { docker cp (Join-Path $seedPath $filename) "${containerId}:/tmp/$filename" } "Could not copy $filename."
-        }
-    }
-    Invoke-Checked { docker cp $sqlPath "${containerId}:/tmp/seed-baseline.sql" } 'Could not copy seed SQL.'
+    Copy-FaqSeedCsv -SeedPath $seedPath -ContainerId $containerId -Parts $parts
+    Invoke-Checked { docker cp $renderedSql "${containerId}:/tmp/seed-baseline.sql" } 'Could not copy seed SQL.'
     Invoke-Checked {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
             -U $databaseUser -d $databaseName -f /tmp/seed-baseline.sql
     } 'Baseline seed import failed.'
 } finally {
     if ($containerId) {
-        docker exec $containerId sh -c 'rm -f /tmp/baseline-faqs-*.csv /tmp/baseline-faq-variants-*.csv /tmp/seed-baseline.sql' 2>$null
+        Remove-FaqSeedContainerFiles -ContainerId $containerId -Parts $parts -SqlName 'seed-baseline.sql'
     }
+    Remove-Item -LiteralPath $renderedSql -Force -ErrorAction SilentlyContinue
 }
 
 $verification = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
@@ -77,7 +76,8 @@ SELECT
   (SELECT min(vector_dims(vector)) FROM faq_embeddings),
   (SELECT max(vector_dims(vector)) FROM faq_embeddings);
 '@).Trim()
-if ($LASTEXITCODE -ne 0 -or $verification -ne '2|17|1000|5000|5000|0|1024|1024') {
+$expected = "2|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.variantCount)|$($seedSummary.variantCount)|0|1024|1024"
+if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "Baseline seed verification failed: $verification"
 }
-Write-Host 'DB reset and baseline seed completed: 1000 FAQs, 5000 variants, 5000 QUESTION_ANSWER vectors.'
+Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs, $($seedSummary.variantCount) variants and QUESTION_ANSWER vectors."

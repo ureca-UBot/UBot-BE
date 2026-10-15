@@ -143,7 +143,9 @@ def main() -> None:
         planned.append((part, faq_row, variant_rows, str(faq["answer"])))
         next_faq_id += 1
 
-    staging = SEED / f"additional-faq-{args.date}.partial.json"
+    days = SEED / "days"
+    days.mkdir(exist_ok=True)
+    staging = days / f"additional-faq-{args.date}.partial.json"
     fingerprints = [{"faqId": row["faqId"], "questions": [v["question"] for v in variants], "answer": answer}
                     for _, row, variants, answer in planned]
     if staging.exists():
@@ -180,7 +182,7 @@ def main() -> None:
         write_csv(SEED / f"baseline-faqs-{part}.csv", FAQ_FIELDS, faq_rows)
         write_csv(SEED / f"baseline-faq-variants-{part}.csv", VARIANT_FIELDS, variant_rows)
     manifest = {"date": args.date, "faqIds": [row["faqId"] for _, row, _, _ in planned], "parts": affected}
-    (SEED / f"additional-faq-{args.date}.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (days / f"additional-faq-{args.date}.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     staging.unlink(missing_ok=True)
     print(f"prepared {len(planned)} FAQs and {len(texts)} variants in parts {affected}")
 
