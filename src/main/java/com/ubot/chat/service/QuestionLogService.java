@@ -10,7 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -22,66 +26,79 @@ public class QuestionLogService {
 	private int rankingWindowMinutes;
 
 	/**
-	 * 하위 질문 하나를 질문 로그 한 행으로 저장합니다. question은 사용자가 입력한 원문이고, 랭킹 중복 판정은 subQuestion으로 합니다.
-	 * 질문을 나누지 않았으면 subQuestion에 원문을, subQuestionIndex에 0을 넘깁니다.
+	 * 한 턴을 하위 질문마다 질문 로그 한 행으로 저장하고, 하위 질문 순서대로 반환합니다.
+	 * question은 사용자가 입력한 원문으로 모든 행에 같은 값이 들어가고, 랭킹 중복 판정은 하위 질문으로 합니다.
+	 * 질문을 나누지 않았으면 subQuestions에 원문 하나를 넘깁니다.
 	 */
 	@Transactional
-	QuestionLog saveAndFlush(
+	List<QuestionLog> saveTurn(
 			Long userId,
 			Long conversationId,
 			Long attemptId,
 			String question,
-			String subQuestion,
-			int subQuestionIndex,
+			List<String> subQuestions,
 			String answer,
 			String userIp
 	){
 
 		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
+		List<String> normalizedQuestions = subQuestions.stream().map(this::normalize).toList();
 
-		String normalizedQuestion = subQuestion
+		// 게스트 질문은 세션을 새로 만들기 쉬워 랭킹 조작 비용이 낮으므로 실시간 검색어 집계에서 제외합니다.
+		// 로그인 이후 생성된 회원 질문부터 집계에 포함합니다.
+		List<Boolean> rankingEligible = userId == null
+				? normalizedQuestions.stream().map(normalized -> false).toList()
+				: judgeRankingEligible(userId, normalizedQuestions);
+
+		List<QuestionLog> questionLogs = new ArrayList<>();
+		for (int index = 0; index < subQuestions.size(); index++) {
+			questionLogs.add(QuestionLog.builder()
+					.userId(userId)
+					.conversationId(conversationId)
+					.attemptId(attemptId)
+					.userQuestion(question)
+					.subQuestion(subQuestions.get(index))
+					.subQuestionIndex(index)
+					.normalizedQuestion(normalizedQuestions.get(index))
+					.answer(answer)
+					.rankingEligible(rankingEligible.get(index))
+					.region(regionSido)
+					.build());
+		}
+		return questionLogRepository.saveAllAndFlush(questionLogs);
+	}
+
+	/**
+	 * 하위 질문마다 랭킹 시간 창 안에 같은 사용자의 같은 질문이 없을 때만 랭킹 대상으로 봅니다.
+	 * 같은 턴 안에서 같은 질문이 두 번 나오면 처음 것만 랭킹 대상입니다.
+	 */
+	private List<Boolean> judgeRankingEligible(Long userId, List<String> normalizedQuestions) {
+		// 하위 질문마다 잠금을 잡으므로, 두 요청이 서로 반대 순서로 잡아 교착되지 않도록 항상 같은 순서로 잡습니다.
+		normalizedQuestions.stream()
+				.map(normalized -> (long) (userId + ":" + normalized).hashCode())
+				.distinct()
+				.sorted()
+				.forEach(questionLogRepository::acquireAdvisoryLock);
+
+		LocalDateTime endAt = LocalDateTime.now();
+		LocalDateTime startAt = endAt.minusMinutes(rankingWindowMinutes);
+		Set<String> seenInTurn = new HashSet<>();
+		List<Boolean> eligible = new ArrayList<>();
+		for (String normalized : normalizedQuestions) {
+			eligible.add(seenInTurn.add(normalized)
+					&& !questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
+							userId, normalized, startAt, endAt));
+		}
+		return eligible;
+	}
+
+	private String normalize(String question) {
+		return question
 				.strip()
 				.toLowerCase(Locale.ROOT)
 				.replaceAll("\\s+", " ")
 				.replaceAll("[?!.,~]+", "")
 				.replaceAll("\\s+", " ")
 				.strip();
-
-
-		// 게스트 질문은 세션을 새로 만들기 쉬워 랭킹 조작 비용이 낮으므로 실시간 검색어 집계에서 제외합니다.
-		// 로그인 이후 생성된 회원 질문부터 집계에 포함합니다.
-
-		boolean rankingEligible = false;
-
-		if(userId != null) {
-			String key = userId + ":" + normalizedQuestion;
-			long lockKey = key.hashCode();
-
-			questionLogRepository.acquireAdvisoryLock(lockKey);
-
-			LocalDateTime endAt = LocalDateTime.now();
-			LocalDateTime startAt = endAt.minusMinutes(rankingWindowMinutes);
-
-			rankingEligible = !questionLogRepository.existsByUserIdAndNormalizedQuestionInRankingWindow(
-					userId,
-					normalizedQuestion,
-					startAt,
-					endAt);
-		}
-
-		QuestionLog questionLog = QuestionLog.builder()
-				.userId(userId)
-				.conversationId(conversationId)
-				.attemptId(attemptId)
-				.userQuestion(question)
-				.subQuestion(subQuestion)
-				.subQuestionIndex(subQuestionIndex)
-				.normalizedQuestion(normalizedQuestion)
-				.answer(answer)
-				.rankingEligible(rankingEligible)
-				.region(regionSido)
-				.build();
-
-		return  questionLogRepository.saveAndFlush(questionLog);
 	}
 }

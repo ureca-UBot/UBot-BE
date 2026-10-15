@@ -82,6 +82,7 @@ src/main/resources/
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
+| `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 답변 전에 판정 LLM으로 질문을 정리할지 여부. 켜면 이전 대화(최대 3턴)를 참고해 현재 질문에 맥락을 보완하고 여러 질문을 하위 질문(최대 3개)으로 나눔. LLM 호출이 한 번 늘어남. 끄면 원문 하나로 검색 | `true` | 키가 없으면 `true` |
 | `FAQ_SEARCH_VECTOR_TYPE` | `FaqVectorService`, CD: FAQ 검색에 쓰는 벡터 유형. `QUESTION`(질문만) 또는 `QUESTION_ANSWER`(질문+답변). 바꾸기 전에 그 유형의 벡터를 백필해야 함([FAQ 벡터 유형](../how-to/llm-module.md#faq-벡터-유형)) | `QUESTION` | 키가 없으면 `QUESTION`. 빈 값이나 다른 값이면 기동 실패 |
 | `FAQ_RERANK_ENABLED` | `FaqRetrievalService`: 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로만 정함([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
 | `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |

@@ -1,6 +1,7 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -46,7 +47,7 @@ class ChatServiceCancellationTest {
 	@BeforeEach
 	void setup() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);
@@ -129,7 +130,7 @@ class ChatServiceCancellationTest {
 		assertThat(other.cancel(true)).isFalse();
 		verify(vector).getSimilarList("질문", 3);
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
-		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", sources, null);
+		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", List.of(new SubQuestionFaqs("질문", sources)), null);
 		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList(), isNull());
 		verify(attempts, never()).saveAnswerFailure(any(), any());
 	}

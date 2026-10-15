@@ -1,6 +1,7 @@
 package com.ubot.prompt.service;
 
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -35,6 +36,18 @@ public class PromptService {
     }
 
     public LlmRequestDto createPrompt(String question, List<FaqSearchResponseDto> faqs, List<ContextSection> sections) {
+        return createPrompt(question, faqs, List.of(), sections);
+    }
+
+    /**
+     * subQuestions가 원문과 다르게 다시 쓰거나 나눈 하위 질문이면 FAQ를 하위 질문별로 묶어 넣습니다.
+     * 비어 있거나 원문 하나뿐이면 faqs를 기존 형식 그대로 넣습니다.
+     */
+    public LlmRequestDto createPrompt(
+            String question,
+            List<FaqSearchResponseDto> faqs,
+            List<SubQuestionFaqs> subQuestions,
+            List<ContextSection> sections) {
         // 답변 지침은 코드에 임의로 작성하지 않고, 담당자가 채울 파일에서 읽습니다.
         String[] templates = readTemplates();
         String systemPrompt = templates[0];
@@ -52,7 +65,12 @@ public class PromptService {
 
         // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatAnswerProcessor의 검색 판단용입니다.
         // 매장만 묻는 질문처럼 FAQ 없이 도구·추가 자료만으로 답할 수도 있습니다.
-        String faqText = faqs == null || faqs.isEmpty() ? EMPTY_VALUE : formatFaqs(faqs);
+        String faqText;
+        if (SubQuestionFaqs.isRewritten(question, subQuestions)) {
+            faqText = formatSubQuestions(subQuestions);
+        } else {
+            faqText = faqs == null || faqs.isEmpty() ? EMPTY_VALUE : formatFaqs(faqs);
+        }
         String contextText = contextSections.isEmpty() ? EMPTY_VALUE : formatSections(contextSections);
 
         // 템플릿의 자리표시자만 한 번 치환합니다.
@@ -102,6 +120,20 @@ public class PromptService {
             context.append("[FAQ ID: ").append(faq.faqId()).append("]\n")
                     .append("질문: ").append(faq.question()).append('\n')
                     .append("답변: ").append(faq.answer()).append("\n\n");
+        }
+        return context.toString();
+    }
+
+    /**
+     * 하위 질문마다 근거 FAQ를 나눠 보여 줍니다. 같은 FAQ가 여러 하위 질문의 근거면 각각 넣습니다.
+     * 근거가 없는 하위 질문도 넣어, 그 부분은 확인할 수 없다고 답하게 합니다.
+     */
+    private String formatSubQuestions(List<SubQuestionFaqs> subQuestions) {
+        StringBuilder context = new StringBuilder();
+        for (int index = 0; index < subQuestions.size(); index++) {
+            SubQuestionFaqs subQuestion = subQuestions.get(index);
+            context.append("## 하위 질문 ").append(index + 1).append(": ").append(subQuestion.subQuestion()).append("\n\n");
+            context.append(subQuestion.isAnswered() ? formatFaqs(subQuestion.faqs()) : EMPTY_VALUE + "\n\n");
         }
         return context.toString();
     }

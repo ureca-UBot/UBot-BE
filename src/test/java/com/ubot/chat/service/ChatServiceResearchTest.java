@@ -32,7 +32,7 @@ class ChatServiceResearchTest {
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
     private final Deque<Runnable> jobs = new ArrayDeque<>();
     private final ChatService service = new ChatService(attempts, filter, new ChatAnswerExecutor(
-            new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()),
+            new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions()),
             attempts, jobs::add));
 
     @Test

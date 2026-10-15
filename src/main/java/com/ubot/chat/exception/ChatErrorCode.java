@@ -30,7 +30,8 @@ public enum ChatErrorCode implements ErrorCode {
 	GUEST_QUESTION_LIMIT_REACHED(HttpStatus.TOO_MANY_REQUESTS, "CHAT-017",
 			"비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요."),
 	RESEARCH_NOT_ALLOWED(HttpStatus.CONFLICT, "CHAT-018", "다른 의도로 다시 검색할 수 없는 질문입니다."),
-	ALREADY_RESEARCHED(HttpStatus.CONFLICT, "CHAT-019", "이미 해당 의도로 재검색한 질문입니다.");
+	ALREADY_RESEARCHED(HttpStatus.CONFLICT, "CHAT-019", "이미 해당 의도로 재검색한 질문입니다."),
+	TOO_MANY_SUB_QUESTIONS(HttpStatus.BAD_REQUEST, "CHAT-020", "너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요.");
 
 	private final HttpStatus status;
 	private final String code;

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
@@ -60,7 +61,7 @@ class ChatServiceIntentRoutingTest {
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
 				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher));
+				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);
@@ -92,7 +93,7 @@ class ChatServiceIntentRoutingTest {
 		assertThat(materials.storeMap()).isNull();
 		verifyNoInteractions(nearbyStoreSearcher);
 		// faq_log는 intent와 관계없이 threshold를 넘은 검색 결과 전체로 남깁니다.
-		verify(attempts).saveAnswerSuccess(attempt, "답변", sources.subList(0, 2), "127.0.0.1");
+		verify(attempts).saveAnswerSuccess(attempt, "답변", List.of(new SubQuestionFaqs("근처 매장 알려줘", sources.subList(0, 2))), "127.0.0.1");
 	}
 
 	@Test

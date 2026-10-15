@@ -76,7 +76,8 @@ public class ConversationService {
 	@Transactional(readOnly = true)
 	public List<ConversationMessageResponseDto> getConversationMessageList(Long userId, UUID conversationId) {
 		Conversation conversation = findMemberConversation(userId, conversationId);
-		return questionLogRepository.findAllByConversationIdOrderByCreatedAtAscIdAsc(conversation.getId()).stream()
+		return questionLogRepository.findAllByConversationIdAndSubQuestionIndexOrderByCreatedAtAscIdAsc(
+						conversation.getId(), 0).stream()
 				.map(ConversationMessageResponseDto::from)
 				.toList();
 	}

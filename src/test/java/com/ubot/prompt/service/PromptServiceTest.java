@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.llm.enums.LlmMessageRole;
@@ -45,6 +46,48 @@ class PromptServiceTest {
                 .doesNotContain("0.9", "0.6");
         // 시스템 지침이 요구하는 출력 형식을 스키마로도 함께 넘깁니다.
         assertThat(request.responseSchema()).isEqualTo(FaqAnswerFormat.schema());
+    }
+
+    @Test
+    void 원문을_하위_질문_하나로_쓰면_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "유심 재발급 방법과 준비물을 알려주세요.";
+
+        var grouped = service.createPrompt(question, results, List.of(new SubQuestionFaqs(question, results)), List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(grouped.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("하위 질문");
+    }
+
+    @Test
+    void 나누거나_다시_쓴_하위_질문은_질문별로_FAQ를_묶고_근거_없는_질문은_없음으로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법", results),
+                new SubQuestionFaqs("해외 로밍 요금", List.of()));
+
+        var request = service.createPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of());
+
+        assertThat(request.messages().getLast().content()).isEqualTo("""
+                질문:
+                유심 재발급이랑 로밍 요금
+                참고자료:
+                ## 하위 질문 1: 유심 재발급 방법
+
+                [FAQ ID: 12]
+                질문: 유심 재발급
+                답변: 매장에서 재발급 가능합니다.
+
+                [FAQ ID: 13]
+                질문: 유심 재발급 준비물
+                답변: 준비물 안내 원문
+
+                ## 하위 질문 2: 해외 로밍 요금
+
+                (없음)
+
+                """);
     }
 
     @Test

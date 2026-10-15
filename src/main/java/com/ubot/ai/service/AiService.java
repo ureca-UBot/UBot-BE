@@ -3,6 +3,7 @@ package com.ubot.ai.service;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -17,6 +18,7 @@ import com.ubot.prompt.service.PromptService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
@@ -41,7 +43,7 @@ public class AiService {
         }
         // 승지님이 작성한 프롬프트에 질문·FAQ·추가 자료를 넣어 메시지를 구성합니다.
         LlmRequestDto request = promptService.createPrompt(
-                materials.question(), materials.faqs(), materials.sections());
+                materials.question(), materials.faqs(), materials.subQuestions(), materials.sections());
 
         // 도구가 조회한 매장 목록은 LLM 답변 문장과 별도로 화면에 전달하기 위해 요청마다 새로 보관합니다.
         StoreSearchRecorder storeRecorder = new StoreSearchRecorder();
@@ -68,7 +70,14 @@ public class AiService {
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder) {
         Map<String, Object> context = new HashMap<>();
         // 비어 있으면 Spring AI가 도구 실행 시 예외를 던지므로 질문 원문은 항상 넣습니다. (place 검증에도 사용)
-        context.put(StoreTools.QUESTION, materials.question());
+        // "거기 영업시간은?"처럼 장소가 이전 대화에만 있으면 다시 쓴 하위 질문에 장소가 들어 있으므로 함께 넣습니다.
+        String question = materials.question();
+        if (materials.hasRewrittenSubQuestions()) {
+            question = question + "\n" + materials.subQuestions().stream()
+                    .map(SubQuestionFaqs::subQuestion)
+                    .collect(Collectors.joining("\n"));
+        }
+        context.put(StoreTools.QUESTION, question);
         context.put(StoreTools.RECORDER, storeRecorder);
         
         return context;

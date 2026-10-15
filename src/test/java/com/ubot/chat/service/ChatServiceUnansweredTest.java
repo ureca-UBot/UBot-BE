@@ -43,7 +43,7 @@ class ChatServiceUnansweredTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector());
+				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);

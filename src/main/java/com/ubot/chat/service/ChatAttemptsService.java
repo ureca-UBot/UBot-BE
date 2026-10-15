@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.exception.ChatErrorCode;
@@ -196,7 +197,7 @@ public class ChatAttemptsService {
 	public AnswerAttemptsHistory saveAnswerSuccess(
 			AnswerAttemptsHistory attempt,
 			String answer,
-			List<FaqSearchResponseDto> sources,
+			List<SubQuestionFaqs> subQuestions,
 			String userIp) {
 		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
@@ -205,35 +206,39 @@ public class ChatAttemptsService {
 				return currentAttempt;
 			}
 
-			// 질문을 나누기 전까지는 원문을 하위 질문 1개(순번 0)로 저장합니다.
-			QuestionLog questionLog = questionLogService.saveAndFlush(
+			// 근거를 못 찾은 하위 질문도 행을 남깁니다. 대화 기록은 턴마다 0번 행을 읽으므로 0번이 빠지면 턴이 사라집니다.
+			List<QuestionLog> questionLogs = questionLogService.saveTurn(
 					currentAttempt.getUserId(),
 					currentAttempt.getConversationId(),
 					currentAttempt.getId(),
 					currentAttempt.getQuestion(),
-					currentAttempt.getQuestion(),
-					0,
+					subQuestions.stream().map(SubQuestionFaqs::subQuestion).toList(),
 					answer,
 					userIp);
 
+			// 검색 결과 순위는 하위 질문마다 따로 매깁니다. 같은 FAQ가 여러 하위 질문에서 걸리면 각각 남습니다.
 			List<FaqLog> faqLogs = new ArrayList<>();
 			LocalDateTime now = LocalDateTime.now();
-			for (int index = 0; index < sources.size(); index++) {
-				FaqSearchResponseDto source = sources.get(index);
-				faqLogs.add(FaqLog.builder()
-						.questionLogId(questionLog.getId())
-						.faq(faqRepository.getReferenceById(source.faqId()))
-						.rank(index + 1)
-						.similarity(source.similarityScore())
-						.createdAt(now)
-						.build());
+			for (int subIndex = 0; subIndex < subQuestions.size(); subIndex++) {
+				List<FaqSearchResponseDto> sources = subQuestions.get(subIndex).faqs();
+				for (int index = 0; index < sources.size(); index++) {
+					FaqSearchResponseDto source = sources.get(index);
+					faqLogs.add(FaqLog.builder()
+							.questionLogId(questionLogs.get(subIndex).getId())
+							.faq(faqRepository.getReferenceById(source.faqId()))
+							.rank(index + 1)
+							.similarity(source.similarityScore())
+							.createdAt(now)
+							.build());
+				}
 			}
 			faqLogRepository.saveAll(faqLogs);
 			currentAttempt.succeed();
 			return currentAttempt;
 		});
-		log.info("답변 성공 이력을 저장했습니다: 시도ID={}, 상태={}, 참고FAQ수={}",
-				attempt.getId(), savedAttempt.getStatus(), sources.size());
+		log.info("답변 성공 이력을 저장했습니다: 시도ID={}, 상태={}, 하위질문수={}, 참고FAQ수={}",
+				attempt.getId(), savedAttempt.getStatus(), subQuestions.size(),
+				subQuestions.stream().mapToInt(subQuestion -> subQuestion.faqs().size()).sum());
 		return savedAttempt;
 	}
 
@@ -265,7 +270,8 @@ public class ChatAttemptsService {
 
 	/** 재시도가 불가능한 사유를 반환하고, 가능하면 빈 결과를 반환합니다. */
 	public Optional<ChatErrorCode> validateRetryAttempt(AnswerAttemptsHistory attempt) {
-		if (attempt.getSourceAttemptId() != null) {
+		// 질문이 너무 많아 거절한 경우는 다시 시도해도 결과가 같으므로 재시도를 막습니다.
+		if (attempt.getSourceAttemptId() != null || attempt.getErrorCode() == ChatErrorCode.TOO_MANY_SUB_QUESTIONS) {
 			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}
 		if ("PENDING".equals(attempt.getStatus())) {

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -47,6 +48,33 @@ class ChatContextCollectorTest {
 		assertThat(materials.faqs()).containsExactly(general1);
 		assertThat(materials.tools()).containsExactly(AiTool.STORE_SEARCH);
 		assertThat(materials.sections()).isEmpty();
+	}
+
+	@Test
+	void 하위_질문의_FAQ를_합쳐_intent마다_한_번만_핸들러를_실행하고_핸들러가_넣은_FAQ만_질문별로_다시_묶는다() {
+		var general = new RecordingHandler(Intent.GENERAL);
+		var storeHandler = new RecordingHandler(Intent.STORE_DATA);
+		var collector = new ChatContextCollector(List.of(general, storeHandler, new RecordingHandler(Intent.USER_DATA)));
+		var forwarding = new ChatContextCollector(List.of(
+				new GeneralIntentHandler(), new StoreIntentHandler(mock(NearbyStoreSearcher.class)), new UserIntentHandler(null)));
+		var subQuestions = List.of(
+				new SubQuestionFaqs("유심 재발급 방법", List.of(general1, store)),
+				new SubQuestionFaqs("유심 재발급 비용", List.of(general1, general2)),
+				new SubQuestionFaqs("해외 로밍 요금", List.of()));
+
+		collector.collectBySubQuestion(context, subQuestions);
+		AnswerMaterials materials = forwarding.collectBySubQuestion(context, subQuestions);
+
+		// 두 하위 질문에서 같은 FAQ(1번)가 걸려도 핸들러는 한 번, 중복 없이 받습니다.
+		assertThat(general.calls).containsExactly(List.of(general1, general2));
+		assertThat(storeHandler.calls).containsExactly(List.of(store));
+		// 매장 FAQ는 핸들러가 참고 자료로 넣지 않으므로 하위 질문 묶음에서도 빠집니다. 근거 없는 하위 질문은 빈 묶음으로 남습니다.
+		assertThat(materials.faqs()).containsExactly(general1, general2);
+		assertThat(materials.subQuestions()).containsExactly(
+				new SubQuestionFaqs("유심 재발급 방법", List.of(general1)),
+				new SubQuestionFaqs("유심 재발급 비용", List.of(general1, general2)),
+				new SubQuestionFaqs("해외 로밍 요금", List.of()));
+		assertThat(materials.hasRewrittenSubQuestions()).isTrue();
 	}
 
 	@Test

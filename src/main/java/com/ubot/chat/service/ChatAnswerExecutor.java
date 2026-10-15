@@ -2,6 +2,7 @@ package com.ubot.chat.service;
 
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.Location;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -9,7 +10,6 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
-import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -78,12 +78,12 @@ public class ChatAnswerExecutor {
 				return;
 			}
 			AiAnswer answer = result.answer();
-			List<FaqSearchResponseDto> filteredResults = result.faqs();
+			List<SubQuestionFaqs> subQuestions = result.subQuestions();
 
 			checkCancellation(generation);
 			generation.complete(() -> {
 				AnswerAttemptsHistory savedAttempt =
-						chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), filteredResults, userIp);
+						chatAttemptsService.saveAnswerSuccess(attempt, answer.answer(), subQuestions, userIp);
 				if (!"SUCCESS".equals(savedAttempt.getStatus())) {
 					throw createAnswerFailure(savedAttempt);
 				}
