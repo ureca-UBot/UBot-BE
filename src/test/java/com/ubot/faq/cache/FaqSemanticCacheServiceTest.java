@@ -1,13 +1,13 @@
 package com.ubot.faq.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -84,9 +84,12 @@ class FaqSemanticCacheServiceTest {
     @DisplayName("서로 다른 FAQ의 차이를 계산하고 현재 DB의 공식 답변을 수정 없이 사용한다")
     void returnsCurrentOfficialAnswerVerbatim() {
         String officialAnswer = "공식 답변입니다.\n줄바꿈과 공백도 유지합니다. ";
-        when(repository.findCurrentCacheableAnswer(1L, 101L, 3)).thenReturn(Optional.of(officialAnswer));
+        List<FaqSearchResponseDto> candidates = List.of(
+                new FaqSearchResponseDto(1L, "질문 1", officialAnswer, 0.98, Intent.GENERAL,
+                        101L, "유사표현 1", true, 3), faq(2, 0.7, false, Intent.GENERAL));
+        when(repository.findUnchangedCandidates(candidates)).thenReturn(candidates);
 
-        FaqCacheDecision decision = service.evaluate(null, candidates(0.98, 0.7));
+        FaqCacheDecision decision = service.evaluate(null, candidates);
 
         assertThat(decision.reason()).isEqualTo(Reason.HIT);
         assertThat(decision.faq()).get().satisfies(faq -> {
@@ -96,7 +99,7 @@ class FaqSemanticCacheServiceTest {
         });
         assertThat(decision.similarity()).isEqualTo(0.98);
         assertThat(decision.margin()).isCloseTo(0.28, org.assertj.core.data.Offset.offset(1e-12));
-        verify(repository).findCurrentCacheableAnswer(1L, 101L, 3);
+        verify(repository).findUnchangedCandidates(candidates);
     }
 
     @Test
@@ -104,27 +107,68 @@ class FaqSemanticCacheServiceTest {
     void inclusiveThresholds() {
         properties.setMinSimilarity(0.95);
         properties.setMinMargin(0.25);
-        when(repository.findCurrentCacheableAnswer(1L, 101L, 3)).thenReturn(Optional.of("공식 답변"));
+        when(repository.findUnchangedCandidates(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
         assertThat(service.evaluate(Intent.GENERAL, candidates(1.0, 0.75)).reason()).isEqualTo(Reason.HIT);
         properties.setMinMargin(0.2);
         assertThat(service.evaluate(null, candidates(0.95, 0.5)).reason()).isEqualTo(Reason.HIT);
     }
 
     @Test
-    @DisplayName("FAQ가 변경되었거나 답변이 비어 있으면 승인하지 않는다")
-    void changedOrEmptyAnswerFallsBack() {
-        when(repository.findCurrentCacheableAnswer(1L, 101L, 3))
-                .thenReturn(Optional.empty()).thenReturn(Optional.of(" \n"));
-        assertThat(service.evaluate(null, candidates(0.99, 0.5)).reason()).isEqualTo(Reason.FAQ_CHANGED);
-        assertThat(service.evaluate(null, candidates(0.99, 0.5)).reason()).isEqualTo(Reason.FAQ_CHANGED);
+    @DisplayName("변경·삭제된 1위는 RAG 후보에서도 제외하고 다른 FAQ를 캐시로 승격하지 않는다")
+    void changedFaqIsNotReusable() {
+        List<FaqSearchResponseDto> candidates = candidates(0.99, 0.5);
+        when(repository.findUnchangedCandidates(candidates)).thenReturn(List.of(candidates.get(1)));
+        FaqCacheDecision decision = service.evaluate(null, candidates);
+        assertThat(decision.reason()).isEqualTo(Reason.FAQ_CHANGED);
+        assertThat(decision.faq()).isEmpty();
+        assertThat(decision.candidatesForRag()).containsExactly(candidates.get(1));
+    }
+
+    @Test
+    @DisplayName("내용이 같고 승인만 해제됐으면 현재 메타데이터로 RAG에 재사용한다")
+    void approvalRevocationKeepsUnchangedContent() {
+        List<FaqSearchResponseDto> candidates = candidates(0.99, 0.5);
+        FaqSearchResponseDto current = new FaqSearchResponseDto(1L, "질문 1", "검색 당시 답변", 0.99,
+                Intent.GENERAL, 101L, "유사표현 1", false, 4);
+        when(repository.findUnchangedCandidates(candidates)).thenReturn(List.of(current, candidates.get(1)));
+        FaqCacheDecision decision = service.evaluate(null, candidates);
+        assertThat(decision.reason()).isEqualTo(Reason.NOT_CACHEABLE_GENERAL);
+        assertThat(decision.candidatesForRag()).containsExactly(current, candidates.get(1));
+    }
+
+    @Test
+    @DisplayName("내용이 같아도 버전이 바뀌면 HIT 대신 검증된 현재 후보로 RAG를 진행한다")
+    void versionChangeKeepsOnlyVerifiedContent() {
+        List<FaqSearchResponseDto> candidates = candidates(0.99, 0.5);
+        FaqSearchResponseDto current = new FaqSearchResponseDto(1L, "질문 1", "검색 당시 답변", 0.99,
+                Intent.GENERAL, 101L, "유사표현 1", true, 4);
+        when(repository.findUnchangedCandidates(candidates)).thenReturn(List.of(current, candidates.get(1)));
+        FaqCacheDecision decision = service.evaluate(null, candidates);
+        assertThat(decision.reason()).isEqualTo(Reason.FAQ_CHANGED);
+        assertThat(decision.candidatesForRag()).containsExactly(current, candidates.get(1));
+    }
+
+    @Test
+    @DisplayName("비어 있는 답변은 캐시와 RAG 모두에 사용하지 않는다")
+    void emptyAnswerIsNotReusable() {
+        List<FaqSearchResponseDto> candidates = List.of(
+                new FaqSearchResponseDto(1L, "질문 1", " \n", 0.99, Intent.GENERAL,
+                        101L, "유사표현 1", true, 3), faq(2, 0.5, false, Intent.GENERAL));
+        when(repository.findUnchangedCandidates(candidates)).thenReturn(candidates);
+        FaqCacheDecision decision = service.evaluate(null, candidates);
+        assertThat(decision.reason()).isEqualTo(Reason.FAQ_CHANGED);
+        assertThat(decision.candidatesForRag()).containsExactly(candidates.get(1));
     }
 
     @Test
     @DisplayName("추가 검증 DB 조회가 실패하면 기존 검색 결과로 진행하도록 MISS를 반환한다")
     void verificationFailureFallsBack() {
-        when(repository.findCurrentCacheableAnswer(1L, 101L, 3))
+        List<FaqSearchResponseDto> candidates = candidates(0.99, 0.5);
+        when(repository.findUnchangedCandidates(candidates))
                 .thenThrow(new DataAccessResourceFailureException("검증 조회 실패"));
-        assertThat(service.evaluate(null, candidates(0.99, 0.5)).reason()).isEqualTo(Reason.VALIDATION_FAILED);
+        FaqCacheDecision decision = service.evaluate(null, candidates);
+        assertThat(decision.reason()).isEqualTo(Reason.VALIDATION_FAILED);
+        assertThat(decision.candidatesForRag()).containsExactlyElementsOf(candidates);
     }
 
     @Test

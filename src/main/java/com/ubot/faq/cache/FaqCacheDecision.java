@@ -1,16 +1,22 @@
 package com.ubot.faq.cache;
 
+import java.util.List;
 import java.util.Optional;
 
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 
-/** HIT에만 공식 답변이 있습니다. 점수와 차이는 미달 사유를 확인하는 데 사용합니다. */
+/** HIT의 공식 답변과 MISS 후 RAG에 사용할 수 있는 후보를 구분합니다. */
 public record FaqCacheDecision(
         Reason reason,
         Optional<FaqSearchResponseDto> faq,
         Double similarity,
-        Double margin
+        Double margin,
+        List<FaqSearchResponseDto> candidatesForRag
 ) {
+    public FaqCacheDecision {
+        candidatesForRag = List.copyOf(candidatesForRag);
+    }
+
     public enum Reason {
         HIT,
         DISABLED,
@@ -25,11 +31,12 @@ public record FaqCacheDecision(
         VALIDATION_FAILED
     }
 
-    static FaqCacheDecision miss(Reason reason, Double similarity, Double margin) {
-        return new FaqCacheDecision(reason, Optional.empty(), similarity, margin);
+    static FaqCacheDecision miss(Reason reason, Double similarity, Double margin,
+            List<FaqSearchResponseDto> candidatesForRag) {
+        return new FaqCacheDecision(reason, Optional.empty(), similarity, margin, candidatesForRag);
     }
 
     static FaqCacheDecision hit(FaqSearchResponseDto faq, double similarity, double margin) {
-        return new FaqCacheDecision(Reason.HIT, Optional.of(faq), similarity, margin);
+        return new FaqCacheDecision(Reason.HIT, Optional.of(faq), similarity, margin, List.of());
     }
 }

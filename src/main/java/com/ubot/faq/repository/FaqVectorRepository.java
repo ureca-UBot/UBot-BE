@@ -1,7 +1,10 @@
 package com.ubot.faq.repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -83,7 +86,43 @@ public class FaqVectorRepository {
         Object[] params = intent == null
                 ? new Object[] {queryEmbedding, profileId, vectorType.name(), topK}
                 : new Object[] {queryEmbedding, profileId, vectorType.name(), intent.name(), topK};
-        return jdbcTemplate.query(sql, (rs, rowNum) -> new FaqSearchResponseDto(
+        return jdbcTemplate.query(sql, this::mapSearchResult, params);
+    }
+
+    /**
+     * 검색 당시와 질문·답변·의도·유사표현이 같은 활성 후보만 반환합니다.
+     * 승인 여부만 바뀐 FAQ도 RAG에서는 사용할 수 있으므로 cacheable·version은 현재 값을 읽습니다.
+     */
+    public List<FaqSearchResponseDto> findUnchangedCandidates(List<FaqSearchResponseDto> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        String rows = String.join(", ", Collections.nCopies(candidates.size(),
+                "(?::bigint, ?::bigint, ?::text, ?::text, ?::text, ?::text, ?::double precision)"));
+        List<Object> parameters = new ArrayList<>();
+        for (FaqSearchResponseDto candidate : candidates) {
+            Collections.addAll(parameters, candidate.faqId(), candidate.variantId(), candidate.question(),
+                    candidate.answer(), candidate.intent().name(), candidate.variantQuestion(), candidate.similarityScore());
+        }
+        return jdbcTemplate.query("""
+                WITH snapshots(faq_id, variant_id, question, answer, intent, variant_question, similarity_score) AS (
+                    VALUES %s
+                )
+                SELECT f.id AS faq_id, f.question AS faq_question, f.answer, f.intent,
+                       f.cacheable, f.version AS faq_version, v.id AS variant_id,
+                       v.question AS variant_question, s.similarity_score
+                FROM snapshots s
+                JOIN faq f ON f.id = s.faq_id
+                JOIN faq_question_variants v ON v.id = s.variant_id AND v.origin_faq_id = f.id
+                WHERE f.deleted_at IS NULL
+                  AND f.question = s.question AND f.answer = s.answer
+                  AND f.intent::text = s.intent AND v.question = s.variant_question
+                ORDER BY s.similarity_score DESC, f.id ASC
+                """.formatted(rows), this::mapSearchResult, parameters.toArray());
+    }
+
+    private FaqSearchResponseDto mapSearchResult(ResultSet rs, int rowNum) throws SQLException {
+        return new FaqSearchResponseDto(
                 rs.getLong("faq_id"),
                 rs.getString("faq_question"),
                 rs.getString("answer"),
@@ -93,19 +132,7 @@ public class FaqVectorRepository {
                 rs.getString("variant_question"),
                 rs.getBoolean("cacheable"),
                 rs.getInt("faq_version")
-        ), params);
-    }
-
-    /** 검색 이후의 삭제·수정·승인 해제와 매칭 variant 삭제를 확인하고 현재 공식 답변을 읽습니다. */
-    public Optional<String> findCurrentCacheableAnswer(Long faqId, Long variantId, Integer faqVersion) {
-        return jdbcTemplate.query("""
-                SELECT f.answer
-                FROM faq f
-                JOIN faq_question_variants v ON v.origin_faq_id = f.id
-                WHERE f.id = ? AND v.id = ? AND f.version = ?
-                  AND f.deleted_at IS NULL AND f.cacheable = true AND f.intent = 'GENERAL'
-                """, (rs, rowNum) -> rs.getString("answer"), faqId, variantId, faqVersion)
-                .stream().findFirst();
+        );
     }
 
     public void saveVectorForVariant(
