@@ -36,13 +36,13 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 
 ### 출력 형식과 서버 처리
 
-시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 표의 키 순서대로 출력하도록 요구합니다.
+시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 출력하도록 요구합니다. 표는 스키마의 키 순서(실제 출력 순서)입니다.
 
 | 키 | 값 |
 |---|---|
-| `answer` | 한국어 답변 문자열 |
-| `evidence_ids` | 질문의 답을 담은 FAQ ID 문자열 배열. 답을 담은 문서가 없으면(API·도구 결과만으로 답하거나 보류) 빈 배열 |
-| `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기는 `answer` 안에서 하고 `ABSTAIN`/`PARTIAL`) |
+| `answer` | 한국어 답변 문자열. 답할 수 없는 부분은 맨 끝에 한 문장으로만 밝히고, 사용자에게 되묻지 않음 |
+| `evidence_ids` | 질문의 답이나 계산·판단의 기준을 담은 FAQ ID 문자열 배열. 그런 문서가 없으면 빈 배열 |
+| `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기 전용 status는 없음) |
 
 **출력 강제.** `PromptService`가 같은 형식의 JSON Schema(`FaqAnswerFormat.schema()`)를 `LlmRequestDto.responseSchema`에 싣고,
 각 클라이언트가 이를 모델 서버에 넘깁니다. Ollama는 요청의 `format`, vLLM은 `response_format`(`json_schema`, `strict`)입니다.
@@ -237,70 +237,72 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 
 | 대상 | Profile별 테이블 |
 |---|---|
-| FAQ 벡터 | `faq_embeddings` (FAQ마다 `vector_type`이 `QUESTION`, `QUESTION_ANSWER`인 두 행) |
+| FAQ 질문 표현 벡터 | `faq_embeddings` (`faq_question_variants`의 활성 표현마다 현재 Profile에 `QUESTION`, `QUESTION_ANSWER` 유형을 저장) |
 | 미응답 질문 벡터 | `unanswered_question_embeddings` |
 | 미응답 묶음 중심 벡터 | `unanswered_group_embeddings` |
 
 - FAQ 벡터에는 만들 때의 FAQ 버전(`faq_version`)이 함께 저장되고, FAQ의 현재 `version`과 같은 벡터만 검색에 쓰입니다.
-- FAQ를 만들면 지금 Profile의 벡터만 만들어집니다. FAQ를 고치면 바뀐 텍스트가 들어가는 유형만 지금 Profile로 다시 임베딩하고, 나머지는 지금 Profile 벡터의 `faq_version`만 새 버전으로 맞춥니다([FAQ 벡터 유형](#faq-벡터-유형)). 다른 Profile의 벡터는 옛 버전으로 남아 검색에서 빠지고, 그 Profile로 돌아갔을 때 백필이 다시 만듭니다.
+- FAQ를 만들면 원본 질문과 유사 질문을 각각 variant로 저장하고, 현재 Profile에 각 variant의 두 유형 벡터를 만듭니다. 수정 시 유지되는 variant는 답변이 바뀌었을 때 `QUESTION_ANSWER`만 다시 임베딩하고 두 유형의 `faq_version`을 갱신합니다. 원본 질문이 바뀌면 기존 variant를 모두 종료하고 새로 만듭니다. 다른 Profile의 벡터는 옛 버전으로 남아 검색에서 빠지고, 그 Profile로 돌아갔을 때 백필이 다시 만듭니다.
 - `faq_embeddings.vector_type`은 `ANSWER`도 허용하지만 `QUESTION`과 `QUESTION_ANSWER`만 만듭니다.
 - 벡터는 위 테이블에만 있습니다. 예전 벡터 컬럼(`faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`)은 `V25`에서 지웠고, FAQ 수정 이력에는 벡터를 남기지 않습니다.
 
 ### FAQ 벡터 유형
 
-FAQ 하나에 벡터를 두 개 저장하고, 검색에는 그중 한 유형만 씁니다.
+FAQ의 활성 질문 표현(variant)마다 현재 Profile에 두 유형의 벡터를 저장하고, 검색에는 그중 한 유형만 씁니다. 검색 결과는 variant별 유사도를 계산한 뒤 FAQ마다 점수가 가장 높은 표현 하나로 묶습니다.
 
 | `vector_type` | 임베딩하는 텍스트 |
 |---|---|
-| `QUESTION` | FAQ 질문 |
-| `QUESTION_ANSWER` | `질문: {질문}`과 `답변: {답변}`을 줄바꿈으로 이은 한 문자열. 한 번에 임베딩함 |
+| `QUESTION` | variant 질문 |
+| `QUESTION_ANSWER` | `질문: {variant 질문}`과 `답변: {원본 FAQ 답변}`을 줄바꿈으로 이은 한 문자열. 한 번에 임베딩함 |
 
 - 검색에 쓰는 유형은 `FAQ_SEARCH_VECTOR_TYPE`(기본 `QUESTION`)으로 정합니다. 사용자 질문은 유형과 관계없이 질문만 임베딩합니다.
-- 선택한 유형의 벡터가 없는 FAQ는 다른 유형으로 대신 검색하지 않고 검색에서 빠집니다.
-- FAQ를 만들면 두 유형을 모두 만듭니다. 고치면 아래처럼 처리합니다.
+- 선택한 유형의 현재 버전 벡터가 없는 variant는 다른 유형으로 대신 검색하지 않고 검색에서 빠집니다.
+- FAQ 생성 시 원본과 유사 질문 각각에 두 유형을 만듭니다. 수정 시 아래처럼 처리합니다.
 
 | 바뀐 내용 | `QUESTION` | `QUESTION_ANSWER` |
 |---|---|---|
-| 질문 (답변이 함께 바뀐 경우 포함) | 다시 임베딩 | 다시 임베딩 |
-| 답변만 | `faq_version`만 갱신 | 다시 임베딩 |
-| 카테고리·intent만 | `faq_version`만 갱신 | `faq_version`만 갱신 |
+| 원본 질문 | 기존 variant의 벡터를 삭제하고 새 variant를 만들어 임베딩 | 기존 variant의 벡터를 삭제하고 새 variant를 만들어 임베딩 |
+| 유사 질문 추가·제거 | 추가된 variant는 새로 임베딩, 제거된 variant는 벡터 삭제 | 추가된 variant는 새로 임베딩, 제거된 variant는 벡터 삭제 |
+| 답변만 (유지되는 variant) | `faq_version`만 갱신 | 다시 임베딩 |
+| 카테고리·intent·cacheable만 (유지되는 variant) | `faq_version`만 갱신 | `faq_version`만 갱신 |
 
 `QUESTION_ANSWER`로 바꾸는 순서는 다음과 같습니다.
 
-1. `FAQ_SEARCH_VECTOR_TYPE=QUESTION`인 채로 [백필](#백필)을 실행해 `QUESTION_ANSWER` 벡터를 채웁니다.
-2. 아래 SQL에서 세 값이 같은지 확인합니다. `<profile_id>`는 지금 Profile의 ID입니다.
+1. [백필](#백필)을 실행해 전환할 유형의 variant 벡터를 채웁니다.
+2. 아래 SQL에서 활성 variant 수와 전환할 유형의 준비 수가 같은지 확인합니다. `<profile_id>`는 지금 Profile의 ID입니다.
 3. `FAQ_SEARCH_VECTOR_TYPE=QUESTION_ANSWER`로 바꾸고 백엔드를 다시 시작합니다.
 
 ```sql
-SELECT count(*) AS active_faq_count,
-       count(*) FILTER (WHERE q.faq_id IS NOT NULL) AS question_ready,
-       count(*) FILTER (WHERE qa.faq_id IS NOT NULL) AS question_answer_ready
-FROM faq f
+SELECT count(*) AS active_variant_count,
+       count(q.faq_question_variant_id) AS question_ready,
+       count(qa.faq_question_variant_id) AS question_answer_ready
+FROM faq_question_variants v
+JOIN faq f ON f.id = v.origin_faq_id
 LEFT JOIN faq_embeddings q
-       ON q.faq_id = f.id AND q.profile_id = <profile_id>
+       ON q.faq_question_variant_id = v.id AND q.profile_id = <profile_id>
       AND q.vector_type = 'QUESTION' AND q.faq_version = f.version
 LEFT JOIN faq_embeddings qa
-       ON qa.faq_id = f.id AND qa.profile_id = <profile_id>
+       ON qa.faq_question_variant_id = v.id AND qa.profile_id = <profile_id>
       AND qa.vector_type = 'QUESTION_ANSWER' AND qa.faq_version = f.version
 WHERE f.deleted_at IS NULL;
 ```
 
-- 되돌릴 때는 값을 `QUESTION`으로 바꾸고 다시 시작합니다. `QUESTION` 벡터는 지워지지 않고 계속 갱신됩니다.
+- 되돌릴 때는 `QUESTION` 벡터가 모두 준비됐는지 확인한 뒤 값을 `QUESTION`으로 바꾸고 다시 시작합니다.
 - 배포 스크립트는 검색에 쓰는 유형의 벡터만 확인합니다. 그래서 `QUESTION`으로 배포하는 동안에는 `QUESTION_ANSWER` 벡터가 모자라도 백필하지 않고, `QUESTION_ANSWER`로 바꿔 배포하면 교체 전에 백필합니다([배포 주의할 점](../deploy.md#주의할-점)).
-- 유형마다 유사도 분포가 다릅니다. 유형을 바꾸면 `CHAT_CONFIDENCE_THRESHOLD`가 그대로 맞는지 다시 확인하세요. 로컬 DB에서 질문 100개로 쟀을 때 정답 FAQ의 유사도 평균은 `QUESTION` 0.773, `QUESTION_ANSWER` 0.688이었습니다.
-- **FAQ 검색은 HNSW 인덱스를 쓰지 않고 지금 Profile·유형의 벡터 전체와 비교합니다.** `faq_embeddings`의 HNSW 인덱스 하나에 모든 Profile과 유형의 벡터가 함께 들어 있고, Profile·유형 조건은 인덱스가 후보(`hnsw.ef_search`, 기본 40개)를 고른 뒤에 적용되기 때문입니다. 인덱스를 쓰던 때에는 로컬 DB(FAQ 1,124건, Profile 2개)에서 질문 105개 중 `QUESTION` 6개, `QUESTION_ANSWER` 60개의 검색 결과가 전체를 비교한 결과와 달랐고, `QUESTION_ANSWER`는 59개가 결과를 3개보다 적게 받았습니다. 그래서 `FaqVectorRepository`의 검색 쿼리는 거리 연산자가 아니라 유사도로 정렬합니다. 같은 DB에서 검색 쿼리 한 번은 5~17ms였습니다. 인덱스는 남아 있지만 FAQ 검색에는 쓰이지 않습니다. 측정 결과는 [FAQ 검색·답변 테스트 보고서](../FAQ_검색_테스트_보고서.md)에 있습니다.
+- 유형마다 유사도 분포가 다릅니다. 유형을 바꾸면 `CHAT_CONFIDENCE_THRESHOLD`가 그대로 맞는지 다시 확인하세요. 종전 FAQ 단위 검색으로 측정한 유사도 평균(`QUESTION` 0.773, `QUESTION_ANSWER` 0.688)은 variant 검색의 기준값으로 그대로 사용할 수 없습니다.
+- **FAQ 검색은 HNSW 인덱스를 쓰지 않고 지금 Profile·유형의 활성 variant 벡터 전체와 비교합니다.** `faq_embeddings`의 HNSW 인덱스 하나에 모든 Profile과 유형의 벡터가 함께 들어 있고, Profile·유형 조건은 인덱스가 후보(`hnsw.ef_search`, 기본 40개)를 고른 뒤에 적용되기 때문입니다. 검색 쿼리는 유사도로 정렬해 각 FAQ의 최고 점수 variant를 고릅니다. 인덱스는 남아 있지만 FAQ 검색에는 쓰이지 않습니다. 인덱스 관련 종전 FAQ 단위 측정은 [FAQ 검색·답변 테스트 보고서](../FAQ_검색_테스트_보고서.md)에 있습니다.
 
 ### 백필
 
-지금 Profile에 벡터가 없는 항목만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. FAQ는 유형마다 따로 확인하므로, `QUESTION` 벡터만 있는 FAQ에는 `QUESTION_ANSWER` 벡터를 만듭니다. 로컬에서는 백엔드가 시작할 때 자동으로 실행되지 않으므로 직접 실행합니다.
+지금 Profile에 현재 FAQ 버전의 벡터가 없는 활성 variant만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. 두 유형을 따로 확인하므로, 한 유형만 있는 variant에는 빠진 유형만 만듭니다. 로컬에서는 백엔드가 시작할 때 자동으로 실행되지 않으므로 직접 실행합니다.
 
 배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)는 CSV의 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. 그래서 `AI_MODE=ollama`(기본)에서 `QUESTION`으로 검색할 때는 시드 뒤에 백필이 필요 없고, vLLM처럼 다른 Profile을 쓸 때 실행합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)). CSV에는 `QUESTION` 벡터만 있으므로, `QUESTION_ANSWER` 벡터는 어느 모드에서든 백필로 채웁니다.
+시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)는 variant CSV의 `QUESTION_ANSWER` 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. `QUESTION` 유형이나 vLLM처럼 다른 Profile을 검색하려면 백필로 해당 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|
-| `POST /admin/faqs/embeddings/backfill` | 삭제되지 않은 FAQ 중 지금 Profile에 현재 버전의 벡터가 없는 것. 유형(`QUESTION`, `QUESTION_ANSWER`)마다 따로 확인 | 새로 만든 벡터 수 (FAQ 하나에 최대 2개) |
+| `POST /admin/faqs/embeddings/backfill` | 활성 FAQ의 활성 variant 중 지금 Profile에 현재 FAQ 버전의 벡터가 없는 것. 유형(`QUESTION`, `QUESTION_ANSWER`)마다 따로 확인 | 새로 만든 벡터 수 (variant 하나에 최대 2개) |
 | `POST /admin/unanswered-groups/embeddings/backfill` | 지금 Profile에 벡터가 없는 미응답 질문. 끝에 묶음별 중심 벡터를 지금 Profile의 질문 벡터 평균으로 다시 계산 | 새로 임베딩한 질문 수 |
 
 전환 순서는 다음과 같습니다.
@@ -311,15 +313,15 @@ WHERE f.deleted_at IS NULL;
 4. 백필 스크립트를 실행합니다. `ADMIN` 계정의 비밀번호를 물어본 뒤 두 API를 차례로 호출합니다.
 
 ```powershell
-.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>
 ```
 
 - `newly embedded =` 뒤의 숫자가 새로 채운 건수입니다. `0`이면 채울 것이 없다는 뜻이고, 여러 번 실행해도 됩니다.
 - 스크립트는 API를 호출할 때마다 다시 로그인합니다. 백필이 access token 유효 시간보다 길어질 수 있기 때문입니다. 임베딩 서버 오류(`EM-*`)로 멈추면 최대 3번까지 이어서 시도합니다.
 - 다른 주소의 백엔드에는 `-BaseUrl http://<주소>`를 붙입니다. 요청 하나를 기다리는 시간은 `-TimeoutSec`(기본 3600초)로 바꿉니다.
-- 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
+- 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
 - 스크립트 없이 하려면 Swagger UI(`/swagger-ui.html`)에서 `POST /auth/login`으로 받은 access token을 `Authorize`에 넣고 위 두 API를 차례로 실행합니다. macOS/Linux에서도 이 방법을 씁니다.
-- 요청은 백필이 끝난 뒤에 응답합니다. 한 건씩 임베딩하며, FAQ 1,024건 기준으로 Ollama 약 80초, vLLM(RTX 3060) 약 24초가 걸렸습니다. 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. 배포 서버의 Nginx는 백필 경로에만 응답 제한 시간 3600초를 적용합니다.
+- 요청은 백필이 끝난 뒤에 응답합니다. 활성 variant와 누락된 유형마다 임베딩하므로 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. 배포 서버의 Nginx는 백필 경로에만 응답 제한 시간 3600초를 적용합니다.
 - 한 건씩 바로 저장하므로, 도중에 임베딩 서버 오류로 멈추거나 연결이 끊겨도 그때까지 저장한 벡터는 남습니다. 다시 실행하면 나머지를 채웁니다.
 
 백필하기 전에는 지금 Profile에 벡터가 없어서 아래처럼 동작합니다. 사용자 요청을 받기 전에 백필을 끝내세요.
@@ -327,16 +329,16 @@ WHERE f.deleted_at IS NULL;
 | 기능 | 백필 전 동작 |
 |---|---|
 | 채팅의 FAQ 검색 | 검색 결과가 없어 `CHAT-012`로 끝남 |
-| FAQ 수정 | 다시 임베딩하는 유형은 지금 Profile의 벡터가 만들어짐. `faq_version`만 갱신하는 유형은 벡터가 없는 채로 남음 |
-| FAQ 생성 | 정상. 지금 Profile에 두 유형의 벡터가 만들어짐 |
+| FAQ 수정 | 새 variant와 답변이 바뀐 유지 variant의 `QUESTION_ANSWER` 벡터는 만들어짐. 유지 variant의 `QUESTION` 벡터가 없으면 버전 갱신만으로는 채워지지 않음 |
+| FAQ 생성 | 정상. 지금 Profile에 모든 새 variant의 두 유형 벡터가 만들어짐 |
 | 미응답 질문 묶기 | 지금 Profile의 중심 벡터가 없어 기존 묶음을 찾지 못하고 새 묶음을 만듦 |
 
 Profile별로 벡터가 얼마나 채워졌는지는 DB에서 확인합니다([DB 접속](db-access.md)).
 
 ```sql
 SELECT p.profile_id, p.provider, p.model_name, p.profile_version,
-       count(fe.faq_id) FILTER (WHERE fe.vector_type = 'QUESTION') AS question_vectors,
-       count(fe.faq_id) FILTER (WHERE fe.vector_type = 'QUESTION_ANSWER') AS question_answer_vectors
+       count(fe.faq_question_variant_id) FILTER (WHERE fe.vector_type = 'QUESTION') AS question_vectors,
+       count(fe.faq_question_variant_id) FILTER (WHERE fe.vector_type = 'QUESTION_ANSWER') AS question_answer_vectors
 FROM embedding_profiles p
 LEFT JOIN faq_embeddings fe
        ON fe.profile_id = p.profile_id

@@ -10,10 +10,18 @@ import com.ubot.faq.enums.Intent;
  * @param faqId FAQ ID. 답변 근거(evidence_ids)와 faq_log 저장에 사용합니다.
  * @param question FAQ 질문 원문
  * @param answer FAQ 답변 원문
- * @param similarityScore 사용자 질문과의 코사인 유사도(1에 가까울수록 유사). FAQ 벡터가 비어 있으면 0.0입니다.
+ * @param similarityScore 사용자 질문과 매칭된 variant 벡터의 코사인 유사도(1에 가까울수록 유사)
  * @param intent FAQ에 저장된 처리 의도. 채팅이 이 값으로 자료 수집 방식을 정하므로 {@code null}일 수 없습니다.
+ * @param variantId 실제로 매칭된 질문 variant ID
+ * @param variantQuestion 실제로 매칭된 variant 질문
  */
-public record FaqSearchResponseDto(Long faqId, String question, String answer, double similarityScore, Intent intent) {
+public record FaqSearchResponseDto(
+        Long faqId, String question, String answer, double similarityScore, Intent intent,
+        Long variantId, String variantQuestion) {
+
+    public FaqSearchResponseDto(Long faqId, String question, String answer, double similarityScore, Intent intent) {
+        this(faqId, question, answer, similarityScore, intent, null, null);
+    }
 
     /*
      * intent = null 방지

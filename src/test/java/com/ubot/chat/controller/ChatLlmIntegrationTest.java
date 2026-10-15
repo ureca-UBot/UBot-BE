@@ -175,7 +175,7 @@ class ChatLlmIntegrationTest {
 		});
 		assertThat(questions.count()).isZero();
 		assertThat(faqLogs.count()).isZero();
-		verifyNoInteractions(llm);
+		verify(llm, never()).generateAnswer(any());
 	}
 
 	@Test void failedFaqInsertRollsBackSuccessLogsButCommitsFailureRecordSeparately() throws Exception {

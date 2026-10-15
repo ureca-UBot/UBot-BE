@@ -47,7 +47,7 @@ docker compose down -v
 
 두 번째 명령은 `-f`가 없어서 공통 파일(`docker-compose.yml`)의 볼륨만 지웁니다. DB가 비었으므로 애플리케이션을 다시 시작한 뒤 [관리자 계정과 FAQ](how-to/local-data.md)를 다시 준비합니다.
 
-PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
+PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
 
 ## DecodingException: Illegal base64 character
 
@@ -238,16 +238,16 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 벡터는 임베딩 서버·모델·버전의 조합(Embedding Profile)별로 따로 저장되고, 검색은 지금 Profile의 벡터만 씁니다. 설정을 바꾸면 새 Profile이 되는데 거기에는 아직 벡터가 없습니다. 기존 벡터는 지워지지 않고 남아 있습니다.
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
+시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
 
-`FAQ_SEARCH_VECTOR_TYPE`을 `QUESTION_ANSWER`로 바꿨는데 그 유형의 벡터를 채우지 않았을 때도 같습니다. 검색은 선택한 유형의 벡터만 쓰고, 시드 스크립트는 `QUESTION` 벡터만 넣습니다.
+검색은 `FAQ_SEARCH_VECTOR_TYPE`으로 선택한 유형의 벡터만 씁니다. 시드 스크립트는 `QUESTION_ANSWER` 벡터만 넣으므로 `QUESTION`으로 검색하려면 해당 벡터를 백필해야 합니다.
 
 **해결**
 
 관리자 계정으로 백필을 실행해 지금 Profile의 벡터를 채웁니다([백필](how-to/llm-module.md#백필)).
 
 ```powershell
-.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>
 ```
 
 이전 설정으로 되돌리면 전에 만든 벡터를 다시 쓰므로 백필 없이도 검색됩니다.
@@ -301,7 +301,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `LLM-004`, `CHAT-016` | `LLM_READ_TIMEOUT`, `CHAT_RESPONSE_TIMEOUT_MILLIS`, 모델 크기·GPU 사용 여부 |
 | `LLM-005` | 모델 설정, 애플리케이션 로그 |
 
-FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_embeddings`에 벡터가 없어 검색에 나오지 않습니다. [백필](how-to/llm-module.md#백필)을 실행하면 벡터가 없는 FAQ만 임베딩합니다.
+FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_question_variants`에 질문 표현이 없어 검색에 나오지 않습니다. 먼저 원본 질문의 variant를 만들어야 합니다. 그 뒤 [백필](how-to/llm-module.md#백필)을 실행하면 누락된 variant 벡터를 채웁니다. 관리자 API로 FAQ를 등록하면 variant와 벡터가 함께 생성됩니다.
 
 채팅 응답의 `answer`에는 답변 문장만 들어갑니다. 2026-10-12 이전에 저장된 대화 기록은 JSON 문자열 그대로일 수 있습니다. 모델 출력 JSON을 읽을 수 없으면 `LLM-005`로 실패합니다([LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리)).
 

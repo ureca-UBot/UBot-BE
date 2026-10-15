@@ -19,9 +19,4 @@ public enum FaqVectorType {
 
 		return "질문: " + question + "\n답변: " + answer;
 	}
-
-	/** FAQ의 질문이나 답변이 바뀌었을 때 이 유형의 벡터를 다시 만들어야 하는지 알려줍니다. */
-	public boolean needsReembedding(boolean questionChanged, boolean answerChanged) {
-		return questionChanged || (includesAnswer && answerChanged);
-	}
 }
