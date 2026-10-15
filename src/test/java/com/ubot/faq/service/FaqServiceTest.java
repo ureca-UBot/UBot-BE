@@ -559,6 +559,12 @@ class FaqServiceTest {
                 List.of(deletedFaq)
         );
 
+        when(variantRepository.save(any(FaqQuestionVariant.class)))
+                .thenAnswer(invocation -> {
+                    FaqQuestionVariant value = invocation.getArgument(0);
+                    return variant(100L, value.getOriginFaq(), value.getQuestion());
+                });
+
         service.restoreFaqs(request);
 
         assertThat(deletedFaq.getDeletedAt())
@@ -568,6 +574,27 @@ class FaqServiceTest {
                 .findDeletedFaqByFaqIds(
                         request.faqIds()
                 );
+        ArgumentCaptor<FaqQuestionVariant> variantCaptor = ArgumentCaptor.forClass(FaqQuestionVariant.class);
+        verify(variantRepository).save(variantCaptor.capture());
+        assertThat(variantCaptor.getValue().getOriginFaq()).isSameAs(deletedFaq);
+        assertThat(variantCaptor.getValue().getQuestion()).isEqualTo(deletedFaq.getQuestion());
+        verify(vectorService).saveVectorsForVariant(
+                100L, deletedFaq.getVersion(), deletedFaq.getQuestion(), deletedFaq.getAnswer());
+    }
+
+    @Test
+    @DisplayName("복구할 FAQ에 원본 질문 variant가 이미 있으면 중복 생성하지 않는다")
+    void restoreFaqs_keepsExistingOriginalVariant() {
+        Faq deletedFaq = faq(10L, "원본 질문", 2, category(2L, "카테고리"));
+        deletedFaq.delete();
+        when(faqRepository.findDeletedFaqByFaqIds(List.of(10L))).thenReturn(List.of(deletedFaq));
+        when(variantRepository.existsByOriginFaqIdAndQuestion(10L, "원본 질문")).thenReturn(true);
+
+        service.restoreFaqs(new FaqRestoreRequestDto(List.of(10L)));
+
+        assertThat(deletedFaq.getDeletedAt()).isNull();
+        verify(variantRepository, never()).save(any(FaqQuestionVariant.class));
+        verifyNoInteractions(vectorService);
     }
 
     /** 수정 요청이 통과하도록 FAQ, 수정자, 카테고리(ID 2) 조회를 준비합니다. */

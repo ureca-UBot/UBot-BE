@@ -225,6 +225,9 @@ public class FaqService {
 		List<Faq> faqs = faqRepository.findDeletedFaqByFaqIds(requestDto.faqIds());
 		for(Faq faq : faqs){
 			faq.restore();
+			if (!faqQuestionVariantRepository.existsByOriginFaqIdAndQuestion(faq.getId(), faq.getQuestion())) {
+				createVariant(faq, faq.getQuestion());
+			}
 		}
 		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
 	}
