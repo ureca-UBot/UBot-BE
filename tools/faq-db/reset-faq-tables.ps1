@@ -2,7 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$seedPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\seed')).Path
+$seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
 $sqlPath = Join-Path $PSScriptRoot 'seed-faq-tables.sql'
 . (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 

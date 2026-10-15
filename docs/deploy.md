@@ -220,7 +220,7 @@ BACKEND_IMAGE=ubot-be:<이전 커밋 SHA> docker compose -p ubot --env-file .env
     - 교체 뒤 백필이 실패해 배포가 실패로 끝났다면 새 백엔드는 이미 떠 있습니다. 원인을 해결한 뒤 다시 배포하거나 아래 스크립트로 채웁니다([백필](how-to/llm-module.md#백필)).
 
 ```powershell
-.\tools\backfill-embeddings.ps1 -Email <관리자 이메일> -BaseUrl http://<서버 주소>
+.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일> -BaseUrl http://<서버 주소>
 ```
 
 - 배포된 백엔드는 `prod` 프로필로 실행됩니다. Swagger UI와 API 문서가 꺼져 있고, `/actuator/health`는 상세 없이 상태만 반환합니다.

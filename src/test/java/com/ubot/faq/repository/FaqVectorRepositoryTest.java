@@ -134,8 +134,8 @@ class FaqVectorRepositoryTest {
     @DisplayName("같은 FAQ의 variant가 상위 점수를 차지해도 FAQ별 한 건을 고른 뒤 topK를 적용한다")
     void getSimilarList_selectsBestVariantPerFaqBeforeTopK() {
         repository.saveVectorForVariant(1L, profileId, FaqVectorType.QUESTION, 1, vectorOf(1));
-        insertVariant(11L, 1L, "유심을 다시 발급받고 싶어요", null);
-        insertVariant(12L, 1L, "유심 재발급 방법", null);
+        insertVariant(11L, 1L, "유심을 다시 발급받고 싶어요");
+        insertVariant(12L, 1L, "유심 재발급 방법");
         repository.saveVectorForVariant(11L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
         repository.saveVectorForVariant(12L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
 
@@ -149,10 +149,14 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
-    @DisplayName("soft delete된 variant의 높은 점수는 검색에 사용하지 않는다")
+    @DisplayName("삭제된 variant의 벡터도 함께 삭제되어 검색에 사용되지 않는다")
     void getSimilarList_ignoresDeletedVariant() {
-        insertVariant(11L, 1L, "삭제된 표현", "2026-01-01 00:00:00");
+        insertVariant(11L, 1L, "삭제된 표현");
         repository.saveVectorForVariant(11L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+        jdbcTemplate.update("DELETE FROM faq_question_variants WHERE id = ?", 11L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM faq_embeddings WHERE faq_question_variant_id = ?",
+                Integer.class, 11L)).isZero();
 
         List<FaqSearchResponseDto> results = repository.getSimilarList(
                 vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
@@ -587,20 +591,20 @@ class FaqVectorRepositoryTest {
         );
         jdbcTemplate.update(
                 """
-                INSERT INTO faq_question_variants (id, origin_faq_id, question, deleted_at)
-                VALUES (?, ?, ?, ?::timestamp)
+                INSERT INTO faq_question_variants (id, origin_faq_id, question)
+                VALUES (?, ?, ?)
                 """,
-                id, id, question, deletedAt
+                id, id, question
         );
     }
 
-    private void insertVariant(Long id, Long faqId, String question, String deletedAt) {
+    private void insertVariant(Long id, Long faqId, String question) {
         jdbcTemplate.update(
                 """
-                INSERT INTO faq_question_variants (id, origin_faq_id, question, deleted_at)
-                VALUES (?, ?, ?, ?::timestamp)
+                INSERT INTO faq_question_variants (id, origin_faq_id, question)
+                VALUES (?, ?, ?)
                 """,
-                id, faqId, question, deletedAt
+                id, faqId, question
         );
     }
 

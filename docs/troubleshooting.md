@@ -47,7 +47,7 @@ docker compose down -v
 
 두 번째 명령은 `-f`가 없어서 공통 파일(`docker-compose.yml`)의 볼륨만 지웁니다. DB가 비었으므로 애플리케이션을 다시 시작한 뒤 [관리자 계정과 FAQ](how-to/local-data.md)를 다시 준비합니다.
 
-PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
+PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
 
 ## DecodingException: Illegal base64 character
 
@@ -238,7 +238,7 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 벡터는 임베딩 서버·모델·버전의 조합(Embedding Profile)별로 따로 저장되고, 검색은 지금 Profile의 벡터만 씁니다. 설정을 바꾸면 새 Profile이 되는데 거기에는 아직 벡터가 없습니다. 기존 벡터는 지워지지 않고 남아 있습니다.
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
+시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
 
 검색은 `FAQ_SEARCH_VECTOR_TYPE`으로 선택한 유형의 벡터만 씁니다. 시드 스크립트는 `QUESTION_ANSWER` 벡터만 넣으므로 `QUESTION`으로 검색하려면 해당 벡터를 백필해야 합니다.
 
@@ -247,7 +247,7 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 관리자 계정으로 백필을 실행해 지금 Profile의 벡터를 채웁니다([백필](how-to/llm-module.md#백필)).
 
 ```powershell
-.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>
 ```
 
 이전 설정으로 되돌리면 전에 만든 벡터를 다시 쓰므로 백필 없이도 검색됩니다.

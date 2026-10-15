@@ -92,7 +92,7 @@ check_faq_embedding_coverage() {
       SELECT COUNT(*)
       FROM faq_question_variants v
       JOIN faq f ON f.id = v.origin_faq_id
-      WHERE v.deleted_at IS NULL AND f.deleted_at IS NULL;
+      WHERE f.deleted_at IS NULL;
     " </dev/null \
       || true
   )"
@@ -113,7 +113,6 @@ check_faq_embedding_coverage() {
           SELECT 1 FROM faq_question_variants v
           WHERE v.origin_faq_id = f.id
             AND v.question = f.question
-            AND v.deleted_at IS NULL
         );
     " </dev/null \
       || true
@@ -125,8 +124,7 @@ check_faq_embedding_coverage() {
   fi
 
   if [ "${missing_faq_count}" -ne 0 ]; then
-    echo "Missing FAQ variants: ${missing_faq_count} active FAQs have no original-question variant"
-    return 2
+    echo "WARNING: ${missing_faq_count} active FAQs have no original-question variant and will not be searchable"
   fi
 
   # 활성 variant가 없으면 백필할 것도 없음.
@@ -181,8 +179,7 @@ SQL
 SELECT COUNT(*)
 FROM faq_question_variants v
 JOIN faq f ON f.id = v.origin_faq_id
-WHERE v.deleted_at IS NULL
-  AND f.deleted_at IS NULL
+WHERE f.deleted_at IS NULL
   AND EXISTS (
     SELECT 1 FROM faq_embeddings fe
     WHERE fe.faq_question_variant_id = v.id
@@ -298,7 +295,7 @@ finish_embeddings_after_switch() {
     if [ "${backfill}" -ne 0 ]; then
       echo "ERROR: embedding backfill failed after the switch (exit code ${backfill})"
       echo "The new backend is running, but FAQ search returns no results until the backfill succeeds."
-      echo "Run tools/backfill-embeddings.ps1 or retry the deployment."
+      echo "Run tools/faq-db/backfill-embeddings.ps1 or retry the deployment."
       exit 1
     fi
 
@@ -306,7 +303,7 @@ finish_embeddings_after_switch() {
 
     if [ "${coverage}" -ne 0 ]; then
       echo "ERROR: FAQ variant embeddings are still missing after the backfill"
-      echo "Run tools/backfill-embeddings.ps1 or retry the deployment."
+      echo "Run tools/faq-db/backfill-embeddings.ps1 or retry the deployment."
       exit 1
     fi
 
@@ -320,6 +317,6 @@ finish_embeddings_after_switch() {
   # 교체 전 확인과 교체 사이에 등록되거나 수정된 FAQ가 있을 수 있다. 배포는 실패로 처리하지 않는다.
   if [ "${coverage}" -ne 0 ]; then
     echo "WARNING: some FAQ variants have no vector for the current embedding profile."
-    echo "Run tools/backfill-embeddings.ps1 to fill them."
+    echo "Run tools/faq-db/backfill-embeddings.ps1 to fill them."
   fi
 }

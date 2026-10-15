@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$seedPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\seed')).Path
+$seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
 $manifestPath = Join-Path (Join-Path $seedPath 'days') "additional-faq-$Date.json"
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Missing manifest: $manifestPath" }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -92,7 +92,7 @@ $remoteVariant = "/tmp/ubot-addfaq-$token-variants.csv"
 $remoteSql = "/tmp/ubot-addfaq-$token.sql"
 $containerId = $null
 
-Push-Location (Join-Path $PSScriptRoot '..')
+Push-Location (Join-Path $PSScriptRoot '..\..')
 try {
     $containerId = (& docker compose ps --quiet postgres).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $containerId) { throw 'Existing Compose PostgreSQL container is not running.' }

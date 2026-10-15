@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 
-SEED = Path(__file__).resolve().parents[1] / "src/main/resources/seed"
+SEED = Path(__file__).resolve().parent / "seed"
 FAQ_FIELDS = ["faqId", "category", "question", "answer", "intent"]
 VARIANT_FIELDS = ["originFaqId", "variantId", "question", "vector"]
 FAQ_NAME = re.compile(r"baseline-faqs-(\d+)\.csv")

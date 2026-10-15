@@ -284,7 +284,7 @@ LEFT JOIN faq_embeddings q
 LEFT JOIN faq_embeddings qa
        ON qa.faq_question_variant_id = v.id AND qa.profile_id = <profile_id>
       AND qa.vector_type = 'QUESTION_ANSWER' AND qa.faq_version = f.version
-WHERE f.deleted_at IS NULL AND v.deleted_at IS NULL;
+WHERE f.deleted_at IS NULL;
 ```
 
 - 되돌릴 때는 `QUESTION` 벡터가 모두 준비됐는지 확인한 뒤 값을 `QUESTION`으로 바꾸고 다시 시작합니다.
@@ -298,7 +298,7 @@ WHERE f.deleted_at IS NULL AND v.deleted_at IS NULL;
 
 배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)는 variant CSV의 `QUESTION_ANSWER` 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. `QUESTION` 유형이나 vLLM처럼 다른 Profile을 검색하려면 백필로 해당 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
+시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)는 variant CSV의 `QUESTION_ANSWER` 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. `QUESTION` 유형이나 vLLM처럼 다른 Profile을 검색하려면 백필로 해당 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|
@@ -313,13 +313,13 @@ WHERE f.deleted_at IS NULL AND v.deleted_at IS NULL;
 4. 백필 스크립트를 실행합니다. `ADMIN` 계정의 비밀번호를 물어본 뒤 두 API를 차례로 호출합니다.
 
 ```powershell
-.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>
 ```
 
 - `newly embedded =` 뒤의 숫자가 새로 채운 건수입니다. `0`이면 채울 것이 없다는 뜻이고, 여러 번 실행해도 됩니다.
 - 스크립트는 API를 호출할 때마다 다시 로그인합니다. 백필이 access token 유효 시간보다 길어질 수 있기 때문입니다. 임베딩 서버 오류(`EM-*`)로 멈추면 최대 3번까지 이어서 시도합니다.
 - 다른 주소의 백엔드에는 `-BaseUrl http://<주소>`를 붙입니다. 요청 하나를 기다리는 시간은 `-TimeoutSec`(기본 3600초)로 바꿉니다.
-- 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
+- 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
 - 스크립트 없이 하려면 Swagger UI(`/swagger-ui.html`)에서 `POST /auth/login`으로 받은 access token을 `Authorize`에 넣고 위 두 API를 차례로 실행합니다. macOS/Linux에서도 이 방법을 씁니다.
 - 요청은 백필이 끝난 뒤에 응답합니다. 활성 variant와 누락된 유형마다 임베딩하므로 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. 배포 서버의 Nginx는 백필 경로에만 응답 제한 시간 3600초를 적용합니다.
 - 한 건씩 바로 저장하므로, 도중에 임베딩 서버 오류로 멈추거나 연결이 끊겨도 그때까지 저장한 벡터는 남습니다. 다시 실행하면 나머지를 채웁니다.

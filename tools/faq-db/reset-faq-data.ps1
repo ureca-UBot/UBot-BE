@@ -2,7 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$seedPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\seed')).Path
+$seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
 . (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 
 function Invoke-Checked {

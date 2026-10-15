@@ -56,8 +56,7 @@ public class FaqVectorRepository {
                     FROM faq_embeddings fe
                     JOIN faq_question_variants v ON v.id = fe.faq_question_variant_id
                     JOIN faq f ON f.id = v.origin_faq_id
-                    WHERE v.deleted_at IS NULL
-                      AND f.deleted_at IS NULL
+                    WHERE f.deleted_at IS NULL
                       AND fe.profile_id = ?
                       AND fe.vector_type = ?
                       AND fe.faq_version = f.version
@@ -141,10 +140,6 @@ public class FaqVectorRepository {
                 variantId,
                 profileId
         );
-    }
-
-    public void deleteVectorsForVariant(Long variantId) {
-        jdbcTemplate.update("DELETE FROM faq_embeddings WHERE faq_question_variant_id = ?", variantId);
     }
 
     public boolean hasCurrentVector(

@@ -142,7 +142,7 @@ public class FaqService {
 		Faq savedFaq = faqRepository.save(faq);
 
 		List<FaqQuestionVariant> existing = new ArrayList<>(
-				faqQuestionVariantRepository.findByOriginFaqIdAndDeletedAtIsNullOrderByIdAsc(savedFaq.getId()));
+				faqQuestionVariantRepository.findByOriginFaqIdOrderByIdAsc(savedFaq.getId()));
 		if (questionChanged) {
 			for (FaqQuestionVariant variant : existing) {
 				deleteVariant(variant);
@@ -183,13 +183,12 @@ public class FaqService {
 	}
 
 	private void deleteVariant(FaqQuestionVariant variant) {
-		variant.delete();
-		faqVectorService.deleteVectorsForVariant(variant.getId());
+		faqQuestionVariantRepository.delete(variant);
 	}
 
 	private FaqResponseDto toResponse(Faq faq) {
 		List<String> similarQuestions = new ArrayList<>(faqQuestionVariantRepository
-				.findByOriginFaqIdAndDeletedAtIsNullOrderByIdAsc(faq.getId())
+				.findByOriginFaqIdOrderByIdAsc(faq.getId())
 				.stream().map(FaqQuestionVariant::getQuestion).toList());
 		similarQuestions.remove(faq.getQuestion());
 		return FaqResponseDto.from(faq, similarQuestions);

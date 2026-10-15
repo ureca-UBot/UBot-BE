@@ -9,8 +9,8 @@ import urllib.request
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SEED = ROOT / "src/main/resources/seed"
+ROOT = Path(__file__).resolve().parents[2]
+SEED = Path(__file__).resolve().parent / "seed"
 FAQ_FIELDS = ["faqId", "category", "question", "answer", "intent"]
 VARIANT_FIELDS = ["originFaqId", "variantId", "question", "vector"]
 MODEL = "bge-m3:567m"

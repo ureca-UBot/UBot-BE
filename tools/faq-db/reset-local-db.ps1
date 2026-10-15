@@ -2,8 +2,8 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$seedPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\seed')).Path
-$migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\src\main\resources\db\migration')).Path
+$seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
+$migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\src\main\resources\db\migration')).Path
 $sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
 . (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 

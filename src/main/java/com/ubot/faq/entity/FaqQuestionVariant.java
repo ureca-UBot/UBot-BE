@@ -5,7 +5,6 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Objects;
 
 /** 원본 FAQ에 연결된 변형 질문. 답변은 원본 FAQ, 벡터는 faq_embeddings에서 관리한다. */
 @Entity
@@ -30,21 +29,4 @@ public class FaqQuestionVariant {
 	@Builder.Default
 	@Column(name = "created_at")
 	private LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
-
-	@Builder.Default
-	@Column(name = "updated_at")
-	private LocalDateTime updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
-
-	@Column(name = "deleted_at")
-	private LocalDateTime deletedAt;
-
-	public void update(String question) {
-		if (Objects.equals(this.question, question)) return;
-		this.question = question;
-		this.updatedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
-	}
-
-	public void delete() {
-		this.deletedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
-	}
 }

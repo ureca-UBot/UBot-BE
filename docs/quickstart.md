@@ -188,7 +188,7 @@ Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 전체 API를 보고 �
 
 `POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 질문하면 `CHAT-012`(검색 결과 없음)가, 채팅 모델이 비어 있으면 `LLM-002`가 반환됩니다.
 
-- 번호가 붙은 시드 CSV 전체의 FAQ와 기본 계정을 한 번에 넣으려면 `.\tools\reset-local-db.ps1`을 실행하고 애플리케이션을 다시 시작합니다. 시드에는 `QUESTION_ANSWER` 벡터가 포함되며, 다른 검색 유형을 쓰려면 백필이 필요합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
+- 번호가 붙은 시드 CSV 전체의 FAQ와 기본 계정을 한 번에 넣으려면 `.\tools\faq-db\reset-local-db.ps1`을 실행하고 애플리케이션을 다시 시작합니다. 시드에는 `QUESTION_ANSWER` 벡터가 포함되며, 다른 검색 유형을 쓰려면 백필이 필요합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
 - 지금 DB를 유지하려면 계정을 직접 만들고 관리자 API로 FAQ를 등록합니다.
 
 두 방법 모두 [local-data.md](how-to/local-data.md)에 있습니다.
@@ -243,7 +243,7 @@ NVIDIA GPU가 있는 PC에서는 Ollama 대신 vLLM으로 답변 생성과 임�
 4. 관리자 계정으로 임베딩 백필을 실행합니다. 지금 DB의 벡터는 Ollama로 만든 것이라, vLLM용 벡터를 한 번 채워야 합니다. 자세한 내용은 [백필](how-to/llm-module.md#백필)에 있습니다.
 
     ```powershell
-    .\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+    .\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>
     ```
 
 알아 둘 점:

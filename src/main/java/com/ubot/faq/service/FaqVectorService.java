@@ -114,10 +114,6 @@ public class FaqVectorService {
         }
     }
 
-    public void deleteVectorsForVariant(Long variantId) {
-        faqVectorRepository.deleteVectorsForVariant(variantId);
-    }
-
     private void saveVector(
             Long variantId,
             Integer faqVersion,

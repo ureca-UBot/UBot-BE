@@ -11,20 +11,20 @@
 
 ## 기본 데이터로 한 번에 채우기
 
-기본 FAQ는 `src/main/resources/seed/baseline-faqs-N.csv`와 짝인 `baseline-faq-variants-N.csv`에 있습니다. 스크립트는 번호가 붙은 모든 파일 쌍을 읽습니다. 시드에는 FAQ별 질문 표현 5개와 각 표현의 벡터가 포함됩니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../src/main/resources/seed/README.md)에 있습니다.
+기본 FAQ는 `tools/faq-db/seed/baseline-faqs-N.csv`와 짝인 `baseline-faq-variants-N.csv`에 있습니다. 스크립트는 번호가 붙은 모든 파일 쌍을 읽습니다. 시드에는 FAQ별 질문 표현 5개와 각 표현의 벡터가 포함됩니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../tools/faq-db/seed/README.md)에 있습니다.
 
 | 스크립트 | 하는 일 |
 |---|---|
-| `.\tools\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 번호가 붙은 CSV 전체의 카테고리·FAQ·질문 표현·벡터를 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
-| `.\tools\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 벡터를 지우고 CSV 기준으로 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
-| `.\tools\reset-faq-tables.ps1` | 기존 ADMIN 계정·Ollama Profile을 사용해 `faq`, `faq_question_variants`, `faq_embeddings`를 교체하고 필요한 카테고리를 추가합니다. 다른 테이블이 FAQ를 참조하면 중단합니다 |
+| `.\tools\faq-db\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 번호가 붙은 CSV 전체의 카테고리·FAQ·질문 표현·벡터를 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
+| `.\tools\faq-db\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 벡터를 지우고 CSV 기준으로 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
+| `.\tools\faq-db\reset-faq-tables.ps1` | 기존 ADMIN 계정·Ollama Profile을 사용해 `faq`, `faq_question_variants`, `faq_embeddings`를 교체하고 필요한 카테고리를 추가합니다. 다른 테이블이 FAQ를 참조하면 중단합니다 |
 
 세 스크립트는 PostgreSQL만 다루므로 `AI_MODE`와 관계없이 실행할 수 있습니다.
 
 스크립트는 CSV에 들어 있는 벡터를 `faq_embeddings`에 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다.
 
 - **`AI_MODE=ollama`이고 `FAQ_SEARCH_VECTOR_TYPE=QUESTION_ANSWER`이면 시드 벡터로 검색할 수 있습니다.** 시드 실행 중에는 임베딩 요청을 하지 않습니다.
-- **`AI_MODE=vllm`이면 임베딩 백필을 한 번 실행합니다.** vLLM Profile에는 벡터가 없어서, 백필 전에는 FAQ가 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝납니다. 애플리케이션을 다시 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`을 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
+- **`AI_MODE=vllm`이면 임베딩 백필을 한 번 실행합니다.** vLLM Profile에는 벡터가 없어서, 백필 전에는 FAQ가 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝납니다. 애플리케이션을 다시 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>`을 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
 - 백필은 현재 Profile에 없는 variant 벡터를 임베딩합니다. 필요한 호출 수는 활성 variant 수와 비어 있는 벡터 유형에 따라 달라집니다.
 - `OLLAMA_EMBEDDING_MODEL`을 `bge-m3:567m`이 아닌 값으로 바꿨다면 Ollama에서도 백필이 필요합니다. CSV의 벡터를 만든 모델과 다른 Profile이 되기 때문입니다.
 - 스크립트는 질문+답변 벡터(`QUESTION_ANSWER`)만 넣습니다. 기본값인 `FAQ_SEARCH_VECTOR_TYPE=QUESTION`으로 검색하려면 Ollama에서도 백필을 실행해 질문 벡터를 채워야 합니다([FAQ 벡터 유형](llm-module.md#faq-벡터-유형)).
