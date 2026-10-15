@@ -1,6 +1,8 @@
 package com.ubot.notification.service;
 
 import com.ubot.notification.dto.response.NotificationResponseDto;
+import com.ubot.notification.dto.response.ReadAllResponseDto;
+import com.ubot.notification.dto.response.UnreadCountResponseDto;
 import com.ubot.notification.entity.Notification;
 import com.ubot.notification.enums.NotificationType;
 import com.ubot.notification.exception.NotificationErrorCode;
@@ -11,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -18,12 +21,13 @@ import java.util.Locale;
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
-	private static final DateTimeFormatter VISIT_AT_FORMAT = DateTimeFormatter.ofPattern("M월 d일 (E) HH:mm", Locale.KOREAN);
+	private static final DateTimeFormatter VISIT_AT_FORMAT = DateTimeFormatter.ofPattern("M월 d일 (E) HH:mm",
+			Locale.KOREAN);
 
 	private final NotificationRepository notificationRepository;
 
 	@Transactional
-	public void createReservationNotification(StoreReservation reservation, NotificationType type){
+	public void createReservationNotification(StoreReservation reservation, NotificationType type) {
 		boolean confirmed = type == NotificationType.RESERVATION_CONFIRMED;
 		String message = reservation.getStore().getStoreName() + " "
 				+ reservation.getVisitAt().format(VISIT_AT_FORMAT) + " "
@@ -34,22 +38,31 @@ public class NotificationService {
 				type,
 				confirmed ? "방문 예약 완료" : "방문 예약 취소",
 				message,
-				reservation.getReservationId()
-		));
+				reservation.getReservationId()));
 	}
 
 	@Transactional(readOnly = true)
-	public List<NotificationResponseDto> getMyNotificationList(Long userId){
+	public List<NotificationResponseDto> getMyNotificationList(Long userId) {
 		return notificationRepository.findTop50ByUserIdOrderByCreatedAtDescNotificationIdDesc(userId).stream()
 				.map(NotificationResponseDto::from)
 				.toList();
 	}
 
+	@Transactional(readOnly = true)
+	public UnreadCountResponseDto getUnreadCount(Long userId) {
+		return new UnreadCountResponseDto(notificationRepository.countByUserIdAndReadAtIsNull(userId));
+	}
+
 	@Transactional
-	public NotificationResponseDto readNotification(Long userId, Long notificationId){
+	public NotificationResponseDto readNotification(Long userId, Long notificationId) {
 		Notification notification = notificationRepository.findByNotificationIdAndUserId(notificationId, userId)
 				.orElseThrow(() -> new NotificationException(NotificationErrorCode.NOTIFICATION_NOT_FOUND));
 		notification.read();
 		return NotificationResponseDto.from(notification);
+	}
+
+	@Transactional
+	public ReadAllResponseDto readAllNotifications(Long userId) {
+		return new ReadAllResponseDto(notificationRepository.markAllRead(userId, LocalDateTime.now()));
 	}
 }
