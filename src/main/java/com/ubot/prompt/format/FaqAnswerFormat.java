@@ -16,7 +16,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * faq-system.txt가 모델에게 요구하는 출력 JSON의 스키마와 파서입니다.
- * 프롬프트의 키 이름·순서·status 목록을 바꾸면 이 클래스도 함께 바꿔야 합니다.
+ * 프롬프트의 키 이름·status 목록을 바꾸면 이 클래스도 함께 바꿔야 합니다.
+ * 키 순서는 프롬프트 서술(evidence_ids 먼저)과 달리 answer 먼저입니다(schema() 참고).
  */
 public final class FaqAnswerFormat {
 

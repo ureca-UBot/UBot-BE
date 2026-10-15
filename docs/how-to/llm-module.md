@@ -36,13 +36,13 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 
 ### 출력 형식과 서버 처리
 
-시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 표의 키 순서대로 출력하도록 요구합니다.
+시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 출력하도록 요구합니다. 표는 스키마의 키 순서(실제 출력 순서)입니다.
 
 | 키 | 값 |
 |---|---|
-| `answer` | 한국어 답변 문자열 |
-| `evidence_ids` | 질문의 답을 담은 FAQ ID 문자열 배열. 답을 담은 문서가 없으면(API·도구 결과만으로 답하거나 보류) 빈 배열 |
-| `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기는 `answer` 안에서 하고 `ABSTAIN`/`PARTIAL`) |
+| `answer` | 한국어 답변 문자열. 답할 수 없는 부분은 맨 끝에 한 문장으로만 밝히고, 사용자에게 되묻지 않음 |
+| `evidence_ids` | 질문의 답이나 계산·판단의 기준을 담은 FAQ ID 문자열 배열. 그런 문서가 없으면 빈 배열 |
+| `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기 전용 status는 없음) |
 
 **출력 강제.** `PromptService`가 같은 형식의 JSON Schema(`FaqAnswerFormat.schema()`)를 `LlmRequestDto.responseSchema`에 싣고,
 각 클라이언트가 이를 모델 서버에 넘깁니다. Ollama는 요청의 `format`, vLLM은 `response_format`(`json_schema`, `strict`)입니다.
