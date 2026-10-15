@@ -31,8 +31,10 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -65,15 +67,16 @@ public class FaqService {
 
 		Faq savedFaq = faqRepository.save(faq);
 
+		List<String> similarQuestions = uniqueSimilarQuestions(savedFaq.getQuestion(), requestDto.similarQuestions());
 		List<String> questions = new ArrayList<>();
 		questions.add(savedFaq.getQuestion());
-		questions.addAll(requestDto.similarQuestions());
+		questions.addAll(similarQuestions);
 		for (String question : questions) {
 			createVariant(savedFaq, question);
 		}
 		log.info("FAQ를 생성했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 
-		return FaqResponseDto.from(savedFaq, requestDto.similarQuestions());
+		return FaqResponseDto.from(savedFaq, similarQuestions);
 	}
 
 	public FaqResponseDto getActiveFaq(Long faqId){
@@ -150,8 +153,9 @@ public class FaqService {
 		}
 
 		List<String> questions = new ArrayList<>();
+		List<String> similarQuestions = uniqueSimilarQuestions(savedFaq.getQuestion(), requestDto.similarQuestions());
 		questions.add(savedFaq.getQuestion());
-		questions.addAll(requestDto.similarQuestions());
+		questions.addAll(similarQuestions);
 		for (String question : questions) {
 			FaqQuestionVariant kept = null;
 			for (FaqQuestionVariant variant : existing) {
@@ -172,7 +176,19 @@ public class FaqService {
 			deleteVariant(removed);
 		}
 		log.info("FAQ를 수정했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
-		return FaqResponseDto.from(savedFaq, requestDto.similarQuestions());
+		return FaqResponseDto.from(savedFaq, similarQuestions);
+	}
+
+	private List<String> uniqueSimilarQuestions(String originalQuestion, List<String> requestedQuestions) {
+		Set<String> seen = new HashSet<>();
+		seen.add(normalizeQuestion(originalQuestion));
+		return requestedQuestions.stream()
+				.filter(question -> seen.add(normalizeQuestion(question)))
+				.toList();
+	}
+
+	private String normalizeQuestion(String question) {
+		return question.strip().replaceAll("\\s+", " ");
 	}
 
 	private void createVariant(Faq faq, String question) {
@@ -199,7 +215,7 @@ public class FaqService {
 		return PageResponseDto.from(faqPage.map(faq -> {
 			List<String> similarQuestions = new ArrayList<>(
 					questionsByFaqId.getOrDefault(faq.getId(), List.of()));
-			similarQuestions.remove(faq.getQuestion());
+			similarQuestions.removeIf(question -> question.equals(faq.getQuestion()));
 			return FaqResponseDto.from(faq, similarQuestions);
 		}));
 	}
@@ -208,7 +224,7 @@ public class FaqService {
 		List<String> similarQuestions = new ArrayList<>(faqQuestionVariantRepository
 				.findByOriginFaqIdOrderByIdAsc(faq.getId())
 				.stream().map(FaqQuestionVariant::getQuestion).toList());
-		similarQuestions.remove(faq.getQuestion());
+		similarQuestions.removeIf(question -> question.equals(faq.getQuestion()));
 		return FaqResponseDto.from(faq, similarQuestions);
 	}
 
@@ -225,6 +241,9 @@ public class FaqService {
 		List<Faq> faqs = faqRepository.findDeletedFaqByFaqIds(requestDto.faqIds());
 		for(Faq faq : faqs){
 			faq.restore();
+			if (!faqQuestionVariantRepository.existsByOriginFaqIdAndQuestion(faq.getId(), faq.getQuestion())) {
+				createVariant(faq, faq.getQuestion());
+			}
 		}
 		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
 	}

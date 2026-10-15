@@ -12,6 +12,8 @@ import java.util.List;
 public interface FaqQuestionVariantRepository extends JpaRepository<FaqQuestionVariant, Long> {
     List<FaqQuestionVariant> findByOriginFaqIdOrderByIdAsc(Long faqId);
 
+    boolean existsByOriginFaqIdAndQuestion(Long faqId, String question);
+
     @Query("select v from FaqQuestionVariant v where v.originFaq.id in :faqIds order by v.originFaq.id, v.id")
     List<FaqQuestionVariant> findByOriginFaqIdsOrderByFaqIdAndId(@Param("faqIds") List<Long> faqIds);
 

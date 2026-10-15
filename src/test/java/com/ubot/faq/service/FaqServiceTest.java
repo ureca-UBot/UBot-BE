@@ -559,6 +559,12 @@ class FaqServiceTest {
                 List.of(deletedFaq)
         );
 
+        when(variantRepository.save(any(FaqQuestionVariant.class)))
+                .thenAnswer(invocation -> {
+                    FaqQuestionVariant value = invocation.getArgument(0);
+                    return variant(100L, value.getOriginFaq(), value.getQuestion());
+                });
+
         service.restoreFaqs(request);
 
         assertThat(deletedFaq.getDeletedAt())
@@ -568,6 +574,27 @@ class FaqServiceTest {
                 .findDeletedFaqByFaqIds(
                         request.faqIds()
                 );
+        ArgumentCaptor<FaqQuestionVariant> variantCaptor = ArgumentCaptor.forClass(FaqQuestionVariant.class);
+        verify(variantRepository).save(variantCaptor.capture());
+        assertThat(variantCaptor.getValue().getOriginFaq()).isSameAs(deletedFaq);
+        assertThat(variantCaptor.getValue().getQuestion()).isEqualTo(deletedFaq.getQuestion());
+        verify(vectorService).saveVectorsForVariant(
+                100L, deletedFaq.getVersion(), deletedFaq.getQuestion(), deletedFaq.getAnswer());
+    }
+
+    @Test
+    @DisplayName("복구할 FAQ에 원본 질문 variant가 이미 있으면 중복 생성하지 않는다")
+    void restoreFaqs_keepsExistingOriginalVariant() {
+        Faq deletedFaq = faq(10L, "원본 질문", 2, category(2L, "카테고리"));
+        deletedFaq.delete();
+        when(faqRepository.findDeletedFaqByFaqIds(List.of(10L))).thenReturn(List.of(deletedFaq));
+        when(variantRepository.existsByOriginFaqIdAndQuestion(10L, "원본 질문")).thenReturn(true);
+
+        service.restoreFaqs(new FaqRestoreRequestDto(List.of(10L)));
+
+        assertThat(deletedFaq.getDeletedAt()).isNull();
+        verify(variantRepository, never()).save(any(FaqQuestionVariant.class));
+        verifyNoInteractions(vectorService);
     }
 
     /** 수정 요청이 통과하도록 FAQ, 수정자, 카테고리(ID 2) 조회를 준비합니다. */
@@ -642,6 +669,67 @@ class FaqServiceTest {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
+    }
+
+    @Test
+    @DisplayName("FAQ 생성 시 원본과 중복된 유사 질문을 저장하지 않는다")
+    void createFaq_skipsDuplicateSimilarQuestions() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        when(categoryRepository.findByIdAndDeletedAtIsNull(2L))
+                .thenReturn(Optional.of(category(2L, "카테고리")));
+        when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        AtomicLong nextId = new AtomicLong(100L);
+        when(variantRepository.save(any(FaqQuestionVariant.class))).thenAnswer(invocation -> {
+            FaqQuestionVariant value = invocation.getArgument(0);
+            return variant(nextId.getAndIncrement(), value.getOriginFaq(), value.getQuestion());
+        });
+
+        FaqResponseDto result = service.createFaq(new FaqCreateRequestDto(
+                2L, "원본 질문", "답변", Intent.GENERAL, false,
+                List.of("원본 질문", "유사 질문", "유사   질문", "다른 질문")), 1L);
+
+        assertThat(result.similarQuestions()).containsExactly("유사 질문", "다른 질문");
+        ArgumentCaptor<FaqQuestionVariant> saved = ArgumentCaptor.forClass(FaqQuestionVariant.class);
+        verify(variantRepository, times(3)).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(FaqQuestionVariant::getQuestion)
+                .containsExactly("원본 질문", "유사 질문", "다른 질문");
+    }
+
+    @Test
+    @DisplayName("FAQ 수정 시 원본과 중복된 유사 질문을 저장하지 않는다")
+    void updateFaq_skipsDuplicateSimilarQuestions() {
+        Faq faq = faq(10L, "원본 질문", 1, category(2L, "카테고리"));
+        givenUpdatableFaq(faq);
+        when(variantRepository.findByOriginFaqIdOrderByIdAsc(10L))
+                .thenReturn(List.of(variant(100L, faq, "원본 질문")));
+        when(variantRepository.save(any(FaqQuestionVariant.class))).thenAnswer(invocation -> {
+            FaqQuestionVariant value = invocation.getArgument(0);
+            return variant(101L, value.getOriginFaq(), value.getQuestion());
+        });
+
+        FaqResponseDto result = service.updateActiveFaq(new FaqUpdateRequestDto(
+                10L, 2L, "원본 질문", "답변", Intent.GENERAL, false,
+                List.of("원본 질문", "유사 질문", "유사 질문")), 9L);
+
+        assertThat(result.similarQuestions()).containsExactly("유사 질문");
+        ArgumentCaptor<FaqQuestionVariant> saved = ArgumentCaptor.forClass(FaqQuestionVariant.class);
+        verify(variantRepository).save(saved.capture());
+        assertThat(saved.getValue().getQuestion()).isEqualTo("유사 질문");
+    }
+
+    @Test
+    @DisplayName("FAQ 조회 시 원본 질문 variant가 여러 개여도 유사 질문에 노출하지 않는다")
+    void getActiveFaq_excludesAllOriginalQuestionVariants() {
+        Faq faq = faq(10L, "원본 질문", 1, category(2L, "카테고리"));
+        when(faqRepository.findActiveById(10L)).thenReturn(Optional.of(faq));
+        when(variantRepository.findByOriginFaqIdOrderByIdAsc(10L)).thenReturn(List.of(
+                variant(100L, faq, "원본 질문"),
+                variant(101L, faq, "유사 질문"),
+                variant(102L, faq, "원본 질문")));
+
+        FaqResponseDto result = service.getActiveFaq(10L);
+
+        assertThat(result.similarQuestions()).containsExactly("유사 질문");
     }
 
     private FaqQuestionVariant variant(Long id, Faq faq, String question) {
