@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ubot.notification.reminder.ReservationReminderService;
 import com.ubot.notification.service.NotificationService;
 import com.ubot.reservation.entity.StoreReservation;
 import com.ubot.reservation.enums.ReservationStatus;
