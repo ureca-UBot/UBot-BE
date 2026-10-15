@@ -77,7 +77,7 @@ class FaqSemanticCacheServiceTest {
                 Arguments.of(null, List.of(faq(1, 0.99, true, Intent.GENERAL), faq(1, 0.5, true, Intent.GENERAL)),
                         Reason.INVALID_CANDIDATES),
                 Arguments.of(null, List.of(new FaqSearchResponseDto(1L, "질문", "답변", 0.99, Intent.GENERAL,
-                                null, "표현", true, 1), faq(2, 0.5, false, Intent.GENERAL)), Reason.FAQ_CHANGED));
+                                null, "표현", true, 1), faq(2, 0.5, false, Intent.GENERAL)), Reason.INVALID_CANDIDATES));
     }
 
     @Test
@@ -156,7 +156,7 @@ class FaqSemanticCacheServiceTest {
                         101L, "유사표현 1", true, 3), faq(2, 0.5, false, Intent.GENERAL));
         when(repository.findUnchangedCandidates(candidates)).thenReturn(candidates);
         FaqCacheDecision decision = service.evaluate(null, candidates);
-        assertThat(decision.reason()).isEqualTo(Reason.FAQ_CHANGED);
+        assertThat(decision.reason()).isEqualTo(Reason.INVALID_CANDIDATES);
         assertThat(decision.candidatesForRag()).containsExactly(candidates.get(1));
     }
 

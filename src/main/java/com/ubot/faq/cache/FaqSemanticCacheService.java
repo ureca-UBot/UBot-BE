@@ -68,7 +68,7 @@ public class FaqSemanticCacheService {
             return FaqCacheDecision.miss(Reason.BELOW_MARGIN, similarity, margin, candidates);
         }
         if (best.variantId() == null || best.faqVersion() == null) {
-            return FaqCacheDecision.miss(Reason.FAQ_CHANGED, similarity, margin,
+            return FaqCacheDecision.miss(Reason.INVALID_CANDIDATES, similarity, margin,
                     candidates.stream().filter(candidate -> !candidate.faqId().equals(best.faqId())).toList());
         }
 
@@ -95,7 +95,7 @@ public class FaqSemanticCacheService {
             return FaqCacheDecision.miss(Reason.FAQ_CHANGED, similarity, margin, unchangedCandidates);
         }
         if (!StringUtils.hasText(current.answer())) {
-            return FaqCacheDecision.miss(Reason.FAQ_CHANGED, similarity, margin,
+            return FaqCacheDecision.miss(Reason.INVALID_CANDIDATES, similarity, margin,
                     unchangedCandidates.stream().filter(candidate -> !candidate.faqId().equals(best.faqId())).toList());
         }
         return FaqCacheDecision.hit(current, similarity, margin);
