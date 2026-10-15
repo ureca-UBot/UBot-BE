@@ -3,6 +3,8 @@ package com.ubot.notification.controller;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
 import com.ubot.notification.dto.response.NotificationResponseDto;
+import com.ubot.notification.dto.response.ReadAllResponseDto;
+import com.ubot.notification.dto.response.UnreadCountResponseDto;
 import com.ubot.notification.service.NotificationService;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -21,16 +23,26 @@ public class NotificationController {
 
 	@GetMapping("/me")
 	public ApiResponse<List<NotificationResponseDto>> getMyNotificationList(
-			@AuthenticationPrincipal CustomUserDetails userDetails
-	){
+			@AuthenticationPrincipal CustomUserDetails userDetails) {
 		return ApiResponse.success(notificationService.getMyNotificationList(userDetails.getUserId()));
+	}
+
+	@GetMapping("/me/unread-count")
+	public ApiResponse<UnreadCountResponseDto> getUnreadCount(
+			@AuthenticationPrincipal CustomUserDetails userDetails) {
+		return ApiResponse.success(notificationService.getUnreadCount(userDetails.getUserId()));
+	}
+
+	@PatchMapping("/me/read-all")
+	public ApiResponse<ReadAllResponseDto> readAllNotifications(
+			@AuthenticationPrincipal CustomUserDetails userDetails) {
+		return ApiResponse.success(notificationService.readAllNotifications(userDetails.getUserId()));
 	}
 
 	@PatchMapping("/{notificationId}/read")
 	public ApiResponse<NotificationResponseDto> readNotification(
 			@Positive @PathVariable("notificationId") Long notificationId,
-			@AuthenticationPrincipal CustomUserDetails userDetails
-	){
+			@AuthenticationPrincipal CustomUserDetails userDetails) {
 		return ApiResponse.success(notificationService.readNotification(userDetails.getUserId(), notificationId));
 	}
 }
