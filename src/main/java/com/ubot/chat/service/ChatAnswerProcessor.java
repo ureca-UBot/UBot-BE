@@ -85,9 +85,8 @@ public class ChatAnswerProcessor {
 					attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
 			return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false), List.of(officialFaq));
 		}
-		// 재검증에서 변경·삭제된 후보를 제외한 뒤 기존 RAG를 이어갑니다. 임베딩·검색은 반복하지 않습니다.
-		DenseFaqCandidates candidatesForRag = new DenseFaqCandidates(cacheDecision.candidatesForRag(), dense.searchMillis());
-		RetrievalOutcome outcome = faqRetrievalService.rankCandidates(attempt.getQuestion(), candidatesForRag, topK);
+		// MISS이면 원래 검색 후보로 기존 RAG를 이어갑니다. 임베딩·검색은 반복하지 않습니다.
+		RetrievalOutcome outcome = faqRetrievalService.rankCandidates(attempt.getQuestion(), dense, topK);
 		// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
 		List<FaqSearchResponseDto> results = outcome.rankedCandidates();
 		checkCancellation.run();

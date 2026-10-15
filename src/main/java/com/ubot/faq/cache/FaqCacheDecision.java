@@ -1,22 +1,16 @@
 package com.ubot.faq.cache;
 
-import java.util.List;
 import java.util.Optional;
 
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 
-/** HIT의 공식 답변과 MISS 후 RAG에 사용할 수 있는 후보를 구분합니다. */
+/** 검색 결과를 기준으로 판정한 사유와 HIT의 공식 답변입니다. RAG 후보는 변경하지 않습니다. */
 public record FaqCacheDecision(
         Reason reason,
         Optional<FaqSearchResponseDto> faq,
         Double similarity,
-        Double margin,
-        List<FaqSearchResponseDto> candidatesForRag
+        Double margin
 ) {
-    public FaqCacheDecision {
-        candidatesForRag = List.copyOf(candidatesForRag);
-    }
-
     public enum Reason {
         HIT,
         DISABLED,
@@ -26,17 +20,14 @@ public record FaqCacheDecision(
         NOT_CACHEABLE_GENERAL,
         BELOW_SIMILARITY,
         INSUFFICIENT_CANDIDATES,
-        BELOW_MARGIN,
-        FAQ_CHANGED,
-        VALIDATION_FAILED
+        BELOW_MARGIN
     }
 
-    static FaqCacheDecision miss(Reason reason, Double similarity, Double margin,
-            List<FaqSearchResponseDto> candidatesForRag) {
-        return new FaqCacheDecision(reason, Optional.empty(), similarity, margin, candidatesForRag);
+    static FaqCacheDecision miss(Reason reason, Double similarity, Double margin) {
+        return new FaqCacheDecision(reason, Optional.empty(), similarity, margin);
     }
 
     static FaqCacheDecision hit(FaqSearchResponseDto faq, double similarity, double margin) {
-        return new FaqCacheDecision(Reason.HIT, Optional.of(faq), similarity, margin, List.of());
+        return new FaqCacheDecision(Reason.HIT, Optional.of(faq), similarity, margin);
     }
 }

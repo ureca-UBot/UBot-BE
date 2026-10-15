@@ -517,65 +517,13 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
-    @DisplayName("검색 결과는 캐시 승인 여부와 버전을 함께 반환하고 미승인 FAQ도 순위에 포함한다")
+    @DisplayName("검색 결과는 캐시 승인 여부를 반환하고 미승인 FAQ도 순위에 포함한다")
     void searchReturnsCacheMetadataWithoutFilteringOutCompetitors() {
         jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 2");
         List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 3);
         assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
         assertThat(results.getFirst().cacheable()).isFalse();
-        assertThat(results.getFirst().faqVersion()).isEqualTo(1);
         assertThat(results.get(1).cacheable()).isTrue();
-    }
-
-    @Test
-    @DisplayName("내용이 같으면 승인 해제·버전 변경 후에도 현재 메타데이터로 재사용할 수 있다")
-    void revalidationPreservesUnchangedContentWithCurrentMetadata() {
-        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
-        List<FaqSearchResponseDto> snapshot = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
-        jdbcTemplate.update("UPDATE faq SET cacheable = false, version = 2 WHERE id = 1");
-
-        List<FaqSearchResponseDto> current = repository.findUnchangedCandidates(snapshot);
-
-        assertThat(current).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
-        assertThat(current.getFirst().cacheable()).isFalse();
-        assertThat(current.getFirst().faqVersion()).isEqualTo(2);
-        assertThat(current.getFirst().answer()).isEqualTo(snapshot.getFirst().answer());
-        assertThat(current.getFirst().similarityScore()).isEqualTo(snapshot.getFirst().similarityScore());
-    }
-
-    @Test
-    @DisplayName("답변·의도·삭제 상태가 달라진 후보는 일괄 재검증에서 제외한다")
-    void revalidationExcludesChangedAndDeletedContent() {
-        List<FaqSearchResponseDto> snapshot = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
-        jdbcTemplate.update("UPDATE faq SET answer = '변경된 답변', version = 2 WHERE id = 1");
-        assertThat(repository.findUnchangedCandidates(snapshot)).extracting(FaqSearchResponseDto::faqId).containsExactly(2L);
-        jdbcTemplate.update("UPDATE faq SET intent = 'USER_DATA' WHERE id = 2");
-        assertThat(repository.findUnchangedCandidates(snapshot)).isEmpty();
-
-        jdbcTemplate.update("UPDATE faq SET intent = 'GENERAL', deleted_at = now() WHERE id = 2");
-        assertThat(repository.findUnchangedCandidates(snapshot)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("원본 질문·매칭 표현의 내용이나 소속이 달라지면 이전 유사도를 재사용하지 않는다")
-    void revalidationExcludesChangedQuestionsAndVariantOwnership() {
-        List<FaqSearchResponseDto> snapshot = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
-        jdbcTemplate.update("UPDATE faq SET question = '변경된 원본 질문' WHERE id = 1");
-        assertThat(repository.findUnchangedCandidates(snapshot)).extracting(FaqSearchResponseDto::faqId).containsExactly(2L);
-        jdbcTemplate.update("UPDATE faq_question_variants SET question = '변경된 표현' WHERE id = 2");
-        assertThat(repository.findUnchangedCandidates(snapshot)).isEmpty();
-
-        jdbcTemplate.update("UPDATE faq SET question = ? WHERE id = 1", snapshot.getFirst().question());
-        jdbcTemplate.update("UPDATE faq_question_variants SET origin_faq_id = 2 WHERE id = 1");
-        assertThat(repository.findUnchangedCandidates(snapshot)).isEmpty();
-        jdbcTemplate.update("DELETE FROM faq_question_variants WHERE id = 1");
-        assertThat(repository.findUnchangedCandidates(snapshot)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("재검증할 후보가 없으면 빈 결과를 반환한다")
-    void revalidationAcceptsEmptyCandidates() {
-        assertThat(repository.findUnchangedCandidates(List.of())).isEmpty();
     }
 
     private Long getOrCreateProfile(

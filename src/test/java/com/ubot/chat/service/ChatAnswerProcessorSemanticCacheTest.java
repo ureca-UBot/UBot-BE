@@ -33,7 +33,6 @@ import com.ubot.faq.cache.FaqCacheProperties;
 import com.ubot.faq.cache.FaqSemanticCacheService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.faq.repository.FaqVectorRepository;
 import com.ubot.faq.retrieval.FaqRetrievalProperties;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.rerank.FaqRerankService;
@@ -46,7 +45,6 @@ class ChatAnswerProcessorSemanticCacheTest {
     private static final String QUESTION = "이심이 어떤 건지 알려줘";
     private static final Runnable NOT_CANCELLED = () -> { };
     private final FaqVectorService vectors = mock(FaqVectorService.class);
-    private final FaqVectorRepository repository = mock(FaqVectorRepository.class);
     private final AiService ai = mock(AiService.class);
     private final ChatContextCollector collector = mock(ChatContextCollector.class);
     private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
@@ -58,10 +56,9 @@ class ChatAnswerProcessorSemanticCacheTest {
     void hitSkipsRerankerAndLlm() {
         String officialAnswer = "물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.\n";
         FaqSearchResponseDto best = new FaqSearchResponseDto(14L, "eSIM이 무엇인가요?", officialAnswer, 0.98,
-                Intent.GENERAL, 114L, "이심의 의미", true, 1);
+                Intent.GENERAL, 114L, "이심의 의미", true);
         List<FaqSearchResponseDto> candidates = List.of(best, faq(322, 0.6, false));
         when(vectors.getSimilarList(QUESTION, 10)).thenReturn(candidates);
-        when(repository.findUnchangedCandidates(candidates)).thenReturn(candidates);
 
         ChatAnswerResult result = processor(true, true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
 
@@ -86,7 +83,6 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(322L, 14L);
         verify(vectors).getSimilarList(QUESTION, 10);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(repository);
         verify(ai).generateAnswer(any());
     }
 
@@ -100,7 +96,7 @@ class ChatAnswerProcessorSemanticCacheTest {
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         verify(vectors).getSimilarList(QUESTION, 3);
-        verifyNoInteractions(repository, reranker);
+        verifyNoInteractions(reranker);
     }
 
     @Test
@@ -117,32 +113,31 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L);
         verify(vectors).getSimilarList(QUESTION, 2);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(repository);
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    @DisplayName("변경·삭제된 FAQ를 AI 자료에서 제외하고 나머지 후보로 검색 반복 없이 진행한다")
-    void invalidatedFaqIsNotSentToAi(boolean rerankEnabled) {
-        FaqSearchResponseDto valid = faq(322, 0.8, false);
-        List<FaqSearchResponseDto> candidates = List.of(faq(14, 0.98, true), valid);
+    @DisplayName("점수 차이로 MISS하면 원래 후보를 제거하지 않고 기존 RAG에 전달한다")
+    void marginMissPreservesOriginalCandidates(boolean rerankEnabled) {
+        List<FaqSearchResponseDto> candidates = List.of(faq(14, 0.98, true), faq(322, 0.90, false));
         int candidateK = rerankEnabled ? 10 : 3;
         when(vectors.getSimilarList(QUESTION, candidateK)).thenReturn(candidates);
-        when(repository.findUnchangedCandidates(candidates)).thenReturn(List.of(valid));
         if (rerankEnabled) {
-            when(reranker.score(any(), any())).thenReturn(List.of(0.9));
+            when(reranker.score(any(), any())).thenReturn(List.of(0.1, 0.9));
         }
         prepareLlm();
 
         ChatAnswerResult result = processor(true, rerankEnabled, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
+        List<FaqSearchResponseDto> expected = rerankEnabled
+                ? List.of(candidates.get(1), candidates.getFirst()) : candidates;
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
-        assertThat(result.faqs()).containsExactly(valid);
+        assertThat(result.faqs()).containsExactlyElementsOf(expected);
         ArgumentCaptor<AnswerMaterials> materials = ArgumentCaptor.forClass(AnswerMaterials.class);
         verify(ai).generateAnswer(materials.capture());
-        assertThat(materials.getValue().faqs()).containsExactly(valid);
+        assertThat(materials.getValue().faqs()).containsExactlyElementsOf(expected);
         if (rerankEnabled) {
-            verify(reranker).score(QUESTION, List.of("질문: FAQ 질문 322\n답변: 검색 답변"));
+            verify(reranker).score(QUESTION, List.of("질문: FAQ 질문 14\n답변: 검색 답변", "질문: FAQ 질문 322\n답변: 검색 답변"));
         } else {
             verifyNoInteractions(reranker);
         }
@@ -150,42 +145,17 @@ class ChatAnswerProcessorSemanticCacheTest {
         verifyNoMoreInteractions(vectors);
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    @DisplayName("재검증 후 유효 근거가 없거나 유사도가 낮으면 삭제 전 답변을 쓰지 않는다")
-    void invalidatedEvidenceDoesNotCallAi(boolean keepLowSimilarityCandidate) {
-        List<FaqSearchResponseDto> candidates = List.of(faq(14, 0.98, true), faq(322, 0.6, false));
-        when(vectors.getSimilarList(QUESTION, 3)).thenReturn(candidates);
-        when(repository.findUnchangedCandidates(candidates))
-                .thenReturn(keepLowSimilarityCandidate ? List.of(candidates.get(1)) : List.of());
-
-        ChatAnswerResult result = processor(true, false, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
-
-        assertThat(result.errorCode()).isEqualTo(keepLowSimilarityCandidate
-                ? ChatErrorCode.INSUFFICIENT_FAQ : ChatErrorCode.NO_FAQ);
-        verifyNoInteractions(ai, collector, reranker);
-        verify(vectors).getSimilarList(QUESTION, 3);
-        verifyNoMoreInteractions(vectors);
-    }
-
     @Test
-    @DisplayName("승인만 해제된 FAQ는 갱신된 버전과 승인 상태로 AI 자료에 전달한다")
-    void approvalRevocationKeepsFaqForRag() {
-        List<FaqSearchResponseDto> candidates = List.of(faq(14, 0.98, true), faq(322, 0.6, false));
-        FaqSearchResponseDto current = new FaqSearchResponseDto(14L, "FAQ 질문 14", "검색 답변", 0.98,
-                Intent.GENERAL, 114L, "유사표현 14", false, 2);
-        when(vectors.getSimilarList(QUESTION, 3)).thenReturn(candidates);
-        when(repository.findUnchangedCandidates(candidates)).thenReturn(List.of(current, candidates.get(1)));
-        prepareLlm();
+    @DisplayName("캐시 조건과 LLM 유사도 기준 모두 미달이면 기존 미응답 처리를 유지한다")
+    void belowThresholdKeepsExistingUnansweredRoute() {
+        when(vectors.getSimilarList(QUESTION, 3)).thenReturn(List.of(faq(14, 0.74, true), faq(322, 0.6, false)));
 
         ChatAnswerResult result = processor(true, false, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
 
-        assertThat(result.faqs()).containsExactly(current);
-        ArgumentCaptor<AnswerMaterials> materials = ArgumentCaptor.forClass(AnswerMaterials.class);
-        verify(ai).generateAnswer(materials.capture());
-        assertThat(materials.getValue().faqs()).containsExactly(current);
+        assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verify(vectors).getSimilarList(QUESTION, 3);
         verifyNoMoreInteractions(vectors);
+        verifyNoInteractions(ai, collector, reranker);
     }
 
     @Test
@@ -194,15 +164,14 @@ class ChatAnswerProcessorSemanticCacheTest {
         when(vectors.getSimilarList(QUESTION, 3)).thenThrow(new DataAccessResourceFailureException("검색 실패"));
         assertThat(processor(true, false, 3).generateAnswer(attempt(), null, NOT_CANCELLED).errorCode())
                 .isEqualTo(ChatErrorCode.VECTOR_SEARCH_FAILED);
-        verifyNoInteractions(repository, ai, collector, reranker);
+        verifyNoInteractions(ai, collector, reranker);
     }
 
     @Test
-    @DisplayName("재검증 후 취소되면 캐시 HIT도 답변으로 확정하지 않는다")
-    void cancellationAfterValidationIsRespected() {
+    @DisplayName("캐시 판정 후 취소되면 HIT도 답변으로 확정하지 않는다")
+    void cancellationAfterDecisionIsRespected() {
         List<FaqSearchResponseDto> candidates = List.of(faq(14, 0.98, true), faq(322, 0.6, false));
         when(vectors.getSimilarList(QUESTION, 3)).thenReturn(candidates);
-        when(repository.findUnchangedCandidates(candidates)).thenReturn(candidates);
         AtomicInteger checks = new AtomicInteger();
         Runnable cancellation = () -> {
             if (checks.incrementAndGet() == 3) {
@@ -211,7 +180,8 @@ class ChatAnswerProcessorSemanticCacheTest {
         };
         assertThatThrownBy(() -> processor(true, false, 3).generateAnswer(attempt(), null, cancellation))
                 .isInstanceOf(CancellationException.class);
-        verify(repository).findUnchangedCandidates(candidates);
+        verify(vectors).getSimilarList(QUESTION, 3);
+        verifyNoMoreInteractions(vectors);
         verifyNoInteractions(ai, collector, reranker);
     }
 
@@ -221,7 +191,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         retrievalProperties.getRerank().setEnabled(rerankEnabled);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, topK),
-                ai, unanswered, collector, new FaqSemanticCacheService(cacheProperties, repository));
+                ai, unanswered, collector, new FaqSemanticCacheService(cacheProperties));
         ReflectionTestUtils.setField(processor, "topK", topK);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;
@@ -240,6 +210,6 @@ class ChatAnswerProcessorSemanticCacheTest {
 
     private FaqSearchResponseDto faq(long id, double score, boolean cacheable) {
         return new FaqSearchResponseDto(id, "FAQ 질문 " + id, "검색 답변", score, Intent.GENERAL,
-                id + 100, "유사표현 " + id, cacheable, 1);
+                id + 100, "유사표현 " + id, cacheable);
     }
 }

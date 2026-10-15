@@ -1,9 +1,5 @@
 package com.ubot.faq.repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -55,7 +51,6 @@ public class FaqVectorRepository {
                         f.answer,
                         f.intent,
                         f.cacheable,
-                        f.version AS faq_version,
                         v.id AS variant_id,
                         v.question AS variant_question,
                         1 - (fe.vector <=> ?) AS similarity_score
@@ -75,7 +70,7 @@ public class FaqVectorRepository {
                            ) AS faq_rank
                     FROM scored
                 )
-                SELECT faq_id, faq_question, answer, intent, cacheable, faq_version,
+                SELECT faq_id, faq_question, answer, intent, cacheable,
                        variant_id, variant_question, similarity_score
                 FROM ranked
                 WHERE faq_rank = 1
@@ -86,43 +81,7 @@ public class FaqVectorRepository {
         Object[] params = intent == null
                 ? new Object[] {queryEmbedding, profileId, vectorType.name(), topK}
                 : new Object[] {queryEmbedding, profileId, vectorType.name(), intent.name(), topK};
-        return jdbcTemplate.query(sql, this::mapSearchResult, params);
-    }
-
-    /**
-     * 검색 당시와 질문·답변·의도·유사표현이 같은 활성 후보만 반환합니다.
-     * 승인 여부만 바뀐 FAQ도 RAG에서는 사용할 수 있으므로 cacheable·version은 현재 값을 읽습니다.
-     */
-    public List<FaqSearchResponseDto> findUnchangedCandidates(List<FaqSearchResponseDto> candidates) {
-        if (candidates.isEmpty()) {
-            return List.of();
-        }
-        String rows = String.join(", ", Collections.nCopies(candidates.size(),
-                "(?::bigint, ?::bigint, ?::text, ?::text, ?::text, ?::text, ?::double precision)"));
-        List<Object> parameters = new ArrayList<>();
-        for (FaqSearchResponseDto candidate : candidates) {
-            Collections.addAll(parameters, candidate.faqId(), candidate.variantId(), candidate.question(),
-                    candidate.answer(), candidate.intent().name(), candidate.variantQuestion(), candidate.similarityScore());
-        }
-        return jdbcTemplate.query("""
-                WITH snapshots(faq_id, variant_id, question, answer, intent, variant_question, similarity_score) AS (
-                    VALUES %s
-                )
-                SELECT f.id AS faq_id, f.question AS faq_question, f.answer, f.intent,
-                       f.cacheable, f.version AS faq_version, v.id AS variant_id,
-                       v.question AS variant_question, s.similarity_score
-                FROM snapshots s
-                JOIN faq f ON f.id = s.faq_id
-                JOIN faq_question_variants v ON v.id = s.variant_id AND v.origin_faq_id = f.id
-                WHERE f.deleted_at IS NULL
-                  AND f.question = s.question AND f.answer = s.answer
-                  AND f.intent::text = s.intent AND v.question = s.variant_question
-                ORDER BY s.similarity_score DESC, f.id ASC
-                """.formatted(rows), this::mapSearchResult, parameters.toArray());
-    }
-
-    private FaqSearchResponseDto mapSearchResult(ResultSet rs, int rowNum) throws SQLException {
-        return new FaqSearchResponseDto(
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new FaqSearchResponseDto(
                 rs.getLong("faq_id"),
                 rs.getString("faq_question"),
                 rs.getString("answer"),
@@ -130,9 +89,8 @@ public class FaqVectorRepository {
                 Intent.valueOf(rs.getString("intent")),
                 rs.getLong("variant_id"),
                 rs.getString("variant_question"),
-                rs.getBoolean("cacheable"),
-                rs.getInt("faq_version")
-        );
+                rs.getBoolean("cacheable")
+        ), params);
     }
 
     public void saveVectorForVariant(
