@@ -30,7 +30,9 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -82,37 +84,34 @@ public class FaqService {
 	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size, String keyword, Long categoryId){
 		String normalizedKeyword = StringUtils.hasText(keyword) ? keyword : "";
 
-		Page<FaqResponseDto> faqPage = faqRepository.
+		Page<Faq> faqPage = faqRepository.
 				findAllActives(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
-				)), normalizedKeyword, categoryId)
-				.map(this::toResponse);
+				)), normalizedKeyword, categoryId);
 
 
-		return PageResponseDto.from(faqPage);
+		return toPageResponse(faqPage);
 	}
 
 	public PageResponseDto<FaqResponseDto> getDeletedFaqList(int page, int size){
-		Page<FaqResponseDto> faqPage = faqRepository.
+		Page<Faq> faqPage = faqRepository.
 				findAllDeletedFaq(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("deletedAt"),
 						Sort.Order.desc("id")
-				)))
-				.map(this::toResponse);
+				)));
 
-		return PageResponseDto.from(faqPage);
+		return toPageResponse(faqPage);
 	}
 
 	public PageResponseDto<FaqResponseDto> getActiveFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
-		Page<FaqResponseDto> faqPage = faqRepository.
+		Page<Faq> faqPage = faqRepository.
 				findAllByFaqCategoryIdAndDeletedAtIsNull(faqCategoryId, PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
-				)))
-				.map(this::toResponse);
+				)));
 
-		return PageResponseDto.from(faqPage);
+		return toPageResponse(faqPage);
 	}
 
 	@Transactional
@@ -184,6 +183,25 @@ public class FaqService {
 
 	private void deleteVariant(FaqQuestionVariant variant) {
 		faqQuestionVariantRepository.delete(variant);
+	}
+
+	private PageResponseDto<FaqResponseDto> toPageResponse(Page<Faq> faqPage) {
+		Map<Long, List<String>> questionsByFaqId = new HashMap<>();
+		if (!faqPage.isEmpty()) {
+			List<Long> faqIds = faqPage.getContent().stream().map(Faq::getId).toList();
+			for (FaqQuestionVariant variant : faqQuestionVariantRepository
+					.findByOriginFaqIdsOrderByFaqIdAndId(faqIds)) {
+				questionsByFaqId.computeIfAbsent(variant.getOriginFaq().getId(), ignored -> new ArrayList<>())
+						.add(variant.getQuestion());
+			}
+		}
+
+		return PageResponseDto.from(faqPage.map(faq -> {
+			List<String> similarQuestions = new ArrayList<>(
+					questionsByFaqId.getOrDefault(faq.getId(), List.of()));
+			similarQuestions.remove(faq.getQuestion());
+			return FaqResponseDto.from(faq, similarQuestions);
+		}));
 	}
 
 	private FaqResponseDto toResponse(Faq faq) {

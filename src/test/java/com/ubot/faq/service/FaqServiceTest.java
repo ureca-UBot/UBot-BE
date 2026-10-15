@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -465,6 +466,47 @@ class FaqServiceTest {
                         "",
                         null
                 );
+    }
+
+    @Test
+    void getActiveFaqList_loadsVariantsForThePageInOneQuery() {
+        var pageable = PageRequest.of(0, 2, Sort.by(
+                Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        Faq first = faq(10L, "첫 질문", 1, category(2L, "카테고리"));
+        Faq second = faq(11L, "둘째 질문", 1, category(2L, "카테고리"));
+        when(faqRepository.findAllActives(pageable, "", null))
+                .thenReturn(new PageImpl<>(List.of(first, second), pageable, 7));
+        when(variantRepository.findByOriginFaqIdsOrderByFaqIdAndId(List.of(10L, 11L)))
+                .thenReturn(List.of(
+                        variant(100L, first, "첫 질문"),
+                        variant(101L, first, "첫 유사 질문"),
+                        variant(102L, first, "다른 유사 질문"),
+                        variant(110L, second, "둘째 질문"),
+                        variant(111L, second, "둘째 유사 질문")));
+
+        PageResponseDto<FaqResponseDto> result = service.getActiveFaqList(0, 2, "", null);
+
+        assertThat(result.content()).extracting(FaqResponseDto::id).containsExactly(10L, 11L);
+        assertThat(result.content().get(0).similarQuestions())
+                .containsExactly("첫 유사 질문", "다른 유사 질문");
+        assertThat(result.content().get(1).similarQuestions()).containsExactly("둘째 유사 질문");
+        assertThat(result.totalElements()).isEqualTo(7);
+        assertThat(result.totalPages()).isEqualTo(4);
+        verify(variantRepository).findByOriginFaqIdsOrderByFaqIdAndId(List.of(10L, 11L));
+        verify(variantRepository, never()).findByOriginFaqIdOrderByIdAsc(any());
+    }
+
+    @Test
+    void getDeletedFaqList_skipsVariantQueryForEmptyPage() {
+        var pageable = PageRequest.of(0, 10, Sort.by(
+                Sort.Order.desc("deletedAt"), Sort.Order.desc("id")));
+        when(faqRepository.findAllDeletedFaq(pageable))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        PageResponseDto<FaqResponseDto> result = service.getDeletedFaqList(0, 10);
+
+        assertThat(result.content()).isEmpty();
+        verifyNoInteractions(variantRepository);
     }
 
     @Test
