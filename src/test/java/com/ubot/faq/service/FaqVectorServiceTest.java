@@ -209,7 +209,7 @@ class FaqVectorServiceTest {
         when(embeddingProfileService.getCurrentProfileId())
                 .thenReturn(profileId);
 
-        service.saveVectorsForFaq(
+        service.saveVectorsForVariant(
                 1L,
                 3,
                 "질문",
@@ -217,7 +217,7 @@ class FaqVectorServiceTest {
         );
 
         verify(repository)
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         1L,
                         profileId,
                         FaqVectorType.QUESTION,
@@ -226,64 +226,12 @@ class FaqVectorServiceTest {
                 );
 
         verify(repository)
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         1L,
                         profileId,
                         FaqVectorType.QUESTION_ANSWER,
                         3,
                         questionAnswerVector
-                );
-    }
-
-    @Test
-    @DisplayName("질문이 바뀌면 두 유형 모두 다시 임베딩한다")
-    void updateVectorsForFaq_reembedsBothWhenQuestionChanged() {
-        PGvector questionVector = vector(0);
-        PGvector questionAnswerVector = vector(1);
-        Long profileId = 10L;
-
-        when(embeddingService.embedText("질문"))
-                .thenReturn(questionVector);
-
-        when(embeddingService.embedText(QUESTION_ANSWER_TEXT))
-                .thenReturn(questionAnswerVector);
-
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
-
-        service.updateVectorsForFaq(
-                1L,
-                4,
-                "질문",
-                "답변",
-                true,
-                false
-        );
-
-        verify(repository)
-                .saveVectorForFaq(
-                        1L,
-                        profileId,
-                        FaqVectorType.QUESTION,
-                        4,
-                        questionVector
-                );
-
-        verify(repository)
-                .saveVectorForFaq(
-                        1L,
-                        profileId,
-                        FaqVectorType.QUESTION_ANSWER,
-                        4,
-                        questionAnswerVector
-                );
-
-        verify(repository, never())
-                .updateVectorVersionForFaq(
-                        anyLong(),
-                        anyLong(),
-                        any(),
-                        anyInt()
                 );
     }
 
@@ -299,25 +247,23 @@ class FaqVectorServiceTest {
         when(embeddingProfileService.getCurrentProfileId())
                 .thenReturn(profileId);
 
-        service.updateVectorsForFaq(
+        service.updateVectorsForVariant(
                 1L,
                 4,
                 "질문",
                 "답변",
-                false,
                 true
         );
 
         verify(repository)
-                .updateVectorVersionForFaq(
+                .updateVectorVersionForVariant(
                         1L,
                         profileId,
-                        FaqVectorType.QUESTION,
                         4
                 );
 
         verify(repository)
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         1L,
                         profileId,
                         FaqVectorType.QUESTION_ANSWER,
@@ -337,28 +283,18 @@ class FaqVectorServiceTest {
         when(embeddingProfileService.getCurrentProfileId())
                 .thenReturn(profileId);
 
-        service.updateVectorsForFaq(
+        service.updateVectorsForVariant(
                 1L,
                 4,
                 "질문",
                 "답변",
-                false,
                 false
         );
 
         verify(repository)
-                .updateVectorVersionForFaq(
+                .updateVectorVersionForVariant(
                         1L,
                         profileId,
-                        FaqVectorType.QUESTION,
-                        4
-                );
-
-        verify(repository)
-                .updateVectorVersionForFaq(
-                        1L,
-                        profileId,
-                        FaqVectorType.QUESTION_ANSWER,
                         4
                 );
 
@@ -366,7 +302,7 @@ class FaqVectorServiceTest {
                 .embedText(anyString());
 
         verify(repository, never())
-                .saveVectorForFaq(
+                .saveVectorForVariant(
                         anyLong(),
                         anyLong(),
                         any(),

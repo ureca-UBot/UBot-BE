@@ -55,3 +55,4 @@ backend.hcl
 errored.tfstate
 crash.log
 crash.*.log
+/docs/additional-faq

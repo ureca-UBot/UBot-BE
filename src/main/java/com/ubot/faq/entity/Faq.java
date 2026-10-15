@@ -37,6 +37,9 @@ public class Faq {
 	@Column(name = "intent")
 	private Intent intent;
 
+	@Column(name = "cacheable")
+	private boolean cacheable;
+
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "admin_id")
 	private User admin;
@@ -54,12 +57,14 @@ public class Faq {
 			FaqCategory category,
 			String question,
 			String answer,
-			Intent intent
+			Intent intent,
+			boolean cacheable
 	){
 		this.faqCategory = category;
 		this.question = question;
 		this.answer = answer;
 		this.intent = intent;
+		this.cacheable = cacheable;
 		this.updatedAt = LocalDateTime.now();
 		this.version++;
 	}

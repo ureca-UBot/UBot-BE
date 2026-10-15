@@ -10,13 +10,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.List;
 
 import com.ubot.faq.service.FaqCategoryService;
 import com.ubot.faq.service.FaqEmbeddingBackfillService;
 import com.ubot.faq.service.FaqLogService;
 import com.ubot.faq.service.FaqService;
+import com.ubot.faq.service.FaqSimilarQuestionService;
 import com.ubot.faq.service.OldFaqService;
 
 @DisplayName("관리자 FAQ 컨트롤러 테스트")
@@ -37,6 +41,9 @@ class AdminFaqControllerTest {
     private final FaqEmbeddingBackfillService faqEmbeddingBackfillService =
             mock(FaqEmbeddingBackfillService.class);
 
+    private final FaqSimilarQuestionService faqSimilarQuestionService =
+            mock(FaqSimilarQuestionService.class);
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -47,7 +54,8 @@ class AdminFaqControllerTest {
                         faqCategoryService,
                         faqLogService,
                         oldFaqService,
-                        faqEmbeddingBackfillService
+                        faqEmbeddingBackfillService,
+                        faqSimilarQuestionService
                 );
 
         mockMvc = MockMvcBuilders
@@ -71,5 +79,20 @@ class AdminFaqControllerTest {
 
         verify(faqEmbeddingBackfillService)
                 .backfillCurrentProfile();
+    }
+
+    @Test
+    void generateSimilarQuestions_acceptsPlainTextAndReturnsQuestions() throws Exception {
+        String question = "일시정지 중에도 요금이 발생하나요?";
+        when(faqSimilarQuestionService.generate(question))
+                .thenReturn(List.of("일시정지하면 요금이 나오나요?"));
+
+        mockMvc.perform(post("/admin/faqs/question-variants/generate")
+                        .contentType(MediaType.parseMediaType("text/plain;charset=UTF-8"))
+                        .content(question))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0]").value("일시정지하면 요금이 나오나요?"));
+
+        verify(faqSimilarQuestionService).generate(question);
     }
 }
