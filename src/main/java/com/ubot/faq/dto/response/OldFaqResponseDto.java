@@ -13,6 +13,7 @@ public record OldFaqResponseDto (
 		String question,
 		String answer,
 		Intent intent,
+		boolean cacheable,
 		Long createdById,
 		Long updatedById,
 		LocalDateTime updatedAt
@@ -25,6 +26,7 @@ public record OldFaqResponseDto (
 				oldFaq.getQuestion(),
 				oldFaq.getAnswer(),
 				oldFaq.getIntent(),
+				oldFaq.isCacheable(),
 				// 작성·수정한 관리자가 삭제되면 FK가 SET NULL로 비워집니다.
 				oldFaq.getCreatedBy() == null ? null : oldFaq.getCreatedBy().getId(),
 				oldFaq.getUpdatedBy() == null ? null : oldFaq.getUpdatedBy().getId(),

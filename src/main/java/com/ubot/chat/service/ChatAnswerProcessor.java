@@ -139,6 +139,8 @@ public class ChatAnswerProcessor {
 		return results.stream()
 				.map(result -> "FAQ ID=" + result.faqId()
 						+ ", FAQ 질문=" + normalizeForLog(result.question())
+						+ ", 매칭 variant ID=" + result.variantId()
+						+ ", 매칭 variant 질문=" + normalizeForLog(result.variantQuestion())
 						+ ", 유사도=" + result.similarityScore())
 				.collect(java.util.stream.Collectors.joining(" | "));
 	}
