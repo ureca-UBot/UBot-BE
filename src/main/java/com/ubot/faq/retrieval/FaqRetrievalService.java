@@ -78,17 +78,36 @@ public class FaqRetrievalService {
      * @throws RerankException Reranker를 쓰지 못했고 벡터 검색 결과로 답하는 설정을 꺼 둔 경우
      */
     public RetrievalOutcome retrieve(String userQuestion, Intent intent, int finalK) {
-        if (!rerank.isEnabled()) {
-            // 기존 경로를 그대로 탑니다. 결과, 순위, 유사도가 이전과 같아야 합니다.
-            return RetrievalOutcome.dense(search(userQuestion, intent, finalK));
-        }
+        return rankCandidates(userQuestion, searchCandidates(userQuestion, intent, finalK, 0), finalK);
+    }
 
+    /**
+     * 임베딩과 DB 검색을 한 번 수행합니다. minimumCandidates는 캐시 점수 차이 검사용 최소 후보 수입니다.
+     * 캐시 승인 여부로 후보를 미리 거르지 않습니다.
+     */
+    public DenseFaqCandidates searchCandidates(String userQuestion, Intent intent, int finalK, int minimumCandidates) {
         long startedAt = System.nanoTime();
-        int candidateK = Math.max(rerank.getCandidateK(), finalK);
+        int candidateK = Math.max(finalK, minimumCandidates);
+        if (rerank.isEnabled()) {
+            candidateK = Math.max(candidateK, rerank.getCandidateK());
+        }
         // DB·임베딩 오류는 여기서 잡지 않습니다. Reranker 실패로 감추지 않고 기존 검색 실패 처리로 넘깁니다.
         List<FaqSearchResponseDto> dense = search(userQuestion, intent, candidateK);
-        long denseMillis = elapsedMillis(startedAt);
+        return new DenseFaqCandidates(dense, elapsedMillis(startedAt));
+    }
+
+    /** 이미 검색한 후보를 사용합니다. 캐시 MISS 후에도 임베딩·검색을 다시 호출하지 않습니다. */
+    public RetrievalOutcome rankCandidates(String userQuestion, DenseFaqCandidates candidates, int finalK) {
+        List<FaqSearchResponseDto> searched = candidates.candidates();
+        int rankingCandidateK = rerank.isEnabled() ? Math.max(rerank.getCandidateK(), finalK) : finalK;
+        // 캐시 비교용으로 더 읽은 후보는 기존 리랭커 후보 범위나 LLM 전달 개수를 늘리지 않습니다.
+        List<FaqSearchResponseDto> dense = searched == null || searched.size() <= rankingCandidateK
+                ? searched : searched.stream().limit(rankingCandidateK).toList();
+        long denseMillis = candidates.searchMillis();
         if (dense == null || dense.isEmpty()) {
+            return RetrievalOutcome.dense(dense);
+        }
+        if (!rerank.isEnabled()) {
             return RetrievalOutcome.dense(dense);
         }
 

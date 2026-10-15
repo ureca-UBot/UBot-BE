@@ -10,12 +10,19 @@ import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.cache.FaqCacheProperties;
+import com.ubot.faq.cache.FaqSemanticCacheService;
+import com.ubot.faq.repository.FaqVectorRepository;
 import com.ubot.user.service.UserService;
 import java.util.List;
 
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
 final class ChatTestFixtures {
 	private ChatTestFixtures() {
+	}
+
+	static FaqSemanticCacheService disabledCache() {
+		return new FaqSemanticCacheService(new FaqCacheProperties(), mock(FaqVectorRepository.class));
 	}
 
 	/** 실제 핸들러로 만든 수집기입니다. 기존 테스트의 FAQ는 모두 GENERAL이라 FAQ가 그대로 전달됩니다. */

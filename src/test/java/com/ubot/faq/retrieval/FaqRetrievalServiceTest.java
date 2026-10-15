@@ -226,6 +226,25 @@ class FaqRetrievalServiceTest {
         new FaqRetrievalService(faqVectorService, new FaqRerankService(scores()), properties(false, 2, true), 3);
     }
 
+    @Test
+    @DisplayName("캐시 비교용으로 늘린 후보는 기존 리랭커 후보 수를 늘리지 않는다")
+    void cacheComparisonDoesNotExpandRerankCandidates() {
+        List<FaqSearchResponseDto> dense = faqs(2);
+        when(faqVectorService.getSimilarList("질문", 2)).thenReturn(dense);
+        FaqRetrievalService service = new FaqRetrievalService(
+                faqVectorService, new FaqRerankService(scores(0.9)), properties(true, 1, true), 1);
+
+        DenseFaqCandidates candidates = service.searchCandidates("질문", null, 1, 2);
+        assertThat(candidates.candidates()).hasSize(2);
+        RetrievalOutcome outcome = service.rankCandidates("질문", candidates, 1);
+
+        assertThat(outcome.reranked()).isTrue();
+        assertThat(outcome.rankedCandidates()).containsExactly(dense.getFirst());
+        assertThat(sentDocuments).singleElement().satisfies(documents -> assertThat(documents).hasSize(1));
+        verify(faqVectorService).getSimilarList("질문", 2);
+        verifyNoMoreInteractions(faqVectorService);
+    }
+
     private FaqRetrievalService service(FaqRetrievalProperties properties, RerankerClient client) {
         return new FaqRetrievalService(faqVectorService, new FaqRerankService(client), properties, 3);
     }
