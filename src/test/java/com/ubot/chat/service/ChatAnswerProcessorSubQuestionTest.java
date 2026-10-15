@@ -148,7 +148,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		var research = AnswerAttemptsHistory.builder().id(200L).userId(1L).question("원문").status("PENDING")
 				.sourceAttemptId(100L).intent(Intent.STORE_DATA).build();
 		when(planner.plan(research)).thenReturn(new SubQuestionPlan(
-				List.of("강남역 매장", "해외 로밍 요금"), false, SubQuestionPlan.Source.REUSED));
+				List.of("강남역 매장", "해외 로밍 요금"), SubQuestionPlan.Source.REUSED));
 		when(vector.getSimilarListByIntent("강남역 매장", Intent.STORE_DATA, 3)).thenReturn(List.of(faq(1L, 0.9)));
 		when(vector.getSimilarListByIntent("해외 로밍 요금", Intent.STORE_DATA, 3)).thenReturn(List.of());
 
@@ -161,7 +161,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 	private void plan(String... subQuestions) {
 		when(planner.plan(attempt)).thenReturn(
-				new SubQuestionPlan(List.of(subQuestions), false, SubQuestionPlan.Source.LLM));
+				new SubQuestionPlan(List.of(subQuestions), SubQuestionPlan.Source.LLM));
 	}
 
 	private AnswerMaterials captureMaterials() {

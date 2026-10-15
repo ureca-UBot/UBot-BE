@@ -47,12 +47,11 @@ class SubQuestionPlannerTest {
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
-				"{\"context_used\": true, \"sub_questions\": [\"5G 프리미엄 요금제 데이터 제공량\"]}"));
+				"{\"sub_questions\": [\"5G 프리미엄 요금제 데이터 제공량\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "그럼 데이터는?"));
 
 		assertThat(plan.subQuestions()).containsExactly("5G 프리미엄 요금제 데이터 제공량");
-		assertThat(plan.contextUsed()).isTrue();
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM);
 	}
 
@@ -61,7 +60,7 @@ class SubQuestionPlannerTest {
 	void judgesWithoutHistoryOutsideConversation() {
 		when(prompts.createPrompt("유심 재발급", List.of())).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
-				"{\"context_used\": false, \"sub_questions\": [\"유심 재발급\"]}"));
+				"{\"sub_questions\": [\"유심 재발급\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, null, "유심 재발급"));
 
@@ -74,7 +73,7 @@ class SubQuestionPlannerTest {
 	void marksTooManySubQuestions() {
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
-				"{\"context_used\": false, \"sub_questions\": [\"a\", \"b\", \"c\", \"d\"]}"));
+				"{\"sub_questions\": [\"a\", \"b\", \"c\", \"d\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, null, "a b c d"));
 
@@ -96,7 +95,6 @@ class SubQuestionPlannerTest {
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "유심 재발급"));
 
 		assertThat(plan.subQuestions()).containsExactly("유심 재발급");
-		assertThat(plan.contextUsed()).isFalse();
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM_FAILED);
 	}
 

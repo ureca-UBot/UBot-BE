@@ -114,7 +114,7 @@ class SubQuestionChatIntegrationTest {
 	@Test
 	@DisplayName("나눈 질문은 하위 질문마다 질문 로그를 남기고, 근거를 못 찾은 하위 질문만 미답변으로 기록하며, 대화 기록에는 한 번만 보인다")
 	void splitQuestionIsStoredPerSubQuestion() {
-		judgeReturns(false, "유심 재발급 방법", "해외 로밍 요금");
+		judgeReturns("유심 재발급 방법", "해외 로밍 요금");
 		when(vector.getSimilarList("유심 재발급 방법", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
 		answerReturns("재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다.");
@@ -152,13 +152,13 @@ class SubQuestionChatIntegrationTest {
 	@Test
 	@DisplayName("다음 질문의 판정에는 앞선 턴의 하위 질문과 답변이 이전 대화로 들어가고, 다시 쓴 질문으로 검색한다")
 	void nextQuestionUsesPreviousTurn() {
-		judgeReturns(false, "유심 재발급 방법");
+		judgeReturns("유심 재발급 방법");
 		when(vector.getSimilarList("유심 재발급 방법", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
 		answerReturns("매장에서 재발급할 수 있습니다.");
 		ask("유심 재발급 어떻게 해?");
 
-		judgeReturns(true, "유심 재발급 비용");
+		judgeReturns("유심 재발급 비용");
 		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.8, Intent.GENERAL)));
 		answerReturns("비용 안내입니다.");
@@ -177,7 +177,7 @@ class SubQuestionChatIntegrationTest {
 	@Test
 	@DisplayName("하위 질문이 4개 이상이면 검색 없이 실패하고, 미답변·질문 로그를 남기지 않으며 재시도할 수 없다")
 	void rejectsTooManySubQuestions() {
-		judgeReturns(false, "a", "b", "c", "d");
+		judgeReturns("a", "b", "c", "d");
 
 		var task = chatService.createChat(userId, conversationId, "a b c d", null, null);
 
@@ -220,8 +220,8 @@ class SubQuestionChatIntegrationTest {
 		return chatService.createChat(userId, conversationId, question, null, null).result().join();
 	}
 
-	private void judgeReturns(boolean contextUsed, String... subQuestions) {
-		String json = "{\"context_used\": " + contextUsed + ", \"sub_questions\": ["
+	private void judgeReturns(String... subQuestions) {
+		String json = "{\"sub_questions\": ["
 				+ String.join(", ", java.util.Arrays.stream(subQuestions).map(q -> "\"" + q + "\"").toList()) + "]}";
 		when(llm.generateAnswer(argThat(this::isJudge))).thenReturn(new LlmResponseDto(json));
 	}

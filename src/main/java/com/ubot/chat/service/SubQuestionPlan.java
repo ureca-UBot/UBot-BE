@@ -6,7 +6,7 @@ import java.util.List;
  * 한 턴에서 검색할 하위 질문 목록입니다. 목록 순서가 하위 질문 순번(sub_question_index)입니다.
  * 원문을 그대로 쓰는 경우도 하위 질문이 1개인 목록입니다.
  */
-record SubQuestionPlan(List<String> subQuestions, boolean contextUsed, Source source) {
+record SubQuestionPlan(List<String> subQuestions, Source source) {
 
 	/** 한 턴에 검색할 수 있는 하위 질문 수입니다. 넘으면 하나씩 물어 달라고 안내합니다. DB의 CHECK 제약과 같습니다. */
 	static final int MAX_SUB_QUESTIONS = 3;
@@ -30,7 +30,7 @@ record SubQuestionPlan(List<String> subQuestions, boolean contextUsed, Source so
 	}
 
 	static SubQuestionPlan original(String question, Source source) {
-		return new SubQuestionPlan(List.of(question), false, source);
+		return new SubQuestionPlan(List.of(question), source);
 	}
 
 	boolean isTooMany() {

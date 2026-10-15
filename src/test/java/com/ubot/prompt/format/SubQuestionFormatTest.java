@@ -14,39 +14,37 @@ import org.junit.jupiter.params.provider.ValueSource;
 class SubQuestionFormatTest {
 
     @Test
-    @DisplayName("하위 질문과 맥락 사용 여부를 꺼내고 앞뒤 공백과 빈 질문은 버린다")
+    @DisplayName("하위 질문을 꺼내고 앞뒤 공백과 빈 질문은 버린다")
     void parsesSubQuestions() {
-        var output = SubQuestionFormat.parse("""
-                {"context_used": true, "sub_questions": [" 5G 프리미엄 월 요금 ", "", "5G 프리미엄 데이터 제공량"]}
+        var subQuestions = SubQuestionFormat.parse("""
+                {"sub_questions": [" 5G 프리미엄 월 요금 ", "", "5G 프리미엄 데이터 제공량"]}
                 """);
 
-        assertThat(output.contextUsed()).isTrue();
-        assertThat(output.subQuestions()).containsExactly("5G 프리미엄 월 요금", "5G 프리미엄 데이터 제공량");
+        assertThat(subQuestions).containsExactly("5G 프리미엄 월 요금", "5G 프리미엄 데이터 제공량");
     }
 
     @Test
-    @DisplayName("코드 블록으로 감싼 JSON도 읽고, 맥락 사용 여부가 없으면 false로 본다")
-    void parsesCodeBlockAndDefaultsContextUsed() {
-        var output = SubQuestionFormat.parse("```json\n{\"sub_questions\": [\"유심 재발급\"]}\n```");
+    @DisplayName("코드 블록으로 감싼 JSON도 읽는다")
+    void parsesCodeBlock() {
+        var subQuestions = SubQuestionFormat.parse("```json\n{\"sub_questions\": [\"유심 재발급\"]}\n```");
 
-        assertThat(output.contextUsed()).isFalse();
-        assertThat(output.subQuestions()).containsExactly("유심 재발급");
+        assertThat(subQuestions).containsExactly("유심 재발급");
     }
 
     @Test
     @DisplayName("개수 제한 없이 모델이 적은 질문을 모두 돌려준다")
     void keepsEveryQuestion() {
-        var output = SubQuestionFormat.parse("{\"context_used\": false, \"sub_questions\": [\"a\", \"b\", \"c\", \"d\"]}");
+        var subQuestions = SubQuestionFormat.parse("{\"sub_questions\": [\"a\", \"b\", \"c\", \"d\"]}");
 
-        assertThat(output.subQuestions()).hasSize(4);
+        assertThat(subQuestions).hasSize(4);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {
             "",
             "질문을 정리했습니다.",
-            "{\"context_used\": false",
-            "{\"context_used\": false}",
+            "{\"sub_questions\": [",
+            "{}",
             "{\"sub_questions\": \"유심 재발급\"}",
             "{\"sub_questions\": []}",
             "{\"sub_questions\": [\" \", 1]}"})
@@ -58,10 +56,10 @@ class SubQuestionFormatTest {
     }
 
     @Test
-    @DisplayName("스키마는 context_used 다음 sub_questions 순서이고 개수 제한이 없다")
+    @DisplayName("스키마는 sub_questions 하나만 있고 개수 제한이 없다")
     void schemaHasNoItemLimit() {
         assertThat(SubQuestionFormat.schema().get("properties")).asInstanceOf(
-                org.assertj.core.api.InstanceOfAssertFactories.MAP).containsOnlyKeys("context_used", "sub_questions");
+                org.assertj.core.api.InstanceOfAssertFactories.MAP).containsOnlyKeys("sub_questions");
         assertThat(SubQuestionFormat.schema().toString()).doesNotContain("maxItems");
     }
 }

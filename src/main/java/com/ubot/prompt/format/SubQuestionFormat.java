@@ -28,7 +28,7 @@ public final class SubQuestionFormat {
     }
 
     /**
-     * 출력 JSON Schema입니다. properties 순서가 출력 키 순서입니다. 맥락이 필요한지 먼저 정한 뒤 질문을 쓰게 합니다.
+     * 출력 JSON Schema입니다. sub_questions 하나만 씁니다.
      * sub_questions에 개수 제한(maxItems)을 두지 않습니다. 모델이 사용자가 물은 질문을 모두 적어야
      * 질문이 너무 많은지 서버가 판단할 수 있습니다.
      */
@@ -40,7 +40,7 @@ public final class SubQuestionFormat {
      * 모델 출력에서 하위 질문을 꺼냅니다. 앞뒤 공백을 지우고 빈 질문은 버립니다.
      * JSON이 아니거나 읽을 수 없거나 하위 질문이 하나도 없으면 LLM_RESPONSE_INVALID로 실패시킵니다.
      */
-    public static SubQuestionOutput parse(String output) {
+    public static List<String> parse(String output) {
         if (!StringUtils.hasText(output)) {
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
@@ -69,14 +69,11 @@ public final class SubQuestionFormat {
         if (subQuestions.isEmpty()) {
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
-        JsonNode contextUsed = root.get("context_used");
-        return new SubQuestionOutput(contextUsed != null && contextUsed.isBoolean() && contextUsed.asBoolean(),
-                List.copyOf(subQuestions));
+        return List.copyOf(subQuestions);
     }
 
     private static Map<String, Object> createSchema() {
         Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("context_used", Map.of("type", "boolean"));
         properties.put("sub_questions", Map.of("type", "array", "items", Map.of("type", "string")));
 
         Map<String, Object> schema = new LinkedHashMap<>();
@@ -85,9 +82,5 @@ public final class SubQuestionFormat {
         schema.put("required", List.copyOf(properties.keySet()));
         schema.put("additionalProperties", false);
         return Collections.unmodifiableMap(schema);
-    }
-
-    /** 파싱한 판정 결과입니다. subQuestions는 비어 있지 않습니다. */
-    public record SubQuestionOutput(boolean contextUsed, List<String> subQuestions) {
     }
 }
