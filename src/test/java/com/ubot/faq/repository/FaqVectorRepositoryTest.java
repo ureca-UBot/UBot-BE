@@ -516,6 +516,42 @@ class FaqVectorRepositoryTest {
                 .containsExactly(101L, 102L, 103L);
     }
 
+    @Test
+    @DisplayName("검색 결과는 캐시 승인 여부와 버전을 함께 반환하고 미승인 FAQ도 순위에 포함한다")
+    void searchReturnsCacheMetadataWithoutFilteringOutCompetitors() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 2");
+        List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 3);
+        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
+        assertThat(results.getFirst().cacheable()).isFalse();
+        assertThat(results.getFirst().faqVersion()).isEqualTo(1);
+        assertThat(results.get(1).cacheable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("공식 답변 재검증은 승인 해제·버전 변경·삭제·의도 변경을 즉시 반영한다")
+    void officialAnswerRevalidationChecksCurrentFaqState() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 1L, 1)).contains("매장에서 재발급할 수 있습니다.");
+
+        jdbcTemplate.update("UPDATE faq SET cacheable = false WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 1L, 1)).isEmpty();
+        jdbcTemplate.update("UPDATE faq SET cacheable = true, version = 2 WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 1L, 1)).isEmpty();
+        jdbcTemplate.update("UPDATE faq SET version = 1, deleted_at = now() WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 1L, 1)).isEmpty();
+        jdbcTemplate.update("UPDATE faq SET deleted_at = null, intent = 'USER_DATA' WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 1L, 1)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("매칭 variant가 삭제되거나 다른 FAQ에 속하면 공식 답변을 반환하지 않는다")
+    void officialAnswerRevalidationChecksVariantOwnershipAndExistence() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 2L, 1)).isEmpty();
+        jdbcTemplate.update("DELETE FROM faq_question_variants WHERE id = 1");
+        assertThat(repository.findCurrentCacheableAnswer(1L, 1L, 1)).isEmpty();
+    }
+
     private Long getOrCreateProfile(
             String provider,
             String modelName

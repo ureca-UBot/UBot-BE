@@ -1,6 +1,7 @@
 package com.ubot.faq.repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -50,6 +51,8 @@ public class FaqVectorRepository {
                         f.question AS faq_question,
                         f.answer,
                         f.intent,
+                        f.cacheable,
+                        f.version AS faq_version,
                         v.id AS variant_id,
                         v.question AS variant_question,
                         1 - (fe.vector <=> ?) AS similarity_score
@@ -69,7 +72,7 @@ public class FaqVectorRepository {
                            ) AS faq_rank
                     FROM scored
                 )
-                SELECT faq_id, faq_question, answer, intent,
+                SELECT faq_id, faq_question, answer, intent, cacheable, faq_version,
                        variant_id, variant_question, similarity_score
                 FROM ranked
                 WHERE faq_rank = 1
@@ -87,8 +90,22 @@ public class FaqVectorRepository {
                 rs.getDouble("similarity_score"),
                 Intent.valueOf(rs.getString("intent")),
                 rs.getLong("variant_id"),
-                rs.getString("variant_question")
+                rs.getString("variant_question"),
+                rs.getBoolean("cacheable"),
+                rs.getInt("faq_version")
         ), params);
+    }
+
+    /** 검색 이후의 삭제·수정·승인 해제와 매칭 variant 삭제를 확인하고 현재 공식 답변을 읽습니다. */
+    public Optional<String> findCurrentCacheableAnswer(Long faqId, Long variantId, Integer faqVersion) {
+        return jdbcTemplate.query("""
+                SELECT f.answer
+                FROM faq f
+                JOIN faq_question_variants v ON v.origin_faq_id = f.id
+                WHERE f.id = ? AND v.id = ? AND f.version = ?
+                  AND f.deleted_at IS NULL AND f.cacheable = true AND f.intent = 'GENERAL'
+                """, (rs, rowNum) -> rs.getString("answer"), faqId, variantId, faqVersion)
+                .stream().findFirst();
     }
 
     public void saveVectorForVariant(
