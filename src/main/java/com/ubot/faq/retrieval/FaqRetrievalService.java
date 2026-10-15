@@ -70,20 +70,12 @@ public class FaqRetrievalService {
     }
 
     /**
-     * 사용자 질문에 맞는 FAQ 후보를 찾습니다.
+     * 임베딩과 DB 검색을 한 번 수행합니다.
+     * 캐시 승인 여부로 후보를 미리 거르지 않습니다.
      *
      * @param intent 재검색에서 사용자가 고른 의도. null이면 전체 FAQ에서 찾습니다.
      * @param finalK 최종으로 LLM에 전달할 최대 FAQ 수
-     * @throws CancellationException Reranker를 기다리는 중에 작업이 취소된 경우
-     * @throws RerankException Reranker를 쓰지 못했고 벡터 검색 결과로 답하는 설정을 꺼 둔 경우
-     */
-    public RetrievalOutcome retrieve(String userQuestion, Intent intent, int finalK) {
-        return rankCandidates(userQuestion, searchCandidates(userQuestion, intent, finalK, 0), finalK);
-    }
-
-    /**
-     * 임베딩과 DB 검색을 한 번 수행합니다. minimumCandidates는 캐시 점수 차이 검사용 최소 후보 수입니다.
-     * 캐시 승인 여부로 후보를 미리 거르지 않습니다.
+     * @param minimumCandidates 캐시 점수 차이 검사용 최소 후보 수. 캐시를 사용하지 않으면 0입니다.
      */
     public DenseFaqCandidates searchCandidates(String userQuestion, Intent intent, int finalK, int minimumCandidates) {
         long startedAt = System.nanoTime();
@@ -96,7 +88,12 @@ public class FaqRetrievalService {
         return new DenseFaqCandidates(dense, elapsedMillis(startedAt));
     }
 
-    /** 이미 검색한 후보를 사용합니다. 캐시 MISS 후에도 임베딩·검색을 다시 호출하지 않습니다. */
+    /**
+     * 이미 검색한 후보를 사용합니다. 캐시 MISS 후에도 임베딩·검색을 다시 호출하지 않습니다.
+     *
+     * @throws CancellationException Reranker를 기다리는 중에 작업이 취소된 경우
+     * @throws RerankException Reranker를 쓰지 못했고 벡터 검색 결과로 답하는 설정을 꺼 둔 경우
+     */
     public RetrievalOutcome rankCandidates(String userQuestion, DenseFaqCandidates candidates, int finalK) {
         List<FaqSearchResponseDto> searched = candidates.candidates();
         int rankingCandidateK = rerank.isEnabled() ? Math.max(rerank.getCandidateK(), finalK) : finalK;

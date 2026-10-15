@@ -47,7 +47,7 @@ class FaqRetrievalServiceTest {
         when(faqVectorService.getSimilarList("질문", 3)).thenReturn(dense);
         RerankerClient client = mock(RerankerClient.class);
 
-        RetrievalOutcome outcome = service(properties(false, 10, true), client).retrieve("질문", null, 3);
+        RetrievalOutcome outcome = searchAndRank(service(properties(false, 10, true), client), null);
 
         assertThat(outcome.rankedCandidates()).isSameAs(dense);
         assertThat(outcome.denseTop1()).isSameAs(dense.get(0));
@@ -64,13 +64,19 @@ class FaqRetrievalServiceTest {
         // 벡터 순위 10위가 가장 높은 점수를 받도록 순위와 반대로 점수를 줍니다.
         RerankerClient client = scores(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0);
 
-        RetrievalOutcome outcome = service(properties(true, 10, true), client).retrieve("질문", null, 3);
+        FaqRetrievalService service = service(properties(true, 10, true), client);
+        DenseFaqCandidates candidates = service.searchCandidates("질문", null, 3, 0);
+        assertThat(sentDocuments).isEmpty();
+        verify(faqVectorService).getSimilarList("질문", 10);
+
+        RetrievalOutcome outcome = service.rankCandidates("질문", candidates, 3);
 
         assertThat(outcome.reranked()).isTrue();
         // 후보를 더하거나 빼지 않고 순서만 바꿉니다. 최종 3개로 줄이는 일은 유사도 기준을 적용한 뒤에 호출한 쪽이 합니다.
         assertThat(outcome.rankedCandidates()).extracting(FaqSearchResponseDto::faqId)
                 .containsExactly(10L, 9L, 8L, 7L, 6L, 5L, 4L, 3L, 2L, 1L);
         assertThat(outcome.denseTop1()).isSameAs(dense.get(0));
+        verifyNoMoreInteractions(faqVectorService);
     }
 
     @Test
@@ -79,7 +85,7 @@ class FaqRetrievalServiceTest {
         List<FaqSearchResponseDto> dense = faqs(3);
         when(faqVectorService.getSimilarList("질문", 10)).thenReturn(dense);
 
-        RetrievalOutcome outcome = service(properties(true, 10, true), scores(0.2, 0.9, 0.5)).retrieve("질문", null, 3);
+        RetrievalOutcome outcome = searchAndRank(service(properties(true, 10, true), scores(0.2, 0.9, 0.5)), null);
 
         assertThat(outcome.rankedCandidates()).containsExactly(dense.get(1), dense.get(2), dense.get(0));
         assertThat(outcome.rankedCandidates().get(0).similarityScore()).isEqualTo(dense.get(1).similarityScore());
@@ -92,8 +98,8 @@ class FaqRetrievalServiceTest {
     void enabled_keepsIntentFilter() {
         when(faqVectorService.getSimilarListByIntent("질문", Intent.STORE_DATA, 10)).thenReturn(faqs(2));
 
-        RetrievalOutcome outcome = service(properties(true, 10, true), scores(0.1, 0.9))
-                .retrieve("질문", Intent.STORE_DATA, 3);
+        RetrievalOutcome outcome = searchAndRank(service(properties(true, 10, true), scores(0.1, 0.9)),
+                Intent.STORE_DATA);
 
         assertThat(outcome.rankedCandidates()).extracting(FaqSearchResponseDto::faqId).containsExactly(2L, 1L);
         verify(faqVectorService, never()).getSimilarList(anyString(), anyInt());
@@ -104,7 +110,7 @@ class FaqRetrievalServiceTest {
     void enabled_usesConfiguredCandidateK() {
         when(faqVectorService.getSimilarList("질문", 20)).thenReturn(faqs(2));
 
-        service(properties(true, 20, true), scores(0.5, 0.4)).retrieve("질문", null, 3);
+        searchAndRank(service(properties(true, 20, true), scores(0.5, 0.4)), null);
 
         verify(faqVectorService).getSimilarList("질문", 20);
     }
@@ -115,7 +121,7 @@ class FaqRetrievalServiceTest {
         when(faqVectorService.getSimilarList("질문", 10)).thenReturn(List.of());
         RerankerClient client = mock(RerankerClient.class);
 
-        RetrievalOutcome outcome = service(properties(true, 10, true), client).retrieve("질문", null, 3);
+        RetrievalOutcome outcome = searchAndRank(service(properties(true, 10, true), client), null);
 
         assertThat(outcome.rankedCandidates()).isEmpty();
         assertThat(outcome.denseTop1()).isNull();
@@ -131,7 +137,7 @@ class FaqRetrievalServiceTest {
             throw new RerankException("제한 시간 초과");
         };
 
-        RetrievalOutcome outcome = service(properties(true, 10, true), client).retrieve("질문", null, 3);
+        RetrievalOutcome outcome = searchAndRank(service(properties(true, 10, true), client), null);
 
         assertThat(outcome.rankedCandidates()).containsExactly(dense.get(0), dense.get(1), dense.get(2));
         assertThat(outcome.denseTop1()).isSameAs(dense.get(0));
@@ -146,13 +152,13 @@ class FaqRetrievalServiceTest {
     void unusableScores_fallBack() {
         when(faqVectorService.getSimilarList("질문", 10)).thenReturn(faqs(3));
 
-        assertThat(service(properties(true, 10, true), scores(0.9, 0.8)).retrieve("질문", null, 3).fallbackReason())
+        assertThat(searchAndRank(service(properties(true, 10, true), scores(0.9, 0.8)), null).fallbackReason())
                 .isNotNull();
-        assertThat(service(properties(true, 10, true), scores(0.9, Double.NaN, 0.1)).retrieve("질문", null, 3)
+        assertThat(searchAndRank(service(properties(true, 10, true), scores(0.9, Double.NaN, 0.1)), null)
                 .fallbackReason()).isNotNull();
-        assertThat(service(properties(true, 10, true), scores(0.9, null, 0.1)).retrieve("질문", null, 3)
+        assertThat(searchAndRank(service(properties(true, 10, true), scores(0.9, null, 0.1)), null)
                 .fallbackReason()).isNotNull();
-        assertThat(service(properties(true, 10, true), (query, documents) -> null).retrieve("질문", null, 3)
+        assertThat(searchAndRank(service(properties(true, 10, true), (query, documents) -> null), null)
                 .fallbackReason()).isNotNull();
     }
 
@@ -164,7 +170,7 @@ class FaqRetrievalServiceTest {
             throw new RerankException("연결 실패");
         };
 
-        assertThatThrownBy(() -> service(properties(true, 10, false), client).retrieve("질문", null, 3))
+        assertThatThrownBy(() -> searchAndRank(service(properties(true, 10, false), client), null))
                 .isInstanceOf(RerankException.class);
     }
 
@@ -174,7 +180,7 @@ class FaqRetrievalServiceTest {
         when(faqVectorService.getSimilarList("질문", 10)).thenThrow(new DataAccessResourceFailureException("DB 오류"));
         RerankerClient client = mock(RerankerClient.class);
 
-        assertThatThrownBy(() -> service(properties(true, 10, true), client).retrieve("질문", null, 3))
+        assertThatThrownBy(() -> searchAndRank(service(properties(true, 10, true), client), null))
                 .isInstanceOf(DataAccessResourceFailureException.class);
         verify(client, never()).score(anyString(), any());
     }
@@ -188,7 +194,7 @@ class FaqRetrievalServiceTest {
             throw new RerankException("응답을 기다리다 중단되었습니다.");
         };
 
-        assertThatThrownBy(() -> service(properties(true, 10, true), client).retrieve("질문", null, 3))
+        assertThatThrownBy(() -> searchAndRank(service(properties(true, 10, true), client), null))
                 .isInstanceOf(CancellationException.class);
     }
 
@@ -206,9 +212,9 @@ class FaqRetrievalServiceTest {
         properties.getRerank().setFailureThreshold(2);
         FaqRetrievalService service = service(properties, client);
 
-        service.retrieve("질문", null, 3);
-        service.retrieve("질문", null, 3);
-        RetrievalOutcome skipped = service.retrieve("질문", null, 3);
+        searchAndRank(service, null);
+        searchAndRank(service, null);
+        RetrievalOutcome skipped = searchAndRank(service, null);
 
         assertThat(calls[0]).isEqualTo(2);
         assertThat(skipped.rankedCandidates()).containsExactly(dense.get(0), dense.get(1), dense.get(2));
@@ -243,6 +249,11 @@ class FaqRetrievalServiceTest {
         assertThat(sentDocuments).singleElement().satisfies(documents -> assertThat(documents).hasSize(1));
         verify(faqVectorService).getSimilarList("질문", 2);
         verifyNoMoreInteractions(faqVectorService);
+    }
+
+    private RetrievalOutcome searchAndRank(FaqRetrievalService service, Intent intent) {
+        DenseFaqCandidates candidates = service.searchCandidates("질문", intent, 3, 0);
+        return service.rankCandidates("질문", candidates, 3);
     }
 
     private FaqRetrievalService service(FaqRetrievalProperties properties, RerankerClient client) {

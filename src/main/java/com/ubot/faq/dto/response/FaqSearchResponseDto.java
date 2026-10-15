@@ -21,11 +21,6 @@ public record FaqSearchResponseDto(
         Long faqId, String question, String answer, double similarityScore, Intent intent,
         Long variantId, String variantQuestion, boolean cacheable, Integer faqVersion) {
 
-    public FaqSearchResponseDto(Long faqId, String question, String answer, double similarityScore, Intent intent,
-            Long variantId, String variantQuestion) {
-        this(faqId, question, answer, similarityScore, intent, variantId, variantQuestion, false, null);
-    }
-
     public FaqSearchResponseDto(Long faqId, String question, String answer, double similarityScore, Intent intent) {
         this(faqId, question, answer, similarityScore, intent, null, null, false, null);
     }
