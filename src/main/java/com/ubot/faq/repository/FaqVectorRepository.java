@@ -50,6 +50,7 @@ public class FaqVectorRepository {
                         f.question AS faq_question,
                         f.answer,
                         f.intent,
+                        f.cacheable,
                         v.id AS variant_id,
                         v.question AS variant_question,
                         1 - (fe.vector <=> ?) AS similarity_score
@@ -69,7 +70,7 @@ public class FaqVectorRepository {
                            ) AS faq_rank
                     FROM scored
                 )
-                SELECT faq_id, faq_question, answer, intent,
+                SELECT faq_id, faq_question, answer, intent, cacheable,
                        variant_id, variant_question, similarity_score
                 FROM ranked
                 WHERE faq_rank = 1
@@ -87,7 +88,8 @@ public class FaqVectorRepository {
                 rs.getDouble("similarity_score"),
                 Intent.valueOf(rs.getString("intent")),
                 rs.getLong("variant_id"),
-                rs.getString("variant_question")
+                rs.getString("variant_question"),
+                rs.getBoolean("cacheable")
         ), params);
     }
 

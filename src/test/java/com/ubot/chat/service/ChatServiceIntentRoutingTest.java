@@ -60,7 +60,7 @@ class ChatServiceIntentRoutingTest {
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
 				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher));
+				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.disabledCache());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);

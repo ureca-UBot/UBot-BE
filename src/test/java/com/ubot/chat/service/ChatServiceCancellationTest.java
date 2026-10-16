@@ -46,7 +46,8 @@ class ChatServiceCancellationTest {
 	@BeforeEach
 	void setup() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector());
+				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(),
+				ChatTestFixtures.disabledCache());
 		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
 				new ChatAnswerExecutor(processor, attempts, jobs::add));
 		ReflectionTestUtils.setField(processor, "topK", 3);

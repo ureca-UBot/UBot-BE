@@ -516,6 +516,16 @@ class FaqVectorRepositoryTest {
                 .containsExactly(101L, 102L, 103L);
     }
 
+    @Test
+    @DisplayName("검색 결과는 캐시 승인 여부를 반환하고 미승인 FAQ도 순위에 포함한다")
+    void searchReturnsCacheMetadataWithoutFilteringOutCompetitors() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 2");
+        List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 3);
+        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
+        assertThat(results.getFirst().cacheable()).isFalse();
+        assertThat(results.get(1).cacheable()).isTrue();
+    }
+
     private Long getOrCreateProfile(
             String provider,
             String modelName
