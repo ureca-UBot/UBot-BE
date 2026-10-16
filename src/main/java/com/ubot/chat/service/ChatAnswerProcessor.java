@@ -115,7 +115,7 @@ public class ChatAnswerProcessor {
 			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
 		}
 		List<FaqSearchResponseDto> candidates = similar.stream().limit(topK).toList();
-		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 유사도통과수={}, 문장검사대상수={}, Reranker정렬={}, Reranker실패사유={}",
+		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 유사도통과수={}, 문장검사대상FAQ수={}, Reranker정렬={}, Reranker실패사유={}",
 				attempt.getId(), dense.candidates().size(), similar.size(),
 				candidates.size(), outcome.reranked(), outcome.fallbackReason());
 		List<MatchedFaq> matched = faqSentenceFilterService.filter(dense.queryVector(), candidates);
