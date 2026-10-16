@@ -25,26 +25,33 @@ def rows(path: Path, fields: list[str]) -> list[dict[str, str]]:
 def validate(seed: Path) -> dict[str, object]:
     faqs = rows(seed / "baseline-faqs.csv", FAQ_FIELDS)
     variants = rows(seed / "baseline-faq-variants.csv", VARIANT_FIELDS)
-    if not faqs or len(variants) != 5 * len(faqs):
-        raise ValueError("Expected at least one FAQ and five variants per FAQ")
+    if not faqs:
+        raise ValueError("Expected at least one FAQ")
     categories: set[str] = set()
+    variant_offset = 0
     for offset, faq in enumerate(faqs):
         faq_id = offset + 1
         if int(faq["faqId"]) != faq_id or any(not faq[field].strip() for field in FAQ_FIELDS[1:]):
             raise ValueError(f"Invalid FAQ {faq_id}")
         categories.add(faq["category"])
         questions_for_faq: set[str] = set()
-        for index, variant in enumerate(variants[offset * 5: offset * 5 + 5]):
-            variant_id = offset * 5 + index + 1
+        while variant_offset < len(variants) and int(variants[variant_offset]["originFaqId"]) == faq_id:
+            variant = variants[variant_offset]
+            variant_id = variant_offset + 1
             if int(variant["variantId"]) != variant_id or int(variant["originFaqId"]) != faq_id:
                 raise ValueError(f"Invalid variant ID {variant_id}")
             question = variant["question"]
             normalized = " ".join(question.split())
-            if not normalized or len(question) > 1000 or (index == 0 and question != faq["question"]):
+            if not normalized or len(question) > 1000 or (not questions_for_faq and question != faq["question"]):
                 raise ValueError(f"Invalid question for variant {variant_id}")
             if normalized in questions_for_faq:
                 raise ValueError(f"Duplicate variant question for FAQ {faq_id}")
             questions_for_faq.add(normalized)
+            variant_offset += 1
+        if not questions_for_faq:
+            raise ValueError(f"FAQ {faq_id} has no variants")
+    if variant_offset != len(variants):
+        raise ValueError(f"Unexpected variant for FAQ {variants[variant_offset]['originFaqId']}")
     return {"faqCount": len(faqs), "variantCount": len(variants), "categoryCount": len(categories)}
 
 

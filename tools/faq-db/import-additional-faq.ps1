@@ -36,7 +36,7 @@ foreach ($variant in @(Import-Csv -LiteralPath $variantPath -Encoding UTF8)) {
     if ($wanted.Contains([string] $variant.originFaqId)) { $variants.Add($variant) }
 }
 
-if ($faqs.Count -ne $sourceIds.Count -or $variants.Count -ne 5 * $faqs.Count) {
+if ($faqs.Count -ne $sourceIds.Count) {
     throw 'Manifest IDs do not match the selected CSV rows.'
 }
 $faqIds = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -58,11 +58,11 @@ foreach ($variant in $variants) {
 }
 foreach ($faq in $faqs) {
     $group = @($variants | Where-Object originFaqId -eq $faq.faqId)
-    if ($group.Count -ne 5 -or $group[0].question -cne $faq.question) {
+    if ($group.Count -eq 0 -or $group[0].question -cne $faq.question) {
         throw "FAQ $($faq.faqId) has invalid variants."
     }
     $questions = @($group | ForEach-Object { ($_.question -replace '\s+', ' ').Trim() })
-    if (@($questions | Select-Object -Unique).Count -ne 5) {
+    if (@($questions | Select-Object -Unique).Count -ne $group.Count) {
         throw "FAQ $($faq.faqId) has duplicate variant questions."
     }
 }
