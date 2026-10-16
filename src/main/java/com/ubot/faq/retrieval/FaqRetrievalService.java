@@ -69,6 +69,10 @@ public class FaqRetrievalService {
         return new FaqRetrievalService(faqVectorService, null, new FaqRetrievalProperties(), 3);
     }
 
+    public boolean isQuestionAnswerMode() {
+        return faqVectorService.isQuestionAnswerMode();
+    }
+
     /**
      * 임베딩과 DB 검색을 한 번 수행합니다.
      * 캐시 승인 여부로 후보를 미리 거르지 않습니다.

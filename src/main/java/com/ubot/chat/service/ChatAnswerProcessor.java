@@ -17,6 +17,8 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.DenseFaqCandidates;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.RetrievalOutcome;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
+import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
@@ -25,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -47,6 +50,8 @@ public class ChatAnswerProcessor {
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 	private final FaqSemanticCacheService faqSemanticCacheService;
+	@Autowired
+	private FaqSentenceFilterService faqSentenceFilterService;
 
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
@@ -87,6 +92,42 @@ public class ChatAnswerProcessor {
 			log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
 					attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
 			return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false), List.of(officialFaq));
+		}
+		if (faqRetrievalService.isQuestionAnswerMode()) {
+			List<FaqSearchResponseDto> candidates = dense.candidates().stream().limit(topK).toList();
+			log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 문장검사대상수={}",
+					attempt.getId(), dense.candidates().size(), candidates.size());
+			if (candidates.isEmpty()) {
+				log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
+				createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
+				return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
+			}
+			List<MatchedFaq> matched = faqSentenceFilterService.filter(attempt.getQuestion(), candidates);
+			checkCancellation.run();
+			log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 통과FAQ수={}, 통과FAQ ID={}",
+					attempt.getId(), matched.size(), matched.stream().map(item -> item.faq().faqId()).toList());
+			if (matched.isEmpty()) {
+				log.info("유사도 기준을 통과한 FAQ 답변 문장이 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
+				createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, candidates.getFirst());
+				return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
+			}
+			List<FaqSearchResponseDto> originalFaqs = matched.stream().map(MatchedFaq::faq).toList();
+			List<FaqSearchResponseDto> promptFaqs = matched.stream().map(item -> {
+				FaqSearchResponseDto faq = item.faq();
+				return new FaqSearchResponseDto(faq.faqId(), faq.question(), item.answerSentences(),
+						faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable());
+			}).toList();
+			AnswerProgress.report(Phase.COLLECTING_CONTEXT);
+			AnswerMaterials materials = chatContextCollector.collect(
+					new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), promptFaqs);
+			log.info("선별한 FAQ 답변 문장으로 LLM 답변을 생성합니다: 시도ID={}, FAQ ID={}, 준비시간={}ms",
+					attempt.getId(), originalFaqs.stream().map(FaqSearchResponseDto::faqId).toList(), elapsedMillis(startedAt));
+			AiAnswer answer = aiService.generateAnswer(materials);
+			checkCancellation.run();
+			if (answer == null || !StringUtils.hasText(answer.answer())) {
+				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+			}
+			return ChatAnswerResult.answered(answer, originalFaqs);
 		}
 		// MISS이면 원래 검색 후보로 기존 RAG를 이어갑니다. 임베딩·검색은 반복하지 않습니다.
 		RetrievalOutcome outcome = faqRetrievalService.rankCandidates(attempt.getQuestion(), dense, topK);

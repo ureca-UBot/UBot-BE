@@ -60,6 +60,10 @@ public class FaqVectorService {
         );
     }
 
+    public boolean isQuestionAnswerMode() {
+        return searchVectorType == FaqVectorType.QUESTION_ANSWER;
+    }
+
     public List<FaqSearchResponseDto> getSimilarListByIntent(
             String userQuestion,
             Intent intent,
