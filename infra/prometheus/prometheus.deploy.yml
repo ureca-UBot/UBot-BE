@@ -8,6 +8,12 @@ scrape_configs:
       - targets:
           - backend:8080
 
+  - job_name: ubot-ai-worker
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - ai-worker:8080
+
   - job_name: postgres
     static_configs:
       - targets:

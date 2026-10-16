@@ -8,30 +8,28 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ubot.ai.dto.Location;
 import com.ubot.auth.config.CustomUserDetails;
-import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
-import com.ubot.chat.service.ChatAnswerTask;
+import com.ubot.chat.job.dto.response.ChatJobSubmissionResponseDto;
+import com.ubot.chat.job.entity.ChatJobStatus;
+import com.ubot.chat.job.service.ChatJobQueryService;
+import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
 import com.ubot.common.GlobalExceptionHandler;
 import com.ubot.faq.enums.Intent;
 import com.ubot.guest.session.GuestConversationService;
 import com.ubot.user.entity.User;
-import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.request.NativeWebRequest;
@@ -41,6 +39,7 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 @DisplayName("의도 재검색 컨트롤러 테스트")
 class ChatControllerResearchTest {
     private static final String KEY = "a".repeat(64);
+    private static final long JOB_ID = 12345L;
 
     ChatService service = mock(ChatService.class);
     ClientIpResolver clientIpResolver = mock(ClientIpResolver.class);
@@ -50,8 +49,8 @@ class ChatControllerResearchTest {
 
     @BeforeEach
     void setup() {
-        var controller = new ChatController(service, clientIpResolver, guestConversationService, mock(ConversationService.class));
-        ReflectionTestUtils.setField(controller, "responseTimeoutMillis", 180_000L);
+        var controller = new ChatController(service, mock(ChatJobQueryService.class), clientIpResolver,
+                guestConversationService, mock(ConversationService.class));
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
@@ -67,33 +66,31 @@ class ChatControllerResearchTest {
     }
 
     @Test
-    @DisplayName("회원은 헤더의 키와 본문의 의도로 재검색하고, 완료되면 답변을 그대로 돌려준다")
+    @DisplayName("회원은 헤더의 키와 본문의 의도로 재검색을 접수하고, 202로 작업 ID를 받는다")
     void memberResearchPassesKeyAndIntent() throws Exception {
-        var answer = new CompletableFuture<ChatResponseDto>();
-        when(service.researchChat(1L, KEY, Intent.STORE_DATA, null, null)).thenReturn(task(answer));
+        when(service.researchChat(1L, KEY, Intent.STORE_DATA, null, null)).thenReturn(submission());
 
-        var pending = mvc.perform(post("/chat/questions/research").header("Idempotency-Key", KEY)
+        mvc.perform(post("/chat/questions/research").header("Idempotency-Key", KEY)
                 .contentType("application/json").content("{\"intent\":\"STORE_DATA\"}"))
-                .andExpect(request().asyncStarted()).andReturn();
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.jobId").value(JOB_ID))
+                .andExpect(jsonPath("$.data.status").value("QUEUED"));
 
         verify(service).researchChat(1L, KEY, Intent.STORE_DATA, null, null);
         verify(guestConversationService).claimConversation(any(), eq(1L));
-        answer.complete(ChatResponseDto.createSuccessAnswer("재검색 답변"));
-        mvc.perform(asyncDispatch(pending)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.answer").value("재검색 답변"));
     }
 
     @Test
     @DisplayName("좌표를 함께 보내면 Location으로 서비스에 전달한다")
     void coordinatesAreForwardedAsLocation() throws Exception {
         when(service.researchChat(1L, KEY, Intent.STORE_DATA, new Location(37.5, 127.0), null))
-                .thenReturn(task(new CompletableFuture<>()));
+                .thenReturn(submission());
 
         mvc.perform(post("/chat/questions/research").header("Idempotency-Key", KEY)
                 .contentType("application/json")
                 .content("{\"intent\":\"STORE_DATA\",\"latitude\":37.5,\"longitude\":127.0}"))
-                .andExpect(request().asyncStarted());
+                .andExpect(status().isAccepted());
 
         verify(service).researchChat(1L, KEY, Intent.STORE_DATA, new Location(37.5, 127.0), null);
     }
@@ -161,7 +158,7 @@ class ChatControllerResearchTest {
                 .andExpect(jsonPath("$.code").value("CHAT-001"));
     }
 
-    private ChatAnswerTask task(CompletableFuture<ChatResponseDto> answer) {
-        return new ChatAnswerTask(answer, () -> null);
+    private ChatSubmission submission() {
+        return new ChatSubmission(new ChatJobSubmissionResponseDto(JOB_ID, ChatJobStatus.QUEUED, null, KEY, 1), 5L);
     }
 }

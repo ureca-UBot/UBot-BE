@@ -89,6 +89,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 					? completeWithTools(messages, request)
 					: complete(messages, List.of(), request.responseSchema());
 		} catch (RuntimeException exception) {
+			if (exception instanceof java.util.concurrent.CancellationException cancelled) throw cancelled;
+			if (exception instanceof LlmException llmException) throw llmException;
 			throw translateException(exception);
 		}
 
@@ -119,7 +121,12 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
 		List<Message> conversation = messages;
 		Completion completion = complete(conversation, request.toolCallbacks(), null);
+		int rounds = 0;
 		while (completion != null && completion.hasToolCalls()) {
+			if (Thread.currentThread().isInterrupted()) {
+				throw new java.util.concurrent.CancellationException("LLM tool execution cancelled");
+			}
+			if (++rounds > 8) throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 			ToolExecutionResult result = toolCallingManager.executeToolCalls(
 					new Prompt(conversation, options), completion.toChatResponse());
 			if (result.returnDirect()) {

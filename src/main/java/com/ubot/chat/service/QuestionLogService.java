@@ -23,8 +23,12 @@ public class QuestionLogService {
 
 	@Transactional
 	QuestionLog saveAndFlush(Long userId, Long conversationId, String question, String answer, String userIp){
+		return saveAndFlush(userId, conversationId, question, answer, ipRegionResolver.resolve(userIp).orElse(null));
+	}
 
-		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
+	// Worker는 요청 IP 대신 접수 때 정한 지역을 넘김
+	@Transactional
+	QuestionLog saveAndFlush(Long userId, Long conversationId, String question, String answer, RegionSido regionSido){
 
 		String normalizedQuestion = question
 				.strip()

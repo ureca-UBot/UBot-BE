@@ -9,8 +9,9 @@
 
 ```text
 POST /chat/questions
-  → ChatService: 금지어 검사, 답변 시도 기록 생성
-  → ChatAnswerExecutor: 가상 스레드에 답변 생성 작업 제출
+  → ChatService: 금지어 검사, 답변 시도 기록과 답변 작업(chat_jobs) 생성 → 202 jobId
+  → Redis Streams chat:jobs → ChatJobWorker(APP_ROLE=worker): 메시지를 읽고 작업 선점
+  → ChatJobProcessor
   → ChatAnswerProcessor: FAQ 검색 및 각 결과의 유사도 필터링, intent별 답변 자료 수집
   → AiService.generateAnswer(AnswerMaterials)
   → PromptService.createPrompt(question, faqs, sections)
@@ -19,7 +20,8 @@ POST /chat/questions
   → Spring AI OllamaChatModel 또는 vLLM의 OpenAI 호환 API
   → Ollama 또는 vLLM
   → LlmResponseDto(answer)
-  → ChatResponseDto: 채팅 응답
+  → ChatJobCompletionService: 시도 기록·답변 로그·작업 결과를 한 트랜잭션으로 저장
+  → GET /chat/jobs/{jobId}: 답변 조회
 ```
 
 기본 설정으로 TOP-K 3개를 검색한 뒤, 각 FAQ의 유사도를 기준값 0.75와 비교합니다.
@@ -352,8 +354,8 @@ ORDER BY p.profile_id;
 `llm/exception/LlmErrorCode`(`LLM-001`~`LLM-005`)는 공통 `ErrorCode`를 구현합니다.
 코드별 HTTP 상태와 발생 조건은 [오류 코드 Reference](../reference/error-codes.md#llm)에 있습니다.
 
-`ChatAnswerExecutor`는 LLM 호출 전후의 모든 실패(임베딩 `EM-*`, 벡터 검색, 유사도 미달, 프롬프트, LLM)를
-시도 기록에 `FAIL`과 오류 코드로 저장한 뒤, 그 코드와 재시도 정보(`ChatResponseDto`)를 담은 `ChatException`을 전달합니다.
+`ChatJobProcessor`는 LLM 호출 전후의 모든 실패(임베딩 `EM-*`, 벡터 검색, 유사도 미달, 프롬프트, LLM)를 오류 코드로 바꾸고,
+Worker가 그 코드를 시도 기록의 `FAIL`과 작업 결과에 저장합니다. 클라이언트는 상태 조회의 `errorCode`와 `retryable`로 받습니다.
 모델 오류의 내부 원인이나 원문은 반환하지 않으며, FAQ 원문을 성공 답변으로 대신 반환하지 않습니다.
 재시도 조건은 [architecture.md](../architecture.md#재시도)를 참고하세요.
 

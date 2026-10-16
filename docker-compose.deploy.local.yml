@@ -7,3 +7,10 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       LLM_BASE_URL: http://vllm:8000/v1
       EMBEDDING_BASE_URL: http://vllm-embedding:8000/v1
+
+  ai-worker:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_BASE_URL: http://vllm:8000/v1
+      EMBEDDING_BASE_URL: http://vllm-embedding:8000/v1
