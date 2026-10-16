@@ -4,6 +4,8 @@ import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,24 +22,27 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class FaqSentenceFilterService {
+    private static final Pattern LIST_ITEM = Pattern.compile("^\\s*((?:[-*•]|\\d+[.)]))(?:\\s+(.*))?$");
+
     private final EmbeddingService embeddingService;
 
     @Value("${faq.retrieval.sentence-similarity-threshold}")
     private double threshold;
 
     public List<MatchedFaq> filter(String question, List<FaqSearchResponseDto> faqs) {
-        List<Sentence> sentences = new ArrayList<>();
+        List<Segment> segments = new ArrayList<>();
         for (int index = 0; index < faqs.size(); index++) {
-            String answer = faqs.get(index).answer();
-            if (answer == null) {
-                continue;
-            }
-            String normalized = answer.replaceAll("\\s+", " ").trim();
+            addSegments(segments, index, faqs.get(index).answer());
+        }
+
+        List<Sentence> sentences = new ArrayList<>();
+        for (int index = 0; index < segments.size(); index++) {
+            Segment segment = segments.get(index);
             BreakIterator boundaries = BreakIterator.getSentenceInstance(Locale.KOREAN);
-            boundaries.setText(normalized);
+            boundaries.setText(segment.text());
             for (int start = boundaries.first(), end = boundaries.next(); end != BreakIterator.DONE;
                     start = end, end = boundaries.next()) {
-                String text = normalized.substring(start, end).trim();
+                String text = segment.text().substring(start, end).trim();
                 if (!text.isEmpty()) {
                     sentences.add(new Sentence(index, text));
                 }
@@ -52,29 +57,91 @@ public class FaqSentenceFilterService {
         texts.add(question);
         sentences.stream().map(Sentence::text).forEach(texts::add);
         List<PGvector> vectors = embeddingService.embedTexts(texts);
-        List<List<String>> passed = new ArrayList<>(faqs.size());
-        for (int index = 0; index < faqs.size(); index++) {
+        List<List<String>> passed = new ArrayList<>(segments.size());
+        for (int index = 0; index < segments.size(); index++) {
             passed.add(new ArrayList<>());
         }
         for (int index = 0; index < sentences.size(); index++) {
             Sentence sentence = sentences.get(index);
+            Segment segment = segments.get(sentence.segmentIndex());
             double similarity = cosine(vectors.getFirst(), vectors.get(index + 1));
             boolean accepted = similarity >= threshold;
             log.info("FAQ 답변 문장 유사도: FAQ ID={}, 유사도={}, 기준값={}, 결과={}, 문장={}",
-                    faqs.get(sentence.faqIndex()).faqId(), similarity, threshold,
+                    faqs.get(segment.faqIndex()).faqId(), similarity, threshold,
                     accepted ? "통과" : "제외", sentence.text());
             if (accepted) {
-                passed.get(sentence.faqIndex()).add(sentence.text());
+                passed.get(sentence.segmentIndex()).add(sentence.text());
+            }
+        }
+
+        List<List<String>> selectedByFaq = new ArrayList<>(faqs.size());
+        for (int index = 0; index < faqs.size(); index++) {
+            selectedByFaq.add(new ArrayList<>());
+        }
+        for (int index = 0; index < segments.size(); index++) {
+            Segment segment = segments.get(index);
+            List<String> selected = passed.get(index);
+            if (selected.isEmpty()) {
+                continue;
+            }
+            if (segment.marker() == null) {
+                selectedByFaq.get(segment.faqIndex()).addAll(selected);
+            } else {
+                selectedByFaq.get(segment.faqIndex()).add(segment.marker() + " " + String.join(" ", selected));
             }
         }
 
         List<MatchedFaq> result = new ArrayList<>();
         for (int index = 0; index < faqs.size(); index++) {
-            if (!passed.get(index).isEmpty()) {
-                result.add(new MatchedFaq(faqs.get(index), String.join("\n", passed.get(index))));
+            if (!selectedByFaq.get(index).isEmpty()) {
+                result.add(new MatchedFaq(faqs.get(index), String.join("\n", selectedByFaq.get(index))));
             }
         }
         return result;
+    }
+
+    private void addSegments(List<Segment> segments, int faqIndex, String answer) {
+        if (answer == null) {
+            return;
+        }
+        StringBuilder content = new StringBuilder();
+        String marker = null;
+        for (String line : answer.split("\\R", -1)) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                addSegment(segments, faqIndex, marker, content);
+                marker = null;
+                content.setLength(0);
+                continue;
+            }
+            Matcher listItem = LIST_ITEM.matcher(line);
+            if (listItem.matches()) {
+                addSegment(segments, faqIndex, marker, content);
+                marker = listItem.group(1);
+                content.setLength(0);
+                appendLine(content, listItem.group(2));
+            } else {
+                appendLine(content, trimmed);
+            }
+        }
+        addSegment(segments, faqIndex, marker, content);
+    }
+
+    private void addSegment(List<Segment> segments, int faqIndex, String marker, StringBuilder content) {
+        String text = content.toString().replaceAll("\\s+", " ").trim();
+        if (!text.isEmpty()) {
+            segments.add(new Segment(faqIndex, marker, text));
+        }
+    }
+
+    private void appendLine(StringBuilder content, String line) {
+        if (line == null || line.isBlank()) {
+            return;
+        }
+        if (!content.isEmpty()) {
+            content.append(' ');
+        }
+        content.append(line.trim());
     }
 
     private double cosine(PGvector left, PGvector right) {
@@ -92,7 +159,10 @@ public class FaqSentenceFilterService {
         return aNorm == 0 || bNorm == 0 ? Double.NaN : dot / Math.sqrt(aNorm * bNorm);
     }
 
-    private record Sentence(int faqIndex, String text) {
+    private record Segment(int faqIndex, String marker, String text) {
+    }
+
+    private record Sentence(int segmentIndex, String text) {
     }
 
     public record MatchedFaq(FaqSearchResponseDto faq, String answerSentences) {
