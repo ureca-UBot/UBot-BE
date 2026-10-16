@@ -24,7 +24,7 @@ public class FaqVectorService {
     private final EmbeddingProfileService embeddingProfileService;
     private final FaqVectorRepository faqVectorRepository;
 
-    // 검색할 FAQ 벡터 유형입니다. 사용자 질문은 유형과 관계없이 질문만 임베딩합니다.
+    // 설정값은 유지하되, FAQ 검색은 두 모드 모두 QUESTION 벡터를 사용합니다.
     private final FaqVectorType searchVectorType;
 
     public FaqVectorService(
@@ -42,7 +42,7 @@ public class FaqVectorService {
                 "FAQ_SEARCH_VECTOR_TYPE은 QUESTION 또는 QUESTION_ANSWER여야 합니다."
         );
 
-        log.info("FAQ 검색에 쓸 벡터 유형을 정했습니다: 유형={}", this.searchVectorType);
+        log.info("FAQ 벡터 설정={}, 검색 유형={}", this.searchVectorType, FaqVectorType.QUESTION);
     }
 
     public List<FaqSearchResponseDto> getSimilarList(
@@ -55,7 +55,7 @@ public class FaqVectorService {
         return faqVectorRepository.getSimilarList(
                 queryVector,
                 profileId,
-                searchVectorType,
+                FaqVectorType.QUESTION,
                 topK
         );
     }
@@ -73,7 +73,7 @@ public class FaqVectorService {
         return faqVectorRepository.getSimilarListByIntent(
                 queryVector,
                 profileId,
-                searchVectorType,
+                FaqVectorType.QUESTION,
                 intent,
                 topK
         );
