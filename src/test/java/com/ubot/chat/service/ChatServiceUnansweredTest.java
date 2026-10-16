@@ -43,7 +43,7 @@ class ChatServiceUnansweredTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector());
+				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), ChatTestFixtures.disabledCache());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);

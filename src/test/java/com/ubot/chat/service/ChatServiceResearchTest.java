@@ -30,7 +30,7 @@ class ChatServiceResearchTest {
     private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
     private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, new ChatAnswerProcessor(
-            FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector()));
+            FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.disabledCache()));
     private final ChatService service = new ChatService(attempts, filter, harness.submissionService,
             ipRegionResolver);
 

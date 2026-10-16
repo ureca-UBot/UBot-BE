@@ -62,7 +62,7 @@ class ChatServiceIntentRoutingTest {
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
 				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher));
+				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.disabledCache());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);

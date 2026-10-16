@@ -10,7 +10,11 @@ import com.ubot.chat.context.ChatContext;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.faq.cache.FaqCacheDecision;
+import com.ubot.faq.cache.FaqSemanticCacheService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.DenseFaqCandidates;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -18,6 +22,7 @@ import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.List;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -41,29 +46,50 @@ public class ChatAnswerProcessor {
 	private final AiService aiService;
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
+	private final FaqSemanticCacheService faqSemanticCacheService;
 
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
-			ChatContextCollector chatContextCollector) {
+			ChatContextCollector chatContextCollector,
+			FaqSemanticCacheService faqSemanticCacheService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
+		this.faqSemanticCacheService = faqSemanticCacheService;
 	}
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
+		long startedAt = System.nanoTime();
 		checkCancellation.run();
-		// 기존 검색 → 유사도 판정 → AiService 흐름을 재사용합니다.
 		AnswerProgress.report(Phase.SEARCHING);
-		RetrievalOutcome outcome;
+		Intent requestedIntent = attempt.isResearch() ? attempt.getIntent() : null;
+		DenseFaqCandidates dense;
 		try {
-			outcome = searchFaqs(attempt);
+			dense = faqRetrievalService.searchCandidates(attempt.getQuestion(), requestedIntent, topK,
+					faqSemanticCacheService.minimumCandidateCount(requestedIntent));
 		} catch (DataAccessException exception) {
 			return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
+		checkCancellation.run();
+		FaqCacheDecision cacheDecision = faqSemanticCacheService.evaluate(requestedIntent, dense.candidates());
+		checkCancellation.run();
+		Optional<FaqSearchResponseDto> cachedFaq = cacheDecision.faq();
+		log.info("FAQ_CACHE decision: attemptId={}, reason={}, faqId={}, score={}, margin={}",
+				attempt.getId(), cacheDecision.reason(),
+				cachedFaq.map(FaqSearchResponseDto::faqId).orElse(null),
+				cacheDecision.similarity(), cacheDecision.margin());
+		if (cachedFaq.isPresent()) {
+			FaqSearchResponseDto officialFaq = cachedFaq.get();
+			log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
+					attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
+			return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false), List.of(officialFaq));
+		}
+		// MISS이면 원래 검색 후보로 기존 RAG를 이어갑니다. 임베딩·검색은 반복하지 않습니다.
+		RetrievalOutcome outcome = faqRetrievalService.rankCandidates(attempt.getQuestion(), dense, topK);
 		// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
 		List<FaqSearchResponseDto> results = outcome.rankedCandidates();
 		checkCancellation.run();
@@ -89,6 +115,9 @@ public class ChatAnswerProcessor {
 			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
 		}
 		checkCancellation.run();
+		log.info("CHAT route: attemptId={}, source=LLM, faqIds={}, preparationMs={}",
+				attempt.getId(), filteredResults.stream().map(FaqSearchResponseDto::faqId).toList(),
+				elapsedMillis(startedAt));
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
 		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		AnswerMaterials materials = chatContextCollector.collect(
@@ -101,10 +130,8 @@ public class ChatAnswerProcessor {
 		return ChatAnswerResult.answered(answer, filteredResults);
 	}
 
-	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
-	private RetrievalOutcome searchFaqs(AnswerAttemptsHistory attempt) {
-		return faqRetrievalService.retrieve(
-				attempt.getQuestion(), attempt.isResearch() ? attempt.getIntent() : null, topK);
+	private long elapsedMillis(long startedAt) {
+		return (System.nanoTime() - startedAt) / 1_000_000;
 	}
 
 	private void createUnansweredQuestion(
