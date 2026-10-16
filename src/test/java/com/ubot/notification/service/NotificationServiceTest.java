@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.ubot.billing.entity.BillingRecord;
 import com.ubot.notification.enums.NotificationType;
+import com.ubot.notification.enums.ReservationReminderStage;
 import com.ubot.notification.repository.NotificationRepository;
 import com.ubot.reservation.entity.StoreReservation;
 import com.ubot.reservation.enums.ReservationPurpose;
@@ -26,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 @DisplayName("알림 서비스 단위 테스트")
 class NotificationServiceTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 15);
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 15, 9, 0);
 
     private final NotificationRepository notificationRepository = mock(NotificationRepository.class);
     private final NotificationService service = new NotificationService(notificationRepository);
@@ -47,12 +49,13 @@ class NotificationServiceTest {
     }
 
     @Test
-    @DisplayName("방문 예약 리마인더는 방문이 내일이면 내일로 안내하고 예약별 dedupe_key로 저장한다")
-    void createsReservationReminderForTomorrow() {
+    @DisplayName("24시간 전 단계는 방문이 내일이면 내일로 안내하고 예약·단계별 dedupe_key로 저장한다")
+    void createsDayBeforeReminderForTomorrow() {
         StoreReservation reservation = reservation(LocalDateTime.of(2026, 10, 16, 10, 0));
-        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
 
-        boolean created = service.createReservationReminder(reservation, TODAY);
+        boolean created = service.createReservationReminder(reservation, ReservationReminderStage.D1, NOW);
 
         assertThat(created).isTrue();
         ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
@@ -62,32 +65,66 @@ class NotificationServiceTest {
                 eq("방문 예약 리마인더"),
                 message.capture(),
                 eq(100L),
-                eq("RESERVATION_REMINDER:100"),
+                eq("RESERVATION_REMINDER:100:D1"),
                 any(LocalDateTime.class));
         assertThat(message.getValue()).isEqualTo("강남점 10월 16일 (금) 10:00 요금제 변경 방문이 내일입니다.");
     }
 
     @Test
-    @DisplayName("방문 예약 리마인더는 방문이 오늘이면 오늘로 안내한다")
-    void createsReservationReminderForToday() {
-        StoreReservation reservation = reservation(LocalDateTime.of(2026, 10, 15, 14, 0));
-        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+    @DisplayName("24시간 전 단계는 방문이 오늘이면 오늘로 안내한다")
+    void createsDayBeforeReminderForToday() {
+        StoreReservation reservation = reservation(LocalDateTime.of(2026, 10, 15, 20, 0));
+        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
 
-        service.createReservationReminder(reservation, TODAY);
+        service.createReservationReminder(reservation, ReservationReminderStage.D1, NOW);
 
         ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
         verify(notificationRepository).insertIfAbsent(
                 any(), any(), any(), message.capture(), any(), any(), any());
-        assertThat(message.getValue()).isEqualTo("강남점 10월 15일 (목) 14:00 요금제 변경 방문이 오늘입니다.");
+        assertThat(message.getValue()).isEqualTo("강남점 10월 15일 (목) 20:00 요금제 변경 방문이 오늘입니다.");
     }
 
     @Test
-    @DisplayName("이미 같은 예약의 리마인더가 있으면 false를 반환한다")
+    @DisplayName("6시간 전 단계는 실제 남은 시간으로 안내하고 단계별 dedupe_key로 저장한다")
+    void createsSixHoursBeforeReminder() {
+        StoreReservation reservation = reservation(LocalDateTime.of(2026, 10, 15, 14, 30));
+        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
+
+        service.createReservationReminder(reservation, ReservationReminderStage.H6, NOW);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertIfAbsent(
+                any(), any(), any(), message.capture(), eq(100L), eq("RESERVATION_REMINDER:100:H6"),
+                any());
+        assertThat(message.getValue()).isEqualTo("강남점 10월 15일 (목) 14:30 요금제 변경 방문이 5시간 30분 남았습니다.");
+    }
+
+    @Test
+    @DisplayName("1시간 전 단계는 실제 남은 시간으로 안내하고 단계별 dedupe_key로 저장한다")
+    void createsOneHourBeforeReminder() {
+        StoreReservation reservation = reservation(LocalDateTime.of(2026, 10, 15, 9, 30));
+        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
+
+        service.createReservationReminder(reservation, ReservationReminderStage.H1, NOW);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertIfAbsent(
+                any(), any(), any(), message.capture(), eq(100L), eq("RESERVATION_REMINDER:100:H1"),
+                any());
+        assertThat(message.getValue()).isEqualTo("강남점 10월 15일 (목) 09:30 요금제 변경 방문이 30분 남았습니다.");
+    }
+
+    @Test
+    @DisplayName("이미 같은 예약의 같은 단계 리마인더가 있으면 false를 반환한다")
     void returnsFalseWhenReservationReminderAlreadyExists() {
         StoreReservation reservation = reservation(LocalDateTime.of(2026, 10, 16, 10, 0));
-        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(notificationRepository.insertIfAbsent(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(0);
 
-        assertThat(service.createReservationReminder(reservation, TODAY)).isFalse();
+        assertThat(service.createReservationReminder(reservation, ReservationReminderStage.D1, NOW)).isFalse();
     }
 
     @Test
@@ -163,7 +200,8 @@ class NotificationServiceTest {
     void rejectsNonBillingType() {
         BillingRecord billing = billing(LocalDate.of(2026, 10, 18));
 
-        assertThatThrownBy(() -> service.createBillingReminder(billing, NotificationType.RESERVATION_REMINDER, TODAY))
+        assertThatThrownBy(() -> service.createBillingReminder(billing, NotificationType.RESERVATION_REMINDER,
+                TODAY))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(notificationRepository, never())
                 .insertWithoutReservationIfAbsent(any(), any(), any(), any(), any(), any());

@@ -11,9 +11,12 @@ import java.time.LocalDateTime;
 import java.util.function.IntSupplier;
 
 /**
- * 리마인더 알림을 만드는 스케줄러. 알림 종류별 작업을 따로 실행해 하나가 실패해도 나머지는 계속 실행한다.
- * 새 리마인더는 {@link #sendReminders()}에 작업 한 줄을 추가해 붙인다.
+ * 리마인더 알림을 만드는 스케줄러
+ * 방문 예약은 매시, 요금은 하루 한 번 실행
+ * 서버가 여러 대여도 한 번만 실행되도록 ShedLock 사용 (auto-scaling 대비)
+ * lockAtLeastFor는 시계가 조금 늦은 다른 서버가 곧바로 다시 실행하지 않게 함 (auto-scaling 대비)
  */
+
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -21,13 +24,17 @@ public class NotificationReminderScheduler {
     private final ReservationReminderService reservationReminderService;
     private final BillingReminderService billingReminderService;
 
-    // 서버가 여러 대여도 한 번만 실행한다. lockAtLeastFor는 시계가 조금 늦은 다른 서버가 곧바로 다시 실행하지 않게 한다.
-    @Scheduled(cron = "${notification.reminder-cron}", zone = "Asia/Seoul")
-    @SchedulerLock(name = "notificationReminder", lockAtMostFor = "PT10M", lockAtLeastFor = "PT1M")
-    public void sendReminders() {
+    @Scheduled(cron = "${notification.reservation-reminder-cron}", zone = "Asia/Seoul")
+    @SchedulerLock(name = "reservationReminder", lockAtMostFor = "PT10M", lockAtLeastFor = "PT1M")
+    public void sendReservationReminders() {
         LocalDateTime now = LocalDateTime.now();
-        LocalDate today = now.toLocalDate();
         run("방문 예약 리마인더", () -> reservationReminderService.sendReminders(now));
+    }
+
+    @Scheduled(cron = "${notification.billing-reminder-cron}", zone = "Asia/Seoul")
+    @SchedulerLock(name = "billingReminder", lockAtMostFor = "PT10M", lockAtLeastFor = "PT1M")
+    public void sendBillingReminders() {
+        LocalDate today = LocalDate.now();
         run("납부 기한 임박", () -> billingReminderService.sendDueSoonReminders(today));
         run("연체", () -> billingReminderService.sendOverdueReminders(today));
     }

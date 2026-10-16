@@ -10,6 +10,7 @@ import com.ubot.subscription.entity.Subscription;
 import com.ubot.user.entity.User;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,7 +35,6 @@ class NotificationReminderIntegrationTest {
 
     private Long storeId;
     private LocalDateTime now;
-    private LocalDateTime tomorrowVisit;
 
     @BeforeEach
     void setUp() {
@@ -42,50 +42,64 @@ class NotificationReminderIntegrationTest {
                 "INSERT INTO stores (store_name, address, latitude, longitude, business_hours) VALUES (?, ?, 37.5, 127.0, '10:00-13:00') RETURNING store_id",
                 Long.class, "리마인더테스트점-" + UUID.randomUUID(), "서울 테스트로 " + UUID.randomUUID());
         now = LocalDateTime.now();
-        tomorrowVisit = now.toLocalDate().plusDays(1).atTime(10, 0);
     }
 
     @Test
-    @DisplayName("충분히 일찍 잡은 예약에는 리마인더를 한 번만 만들고 다시 실행해도 중복 생성하지 않는다")
+    @DisplayName("충분히 일찍 잡은 예약에는 24시간 전 리마인더를 한 번만 만들고 다시 실행해도 중복 생성하지 않는다")
     void createsReservationReminderOnlyOnce() {
         Long userId = user();
-        Long reservationId = reservation(userId, tomorrowVisit, "RESERVED", now.minusDays(3));
+        Long reservationId = reservation(userId, now.plusHours(20), "RESERVED", now.minusDays(3));
 
         int sendFirst = reminderService.sendReminders(now);
         int sendSecond = reminderService.sendReminders(now);
 
         assertThat(sendFirst).isGreaterThanOrEqualTo(1);
         assertThat(sendSecond).isZero();
-        assertThat(reminderCount(reservationId)).isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT dedupe_key FROM notifications WHERE reservation_id = ? AND type = 'RESERVATION_REMINDER'",
-                String.class, reservationId)).isEqualTo("RESERVATION_REMINDER:" + reservationId);
+        assertThat(reminderKeys(reservationId))
+                .containsExactly("RESERVATION_REMINDER:" + reservationId + ":D1");
     }
 
     @Test
-    @DisplayName("방문 24시간 이내에 잡은 예약과 취소된 예약에는 리마인더를 만들지 않는다")
+    @DisplayName("방문이 가까워질수록 24시간·6시간·1시간 전 알림을 단계별로 한 번씩 만든다")
+    void createsReminderForEachStageAsVisitApproaches() {
+        Long userId = user();
+        LocalDateTime visitAt = now.plusHours(20);
+        Long reservationId = reservation(userId, visitAt, "RESERVED", now.minusDays(3));
+
+        reminderService.sendReminders(now);
+        reminderService.sendReminders(visitAt.minusHours(5));
+        reminderService.sendReminders(visitAt.minusMinutes(30));
+        reminderService.sendReminders(visitAt.minusMinutes(30));
+
+        assertThat(reminderKeys(reservationId)).containsExactlyInAnyOrder(
+                "RESERVATION_REMINDER:" + reservationId + ":D1",
+                "RESERVATION_REMINDER:" + reservationId + ":H6",
+                "RESERVATION_REMINDER:" + reservationId + ":H1");
+    }
+
+    @Test
+    @DisplayName("그 단계 시점보다 늦게 잡은 예약과 취소된 예약에는 리마인더를 만들지 않는다")
     void skipsRecentlyBookedAndCanceledReservations() {
         Long recentUser = user();
         Long canceledUser = user();
         Long recent = reservation(recentUser, now.plusHours(20), "RESERVED", now.minusHours(1));
-        Long canceled = reservation(canceledUser, tomorrowVisit.plusHours(1), "CANCELED", now.minusDays(3));
+        Long canceled = reservation(canceledUser, now.plusHours(21), "CANCELED", now.minusDays(3));
 
         reminderService.sendReminders(now);
 
-        assertThat(reminderCount(recent)).isZero();
-        assertThat(reminderCount(canceled)).isZero();
+        assertThat(reminderKeys(recent)).isEmpty();
+        assertThat(reminderKeys(canceled)).isEmpty();
     }
 
     @Test
-    @DisplayName("모레 이후 방문 예약에는 리마인더를 만들지 않는다")
-    void skipsReservationAfterTomorrow() {
+    @DisplayName("방문까지 24시간보다 많이 남은 예약에는 리마인더를 만들지 않는다")
+    void skipsReservationMoreThan24HoursAway() {
         Long userId = user();
-        Long reservationId = reservation(userId, now.toLocalDate().plusDays(2).atTime(10, 0), "RESERVED",
-                now.minusDays(3));
+        Long reservationId = reservation(userId, now.plusHours(30), "RESERVED", now.minusDays(3));
 
         reminderService.sendReminders(now);
 
-        assertThat(reminderCount(reservationId)).isZero();
+        assertThat(reminderKeys(reservationId)).isEmpty();
     }
 
     @Test
@@ -120,10 +134,10 @@ class NotificationReminderIntegrationTest {
                 Long.class, "BILLING_DUE_SOON:" + billingId)).isNull();
     }
 
-    private long reminderCount(Long reservationId) {
-        return jdbcTemplate.queryForObject(
-                "SELECT count(*) FROM notifications WHERE reservation_id = ? AND type = 'RESERVATION_REMINDER'",
-                Long.class, reservationId);
+    private List<String> reminderKeys(Long reservationId) {
+        return jdbcTemplate.queryForList(
+                "SELECT dedupe_key FROM notifications WHERE reservation_id = ? AND type = 'RESERVATION_REMINDER'",
+                String.class, reservationId);
     }
 
     private Long user() {

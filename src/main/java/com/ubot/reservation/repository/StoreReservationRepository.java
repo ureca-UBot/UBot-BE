@@ -42,13 +42,16 @@ public interface StoreReservationRepository
 	@EntityGraph(attributePaths = "store")
 	List<StoreReservation> findAllByUserIdOrderByVisitAtDesc(Long userId);
 
-	// 방문 리마인더 대상. 알림에 매장 이름을 쓰므로 store를 함께 가져온다.
+	/**
+	 * 방문 리마인더 대상(from 초과, to 이하)
+	 * 알림에 매장 이름을 쓰므로 store를 함께 가져옴
+	 */
 	@EntityGraph(attributePaths = "store")
 	@Query("""
 			select r from StoreReservation r
 			where r.status = :status
 			  and r.visitAt > :from
-			  and r.visitAt < :to
+			  and r.visitAt <= :to
 			order by r.visitAt asc, r.reservationId asc
 			""")
 	List<StoreReservation> findReminderTargets(
