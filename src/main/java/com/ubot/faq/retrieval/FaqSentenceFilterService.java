@@ -38,6 +38,10 @@ public class FaqSentenceFilterService {
         List<Sentence> sentences = new ArrayList<>();
         for (int index = 0; index < segments.size(); index++) {
             Segment segment = segments.get(index);
+            if (segment.list()) {
+                sentences.add(new Sentence(index, segment.text()));
+                continue;
+            }
             BreakIterator boundaries = BreakIterator.getSentenceInstance(Locale.KOREAN);
             boundaries.setText(segment.text());
             for (int start = boundaries.first(), end = boundaries.next(); end != BreakIterator.DONE;
@@ -84,10 +88,10 @@ public class FaqSentenceFilterService {
             if (selected.isEmpty()) {
                 continue;
             }
-            if (segment.marker() == null) {
+            if (!segment.list()) {
                 selectedByFaq.get(segment.faqIndex()).addAll(selected);
             } else {
-                selectedByFaq.get(segment.faqIndex()).add(segment.marker() + " " + String.join(" ", selected));
+                selectedByFaq.get(segment.faqIndex()).add(segment.displayText());
             }
         }
 
@@ -105,32 +109,61 @@ public class FaqSentenceFilterService {
             return;
         }
         StringBuilder content = new StringBuilder();
-        String marker = null;
-        for (String line : answer.split("\\R", -1)) {
+        StringBuilder display = new StringBuilder();
+        boolean list = false;
+        String[] lines = answer.split("\\R", -1);
+        for (int index = 0; index < lines.length; index++) {
+            String line = lines[index];
             String trimmed = line.trim();
             if (trimmed.isEmpty()) {
-                addSegment(segments, faqIndex, marker, content);
-                marker = null;
+                if (nextLineStartsList(lines, index + 1)) {
+                    if (!display.isEmpty()) {
+                        display.append('\n');
+                    }
+                    continue;
+                }
+                addSegment(segments, faqIndex, list, content, display);
+                list = false;
                 content.setLength(0);
+                display.setLength(0);
                 continue;
             }
             Matcher listItem = LIST_ITEM.matcher(line);
             if (listItem.matches()) {
-                addSegment(segments, faqIndex, marker, content);
-                marker = listItem.group(1);
-                content.setLength(0);
+                list = true;
                 appendLine(content, listItem.group(2));
             } else {
+                // 들여 쓴 줄은 마지막 항목의 연속 내용으로, 들여 쓰지 않은 줄은 목록 뒤의 일반 문장으로 봅니다.
+                if (list && !Character.isWhitespace(line.charAt(0))) {
+                    addSegment(segments, faqIndex, true, content, display);
+                    list = false;
+                    content.setLength(0);
+                    display.setLength(0);
+                }
                 appendLine(content, trimmed);
             }
+            if (!display.isEmpty()) {
+                display.append('\n');
+            }
+            display.append(trimmed);
         }
-        addSegment(segments, faqIndex, marker, content);
+        addSegment(segments, faqIndex, list, content, display);
     }
 
-    private void addSegment(List<Segment> segments, int faqIndex, String marker, StringBuilder content) {
+    private boolean nextLineStartsList(String[] lines, int start) {
+        for (int index = start; index < lines.length; index++) {
+            if (!lines[index].isBlank()) {
+                return LIST_ITEM.matcher(lines[index]).matches();
+            }
+        }
+        return false;
+    }
+
+    private void addSegment(List<Segment> segments, int faqIndex, boolean list,
+            StringBuilder content, StringBuilder display) {
         String text = content.toString().replaceAll("\\s+", " ").trim();
         if (!text.isEmpty()) {
-            segments.add(new Segment(faqIndex, marker, text));
+            segments.add(new Segment(faqIndex, list, text, display.toString()));
         }
     }
 
@@ -159,7 +192,7 @@ public class FaqSentenceFilterService {
         return aNorm == 0 || bNorm == 0 ? Double.NaN : dot / Math.sqrt(aNorm * bNorm);
     }
 
-    private record Segment(int faqIndex, String marker, String text) {
+    private record Segment(int faqIndex, boolean list, String text, String displayText) {
     }
 
     private record Sentence(int segmentIndex, String text) {

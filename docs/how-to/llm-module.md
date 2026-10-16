@@ -246,7 +246,7 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 
 ### FAQ 질문 벡터와 답변 문장 비교
 
-FAQ의 활성 질문 표현(variant)마다 현재 Profile에 질문 벡터를 저장합니다. 사용자 질문도 임베딩해 `QUESTION` 벡터와 비교하고, FAQ마다 점수가 가장 높은 표현 하나를 고릅니다. 캐시가 승인하지 않은 경우 질문 벡터 유사도 기준을 통과한 후보 FAQ의 답변 문장들을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 LLM에 전달합니다.
+FAQ의 활성 질문 표현(variant)마다 현재 Profile에 질문 벡터를 저장합니다. 사용자 질문도 임베딩해 `QUESTION` 벡터와 비교하고, FAQ마다 점수가 가장 높은 표현 하나를 고릅니다. 캐시가 승인하지 않은 경우 질문 벡터 유사도 기준을 통과한 후보 FAQ의 답변을 임베딩해 사용자 질문과 비교합니다. 일반 문장은 문장별로, 안내 문장과 이어지는 번호·글머리 목록은 목록 전체를 하나의 단위로 비교합니다. 목록 뒤에 들여 쓰지 않고 시작하는 일반 문장은 별도로 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 단위만 LLM에 전달합니다.
 
 FAQ 생성 시 원본과 유사 질문 각각의 질문 벡터를 만듭니다. 원본 질문이나 유사 질문이 바뀌면 새 variant의 질문을 임베딩하고 제거된 variant의 벡터를 삭제합니다. 답변·카테고리·intent·cacheable만 바뀐 경우 유지되는 질문 벡터의 `faq_version`만 갱신합니다.
 
