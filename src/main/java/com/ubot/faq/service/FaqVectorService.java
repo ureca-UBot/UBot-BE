@@ -3,7 +3,6 @@ package com.ubot.faq.service;
 import java.util.List;
 import java.util.Objects;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
@@ -24,25 +23,15 @@ public class FaqVectorService {
     private final EmbeddingProfileService embeddingProfileService;
     private final FaqVectorRepository faqVectorRepository;
 
-    // 설정값은 유지하되, FAQ 검색은 두 모드 모두 QUESTION 벡터를 사용합니다.
-    private final FaqVectorType searchVectorType;
-
     public FaqVectorService(
             EmbeddingService embeddingService,
             EmbeddingProfileService embeddingProfileService,
-            FaqVectorRepository faqVectorRepository,
-            @Value("${FAQ_SEARCH_VECTOR_TYPE:QUESTION}") FaqVectorType searchVectorType
+            FaqVectorRepository faqVectorRepository
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.faqVectorRepository = faqVectorRepository;
-        // 값을 비워 두면 null로 들어옵니다. 검색할 때가 아니라 시작할 때 알 수 있게 여기서 막습니다.
-        this.searchVectorType = Objects.requireNonNull(
-                searchVectorType,
-                "FAQ_SEARCH_VECTOR_TYPE은 QUESTION 또는 QUESTION_ANSWER여야 합니다."
-        );
-
-        log.info("FAQ 벡터 설정={}, 검색 유형={}", this.searchVectorType, FaqVectorType.QUESTION);
+        log.info("FAQ 검색 벡터 유형={}", FaqVectorType.QUESTION);
     }
 
     public List<FaqSearchResponseDto> getSimilarList(
@@ -58,10 +47,6 @@ public class FaqVectorService {
                 FaqVectorType.QUESTION,
                 topK
         );
-    }
-
-    public boolean isQuestionAnswerMode() {
-        return searchVectorType == FaqVectorType.QUESTION_ANSWER;
     }
 
     public List<FaqSearchResponseDto> getSimilarListByIntent(
@@ -83,59 +68,39 @@ public class FaqVectorService {
         );
     }
 
-    /** 새 variant의 벡터를 유형마다 하나씩 만들어 저장합니다. */
-    public void saveVectorsForVariant(
+    /** 새 variant의 질문 벡터를 저장합니다. */
+    public void saveQuestionVectorForVariant(
             Long variantId,
             Integer faqVersion,
-            String question,
-            String answer
+            String question
     ) {
-        for (FaqVectorType vectorType : FaqVectorType.values()) {
-            saveVector(
-                    variantId,
-                    faqVersion,
-                    vectorType,
-                    question,
-                    answer
-            );
-        }
+        saveVector(variantId, faqVersion, question);
     }
 
-    /** 유지되는 variant는 답변 변경 시 질문·답변 벡터만 다시 만들고, 두 유형 모두 FAQ 버전을 갱신합니다. */
-    public void updateVectorsForVariant(
+    /** 유지되는 variant는 질문이 같으므로 질문 벡터의 FAQ 버전만 갱신합니다. */
+    public void updateQuestionVectorVersionForVariant(
             Long variantId,
-            Integer faqVersion,
-            String question,
-            String answer,
-            boolean answerChanged
+            Integer faqVersion
     ) {
         Long profileId = embeddingProfileService.getCurrentProfileId();
         faqVectorRepository.updateVectorVersionForVariant(
                 variantId, profileId, faqVersion);
-
-        if (answerChanged) {
-            saveVector(variantId, faqVersion, FaqVectorType.QUESTION_ANSWER, question, answer);
-        }
     }
 
     private void saveVector(
             Long variantId,
             Integer faqVersion,
-            FaqVectorType vectorType,
-            String question,
-            String answer
+            String question
     ) {
         long startedAt = System.nanoTime();
 
-        PGvector vector = embeddingService.embedText(
-                vectorType.toEmbeddingText(question, answer)
-        );
+        PGvector vector = embeddingService.embedText(question);
         Long profileId = embeddingProfileService.getCurrentProfileId();
 
         faqVectorRepository.saveVectorForVariant(
                 variantId,
                 profileId,
-                vectorType,
+                FaqVectorType.QUESTION,
                 faqVersion,
                 vector
         );
@@ -145,7 +110,7 @@ public class FaqVectorService {
                 variantId,
                 faqVersion,
                 profileId,
-                vectorType,
+                FaqVectorType.QUESTION,
                 elapsedMillis(startedAt)
         );
     }

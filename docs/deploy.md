@@ -162,7 +162,7 @@ GitHub Actions에서 하는 일:
    - 5초 간격으로 다시 시도합니다. 제한 시간은 이 서버에 띄운 모델 서버면 1200초, 다른 곳의 모델 서버면 60초입니다.
    - 이 서버에 띄운 모델 서버는 컨테이너가 종료됐거나 두 번 이상 재시작하면 제한 시간을 기다리지 않고 실패합니다.
    - 실패하면 그 컨테이너의 상태와 로그 200줄을 출력합니다.
-8. FAQ 벡터를 준비합니다. 활성 FAQ마다 원본 질문의 활성 variant가 있는지, 활성 variant마다 현재 Embedding Profile과 FAQ 버전에서 검색에 쓰는 유형(`FAQ_SEARCH_VECTOR_TYPE`, 없으면 `QUESTION`)의 벡터가 있는지 확인합니다. FAQ가 없거나 벡터가 다 있으면 그대로 넘어갑니다. 모자라면 새 이미지로 백필만 하고 끝나는 임시 백엔드를 띄웁니다(`docker compose run ... backend --app.embedding-backfill.run=true`).
+8. FAQ 벡터를 준비합니다. 활성 FAQ마다 원본 질문의 활성 variant가 있는지, 활성 variant마다 현재 Embedding Profile과 FAQ 버전의 `QUESTION` 벡터가 있는지 확인합니다. FAQ가 없거나 벡터가 다 있으면 그대로 넘어갑니다. 모자라면 새 이미지로 백필만 하고 끝나는 임시 백엔드를 띄웁니다(`docker compose run ... backend --app.embedding-backfill.run=true`).
    - 임시 백엔드는 Nginx 트래픽을 받지 않고 DB 스키마도 바꾸지 않습니다. 이 동안 기존 백엔드가 계속 서비스합니다.
    - 백필이 끝나면 다시 확인하고, 벡터가 다 있어야 다음으로 넘어갑니다.
    - 백필이 실패하면 여기서 끝납니다. 기존 백엔드와 Nginx는 그대로입니다.
@@ -220,7 +220,7 @@ BACKEND_IMAGE=ubot-be:<이전 커밋 SHA> docker compose -p ubot --env-file .env
 
 ## 주의할 점
 
-- **임베딩 설정을 바꾸면 배포가 교체 전에 벡터를 채웁니다.** `AI_MODE`, 임베딩 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾸면 새 Embedding Profile에는 벡터가 없으므로, 배포 스크립트가 임시 백엔드로 활성 variant의 누락된 벡터를 백필한 뒤에 교체합니다. 검색 유형(`FAQ_SEARCH_VECTOR_TYPE`)에 필요한 벡터가 모자랄 때도 백필하며, 백필은 두 유형을 모두 확인합니다. 소요 시간은 활성 variant 수와 누락된 유형 수에 따라 달라집니다.
+- **임베딩 설정을 바꾸면 배포가 교체 전에 벡터를 채웁니다.** `AI_MODE`, 임베딩 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾸면 새 Embedding Profile에는 벡터가 없으므로, 배포 스크립트가 임시 백엔드로 활성 variant의 누락된 `QUESTION` 벡터를 백필한 뒤에 교체합니다. 소요 시간은 활성 variant 수와 누락된 벡터 수에 따라 달라집니다.
     - 같은 배포에 아직 적용되지 않은 마이그레이션이 있으면 교체가 먼저입니다. 이때는 백필이 끝날 때까지 채팅 검색 결과가 없습니다. 피하려면 코드를 먼저 배포하고, 임베딩 설정은 그다음에 바꿔 다시 배포합니다.
     - 모델 서버 종류를 바꾸는 배포에서는 기존 모델 서버를 먼저 멈추므로, 백필이 도는 동안 기존 백엔드의 채팅이 실패합니다.
     - 교체 뒤 백필이 실패해 배포가 실패로 끝났다면 새 백엔드는 이미 떠 있습니다. 원인을 해결한 뒤 다시 배포하거나 아래 스크립트로 채웁니다([백필](how-to/llm-module.md#백필)).

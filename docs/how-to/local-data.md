@@ -23,11 +23,11 @@
 
 스크립트는 CSV에 들어 있는 벡터를 `faq_embeddings`에 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다.
 
-- **`AI_MODE=ollama`이고 `FAQ_SEARCH_VECTOR_TYPE=QUESTION_ANSWER`이면 시드 벡터로 검색할 수 있습니다.** 시드 실행 중에는 임베딩 요청을 하지 않습니다.
+- **현재 시드에는 `QUESTION_ANSWER` 벡터만 들어 있습니다.** 애플리케이션은 `QUESTION` 벡터로 검색하므로 시드 적재 뒤 FAQ 벡터를 백필해야 합니다. 시드 실행 중에는 임베딩 요청을 하지 않습니다.
 - **`AI_MODE=vllm`이면 임베딩 백필을 한 번 실행합니다.** vLLM Profile에는 벡터가 없어서, 백필 전에는 FAQ가 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝납니다. 애플리케이션을 다시 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>`을 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
 - 백필은 현재 Profile에 없는 variant 벡터를 임베딩합니다. 필요한 호출 수는 활성 variant 수와 비어 있는 벡터 유형에 따라 달라집니다.
 - `OLLAMA_EMBEDDING_MODEL`을 `bge-m3:567m`이 아닌 값으로 바꿨다면 Ollama에서도 백필이 필요합니다. CSV의 벡터를 만든 모델과 다른 Profile이 되기 때문입니다.
-- 스크립트는 질문+답변 벡터(`QUESTION_ANSWER`)만 넣습니다. 기본값인 `FAQ_SEARCH_VECTOR_TYPE=QUESTION`으로 검색하려면 Ollama에서도 백필을 실행해 질문 벡터를 채워야 합니다([FAQ 벡터 유형](llm-module.md#faq-벡터-유형)).
+- 스크립트는 질문+답변 벡터(`QUESTION_ANSWER`)만 넣습니다. Ollama에서도 백필을 실행해 검색에 필요한 질문 벡터를 채워야 합니다([FAQ 질문 벡터와 답변 문장 비교](llm-module.md#faq-질문-벡터와-답변-문장-비교)).
 
 이 방법을 썼다면 아래 1~2단계는 건너뛰고 [3. 채팅 모델](#3-채팅-모델)로 갑니다.
 
@@ -198,6 +198,6 @@ powershell -ExecutionPolicy Bypass -File .\load-faqs.ps1 -CsvPath .\faqs.csv -Em
 ## 4. 확인
 
 1. 로그인해서 받은 access token으로 `POST /chat/questions`에 등록한 FAQ와 비슷한 질문을 보냅니다. 응답의 `jobId`로 `GET /chat/jobs/{jobId}`를 호출하면 `status`가 `SUCCEEDED`가 된 뒤 답변이 나옵니다.
-2. `status`가 `FAILED`면 `errorCode`를 보고 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 따릅니다. 유사도가 기준(`CHAT_CONFIDENCE_THRESHOLD`, 기본 0.75)에 못 미치면 `CHAT-013`이고, 그 질문은 `unanswered_questions`에 저장됩니다([db-access.md](db-access.md#주요-테이블)).
+2. `status`가 `FAILED`면 `errorCode`를 보고 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 따릅니다. 답변 문장 유사도가 기준(`FAQ_SENTENCE_SIMILARITY_THRESHOLD`, 기본 0.7)에 못 미치면 `CHAT-013`이고, 그 질문은 `unanswered_questions`에 저장됩니다([db-access.md](db-access.md#주요-테이블)).
 
 금지어 필터를 확인하려면 관리자 API `POST /admin/forbidden-words`로 금지어를 등록한 뒤 그 단어가 들어간 질문을 보냅니다(`FW-003`).

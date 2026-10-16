@@ -130,9 +130,6 @@ public class FaqService {
 
 		boolean questionChanged =
 		        !faq.getQuestion().equals(requestDto.question());
-		boolean answerChanged =
-		        !faq.getAnswer().equals(requestDto.answer());
-
 		faq.update(
 		        category,
 		        requestDto.question(),
@@ -168,8 +165,8 @@ public class FaqService {
 				createVariant(savedFaq, question);
 			} else {
 				existing.remove(kept);
-				faqVectorService.updateVectorsForVariant(
-						kept.getId(), savedFaq.getVersion(), question, savedFaq.getAnswer(), answerChanged);
+				faqVectorService.updateQuestionVectorVersionForVariant(
+						kept.getId(), savedFaq.getVersion());
 			}
 		}
 		for (FaqQuestionVariant removed : existing) {
@@ -194,7 +191,7 @@ public class FaqService {
 	private void createVariant(Faq faq, String question) {
 		FaqQuestionVariant variant = faqQuestionVariantRepository.save(
 				FaqQuestionVariant.builder().originFaq(faq).question(question).build());
-		faqVectorService.saveVectorsForVariant(variant.getId(), faq.getVersion(), question, faq.getAnswer());
+		faqVectorService.saveQuestionVectorForVariant(variant.getId(), faq.getVersion(), question);
 	}
 
 	private void deleteVariant(FaqQuestionVariant variant) {

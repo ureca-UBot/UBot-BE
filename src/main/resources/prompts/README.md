@@ -70,7 +70,7 @@
 
 ## 어떤 FAQ가 전달되는가
 
-`ChatAnswerProcessor`가 `CHAT_TOP_K`(기본 3)개를 검색한 뒤, **각** FAQ의 유사도를 `CHAT_CONFIDENCE_THRESHOLD`(기본 0.75)와 비교해 기준 이상인 FAQ만 전달합니다. 남은 FAQ가 없으면 프롬프트를 만들지 않고 `CHAT-013`으로 실패합니다.
+`ChatAnswerProcessor`가 FAQ 질문 벡터로 후보를 검색한 뒤, 캐시가 승인하지 않으면 답변 문장을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 전달하며, 통과한 문장이 없으면 프롬프트를 만들지 않고 `CHAT-013`으로 실패합니다.
 
 ## 수정·교체 방법
 

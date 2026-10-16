@@ -47,45 +47,19 @@ public class FaqEmbeddingBackfillService {
             );
 
             for (FaqQuestionVariant variant : page.getContent()) {
-                // 유형마다 따로 확인합니다. QUESTION 벡터가 있어도 QUESTION_ANSWER 벡터는 없을 수 있습니다.
-                for (FaqVectorType vectorType : FaqVectorType.values()) {
-                    if (
-                            faqVectorRepository.hasCurrentVector(
-                                    variant.getId(),
-                                    profileId,
-                                    vectorType,
-                                    variant.getOriginFaq().getVersion()
-                            )
-                    ) {
-                        continue;
-                    }
-
-                    PGvector vector =
-                            embeddingService.embedText(
-                                    vectorType.toEmbeddingText(
-                                            variant.getQuestion(),
-                                            variant.getOriginFaq().getAnswer()
-                                    )
-                            );
-
-                    faqVectorRepository.saveVectorForVariant(
-                            variant.getId(),
-                            profileId,
-                            vectorType,
-                            variant.getOriginFaq().getVersion(),
-                            vector
-                    );
-
-                    updatedCount++;
-
-                    log.info(
-                            "FAQ embedding backfill: variantId={}, version={}, profileId={}, vectorType={}",
-                            variant.getId(),
-                            variant.getOriginFaq().getVersion(),
-                            profileId,
-                            vectorType
-                    );
+                if (faqVectorRepository.hasCurrentVector(
+                        variant.getId(), profileId, FaqVectorType.QUESTION,
+                        variant.getOriginFaq().getVersion())) {
+                    continue;
                 }
+
+                PGvector vector = embeddingService.embedText(variant.getQuestion());
+                faqVectorRepository.saveVectorForVariant(
+                        variant.getId(), profileId, FaqVectorType.QUESTION,
+                        variant.getOriginFaq().getVersion(), vector);
+                updatedCount++;
+                log.info("FAQ embedding backfill: variantId={}, version={}, profileId={}, vectorType={}",
+                        variant.getId(), variant.getOriginFaq().getVersion(), profileId, FaqVectorType.QUESTION);
             }
 
             pageNumber++;
