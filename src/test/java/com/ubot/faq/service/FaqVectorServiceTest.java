@@ -91,8 +91,8 @@ class FaqVectorServiceTest {
     }
 
     @Test
-    @DisplayName("QUESTION_ANSWER로 설정해도 사용자 질문은 그대로 임베딩하고 FAQ 벡터 유형만 바꿔 검색한다")
-    void getSimilarList_searchesQuestionAnswerVectorsWithPlainUserQuestion() {
+    @DisplayName("QUESTION_ANSWER로 설정해도 사용자 질문과 FAQ 모두 QUESTION 벡터로 검색한다")
+    void getSimilarList_searchesQuestionVectorsInQuestionAnswerMode() {
         FaqVectorService questionAnswerService =
                 serviceSearching(FaqVectorType.QUESTION_ANSWER);
 
@@ -114,9 +114,10 @@ class FaqVectorServiceTest {
                 .getSimilarList(
                         vector,
                         profileId,
-                        FaqVectorType.QUESTION_ANSWER,
+                        FaqVectorType.QUESTION,
                         3
                 );
+        assertThat(questionAnswerService.isQuestionAnswerMode()).isTrue();
     }
 
     @Test
@@ -173,6 +174,20 @@ class FaqVectorServiceTest {
                         any(),
                         anyInt()
                 );
+    }
+
+    @Test
+    @DisplayName("QUESTION_ANSWER 재검색에서도 FAQ의 QUESTION 벡터를 조회한다")
+    void getSimilarListByIntent_searchesQuestionVectorsInQuestionAnswerMode() {
+        FaqVectorService questionAnswerService = serviceSearching(FaqVectorType.QUESTION_ANSWER);
+        PGvector vector = vector(0);
+        when(embeddingService.embedText("질문")).thenReturn(vector);
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+
+        questionAnswerService.getSimilarListByIntent("질문", Intent.STORE_DATA, 3);
+
+        verify(repository).getSimilarListByIntent(
+                vector, 10L, FaqVectorType.QUESTION, Intent.STORE_DATA, 3);
     }
 
     @Test

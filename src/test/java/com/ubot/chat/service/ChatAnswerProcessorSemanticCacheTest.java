@@ -82,6 +82,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(322L, 14L);
         verify(vectors).getSimilarList(QUESTION, 10);
+        verify(vectors).isQuestionAnswerMode();
         verifyNoMoreInteractions(vectors);
         verify(ai).generateAnswer(any());
     }
@@ -112,6 +113,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L);
         verify(vectors).getSimilarList(QUESTION, 2);
+        verify(vectors).isQuestionAnswerMode();
         verifyNoMoreInteractions(vectors);
     }
 
@@ -142,6 +144,7 @@ class ChatAnswerProcessorSemanticCacheTest {
             verifyNoInteractions(reranker);
         }
         verify(vectors).getSimilarList(QUESTION, candidateK);
+        verify(vectors).isQuestionAnswerMode();
         verifyNoMoreInteractions(vectors);
     }
 
@@ -154,6 +157,7 @@ class ChatAnswerProcessorSemanticCacheTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verify(vectors).getSimilarList(QUESTION, 3);
+        verify(vectors).isQuestionAnswerMode();
         verifyNoMoreInteractions(vectors);
         verifyNoInteractions(ai, collector, reranker);
     }
