@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -50,20 +49,21 @@ public class ChatAnswerProcessor {
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 	private final FaqSemanticCacheService faqSemanticCacheService;
-	@Autowired
-	private FaqSentenceFilterService faqSentenceFilterService;
+	private final FaqSentenceFilterService faqSentenceFilterService;
 
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
 			ChatContextCollector chatContextCollector,
-			FaqSemanticCacheService faqSemanticCacheService) {
+			FaqSemanticCacheService faqSemanticCacheService,
+			FaqSentenceFilterService faqSentenceFilterService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
 		this.faqSemanticCacheService = faqSemanticCacheService;
+		this.faqSentenceFilterService = faqSentenceFilterService;
 	}
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
