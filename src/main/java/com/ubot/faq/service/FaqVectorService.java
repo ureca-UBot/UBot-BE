@@ -38,15 +38,7 @@ public class FaqVectorService {
             String userQuestion,
             int topK
     ) {
-        PGvector queryVector = embeddingService.embedText(userQuestion);
-        Long profileId = embeddingProfileService.getCurrentProfileId();
-
-        return faqVectorRepository.getSimilarList(
-                queryVector,
-                profileId,
-                FaqVectorType.QUESTION,
-                topK
-        );
+        return searchWithVector(userQuestion, null, topK).faqs();
     }
 
     public List<FaqSearchResponseDto> getSimilarListByIntent(
@@ -55,17 +47,22 @@ public class FaqVectorService {
             int topK
     ) {
         Objects.requireNonNull(intent, "intent는 필수입니다.");
+        return searchWithVector(userQuestion, intent, topK).faqs();
+    }
 
+    /** FAQ 검색 결과와 그 검색에 사용한 사용자 질문 벡터를 함께 돌려줍니다. */
+    public SearchResult searchWithVector(String userQuestion, Intent intent, int topK) {
         PGvector queryVector = embeddingService.embedText(userQuestion);
         Long profileId = embeddingProfileService.getCurrentProfileId();
+        List<FaqSearchResponseDto> faqs = intent == null
+                ? faqVectorRepository.getSimilarList(
+                        queryVector, profileId, FaqVectorType.QUESTION, topK)
+                : faqVectorRepository.getSimilarListByIntent(
+                        queryVector, profileId, FaqVectorType.QUESTION, intent, topK);
+        return new SearchResult(faqs, queryVector);
+    }
 
-        return faqVectorRepository.getSimilarListByIntent(
-                queryVector,
-                profileId,
-                FaqVectorType.QUESTION,
-                intent,
-                topK
-        );
+    public record SearchResult(List<FaqSearchResponseDto> faqs, PGvector queryVector) {
     }
 
     /** 새 variant의 질문 벡터를 저장합니다. */

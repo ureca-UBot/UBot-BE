@@ -33,7 +33,7 @@ public class FaqSentenceFilterService {
         this.threshold = threshold;
     }
 
-    public List<MatchedFaq> filter(String question, List<FaqSearchResponseDto> faqs) {
+    public List<MatchedFaq> filter(PGvector queryVector, List<FaqSearchResponseDto> faqs) {
         List<Segment> segments = new ArrayList<>();
         for (int index = 0; index < faqs.size(); index++) {
             addSegments(segments, index, faqs.get(index).answer());
@@ -61,8 +61,7 @@ public class FaqSentenceFilterService {
             return List.of();
         }
 
-        List<String> texts = new ArrayList<>(sentences.size() + 1);
-        texts.add(question);
+        List<String> texts = new ArrayList<>(sentences.size());
         sentences.stream().map(Sentence::text).forEach(texts::add);
         List<PGvector> vectors = embeddingService.embedTexts(texts);
         List<List<String>> passed = new ArrayList<>(segments.size());
@@ -72,7 +71,7 @@ public class FaqSentenceFilterService {
         for (int index = 0; index < sentences.size(); index++) {
             Sentence sentence = sentences.get(index);
             Segment segment = segments.get(sentence.segmentIndex());
-            double similarity = cosine(vectors.getFirst(), vectors.get(index + 1));
+            double similarity = cosine(queryVector, vectors.get(index));
             boolean accepted = similarity >= threshold;
             log.info("FAQ 답변 문장 유사도: FAQ ID={}, 유사도={}, 기준값={}, 결과={}, 문장={}",
                     faqs.get(segment.faqIndex()).faqId(), similarity, threshold,

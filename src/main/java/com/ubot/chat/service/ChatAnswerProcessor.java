@@ -118,7 +118,7 @@ public class ChatAnswerProcessor {
 		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 유사도통과수={}, 문장검사대상수={}, Reranker정렬={}, Reranker실패사유={}",
 				attempt.getId(), dense.candidates().size(), similar.size(),
 				candidates.size(), outcome.reranked(), outcome.fallbackReason());
-		List<MatchedFaq> matched = faqSentenceFilterService.filter(attempt.getQuestion(), candidates);
+		List<MatchedFaq> matched = faqSentenceFilterService.filter(dense.queryVector(), candidates);
 		checkCancellation.run();
 		log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 통과FAQ수={}, 통과FAQ ID={}",
 				attempt.getId(), matched.size(), matched.stream().map(item -> item.faq().faqId()).toList());

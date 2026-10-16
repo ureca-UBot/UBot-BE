@@ -82,8 +82,8 @@ public class FaqRetrievalService {
             candidateK = Math.max(candidateK, rerank.getCandidateK());
         }
         // DB·임베딩 오류는 호출한 쪽의 검색 실패 처리로 넘깁니다.
-        List<FaqSearchResponseDto> dense = search(userQuestion, intent, candidateK);
-        return new DenseFaqCandidates(dense, elapsedMillis(startedAt));
+        FaqVectorService.SearchResult dense = faqVectorService.searchWithVector(userQuestion, intent, candidateK);
+        return new DenseFaqCandidates(dense.faqs(), elapsedMillis(startedAt), dense.queryVector());
     }
 
     /**
@@ -133,12 +133,6 @@ public class FaqRetrievalService {
                 dense.size(), finalK, denseMillis, elapsedMillis(rerankStartedAt), describe(reranked));
 
         return RetrievalOutcome.reranked(reranked.stream().map(RerankedFaq::faq).toList(), dense.get(0));
-    }
-
-    private List<FaqSearchResponseDto> search(String userQuestion, Intent intent, int size) {
-        return intent == null
-                ? faqVectorService.getSimilarList(userQuestion, size)
-                : faqVectorService.getSimilarListByIntent(userQuestion, intent, size);
     }
 
     /** 질문 원문은 남기지 않고 FAQ ID, 점수, 순위 변화만 남깁니다. */
