@@ -17,6 +17,8 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.service.FaqVectorService;
+import com.ubot.faq.service.FaqSearchMockSupport;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.guest.session.GuestSessionState;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.response.LlmResponseDto;
@@ -95,6 +97,7 @@ class GuestChatIntegrationTest {
 	@Autowired StringRedisTemplate redis;
 	@Autowired ChatJobWorker worker;
 	@MockitoBean FaqVectorService vector;
+	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
 
 	User user;
@@ -104,6 +107,8 @@ class GuestChatIntegrationTest {
 
 	@BeforeEach
 	void setup() {
+		FaqSearchMockSupport.bridgeSearch(vector);
+		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:result:*"));
 		redis.delete(redis.keys("chat:jobs:published:*"));

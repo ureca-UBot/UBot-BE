@@ -45,7 +45,7 @@ import com.ubot.user.repository.UserRepository;
 
 /** 실제 인증·검색 SQL·판정·비동기 답변 저장을 연결합니다. 외부 임베딩/LLM 통신만 모의 객체입니다. */
 @SpringBootTest(properties = {
-        "faq.cache.enabled=true", "faq.retrieval.rerank.enabled=false", "FAQ_SEARCH_VECTOR_TYPE=QUESTION",
+        "faq.cache.enabled=true", "faq.retrieval.rerank.enabled=false", "FAQ_SEARCH_VECTOR_TYPE=QUESTION_ANSWER",
         "CHAT_TOP_K=3", "CHAT_CONFIDENCE_THRESHOLD=0.75"})
 @Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
@@ -87,6 +87,10 @@ class ChatSemanticCacheIntegrationTest {
         authorization = "Bearer " + jwt.createAccessToken(user);
         when(embeddingClient.getModelName()).thenReturn("cache-integration-embedding");
         when(embeddingClient.embed(QUESTION)).thenReturn(vector(0));
+        when(embeddingClient.embedBatch(any())).thenAnswer(invocation -> {
+            java.util.List<String> texts = invocation.getArgument(0);
+            return texts.stream().map(text -> vector(0)).toList();
+        });
         Long profileId = profiles.getCurrentProfileId();
         Long categoryId = jdbc.queryForObject("INSERT INTO faq_category(name) VALUES (?) RETURNING id",
                 Long.class, UUID.randomUUID().toString());

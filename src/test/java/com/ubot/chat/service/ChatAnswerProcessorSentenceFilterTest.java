@@ -30,11 +30,14 @@ import com.ubot.faq.retrieval.DenseFaqCandidates;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
+import com.ubot.faq.retrieval.RetrievalOutcome;
+import com.pgvector.PGvector;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 
-@DisplayName("채팅 QUESTION_ANSWER 문장 필터 분기")
-class ChatAnswerProcessorQuestionAnswerTest {
+@DisplayName("채팅 FAQ 질문 벡터와 답변 문장 필터")
+class ChatAnswerProcessorSentenceFilterTest {
     private static final String QUESTION = "가입 방법";
+    private static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
     private static final Runnable NOT_CANCELLED = () -> { };
 
     private final FaqRetrievalService retrieval = mock(FaqRetrievalService.class);
@@ -45,13 +48,15 @@ class ChatAnswerProcessorQuestionAnswerTest {
     @Test
     @DisplayName("캐시 실패 후 상위 k개만 문장 필터에 보내고 LLM에는 원본 질문과 통과 문장만 전달한다")
     void sendsOnlyMatchedSentencesToLlmAndKeepsOriginalFaqAsEvidence() {
-        FaqSearchResponseDto first = faq(1L, 0.6, false);
-        FaqSearchResponseDto second = faq(2L, 0.5, false);
+        FaqSearchResponseDto first = faq(1L, 0.9, false);
+        FaqSearchResponseDto second = faq(2L, 0.8, false);
         FaqSearchResponseDto third = faq(3L, 0.4, false);
         List<FaqSearchResponseDto> candidates = List.of(first, second, third);
-        when(retrieval.searchCandidates(QUESTION, null, 2, 0)).thenReturn(new DenseFaqCandidates(candidates, 5));
-        when(retrieval.isQuestionAnswerMode()).thenReturn(true);
-        when(sentenceFilter.filter(QUESTION, List.of(first, second)))
+        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, 5, QUERY_VECTOR);
+        when(retrieval.searchCandidates(QUESTION, null, 2, 0)).thenReturn(dense);
+        when(retrieval.rankCandidates(QUESTION, dense, 2))
+                .thenReturn(new RetrievalOutcome(candidates, first, false, null));
+        when(sentenceFilter.filter(QUERY_VECTOR, List.of(first, second)))
                 .thenReturn(List.of(new MatchedFaq(second, "통과 문장.")));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("LLM 답변", null, false));
 
@@ -64,25 +69,27 @@ class ChatAnswerProcessorQuestionAnswerTest {
         assertThat(materials.getValue().faqs()).hasSize(1);
         assertThat(materials.getValue().faqs().getFirst().question()).isEqualTo(second.question());
         assertThat(materials.getValue().faqs().getFirst().answer()).isEqualTo("통과 문장.");
-        verify(sentenceFilter).filter(QUESTION, List.of(first, second));
-        verify(retrieval, never()).rankCandidates(any(), any(), anyInt());
+        verify(sentenceFilter).filter(QUERY_VECTOR, List.of(first, second));
+        verify(retrieval).rankCandidates(QUESTION, dense, 2);
     }
 
     @Test
     @DisplayName("통과 문장이 없으면 LLM을 호출하지 않고 미응답으로 처리한다")
     void noPassingSentenceReturnsInsufficientFaq() {
-        FaqSearchResponseDto first = faq(1L, 0.6, false);
+        FaqSearchResponseDto first = faq(1L, 0.8, false);
+        DenseFaqCandidates dense = new DenseFaqCandidates(List.of(first), 5, QUERY_VECTOR);
         when(retrieval.searchCandidates(QUESTION, null, 2, 0))
-                .thenReturn(new DenseFaqCandidates(List.of(first), 5));
-        when(retrieval.isQuestionAnswerMode()).thenReturn(true);
-        when(sentenceFilter.filter(QUESTION, List.of(first))).thenReturn(List.of());
+                .thenReturn(dense);
+        when(retrieval.rankCandidates(QUESTION, dense, 2))
+                .thenReturn(new RetrievalOutcome(List.of(first), first, false, null));
+        when(sentenceFilter.filter(QUERY_VECTOR, List.of(first))).thenReturn(List.of());
 
         ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(ai);
         verify(unanswered).createUnansweredQuestion(100L, QUESTION,
-                com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.6);
+                com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.8);
     }
 
     @Test
@@ -90,7 +97,7 @@ class ChatAnswerProcessorQuestionAnswerTest {
     void cacheHitSkipsSentenceFiltering() {
         FaqSearchResponseDto official = faq(1L, 0.99, true);
         when(retrieval.searchCandidates(QUESTION, null, 2, 2))
-                .thenReturn(new DenseFaqCandidates(List.of(official, faq(2L, 0.6, false)), 5));
+                .thenReturn(new DenseFaqCandidates(List.of(official, faq(2L, 0.6, false)), 5, QUERY_VECTOR));
 
         ChatAnswerResult result = processor(true).generateAnswer(attempt(), null, NOT_CANCELLED);
 
@@ -99,14 +106,32 @@ class ChatAnswerProcessorQuestionAnswerTest {
         verifyNoInteractions(sentenceFilter, ai);
     }
 
+    @Test
+    @DisplayName("질문 유사도 미달 FAQ는 답변 문장 필터에 보내지 않는다")
+    void filtersQuestionSimilarityBeforeSentenceComparison() {
+        FaqSearchResponseDto low = faq(1L, 0.6, false);
+        FaqSearchResponseDto passing = faq(2L, 0.75, false);
+        DenseFaqCandidates dense = new DenseFaqCandidates(List.of(low, passing), 5, QUERY_VECTOR);
+        when(retrieval.searchCandidates(QUESTION, null, 2, 0)).thenReturn(dense);
+        when(retrieval.rankCandidates(QUESTION, dense, 2))
+                .thenReturn(new RetrievalOutcome(List.of(low, passing), low, false, null));
+        when(sentenceFilter.filter(QUERY_VECTOR, List.of(passing)))
+                .thenReturn(List.of(new MatchedFaq(passing, "통과 문장.")));
+        when(ai.generateAnswer(any())).thenReturn(new AiAnswer("LLM 답변", null, false));
+
+        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED);
+
+        assertThat(result.faqs()).containsExactly(passing);
+        verify(sentenceFilter).filter(QUERY_VECTOR, List.of(passing));
+    }
+
     private ChatAnswerProcessor processor(boolean cacheEnabled) {
         FaqCacheProperties properties = new FaqCacheProperties();
         properties.setEnabled(cacheEnabled);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai, unanswered,
-                ChatTestFixtures.collector(), new FaqSemanticCacheService(properties));
+                ChatTestFixtures.collector(), new FaqSemanticCacheService(properties), sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 2);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
-        ReflectionTestUtils.setField(processor, "faqSentenceFilterService", sentenceFilter);
         return processor;
     }
 

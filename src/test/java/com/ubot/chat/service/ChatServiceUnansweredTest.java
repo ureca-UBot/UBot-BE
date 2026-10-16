@@ -29,7 +29,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("채팅 미응답 질문 저장 연결 테스트")
 class ChatServiceUnansweredTest {
-	private final FaqVectorService vector = mock(FaqVectorService.class);
+	private final FaqVectorService vector = ChatTestFixtures.vectorService();
 	private final AiService ai = mock(AiService.class);
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
@@ -43,7 +43,8 @@ class ChatServiceUnansweredTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), ChatTestFixtures.disabledCache());
+				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(),
+				ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
