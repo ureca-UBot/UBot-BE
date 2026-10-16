@@ -21,7 +21,7 @@
 - 도구 호출 응답을 계속 반복하는 OpenAI 호환 모델은 최대 8회의 도구 처리 후 잘못된 응답으로 종료합니다.
 - 복구 발행은 Lua로 XADD와 발행 표시를 함께 기록합니다. 예약만 남는 구간을 없애고, 이전 버전의 `reserved` 표시도 회수합니다.
 - 미발행 작업은 ID 기반 페이지를 넘겨 검사합니다. 앞 1,000개가 이미 발행됐다는 이유로 뒤의 누락 작업을 건너뛰지 않습니다.
-- 발행 표시가 있어도 표시가 가리키는 메시지가 스트림에 없으면 미발행으로 봅니다. 스트림만 사라진 뒤 새 질문이 스트림을 다시 만들어도 사라진 대기 작업을 다시 발행합니다. 재발행은 정리 한 번에 최대 1,000건입니다.
+- 발행 표시가 있어도 표시가 가리키는 ID에 같은 작업(`jobId`)의 메시지가 없으면 미발행으로 봅니다. 스트림을 지운 뒤 같은 ms에 들어온 메시지는 이전 ID를 다시 받을 수 있어서 `jobId`까지 비교합니다. 스트림만 사라진 뒤 새 질문이 스트림을 다시 만들어도 사라진 대기 작업을 다시 발행합니다. 재발행은 정리 한 번에 최대 1,000건입니다.
 - 대기 시간이 지난 작업은 정리 주기 전이라도 선점 SQL에서 거절합니다.
 - 실행 소유권은 `started_at`으로 검증합니다. 회수된 이전 실행의 완료·실패 기록·heartbeat는 거절합니다.
 
@@ -34,7 +34,7 @@
 | 완료 롤백·대기열 반환 시 요청 정보 보존 | `ChatLlmIntegrationTest.rolledBackCompletionPreservesContextForRecovery` |
 | 같은 게스트 질문의 실행 시간이 겹침 | `ChatLlmIntegrationTest.sameGuestQuestionWithOverlappingExecutionAlwaysReturnsItsOwnResult` |
 | Redis 유실 후 좌표·지역 복원 | `ChatLlmIntegrationTest.redisLossRecoveryPreservesCoordinatesAndRegionFromDatabase` |
-| 스트림만 유실되고 발행 표시는 남은 채 새 질문이 스트림을 다시 만듦 | `ChatLlmIntegrationTest.queuedJobIsRecoveredWhenStreamIsLostButMarksRemain`, `ChatJobStreamIntegrationTest.markPointingToLostMessageIsTreatedAsUnpublished` |
+| 스트림만 유실되고 발행 표시는 남은 채 새 질문이 스트림을 다시 만듦 | `ChatLlmIntegrationTest.queuedJobIsRecoveredWhenStreamIsLostButMarksRemain`, `ChatJobStreamIntegrationTest.markPointingToLostMessageIsTreatedAsUnpublished`, `ChatJobStreamIntegrationTest.reusedMessageIdOfAnotherJobIsTreatedAsUnpublished` |
 | 외부 트랜잭션 롤백/커밋 전 발행 방지 | `ChatLlmIntegrationTest.submissionWaitsForOuterCommitAndRollbackPublishesNothing` |
 | 게스트 질문 후 로그인, 다른 회원 접근 거절 | `ChatLlmIntegrationTest.guestCanContinuePollingAfterLoginAndOtherUsersStillCannotReadIt` |
 | 후속 재시도가 있는데 이전 작업의 retryable 조회 | `ChatLlmIntegrationTest.oldFailedJobStopsOfferingRetryWhenNewAttemptExists` |

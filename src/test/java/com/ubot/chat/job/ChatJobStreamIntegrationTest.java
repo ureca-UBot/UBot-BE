@@ -42,6 +42,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.RedisStreamCommands.XClaimOptions;
+import org.springframework.data.redis.connection.stream.RecordId;
+import org.springframework.data.redis.connection.stream.StreamRecords;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -230,6 +232,20 @@ class ChatJobStreamIntegrationTest {
 		assertThat(stream.publishIfAbsent(message(21L))).isTrue();
 		assertThat(stream.publishIfAbsent(message(22L))).as("메시지가 남아 있음").isFalse();
 		assertThat(stream.findUnpublished(List.of(21L, 22L))).isEmpty();
+	}
+
+	@Test
+	@DisplayName("스트림을 지운 뒤 같은 메시지 ID를 다른 작업이 받아도 원래 작업은 발행되지 않은 것으로 본다")
+	void reusedMessageIdOfAnotherJobIsTreatedAsUnpublished() {
+		String messageId = stream.publish(message(31L));
+		redis.delete(ChatJobStream.STREAM_KEY);
+		// 같은 ms 안의 XADD가 ID를 다시 쓰는 상황을 ID 지정으로 재현함
+		redis.opsForStream().add(StreamRecords.newRecord().in(ChatJobStream.STREAM_KEY)
+				.ofMap(Map.of("jobId", "32")).withId(RecordId.of(messageId)));
+
+		assertThat(stream.findUnpublished(List.of(31L))).containsExactly(31L);
+		assertThat(stream.publishIfAbsent(message(31L))).isTrue();
+		assertThat(stream.findUnpublished(List.of(31L))).isEmpty();
 	}
 
 	@Test

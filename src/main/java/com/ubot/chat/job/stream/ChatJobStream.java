@@ -29,34 +29,47 @@ import org.springframework.stereotype.Component;
 
 // Worker에 작업을 전달하는 Redis Streams(chat:jobs, 그룹 chat-workers). 상태·결과 원본은 DB이고 스트림은 전달만 함
 // 중복 전달 가능하므로 Worker가 DB 상태로 중복 실행을 막음. ACK는 DB 커밋 뒤에만 보냄
-// 발행 표시(chat:jobs:published:{jobId}) 값은 메시지 ID. 표시가 없거나 그 메시지가 스트림에 없으면 미발행으로 봄
+// 발행 표시(chat:jobs:published:{jobId}) 값은 메시지 ID. 표시가 없거나 그 ID에 같은 작업의 메시지가 없으면 미발행으로 봄
 @Slf4j
 @Component
 public class ChatJobStream {
 	public static final String STREAM_KEY = "chat:jobs";
 	public static final String GROUP = "chat-workers";
 	private static final String PUBLISHED_KEY_PREFIX = "chat:jobs:published:";
-	// 메시지와 발행 표시를 함께 저장함. 표시가 가리키는 메시지가 남아 있을 때만 발행된 것으로 봄
+	// 스트림을 지운 뒤 같은 ms에 XADD하면 메시지 ID가 다시 쓰이므로 ID와 jobId가 모두 맞아야 같은 메시지로 봄
 	// 메시지 ID가 아닌 값(이전 버전 reserved 등)은 없는 것으로 봄
-	private static final RedisScript<Long> PUBLISH_IF_ABSENT = RedisScript.of("""
-			local mark = redis.call('GET', KEYS[2])
-			if mark then
-			    local found = redis.pcall('XRANGE', KEYS[1], mark, mark)
-			    if type(found) == 'table' and #found > 0 then
-			        return 0
+	private static final String HOLDS_JOB = """
+			local function holds_job(stream, id, job_id)
+			    local found = redis.pcall('XRANGE', stream, id, id)
+			    if type(found) ~= 'table' or #found == 0 then
+			        return false
 			    end
+			    local fields = found[1][2]
+			    for i = 1, #fields, 2 do
+			        if fields[i] == 'jobId' then
+			            return fields[i + 1] == job_id
+			        end
+			    end
+			    return false
 			end
-			local id = redis.call('XADD', KEYS[1], '*', unpack(ARGV, 2))
+			""";
+	// 메시지와 발행 표시를 함께 저장함. 표시가 가리키는 메시지가 남아 있을 때만 발행된 것으로 봄
+	// ARGV: TTL(ms), jobId, 메시지 필드…
+	private static final RedisScript<Long> PUBLISH_IF_ABSENT = RedisScript.of(HOLDS_JOB + """
+			local mark = redis.call('GET', KEYS[2])
+			if mark and holds_job(KEYS[1], mark, ARGV[2]) then
+			    return 0
+			end
+			local id = redis.call('XADD', KEYS[1], '*', unpack(ARGV, 3))
 			redis.call('SET', KEYS[2], id, 'PX', ARGV[1])
 			return 1
 			""", Long.class);
-	// ARGV 메시지 ID 중 스트림에 없는 것의 순번(1부터)
+	// ARGV: (메시지 ID, jobId) 쌍. 그 작업의 메시지가 스트림에 없는 쌍의 순번(1부터)
 	@SuppressWarnings("rawtypes")
-	private static final RedisScript<List> MISSING_MESSAGES = RedisScript.of("""
+	private static final RedisScript<List> MISSING_MESSAGES = RedisScript.of(HOLDS_JOB + """
 			local missing = {}
-			for index, id in ipairs(ARGV) do
-			    local found = redis.pcall('XRANGE', KEYS[1], id, id)
-			    if type(found) ~= 'table' or #found == 0 then
+			for index = 1, #ARGV / 2 do
+			    if not holds_job(KEYS[1], ARGV[index * 2 - 1], ARGV[index * 2]) then
 			        missing[#missing + 1] = index
 			    end
 			end
@@ -108,18 +121,19 @@ public class ChatJobStream {
 		List<String> marks = redis.opsForValue().multiGet(jobIds.stream().map(ChatJobStream::publishedKey).toList());
 		boolean[] unpublished = new boolean[jobIds.size()];
 		List<Integer> markedIndexes = new ArrayList<>();
-		List<String> markedMessageIds = new ArrayList<>();
+		List<String> markedPairs = new ArrayList<>();
 		for (int index = 0; index < jobIds.size(); index++) {
 			String mark = marks == null ? null : marks.get(index);
 			if (mark == null) {
 				unpublished[index] = true;
 			} else {
 				markedIndexes.add(index);
-				markedMessageIds.add(mark);
+				markedPairs.add(mark);
+				markedPairs.add(String.valueOf(jobIds.get(index)));
 			}
 		}
-		if (!markedMessageIds.isEmpty()) {
-			List<?> missing = redis.execute(MISSING_MESSAGES, List.of(STREAM_KEY), markedMessageIds.toArray());
+		if (!markedPairs.isEmpty()) {
+			List<?> missing = redis.execute(MISSING_MESSAGES, List.of(STREAM_KEY), markedPairs.toArray());
 			for (Object position : missing == null ? List.of() : missing) {
 				unpublished[markedIndexes.get(((Number) position).intValue() - 1)] = true;
 			}
@@ -137,6 +151,7 @@ public class ChatJobStream {
 	public boolean publishIfAbsent(ChatJobMessage message) {
 		List<String> args = new ArrayList<>();
 		args.add(String.valueOf(publishedTtl.toMillis()));
+		args.add(String.valueOf(message.jobId()));
 		message.toFields().forEach((key, value) -> { args.add(key); args.add(value); });
 		return Long.valueOf(1).equals(redis.execute(PUBLISH_IF_ABSENT,
 				List.of(STREAM_KEY, publishedKey(message.jobId())), args.toArray()));
