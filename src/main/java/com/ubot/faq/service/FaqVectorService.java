@@ -31,7 +31,6 @@ public class FaqVectorService {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.faqVectorRepository = faqVectorRepository;
-        log.info("FAQ 검색 벡터 유형={}", FaqVectorType.QUESTION);
     }
 
     public List<FaqSearchResponseDto> getSimilarList(

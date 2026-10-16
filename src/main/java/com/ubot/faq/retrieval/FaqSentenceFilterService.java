@@ -73,7 +73,7 @@ public class FaqSentenceFilterService {
             Segment segment = segments.get(sentence.segmentIndex());
             double similarity = cosine(queryVector, vectors.get(index));
             boolean accepted = similarity >= threshold;
-            log.info("FAQ 답변 문장 유사도: FAQ ID={}, 유사도={}, 기준값={}, 결과={}, 문장={}",
+            log.debug("FAQ 답변 문장 유사도: FAQ ID={}, 유사도={}, 기준값={}, 결과={}, 문장={}",
                     faqs.get(segment.faqIndex()).faqId(), similarity, threshold,
                     accepted ? "통과" : "제외", sentence.text());
             if (accepted) {
