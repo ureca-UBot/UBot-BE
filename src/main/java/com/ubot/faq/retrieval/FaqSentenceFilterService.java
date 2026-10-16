@@ -14,20 +14,24 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /** QUESTION 검색 후보에서 질문과 유사한 답변 문장만 고릅니다. */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class FaqSentenceFilterService {
     private static final Pattern LIST_ITEM = Pattern.compile("^\\s*((?:[-*•]|\\d+[.)]))(?:\\s+(.*))?$");
 
     private final EmbeddingService embeddingService;
+    private final double threshold;
 
-    @Value("${faq.retrieval.sentence-similarity-threshold}")
-    private double threshold;
+    public FaqSentenceFilterService(
+            EmbeddingService embeddingService,
+            @Value("${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.7}") double threshold
+    ) {
+        this.embeddingService = embeddingService;
+        this.threshold = threshold;
+    }
 
     public List<MatchedFaq> filter(String question, List<FaqSearchResponseDto> faqs) {
         List<Segment> segments = new ArrayList<>();
