@@ -80,6 +80,9 @@ public class ChatAnswerProcessor {
 			return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
 		checkCancellation.run();
+		log.info("FAQ 질문 벡터 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, 검색시간={}ms, 검색결과=[{}]",
+				attempt.getId(), attempt.getIntent(), dense.candidates().size(),
+				highestSimilarity(dense.candidates()), dense.searchMillis(), formatSearchResults(dense.candidates()));
 		FaqCacheDecision cacheDecision = faqSemanticCacheService.evaluate(requestedIntent, dense.candidates());
 		checkCancellation.run();
 		Optional<FaqSearchResponseDto> cachedFaq = cacheDecision.faq();
@@ -134,9 +137,6 @@ public class ChatAnswerProcessor {
 		// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
 		List<FaqSearchResponseDto> results = outcome.rankedCandidates();
 		checkCancellation.run();
-		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, Reranker정렬={}, Reranker실패사유={}, 검색결과=[{}]",
-				attempt.getId(), attempt.getIntent(), results == null ? 0 : results.size(),
-				highestSimilarity(results), outcome.reranked(), outcome.fallbackReason(), formatSearchResults(results));
 		if (results == null || results.isEmpty()) {
 			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
