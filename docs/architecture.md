@@ -103,7 +103,9 @@ com.ubot
       → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
       → 캐시 승인 시 공식 FAQ 답변 반환
       → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
-      → 후보 답변 문장을 임베딩해 사용자 질문과 비교
+      → CHAT_CONFIDENCE_THRESHOLD로 질문 벡터 유사도 검사
+         → 통과한 FAQ 없음 → CHAT-013 (INSUFFICIENT_FAQ)
+      → 통과한 후보 중 TOP-K개 답변 문장을 임베딩해 사용자 질문과 비교
          → FAQ_SENTENCE_SIMILARITY_THRESHOLD를 통과한 문장 없음 → CHAT-013 (INSUFFICIENT_FAQ)
       → ChatContextCollector : 통과한 답변 문장과 FAQ의 intent별로 답변 자료 수집
       → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 AI_MODE로 선택)
@@ -220,7 +222,7 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 **팀 결정이 필요한 것** (PR·이슈에 논의 기록 없음)
 
-- **답변 문장 임계값**: 현재 채팅 경로는 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`(기본 `0.7`)를 사용합니다. [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)(#86)의 이전 FAQ 검색 기준값은 현재 문장 비교의 기준값으로 사용하지 않습니다.
+- **임계값**: 질문 벡터 검색 후보에는 `CHAT_CONFIDENCE_THRESHOLD`(기본 `0.75`), 통과한 FAQ의 답변 문장에는 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`(기본 `0.7`)를 적용합니다.
 - **프론트 배포 환경 연결**: GitHub Pages에 배포된 UBot-FE는 HTTPS 미적용 때문에 백엔드를 호출할 수 없습니다. CORS는 `CORS_ALLOWED_ORIGINS`로 허용할 origin을 지정할 수 있습니다. 선택지는 [프론트엔드 연동 가이드](how-to/frontend-integration.md#배포-환경-미해결)에 있습니다.
 
 ## FAQ 관리 흐름

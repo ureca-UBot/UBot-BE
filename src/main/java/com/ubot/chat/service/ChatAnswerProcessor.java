@@ -42,6 +42,9 @@ public class ChatAnswerProcessor {
 	@Value("${CHAT_TOP_K:3}")
 	private int topK;
 
+	@Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}")
+	private double confidenceThreshold;
+
 	private final FaqRetrievalService faqRetrievalService;
 	private final AiService aiService;
 	private final UnansweredQuestionService unansweredQuestionService;
@@ -95,14 +98,26 @@ public class ChatAnswerProcessor {
 		}
 		RetrievalOutcome outcome = faqRetrievalService.rankCandidates(attempt.getQuestion(), dense, topK);
 		checkCancellation.run();
-		List<FaqSearchResponseDto> candidates = outcome.rankedCandidates().stream().limit(topK).toList();
-		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 문장검사대상수={}, Reranker정렬={}, Reranker실패사유={}",
-				attempt.getId(), dense.candidates().size(), candidates.size(), outcome.reranked(), outcome.fallbackReason());
-		if (candidates.isEmpty()) {
+		List<FaqSearchResponseDto> ranked = outcome.rankedCandidates();
+		if (ranked == null || ranked.isEmpty()) {
 			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
 		}
+		List<FaqSearchResponseDto> similar = ranked.stream()
+				.filter(result -> Double.isFinite(result.similarityScore())
+						&& result.similarityScore() >= confidenceThreshold)
+				.toList();
+		if (similar.isEmpty()) {
+			log.info("FAQ 질문 벡터 유사도가 기준값 미만입니다: 시도ID={}, 최고유사도={}, 기준값={}",
+					attempt.getId(), highestSimilarity(ranked), confidenceThreshold);
+			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
+			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
+		}
+		List<FaqSearchResponseDto> candidates = similar.stream().limit(topK).toList();
+		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 유사도통과수={}, 문장검사대상수={}, Reranker정렬={}, Reranker실패사유={}",
+				attempt.getId(), dense.candidates().size(), similar.size(),
+				candidates.size(), outcome.reranked(), outcome.fallbackReason());
 		List<MatchedFaq> matched = faqSentenceFilterService.filter(attempt.getQuestion(), candidates);
 		checkCancellation.run();
 		log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 통과FAQ수={}, 통과FAQ ID={}",

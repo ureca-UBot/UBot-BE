@@ -82,7 +82,8 @@ src/main/resources/
 | `VLLM_ENABLE_THINKING` | Docker Compose: vLLM 답변 생성 서버의 thinking 모드 기본값 | `false` | Spring에서 읽지 않음 |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
-| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | 캐시 실패 후 사용자 질문과 각 FAQ 답변 문장의 코사인 유사도 기준 | `0.7` | `0.7` |
+| `CHAT_CONFIDENCE_THRESHOLD` | 캐시 실패 후 FAQ 질문 벡터 검색 후보의 코사인 유사도 기준. 통과한 후보만 답변 문장 검사에 사용 | `0.75` | `0.75` |
+| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | 질문 유사도 기준을 통과한 FAQ에서 사용자 질문과 각 답변 문장의 코사인 유사도 기준 | `0.7` | `0.7` |
 | `FAQ_RERANK_ENABLED` | 캐시 실패 후 질문 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 정렬 뒤 답변 문장을 임베딩해 비교 | `false` | 키가 없으면 `false` |
 | `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |
 | `FAQ_RERANK_MODEL` | `FaqRetrievalConfig`: Reranker 서버에 요청할 모델 이름. Compose의 `RERANKER_SERVED_MODEL_NAME`과 같아야 함 | `ubot-reranker` | 키가 없으면 `ubot-reranker` |
@@ -138,7 +139,7 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 
 `LLM_MODEL`과 `LLM_SERVED_MODEL_NAME`, `EMBEDDING_MODEL`과 `EMBEDDING_SERVED_MODEL_NAME`은 각각 같은 값이어야 합니다. 앞의 것은 백엔드가 요청에 넣는 이름이고 뒤의 것은 vLLM이 내보이는 이름입니다. 불러올 실제 모델을 바꿀 때는 이 이름을 그대로 두고 `LLM_HF_MODEL`, `EMBEDDING_HF_MODEL`만 바꿉니다. 다만 임베딩 모델을 바꾸면 이름이 같아도 벡터가 달라지므로 `EMBEDDING_PROFILE_VERSION`을 올리고 백필합니다([Embedding Profile](../how-to/llm-module.md#embedding-profile)).
 
-현재 채팅 경로는 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`로 답변 문장의 유사도를 판단합니다.
+현재 채팅 경로는 `CHAT_CONFIDENCE_THRESHOLD`로 FAQ 질문 후보를 먼저 거르고, `FAQ_SENTENCE_SIMILARITY_THRESHOLD`로 그 FAQ의 답변 문장을 판단합니다.
 
 
 `CHAT_MAX_ATTEMPTS`를 바꿔도 한도 초과 오류(`CHAT-006`)의 안내 문구는 "최대 3회"로 고정되어 있습니다.

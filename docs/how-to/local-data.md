@@ -198,6 +198,6 @@ powershell -ExecutionPolicy Bypass -File .\load-faqs.ps1 -CsvPath .\faqs.csv -Em
 ## 4. 확인
 
 1. 로그인해서 받은 access token으로 `POST /chat/questions`에 등록한 FAQ와 비슷한 질문을 보냅니다. 응답의 `jobId`로 `GET /chat/jobs/{jobId}`를 호출하면 `status`가 `SUCCEEDED`가 된 뒤 답변이 나옵니다.
-2. `status`가 `FAILED`면 `errorCode`를 보고 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 따릅니다. 답변 문장 유사도가 기준(`FAQ_SENTENCE_SIMILARITY_THRESHOLD`, 기본 0.7)에 못 미치면 `CHAT-013`이고, 그 질문은 `unanswered_questions`에 저장됩니다([db-access.md](db-access.md#주요-테이블)).
+2. `status`가 `FAILED`면 `errorCode`를 보고 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 따릅니다. FAQ 질문 유사도(`CHAT_CONFIDENCE_THRESHOLD`, 기본 0.75) 또는 답변 문장 유사도(`FAQ_SENTENCE_SIMILARITY_THRESHOLD`, 기본 0.7)에 못 미치면 `CHAT-013`이고, 그 질문은 `unanswered_questions`에 저장됩니다([db-access.md](db-access.md#주요-테이블)).
 
 금지어 필터를 확인하려면 관리자 API `POST /admin/forbidden-words`로 금지어를 등록한 뒤 그 단어가 들어간 질문을 보냅니다(`FW-003`).
