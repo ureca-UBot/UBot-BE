@@ -4,6 +4,7 @@ import com.ubot.ai.dto.Location;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
+import com.ubot.chat.util.PersonalInfoMasker;
 import com.ubot.faq.enums.Intent;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class ChatService {
 	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
 	public ChatAnswerTask createChat(Long userId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
+		question = PersonalInfoMasker.mask(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
 		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}", attempt.getId(), userId);
@@ -44,6 +46,7 @@ public class ChatService {
 	public ChatAnswerTask createChat(
 			Long userId, Long conversationId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
+		question = PersonalInfoMasker.mask(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, conversationId, question);
 		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 대화ID={}", attempt.getId(), userId, conversationId);
@@ -58,6 +61,7 @@ public class ChatService {
 	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
 	public ChatAnswerTask createGuestChat(Long conversationId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
+		question = PersonalInfoMasker.mask(question);
 
 		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
 		log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}", attempt.getId(), conversationId);
