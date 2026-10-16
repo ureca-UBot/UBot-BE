@@ -281,7 +281,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 
 ## 채팅 요청이 실패함
 
-`POST /chat/questions`가 실패하면 응답의 `code`로 원인을 구분합니다. 코드별 의미와 HTTP 상태는 [오류 코드 Reference](reference/error-codes.md#채팅)에 있고, 아래는 코드별로 확인할 곳입니다. 실패 이력은 [`answer_attempts_history`](how-to/db-access.md#주요-테이블)에서도 볼 수 있습니다.
+채팅이 실패하면 접수 응답(`POST /chat/questions`)의 `code`나 상태 조회(`GET /chat/jobs/{jobId}`)의 `data.errorCode`로 원인을 구분합니다. 코드별 의미와 HTTP 상태는 [오류 코드 Reference](reference/error-codes.md#채팅)에 있고, 아래는 코드별로 확인할 곳입니다. 실패 이력은 [`answer_attempts_history`](how-to/db-access.md#주요-테이블)에서도 볼 수 있습니다.
 
 | code | 확인할 것 |
 |---|---|
@@ -298,7 +298,9 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `CHAT-014` | `prompts/faq-*.txt`, `prompt.faq.*-location` |
 | `LLM-002` | `.env`의 `OLLAMA_CHAT_MODEL`. `AI_MODE=vllm`이면 `LLM_MODEL` |
 | `LLM-003` | Ollama의 모델 목록에 채팅 모델이 있는지. 없으면 `ollama-init`으로 받습니다([Ollama 모델 준비](#ollama-모델이-준비되지-않음)). `AI_MODE=vllm`이면 [vLLM 서버 준비](#vllm-서버가-준비되지-않음) |
-| `LLM-004`, `CHAT-016` | `LLM_READ_TIMEOUT`, `CHAT_RESPONSE_TIMEOUT_MILLIS`, 모델 크기·GPU 사용 여부 |
+| `LLM-004` | `LLM_READ_TIMEOUT`, 모델 크기·GPU 사용 여부 |
+| `CHAT-016` | `ai-worker`가 떠 있는지(`APP_ROLE`이 `worker` 또는 `all`인 프로세스), Worker 로그(`ChatJobWorker`), `backend` 로그의 "답변 작업 메시지를 발행하지 못했습니다"와 Worker 로그의 "발행되지 않은 답변 작업을 다시 발행했습니다", Redis 연결, 대기 작업 수(`chat_jobs`의 `QUEUED`), 처리 대기 메시지(`XPENDING chat:jobs chat-workers`), `CHAT_WORKER_CONCURRENCY`, `CHAT_WORKER_MAX_QUEUE_WAIT`, `CHAT_WORKER_EXECUTION_TIMEOUT`, `chat_worker_timeouts_total` |
+| `CHAT-015` | 애플리케이션 로그. Worker 로그에 "전달 횟수(3번)를 다 쓴 답변 작업을 실패로 끝냈습니다"가 있으면 그 질문을 처리하다 Worker가 반복해서 죽은 것이므로 `ai-worker`의 종료 원인(`docker inspect`의 `OOMKilled`, 재시작 횟수)을 확인합니다. "메시지 없이 오래 실행 중으로 남은 답변 작업을 실패로 끝냈습니다"면 Redis 재시작(데이터 유실)이나 Worker가 오래 없었는지 확인합니다 |
 | `LLM-005` | 모델 설정, 애플리케이션 로그 |
 
 FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_question_variants`에 질문 표현이 없어 검색에 나오지 않습니다. 먼저 원본 질문의 variant를 만들어야 합니다. 그 뒤 [백필](how-to/llm-module.md#백필)을 실행하면 누락된 variant 벡터를 채웁니다. 관리자 API로 FAQ를 등록하면 variant와 벡터가 함께 생성됩니다.

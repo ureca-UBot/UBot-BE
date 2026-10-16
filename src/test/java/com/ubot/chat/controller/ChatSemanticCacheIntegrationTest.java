@@ -5,10 +5,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.LocalDateTime;
@@ -21,15 +19,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 
 import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
+import com.ubot.chat.job.stream.ChatJobStream;
+import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.embedding.client.EmbeddingClient;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.faq.cache.FaqCacheProperties;
@@ -45,7 +47,7 @@ import com.ubot.user.repository.UserRepository;
 @SpringBootTest(properties = {
         "faq.cache.enabled=true", "faq.retrieval.rerank.enabled=false", "FAQ_SEARCH_VECTOR_TYPE=QUESTION",
         "CHAT_TOP_K=3", "CHAT_CONFIDENCE_THRESHOLD=0.75"})
-@Import(PgvectorTestConfiguration.class)
+@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("공식 FAQ 캐시 HTTP 통합 테스트")
@@ -60,15 +62,23 @@ class ChatSemanticCacheIntegrationTest {
     @Autowired private EmbeddingProfileService profiles;
     @Autowired private FaqVectorRepository vectors;
     @Autowired private FaqCacheProperties cacheProperties;
+    @Autowired private ChatJobWorker worker;
+    @Autowired private StringRedisTemplate redis;
     @MockitoBean private EmbeddingClient embeddingClient;
     @MockitoBean private LlmClient llm;
 
     private String authorization;
     private Long faqId;
+    private ChatJobTestFlow flow;
 
     @BeforeEach
     void prepareData() {
         cacheProperties.setEnabled(true);
+        // 공유 Redis라 이전 테스트 작업이 섞이지 않게 비움
+        redis.delete(ChatJobStream.STREAM_KEY);
+        redis.delete(redis.keys("chat:jobs:result:*"));
+        redis.delete(redis.keys("chat:jobs:published:*"));
+        flow = new ChatJobTestFlow(mvc, worker);
         // 테스트별 활성 후보만 남깁니다. 이 DB는 Testcontainers 전용이며 개발 DB와 분리되어 있습니다.
         jdbc.update("UPDATE faq SET deleted_at = now()");
         User user = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
@@ -91,10 +101,8 @@ class ChatSemanticCacheIntegrationTest {
     @Test
     @DisplayName("HIT은 공식 답변 그대로 HTTP 성공·답변 이력·근거 FAQ 한 건을 저장하고 LLM을 호출하지 않는다")
     void hitPersistsOfficialAnswerThroughExistingChatFlow() throws Exception {
-        MvcResult result = askQuestion();
-        mvc.perform(asyncDispatch(result)).andExpect(status().isOk())
+        askQuestion()
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.data.answer").value(OFFICIAL_ANSWER));
 
         assertThat(jdbc.queryForObject("SELECT llm_question FROM question_log ORDER BY id DESC LIMIT 1", String.class))
@@ -113,8 +121,7 @@ class ChatSemanticCacheIntegrationTest {
     void cacheOffCallsLlm() throws Exception {
         cacheProperties.setEnabled(false);
         when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("LLM 생성 답변"));
-        MvcResult result = askQuestion();
-        mvc.perform(asyncDispatch(result)).andExpect(status().isOk())
+        askQuestion()
                 .andExpect(jsonPath("$.data.answer").value("LLM 생성 답변"));
         verify(embeddingClient).embed(QUESTION);
         verify(llm).generateAnswer(any());
@@ -125,19 +132,19 @@ class ChatSemanticCacheIntegrationTest {
     void unapprovedFaqCallsLlm() throws Exception {
         jdbc.update("UPDATE faq SET cacheable = false WHERE id = ?", faqId);
         when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("승인 해제 후 LLM 답변"));
-        MvcResult result = askQuestion();
-        mvc.perform(asyncDispatch(result)).andExpect(status().isOk())
+        askQuestion()
                 .andExpect(jsonPath("$.data.answer").value("승인 해제 후 LLM 답변"));
         verify(embeddingClient).embed(QUESTION);
         verify(llm).generateAnswer(any());
     }
 
-    private MvcResult askQuestion() throws Exception {
-        MvcResult result = mvc.perform(post("/chat/questions").header("Authorization", authorization)
-                        .contentType("application/json").content("{\"question\":\"" + QUESTION + "\"}"))
-                .andExpect(request().asyncStarted()).andReturn();
-        result.getAsyncResult(10000);
-        return result;
+    // 접수(202) → Worker 처리 → 상태 조회. 성공한 조회 응답을 돌려줌
+    private ResultActions askQuestion() throws Exception {
+        var submitted = flow.submit(post("/chat/questions").header("Authorization", authorization)
+                .contentType("application/json").content("{\"question\":\"" + QUESTION + "\"}"));
+        worker.processAvailableJobs();
+        return mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
     }
 
     private Long insertFaq(Long categoryId, String question, String answer, boolean cacheable) {

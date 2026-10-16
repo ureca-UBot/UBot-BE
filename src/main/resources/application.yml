@@ -9,6 +9,11 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
 
+  datasource:
+    hikari:
+      # 프로세스별 DB 연결 수. API·Worker 합이 max_connections보다 작아야 함
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+
 management:
   endpoints:
     web:
@@ -28,6 +33,26 @@ operation-monitoring:
     read-timeout: ${PROMETHEUS_READ_TIMEOUT:10s}
 
 app:
+  # api: 접수·조회·나머지 API, worker: 답변 Worker만, all: 둘 다(로컬)
+  role: ${APP_ROLE:all}
+  chat:
+    worker:
+      concurrency: ${CHAT_WORKER_CONCURRENCY:4}
+      polling-enabled: true
+      read-block: ${CHAT_WORKER_READ_BLOCK:2s}
+      # 그룹 안 Worker 이름. 컨테이너에서는 호스트 이름 사용
+      consumer-name: ${CHAT_WORKER_CONSUMER_NAME:${HOSTNAME:local}}
+      max-queue-wait: ${CHAT_WORKER_MAX_QUEUE_WAIT:10m}
+      republish-after: ${CHAT_WORKER_REPUBLISH_AFTER:30s}
+      reclaim-idle: ${CHAT_WORKER_RECLAIM_IDLE:5m}
+      # heartbeat가 이 시간 넘게 없으면 죽은 실행으로 보고 넘겨받음. reclaim-idle 이하
+      heartbeat-timeout: ${CHAT_WORKER_HEARTBEAT_TIMEOUT:1m}
+      max-deliveries: ${CHAT_WORKER_MAX_DELIVERIES:3}
+      recovery-interval: ${CHAT_WORKER_RECOVERY_INTERVAL:15s}
+      result-ttl: ${CHAT_WORKER_RESULT_TTL:24h}
+      execution-timeout: ${CHAT_WORKER_EXECUTION_TIMEOUT:180s}
+      # 종료 때 실행 중 작업 대기 시간. 컨테이너 종료 유예 시간보다 짧아야 함
+      shutdown-wait: ${CHAT_WORKER_SHUTDOWN_WAIT:20s}
   ai:
     mode: ${AI_MODE:ollama}
     chat-engine: ${AI_CHAT_ENGINE:}

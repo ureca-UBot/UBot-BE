@@ -42,7 +42,8 @@ public class ServiceOperationMonitoringService {
         ServiceMonitoringOverviewResponse.ServiceStatuses statuses = new ServiceMonitoringOverviewResponse.ServiceStatuses(
                 toStatus(queryNow("up{job=\"ubot-backend\"}", end)),
                 toStatus(queryNow("max(pg_up)", end)),
-                toStatus(queryNow("max(redis_up)", end))
+                toStatus(queryNow("max(redis_up)", end)),
+                toStatus(queryNow("max(chat_worker_ready * on(job, instance) up)", end))
         );
 
         ServiceMonitoringOverviewResponse.DatabasePool currentPool = new ServiceMonitoringOverviewResponse.DatabasePool(
@@ -71,10 +72,10 @@ public class ServiceOperationMonitoringService {
                         queryRange(latencyQuery(0.99, "5m"), start, end, range.step())
                 ),
                 new ServiceMonitoringOverviewResponse.Backend(
-                        queryRange("process_cpu_usage", start, end, range.step()),
+                        queryRange("process_cpu_usage{job=\"ubot-backend\"}", start, end, range.step()),
                         queryRange(heapUsageQuery(), start, end, range.step()),
-                        queryRange("sum(rate(jvm_gc_pause_seconds_sum[5m]))", start, end, range.step()),
-                        queryRange("jvm_threads_live_threads", start, end, range.step())
+                        queryRange("sum(rate(jvm_gc_pause_seconds_sum{job=\"ubot-backend\"}[5m]))", start, end, range.step()),
+                        queryRange("jvm_threads_live_threads{job=\"ubot-backend\"}", start, end, range.step())
                 ),
                 new ServiceMonitoringOverviewResponse.DatabasePoolSeries(
                         queryRange("sum(hikaricp_connections_active)", start, end, range.step()),
@@ -97,7 +98,13 @@ public class ServiceOperationMonitoringService {
 
         return new ServiceMonitoringOverviewResponse(
                 new ServiceMonitoringOverviewResponse.Window(range.value(), start, end, range.step().toSeconds()),
-                statuses, summary, series
+                statuses, summary, series,
+                new ServiceMonitoringOverviewResponse.Worker(
+                        latestValue(queryNow("max(chat_jobs_queued)", end)),
+                        latestValue(queryNow("max(chat_jobs_oldest_queued_seconds)", end)),
+                        latestValue(queryNow("sum(chat_worker_active)", end)),
+                        latestValue(queryNow("sum(rate(chat_worker_completed_total{status=\"failed\"}[5m]))", end)),
+                        latestValue(queryNow("sum(rate(chat_worker_execution_seconds_sum[5m])) / sum(rate(chat_worker_execution_seconds_count[5m]))", end)))
         );
     }
 
@@ -163,7 +170,7 @@ public class ServiceOperationMonitoringService {
     }
 
     private String heapUsageQuery() {
-        return "sum(jvm_memory_used_bytes{area=\"heap\"}) / sum(jvm_memory_max_bytes{area=\"heap\"})";
+        return "sum(jvm_memory_used_bytes{job=\"ubot-backend\",area=\"heap\"}) / sum(jvm_memory_max_bytes{job=\"ubot-backend\",area=\"heap\"})";
     }
 
     private List<PrometheusSeries> queryNow(String query, Instant end) {

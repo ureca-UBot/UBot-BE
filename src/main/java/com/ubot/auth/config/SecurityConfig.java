@@ -1,6 +1,5 @@
 package com.ubot.auth.config;
 
-import jakarta.servlet.DispatcherType;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,10 +74,6 @@ public class SecurityConfig {
 						.authenticationEntryPoint(jwtAuthenticationEntryPoint)
 						.accessDeniedHandler(jwtAccessDeniedHandler))
 				.authorizeHttpRequests(auth -> auth
-						// 최초 HTTP 요청은 JWT 인증, 비동기 응답 완료를 위한 내부 ASYNC 재디스패치는 허용합니다.
-						.requestMatchers(request -> request.getDispatcherType() == DispatcherType.ASYNC
-								&& request.getRequestURI().startsWith(request.getContextPath() + "/chat/"))
-						.permitAll()
 						.requestMatchers(
 								"/auth/login",
 								"/auth/signup",
@@ -99,6 +94,8 @@ public class SecurityConfig {
 								"/notices", "/notices/**")
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
+						// 게스트도 자기 작업을 조회함. 소유권은 ChatJobQueryService가 확인함
+						.requestMatchers(HttpMethod.GET, "/chat/jobs/*").permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.anyRequest().authenticated())
 				.addFilterBefore(
