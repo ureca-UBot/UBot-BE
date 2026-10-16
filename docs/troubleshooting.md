@@ -238,9 +238,7 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 벡터는 임베딩 서버·모델·버전의 조합(Embedding Profile)별로 따로 저장되고, 검색은 지금 Profile의 벡터만 씁니다. 설정을 바꾸면 새 Profile이 되는데 거기에는 아직 벡터가 없습니다. 기존 벡터는 지워지지 않고 남아 있습니다.
 
-시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
-
-검색은 `QUESTION` 벡터만 씁니다. 현재 시드 스크립트는 `QUESTION_ANSWER` 벡터만 넣으므로 검색 전에 질문 벡터를 백필해야 합니다.
+시드 스크립트로 FAQ를 넣은 직후에도 같은 증상이 납니다. 스크립트는 FAQ와 질문 표현만 적재하며 벡터는 넣지 않습니다. 검색은 `QUESTION` 벡터를 사용하므로 Ollama와 vLLM 어느 쪽이든 검색 전에 백필해야 합니다.
 
 **해결**
 

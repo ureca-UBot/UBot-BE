@@ -12,8 +12,7 @@ function Invoke-Checked {
 }
 
 $seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
-$parts = [int[]] $seedSummary.parts
-$renderedSql = New-FaqSeedSql -TemplatePath (Join-Path $PSScriptRoot 'seed-baseline.sql') -Parts $parts
+$renderedSql = New-FaqSeedSql -TemplatePath (Join-Path $PSScriptRoot 'seed-baseline.sql')
 Invoke-Checked { docker compose up -d postgres } 'Could not start PostgreSQL.'
 $containerId = (& docker compose ps --quiet postgres).Trim()
 if (-not $containerId) { throw 'Could not locate the PostgreSQL container.' }
@@ -25,14 +24,14 @@ $adminCount = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_ST
 if ($LASTEXITCODE -ne 0 -or $adminCount -ne '1') { throw 'One active admin@admin.com ADMIN account is required.' }
 
 try {
-    Copy-FaqSeedCsv -SeedPath $seedPath -ContainerId $containerId -Parts $parts
+    Copy-FaqSeedCsv -SeedPath $seedPath -ContainerId $containerId
     Invoke-Checked { docker cp $renderedSql "${containerId}:/tmp/seed-baseline.sql" } 'Could not copy seed SQL.'
     Invoke-Checked {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 -v faq_only=1 `
             -U $databaseUser -d $databaseName -f /tmp/seed-baseline.sql
     } 'FAQ baseline import failed.'
 } finally {
-    Remove-FaqSeedContainerFiles -ContainerId $containerId -Parts $parts -SqlName 'seed-baseline.sql'
+    Remove-FaqSeedContainerFiles -ContainerId $containerId -SqlName 'seed-baseline.sql'
     Remove-Item -LiteralPath $renderedSql -Force -ErrorAction SilentlyContinue
 }
 
@@ -40,11 +39,10 @@ $verification = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_
     -U $databaseUser -d $databaseName -At -F '|' -c @'
 SELECT (SELECT count(*) FROM faq),
        (SELECT count(*) FROM faq_question_variants),
-       (SELECT count(*) FROM faq_embeddings WHERE vector_type = 'QUESTION_ANSWER'),
-       (SELECT count(*) FROM faq_embeddings WHERE vector_type <> 'QUESTION_ANSWER');
+       (SELECT count(*) FROM faq_embeddings);
 '@).Trim()
-$expected = "$($seedSummary.faqCount)|$($seedSummary.variantCount)|$($seedSummary.variantCount)|0"
+$expected = "$($seedSummary.faqCount)|$($seedSummary.variantCount)|0"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "FAQ baseline verification failed: $verification"
 }
-Write-Host "FAQ reset completed: $($seedSummary.faqCount) FAQs, $($seedSummary.variantCount) variants and QUESTION_ANSWER vectors."
+Write-Host "FAQ reset completed: $($seedSummary.faqCount) FAQs and $($seedSummary.variantCount) variants. No vectors were inserted."
