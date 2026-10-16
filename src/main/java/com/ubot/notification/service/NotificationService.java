@@ -1,16 +1,21 @@
 package com.ubot.notification.service;
 
 import com.ubot.billing.entity.BillingRecord;
+import com.ubot.contract.entity.SubscriptionContract;
 import com.ubot.notification.dto.response.NotificationResponseDto;
 import com.ubot.notification.dto.response.ReadAllResponseDto;
 import com.ubot.notification.dto.response.UnreadCountResponseDto;
 import com.ubot.notification.entity.Notification;
+import com.ubot.notification.enums.DataUsageStage;
+import com.ubot.notification.enums.DateReminderStage;
 import com.ubot.notification.enums.NotificationType;
 import com.ubot.notification.enums.ReservationReminderStage;
 import com.ubot.notification.exception.NotificationErrorCode;
 import com.ubot.notification.exception.NotificationException;
 import com.ubot.notification.repository.NotificationRepository;
 import com.ubot.reservation.entity.StoreReservation;
+import com.ubot.subscription.entity.SubscriptionRoaming;
+import com.ubot.usage.repository.DataUsageTarget;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -117,6 +122,107 @@ public class NotificationService {
                 message,
                 type.name() + ":" + billing.getBillingId(),
                 LocalDateTime.now()) > 0;
+    }
+
+    // 로밍 시작 리마인더. 같은 로밍의 같은 단계 알림이 이미 있으면 만들지 않고 false를 반환
+    @Transactional
+    public boolean createRoamingStartReminder(SubscriptionRoaming roaming, DateReminderStage stage, LocalDate today) {
+        String day = roaming.getStartDate().equals(today) ? "오늘" : "내일";
+        String message = roaming.getProductNameSnapshot() + " 이용이 " + day + "부터 시작됩니다. ("
+                + roaming.getStartDate().format(DUE_DATE_FORMAT) + " ~ "
+                + roaming.getEndDate().format(DUE_DATE_FORMAT) + ")";
+        return insertReminder(
+                roaming.getSubscription().getUser().getId(),
+                NotificationType.ROAMING_START,
+                "로밍 시작 안내",
+                message,
+                NotificationType.ROAMING_START.name() + ":" + roaming.getSubscriptionRoamingId() + ":" + stage.name());
+    }
+
+    // 로밍 종료 리마인더. 같은 로밍의 같은 단계 알림이 이미 있으면 만들지 않고 false를 반환
+    @Transactional
+    public boolean createRoamingEndReminder(SubscriptionRoaming roaming, DateReminderStage stage, LocalDate today) {
+        String message = roaming.getEndDate().equals(today)
+                ? roaming.getProductNameSnapshot() + " 이용이 오늘 종료됩니다."
+                : roaming.getProductNameSnapshot() + " 이용이 내일 종료됩니다. (종료일: "
+                        + roaming.getEndDate().format(DUE_DATE_FORMAT) + ")";
+        return insertReminder(
+                roaming.getSubscription().getUser().getId(),
+                NotificationType.ROAMING_END,
+                "로밍 종료 안내",
+                message,
+                NotificationType.ROAMING_END.name() + ":" + roaming.getSubscriptionRoamingId() + ":" + stage.name());
+    }
+
+    // 약정 만료 리마인더. 같은 계약의 같은 단계 알림이 이미 있으면 만들지 않고 false를 반환.
+    @Transactional
+    public boolean createContractReminder(SubscriptionContract contract, DateReminderStage stage, LocalDate today) {
+        long daysLeft = ChronoUnit.DAYS.between(today, contract.getExpiresAt());
+        String label = switch (contract.getContractType()) {
+            case SELECTIVE_CONTRACT -> "선택약정";
+            case DEVICE_SUBSIDY -> "단말 지원금 약정";
+        };
+        String message = daysLeft == 0
+                ? label + "이 오늘 만료됩니다."
+                : label + " 만료가 " + daysLeft + "일 남았습니다. (만료일: "
+                        + contract.getExpiresAt().format(DUE_DATE_FORMAT) + ")";
+        return insertReminder(
+                contract.getSubscription().getUser().getId(),
+                NotificationType.CONTRACT_EXPIRING,
+                "약정 만료 안내",
+                message,
+                NotificationType.CONTRACT_EXPIRING.name() + ":" + contract.getContractId() + ":" + stage.name());
+    }
+
+    // 단말 할부 만료 리마인더. 같은 계약의 같은 단계 알림이 이미 있으면 만들지 않고 false를 반환
+    @Transactional
+    public boolean createInstallmentReminder(SubscriptionContract contract, DateReminderStage stage, LocalDate today) {
+        long daysLeft = ChronoUnit.DAYS.between(today, contract.getInstallmentExpiresAt());
+        String remaining = "남은 할부금 "
+                + String.format(Locale.KOREA, "%,d", contract.getRemainingInstallmentAmount()) + "원";
+        String subject = contract.getDeviceName() + " 할부";
+        String message = daysLeft == 0
+                ? subject + "가 오늘 만료됩니다. (" + remaining + ")"
+                : subject + " 만료가 " + daysLeft + "일 남았습니다. (만료일: "
+                        + contract.getInstallmentExpiresAt().format(DUE_DATE_FORMAT) + ", " + remaining + ")";
+        return insertReminder(
+                contract.getSubscription().getUser().getId(),
+                NotificationType.INSTALLMENT_EXPIRING,
+                "할부 만료 안내",
+                message,
+                NotificationType.INSTALLMENT_EXPIRING.name() + ":" + contract.getContractId() + ":" + stage.name());
+    }
+
+    /**
+     * 데이터 사용량 리마인더. 같은 사용 기록의 같은 단계 알림이 이미 있으면 만들지 않고 false를 반환
+     * 80% 단계는 실제 사용률과 남은 데이터를, 100% 단계는 모두 사용했음을 안내
+     */
+    @Transactional
+    public boolean createDataUsageReminder(DataUsageTarget target, DataUsageStage stage, LocalDate today) {
+        String month = today.getMonthValue() + "월";
+        String message = stage == DataUsageStage.P100
+                ? month + " 기본 제공 데이터를 모두 사용했습니다."
+                : month + " 데이터를 " + (target.getDataUsedMb() * 100 / target.getAllowanceMb())
+                        + "% 사용했습니다. (남은 데이터 "
+                        + formatData(target.getAllowanceMb() - target.getDataUsedMb()) + ")";
+        return insertReminder(
+                target.getUserId(),
+                NotificationType.DATA_USAGE_THRESHOLD,
+                "데이터 사용량 안내",
+                message,
+                NotificationType.DATA_USAGE_THRESHOLD.name() + ":" + target.getUsageId() + ":" + stage.percent());
+    }
+
+    // 예약과 무관한 리마인더를 저장하고 같은 dedupe_key가 이미 있으면 false를 반환
+    private boolean insertReminder(Long userId, NotificationType type, String title, String message,
+            String dedupeKey) {
+        return notificationRepository.insertWithoutReservationIfAbsent(
+                userId, type.name(), title, message, dedupeKey, LocalDateTime.now()) > 0;
+    }
+
+    // MB를 1GB(1024MB) 이상이면 GB(소수 첫째 자리), 미만이면 MB로 표기
+    private static String formatData(long mb) {
+        return mb >= 1024 ? String.format(Locale.KOREA, "%.1fGB", mb / 1024.0) : mb + "MB";
     }
 
     @Transactional(readOnly = true)

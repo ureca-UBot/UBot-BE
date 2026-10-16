@@ -10,6 +10,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ubot.billing.entity.BillingRecord;
+import com.ubot.contract.entity.SubscriptionContract;
+import com.ubot.contract.enums.ContractType;
+import com.ubot.notification.enums.DataUsageStage;
+import com.ubot.notification.enums.DateReminderStage;
 import com.ubot.notification.enums.NotificationType;
 import com.ubot.notification.enums.ReservationReminderStage;
 import com.ubot.notification.repository.NotificationRepository;
@@ -17,6 +21,8 @@ import com.ubot.reservation.entity.StoreReservation;
 import com.ubot.reservation.enums.ReservationPurpose;
 import com.ubot.store.entity.Store;
 import com.ubot.subscription.entity.Subscription;
+import com.ubot.subscription.entity.SubscriptionRoaming;
+import com.ubot.usage.repository.DataUsageTarget;
 import com.ubot.user.entity.User;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -207,6 +213,215 @@ class NotificationServiceTest {
                 .insertWithoutReservationIfAbsent(any(), any(), any(), any(), any(), any());
     }
 
+    @Test
+    @DisplayName("로밍 시작 알림은 시작이 내일이면 내일로 안내하고 로밍·단계별 dedupe_key로 저장한다")
+    void createsRoamingStartReminderForTomorrow() {
+        SubscriptionRoaming roaming = roaming(LocalDate.of(2026, 10, 16), LocalDate.of(2026, 10, 18));
+        stubInsertWithoutReservation(1);
+
+        boolean created = service.createRoamingStartReminder(roaming, DateReminderStage.D1, TODAY);
+
+        assertThat(created).isTrue();
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                eq(5L),
+                eq("ROAMING_START"),
+                eq("로밍 시작 안내"),
+                message.capture(),
+                eq("ROAMING_START:30:D1"),
+                any(LocalDateTime.class));
+        assertThat(message.getValue()).isEqualTo("일본 3일 로밍 이용이 내일부터 시작됩니다. (10월 16일 ~ 10월 18일)");
+    }
+
+    @Test
+    @DisplayName("로밍 시작 알림은 시작이 오늘이면 오늘로 안내한다")
+    void createsRoamingStartReminderForToday() {
+        SubscriptionRoaming roaming = roaming(TODAY, LocalDate.of(2026, 10, 17));
+        stubInsertWithoutReservation(1);
+
+        service.createRoamingStartReminder(roaming, DateReminderStage.D0, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                any(), any(), any(), message.capture(), eq("ROAMING_START:30:D0"), any());
+        assertThat(message.getValue()).isEqualTo("일본 3일 로밍 이용이 오늘부터 시작됩니다. (10월 15일 ~ 10월 17일)");
+    }
+
+    @Test
+    @DisplayName("로밍 종료 알림은 종료가 내일이면 종료일과 함께 안내한다")
+    void createsRoamingEndReminderForTomorrow() {
+        SubscriptionRoaming roaming = roaming(LocalDate.of(2026, 10, 13), LocalDate.of(2026, 10, 16));
+        stubInsertWithoutReservation(1);
+
+        service.createRoamingEndReminder(roaming, DateReminderStage.D1, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                eq(5L),
+                eq("ROAMING_END"),
+                eq("로밍 종료 안내"),
+                message.capture(),
+                eq("ROAMING_END:30:D1"),
+                any(LocalDateTime.class));
+        assertThat(message.getValue()).isEqualTo("일본 3일 로밍 이용이 내일 종료됩니다. (종료일: 10월 16일)");
+    }
+
+    @Test
+    @DisplayName("로밍 종료 알림은 종료가 오늘이면 오늘로 안내한다")
+    void createsRoamingEndReminderForToday() {
+        SubscriptionRoaming roaming = roaming(LocalDate.of(2026, 10, 12), TODAY);
+        stubInsertWithoutReservation(1);
+
+        service.createRoamingEndReminder(roaming, DateReminderStage.D0, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                any(), any(), any(), message.capture(), eq("ROAMING_END:30:D0"), any());
+        assertThat(message.getValue()).isEqualTo("일본 3일 로밍 이용이 오늘 종료됩니다.");
+    }
+
+    @Test
+    @DisplayName("약정 만료 알림은 남은 일수와 만료일을 안내하고 계약·단계별 dedupe_key로 저장한다")
+    void createsContractReminderWithDaysLeft() {
+        SubscriptionContract contract = contract(ContractType.SELECTIVE_CONTRACT, LocalDate.of(2026, 10, 22));
+        stubInsertWithoutReservation(1);
+
+        boolean created = service.createContractReminder(contract, DateReminderStage.D7, TODAY);
+
+        assertThat(created).isTrue();
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                eq(5L),
+                eq("CONTRACT_EXPIRING"),
+                eq("약정 만료 안내"),
+                message.capture(),
+                eq("CONTRACT_EXPIRING:40:D7"),
+                any(LocalDateTime.class));
+        assertThat(message.getValue()).isEqualTo("선택약정 만료가 7일 남았습니다. (만료일: 10월 22일)");
+    }
+
+    @Test
+    @DisplayName("약정이 오늘 만료되면 오늘이라고 안내한다")
+    void createsContractReminderOnExpiryDate() {
+        SubscriptionContract contract = contract(ContractType.DEVICE_SUBSIDY, TODAY);
+        stubInsertWithoutReservation(1);
+
+        service.createContractReminder(contract, DateReminderStage.D1, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                any(), any(), any(), message.capture(), eq("CONTRACT_EXPIRING:40:D1"), any());
+        assertThat(message.getValue()).isEqualTo("단말 지원금 약정이 오늘 만료됩니다.");
+    }
+
+    @Test
+    @DisplayName("이미 같은 계약의 같은 단계 약정 알림이 있으면 false를 반환한다")
+    void returnsFalseWhenContractReminderAlreadyExists() {
+        SubscriptionContract contract = contract(ContractType.SELECTIVE_CONTRACT, LocalDate.of(2026, 10, 22));
+        stubInsertWithoutReservation(0);
+
+        assertThat(service.createContractReminder(contract, DateReminderStage.D7, TODAY)).isFalse();
+    }
+
+    @Test
+    @DisplayName("할부 만료 알림은 남은 일수와 남은 할부금을 안내하고 계약·단계별 dedupe_key로 저장한다")
+    void createsInstallmentReminderWithDaysLeft() {
+        SubscriptionContract contract = contract(ContractType.DEVICE_SUBSIDY, TODAY.plusDays(30));
+        stubInsertWithoutReservation(1);
+
+        boolean created = service.createInstallmentReminder(contract, DateReminderStage.D30, TODAY);
+
+        assertThat(created).isTrue();
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                eq(5L),
+                eq("INSTALLMENT_EXPIRING"),
+                eq("할부 만료 안내"),
+                message.capture(),
+                eq("INSTALLMENT_EXPIRING:40:D30"),
+                any(LocalDateTime.class));
+        assertThat(message.getValue())
+                .isEqualTo("테스트 단말 할부 만료가 30일 남았습니다. (만료일: 11월 14일, 남은 할부금 750,000원)");
+    }
+
+    @Test
+    @DisplayName("할부가 오늘 만료되면 오늘이라고 안내한다")
+    void createsInstallmentReminderOnExpiryDate() {
+        SubscriptionContract contract = SubscriptionContract.builder()
+                .contractId(40L)
+                .subscription(Subscription.builder().user(User.builder().id(5L).build()).build())
+                .contractType(ContractType.DEVICE_SUBSIDY)
+                .deviceName("테스트 단말")
+                .remainingInstallmentAmount(50_000)
+                .installmentExpiresAt(TODAY)
+                .build();
+        stubInsertWithoutReservation(1);
+
+        service.createInstallmentReminder(contract, DateReminderStage.D1, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                any(), any(), any(), message.capture(), eq("INSTALLMENT_EXPIRING:40:D1"), any());
+        assertThat(message.getValue()).isEqualTo("테스트 단말 할부가 오늘 만료됩니다. (남은 할부금 50,000원)");
+    }
+
+    @Test
+    @DisplayName("데이터 80% 단계는 실제 사용률과 남은 데이터(GB)를 안내하고 사용 기록·단계별 dedupe_key로 저장한다")
+    void createsDataUsageReminderForEightyPercent() {
+        DataUsageTarget target = dataUsageTarget(8_600, 10_000);
+        stubInsertWithoutReservation(1);
+
+        boolean created = service.createDataUsageReminder(target, DataUsageStage.P80, TODAY);
+
+        assertThat(created).isTrue();
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                eq(5L),
+                eq("DATA_USAGE_THRESHOLD"),
+                eq("데이터 사용량 안내"),
+                message.capture(),
+                eq("DATA_USAGE_THRESHOLD:60:80"),
+                any(LocalDateTime.class));
+        assertThat(message.getValue()).isEqualTo("10월 데이터를 86% 사용했습니다. (남은 데이터 1.4GB)");
+    }
+
+    @Test
+    @DisplayName("남은 데이터가 1GB 미만이면 MB로 안내한다")
+    void createsDataUsageReminderWithRemainingMegabytes() {
+        DataUsageTarget target = dataUsageTarget(9_500, 10_000);
+        stubInsertWithoutReservation(1);
+
+        service.createDataUsageReminder(target, DataUsageStage.P80, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                any(), any(), any(), message.capture(), any(), any());
+        assertThat(message.getValue()).isEqualTo("10월 데이터를 95% 사용했습니다. (남은 데이터 500MB)");
+    }
+
+    @Test
+    @DisplayName("데이터 100% 단계는 모두 사용했음을 안내한다")
+    void createsDataUsageReminderForHundredPercent() {
+        DataUsageTarget target = dataUsageTarget(10_500, 10_000);
+        stubInsertWithoutReservation(1);
+
+        service.createDataUsageReminder(target, DataUsageStage.P100, TODAY);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(notificationRepository).insertWithoutReservationIfAbsent(
+                any(), any(), any(), message.capture(), eq("DATA_USAGE_THRESHOLD:60:100"), any());
+        assertThat(message.getValue()).isEqualTo("10월 기본 제공 데이터를 모두 사용했습니다.");
+    }
+
+    @Test
+    @DisplayName("이미 같은 사용 기록의 같은 단계 알림이 있으면 false를 반환한다")
+    void returnsFalseWhenDataUsageReminderAlreadyExists() {
+        DataUsageTarget target = dataUsageTarget(8_600, 10_000);
+        stubInsertWithoutReservation(0);
+
+        assertThat(service.createDataUsageReminder(target, DataUsageStage.P80, TODAY)).isFalse();
+    }
+
     private StoreReservation reservation(LocalDateTime visitAt) {
         Store store = mock(Store.class);
         when(store.getStoreName()).thenReturn("강남점");
@@ -229,5 +444,42 @@ class NotificationServiceTest {
                 .paidAmount(5_000)
                 .dueDate(dueDate)
                 .build();
+    }
+
+    private void stubInsertWithoutReservation(int result) {
+        when(notificationRepository.insertWithoutReservationIfAbsent(any(), any(), any(), any(), any(), any()))
+                .thenReturn(result);
+    }
+
+    private SubscriptionRoaming roaming(LocalDate startDate, LocalDate endDate) {
+        return SubscriptionRoaming.builder()
+                .subscriptionRoamingId(30L)
+                .subscription(Subscription.builder().user(User.builder().id(5L).build()).build())
+                .productNameSnapshot("일본 3일 로밍")
+                .startDate(startDate)
+                .endDate(endDate)
+                .build();
+    }
+
+    // 단말 할부 750,000원이 남은 계약. 할부 만료일은 계약 만료일과 같다.
+    private SubscriptionContract contract(ContractType type, LocalDate expiresAt) {
+        return SubscriptionContract.builder()
+                .contractId(40L)
+                .subscription(Subscription.builder().user(User.builder().id(5L).build()).build())
+                .contractType(type)
+                .expiresAt(expiresAt)
+                .deviceName("테스트 단말")
+                .remainingInstallmentAmount(750_000)
+                .installmentExpiresAt(expiresAt)
+                .build();
+    }
+
+    private DataUsageTarget dataUsageTarget(long usedMb, long allowanceMb) {
+        DataUsageTarget target = mock(DataUsageTarget.class);
+        when(target.getUsageId()).thenReturn(60L);
+        when(target.getUserId()).thenReturn(5L);
+        when(target.getDataUsedMb()).thenReturn(usedMb);
+        when(target.getAllowanceMb()).thenReturn(allowanceMb);
+        return target;
     }
 }
