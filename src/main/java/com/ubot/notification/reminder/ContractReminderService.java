@@ -31,8 +31,8 @@ import java.util.function.Function;
 @RequiredArgsConstructor
 @Slf4j
 public class ContractReminderService {
-    // 만료까지 며칠 이내면 알림 대상으로 보는지(가장 긴 단계(D30)와 같아야 함) */
-    static final int WINDOW_DAYS = 30;
+    // 만료까지 며칠 이내면 알림 대상으로 보는지 (가장 긴 단계 기준)
+    static final int WINDOW_DAYS = DateReminderStage.D30.days();
 
     private final SubscriptionContractRepository subscriptionContractRepository;
     private final NotificationService notificationService;
