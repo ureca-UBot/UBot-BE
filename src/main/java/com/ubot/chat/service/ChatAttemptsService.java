@@ -6,6 +6,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.chat.util.PersonalInfoMasker;
 import com.ubot.common.ErrorCode;
 import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.repository.ConversationRepository;
@@ -87,7 +88,7 @@ public class ChatAttemptsService {
 	}
 
 	public AnswerAttemptsHistory createAnswerAttempt(Long userId, Long conversationId, String question) {
-		String input = question.strip();
+		String input = PersonalInfoMasker.mask(question.strip());
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createIdempotencyKey(userId, input, createdAt);
 		return transactionTemplate
@@ -96,7 +97,7 @@ public class ChatAttemptsService {
 	}
 
 	public AnswerAttemptsHistory createGuestAnswerAttempt(Long conversationId, String question) {
-		String input = question.strip();
+		String input = PersonalInfoMasker.mask(question.strip());
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createGuestIdempotencyKey(conversationId, input, createdAt);
 		return transactionTemplate.execute(transactionStatus -> {
@@ -176,7 +177,7 @@ public class ChatAttemptsService {
 				throw new ChatException(errorCode);
 			});
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-					userId, latestAttempt.getConversationId(), latestAttempt.getQuestion(),
+					userId, latestAttempt.getConversationId(), PersonalInfoMasker.mask(latestAttempt.getQuestion()),
 					latestAttempt.getAttemptCount() + 1, idempotencyKey,
 					LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel));
 		});
