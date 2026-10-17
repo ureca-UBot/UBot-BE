@@ -144,7 +144,7 @@ public class ChatAnswerProcessor {
 			return;
 		}
 		try {
-			unansweredQuestionService.createUnansweredQuestion(
+			unansweredQuestionService.enqueueUnansweredQuestion(
 					attempt.getId(),
 					attempt.getQuestion(),
 					reason,

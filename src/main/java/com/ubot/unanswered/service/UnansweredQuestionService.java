@@ -8,6 +8,7 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.repository.UnansweredOutboxRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
 
@@ -18,6 +19,7 @@ public class UnansweredQuestionService {
     private final EmbeddingProfileService embeddingProfileService;
     private final UnansweredQuestionRepository unansweredQuestionRepository;
     private final UnansweredQuestionVectorRepository unansweredQuestionVectorRepository;
+    private final UnansweredOutboxRepository unansweredOutboxRepository;
     private final double groupThreshold;
 
     public UnansweredQuestionService(
@@ -25,13 +27,25 @@ public class UnansweredQuestionService {
             EmbeddingProfileService embeddingProfileService,
             UnansweredQuestionRepository unansweredQuestionRepository,
             UnansweredQuestionVectorRepository unansweredQuestionVectorRepository,
+            UnansweredOutboxRepository unansweredOutboxRepository,
             @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.unansweredQuestionRepository = unansweredQuestionRepository;
         this.unansweredQuestionVectorRepository = unansweredQuestionVectorRepository;
+        this.unansweredOutboxRepository = unansweredOutboxRepository;
         this.groupThreshold = groupThreshold;
+    }
+
+    public void enqueueUnansweredQuestion(
+            Long attemptId,
+            String question,
+            UnansweredReason reason,
+            Long bestFaqId,
+            Double bestSimilarity
+    ) {
+        unansweredOutboxRepository.enqueue(attemptId, question, reason, bestFaqId, bestSimilarity);
     }
 
     @Transactional

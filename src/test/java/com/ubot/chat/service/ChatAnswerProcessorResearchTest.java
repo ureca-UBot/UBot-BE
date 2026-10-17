@@ -112,7 +112,7 @@ class ChatAnswerProcessorResearchTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verify(unansweredQuestionService, never())
-                .createUnansweredQuestion(anyLong(), anyString(), any(), any(), any());
+                .enqueueUnansweredQuestion(anyLong(), anyString(), any(), any(), any());
         verifyNoInteractions(aiService);
     }
 
@@ -126,7 +126,7 @@ class ChatAnswerProcessorResearchTest {
         ChatAnswerResult result = processor.generateAnswer(regular, null, NOT_CANCELLED);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
-        verify(unansweredQuestionService).createUnansweredQuestion(
+        verify(unansweredQuestionService).enqueueUnansweredQuestion(
                 eq(regular.getId()), eq("유심 재발급"), any(), eq(1L), eq(0.5));
     }
 

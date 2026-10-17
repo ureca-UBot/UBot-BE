@@ -67,7 +67,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.NO_FAQ, null, null);
+		verify(unanswered).enqueueUnansweredQuestion(1L, "질문", UnansweredReason.NO_FAQ, null, null);
 	}
 
 	@Test
@@ -80,14 +80,14 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
+		verify(unanswered).enqueueUnansweredQuestion(1L, "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
 	}
 
 	@Test
 	@DisplayName("미응답 저장이 실패해도 채팅 실패 기록은 그대로 남긴다")
 	void keepsChatFailureWhenRecordFails() {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
-		doThrow(new RuntimeException("embedding down")).when(unanswered).createUnansweredQuestion(any(), any(), any(), any(), any());
+		doThrow(new RuntimeException("embedding down")).when(unanswered).enqueueUnansweredQuestion(any(), any(), any(), any(), any());
 
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
@@ -111,7 +111,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered, never()).createUnansweredQuestion(any(), any(), any(), any(), any());
+		verify(unanswered, never()).enqueueUnansweredQuestion(any(), any(), any(), any(), any());
 		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
 	}
 
@@ -120,7 +120,7 @@ class ChatServiceUnansweredTest {
 	void recordsLlmAbstain() {
 		answerWithStatus("ABSTAIN");
 
-		verify(unanswered).createUnansweredQuestion(1L, "질문", UnansweredReason.LLM_ABSTAIN, 1L, 0.9);
+		verify(unanswered).enqueueUnansweredQuestion(1L, "질문", UnansweredReason.LLM_ABSTAIN, 1L, 0.9);
 		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
 	}
 
@@ -130,7 +130,7 @@ class ChatServiceUnansweredTest {
 	void doesNotRecordOtherStatuses(String status) {
 		answerWithStatus(status);
 
-		verify(unanswered, never()).createUnansweredQuestion(any(), any(), any(), any(), any());
+		verify(unanswered, never()).enqueueUnansweredQuestion(any(), any(), any(), any(), any());
 	}
 
 	private void answerWithStatus(String status) {
