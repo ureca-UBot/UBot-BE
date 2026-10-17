@@ -40,9 +40,7 @@ record SubQuestionPlan(
 		/** 판정 LLM 호출이나 응답 해석에 실패해 원문을 썼습니다. */
 		LLM_FAILED,
 		/** 판정 LLM의 하위 질문을 가드가 모두 버려 원문으로 돌렸습니다. */
-		GUARD_FALLBACK,
-		/** 의도 재검색이라 원본 시도의 하위 질문을 다시 썼습니다. */
-		REUSED
+		GUARD_FALLBACK
 	}
 
 	SubQuestionPlan {

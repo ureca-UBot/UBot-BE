@@ -6,15 +6,14 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
-import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.repository.ConversationTurnRepository;
-import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.faq.enums.Intent;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
@@ -24,7 +23,6 @@ import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.SubQuestionPromptService;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,7 +33,6 @@ import org.springframework.dao.QueryTimeoutException;
 @DisplayName("하위 질문 정리 테스트")
 class SubQuestionPlannerTest {
 	private final ConversationTurnRepository turns = mock(ConversationTurnRepository.class);
-	private final QuestionLogRepository questionLogs = mock(QuestionLogRepository.class);
 	private final SubQuestionPromptService prompts = mock(SubQuestionPromptService.class);
 	private final LlmService llm = mock(LlmService.class);
 	private final SubQuestionGuard guard = mock(SubQuestionGuard.class);
@@ -52,7 +49,7 @@ class SubQuestionPlannerTest {
 	}
 
 	private SubQuestionPlanner planner(boolean enabled) {
-		return new SubQuestionPlanner(enabled, turns, questionLogs, prompts, llm, guard, router, detector);
+		return new SubQuestionPlanner(enabled, turns, prompts, llm, guard, router, detector);
 	}
 
 	private static SubQuestionGuard.Result result(List<String> subQuestions, boolean fallback,
@@ -199,48 +196,34 @@ class SubQuestionPlannerTest {
 	}
 
 	@Test
-	@DisplayName("재검색은 판정 LLM 없이 원본 시도의 하위 질문을 순서대로 다시 쓰고, 하위 질문이 없던 행은 원문을 쓴다")
-	void reusesSourceSubQuestionsForResearch() {
-		when(questionLogs.findAllByAttemptIdOrderBySubQuestionIndexAsc(5L)).thenReturn(List.of(
-				QuestionLog.builder().userQuestion("요금이랑 데이터").subQuestion("월 요금").userText("요금이랑")
-						.subQuestionIndex(0).build(),
-				QuestionLog.builder().userQuestion("요금이랑 데이터").userText("데이터").subQuestionIndex(1).build()));
+	@DisplayName("재검색도 표지가 있으면 판정 LLM을 부르고, 이전 대화는 원본 시도를 물을 때 기준으로 읽는다")
+	void researchJudgesWithSourceHistory() {
+		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", List.of("5G 프리미엄 요금제"), "월 89,000원입니다."));
+		when(turns.findPreviousTurns(5L, 3)).thenReturn(history);
+		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
+		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+				"{\"sub_questions\": [\"5G 프리미엄 요금제 데이터 제공량\"]}"));
 
-		SubQuestionPlan plan = planner(true).plan(research(5L, "요금이랑 데이터"));
+		SubQuestionPlan plan = planner(true).plan(research(5L, 7L, "그럼 데이터는?"));
 
-		// 원문을 다시 자르지 않고 원본에 저장한 원문 조각을 그대로 씁니다.
-		assertThat(plan.items()).containsExactly(
-				new SubQuestionPlan.SubQuestion("월 요금", "요금이랑"),
-				new SubQuestionPlan.SubQuestion("요금이랑 데이터", "데이터"));
-		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.REUSED);
-		assertThat(plan.multiTurn()).isFalse();
-		verifyNoInteractions(llm, turns);
+		assertThat(plan.searchQueries()).containsExactly("5G 프리미엄 요금제 데이터 제공량");
+		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM);
+		assertThat(plan.history()).isEqualTo(history);
+		// 재검색 시도(20) 기준으로 읽으면 원본 질문이 직전 대화로 들어가므로 원본 시도(5) 기준으로만 읽습니다.
+		verify(turns).findPreviousTurns(5L, 3);
+		verify(turns, never()).findPreviousTurns(20L, 3);
 	}
 
 	@Test
-	@DisplayName("원본에서 원문을 자를 근거가 없어 원문 조각이 비어 있었으면 재검색도 원문 조각 없이 쓴다")
-	void keepsMissingPieceForResearch() {
-		when(questionLogs.findAllByAttemptIdOrderBySubQuestionIndexAsc(5L)).thenReturn(List.of(
-				QuestionLog.builder().userQuestion("둘 다 데이터 몇 기가야?").subQuestion("5G 프리미엄 데이터 제공량")
-						.subQuestionIndex(0).build(),
-				QuestionLog.builder().userQuestion("둘 다 데이터 몇 기가야?").subQuestion("5G 스탠다드 데이터 제공량")
-						.subQuestionIndex(1).build()));
+	@DisplayName("재검색도 표지가 없으면 판정 LLM 없이 원문으로 먼저 검색한다")
+	void researchSearchesOriginalFirstWithoutMarks() {
+		when(turns.findPreviousTurns(5L, 3)).thenReturn(List.of());
+		when(router.route("유심 재발급 방법", false)).thenReturn(QuestionRouter.Route.none());
 
-		SubQuestionPlan plan = planner(true).plan(research(5L, "둘 다 데이터 몇 기가야?"));
+		SubQuestionPlan plan = planner(true).plan(research(5L, 7L, "유심 재발급 방법"));
 
-		assertThat(plan.items()).extracting(SubQuestionPlan.SubQuestion::userText).containsOnlyNulls();
-		assertThat(plan.searchQueries()).containsExactly("5G 프리미엄 데이터 제공량", "5G 스탠다드 데이터 제공량");
-	}
-
-	@Test
-	@DisplayName("원본 시도와 연결된 질문 로그가 없으면 재검색은 원문 하나로 진행한다")
-	void researchFallsBackToOriginalWithoutSourceLogs() {
-		when(questionLogs.findAllByAttemptIdOrderBySubQuestionIndexAsc(5L)).thenReturn(List.of());
-
-		SubQuestionPlan plan = planner(true).plan(research(5L, "유심 재발급"));
-
-		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
-		verify(questionLogs).findAllByAttemptIdOrderBySubQuestionIndexAsc(5L);
+		assertThat(plan.searchFirst()).isTrue();
+		assertThat(plan.searchQueries()).containsExactly("유심 재발급 방법");
 		verifyNoInteractions(llm);
 	}
 
@@ -249,8 +232,8 @@ class SubQuestionPlannerTest {
 				.status("PENDING").build();
 	}
 
-	private AnswerAttemptsHistory research(Long sourceAttemptId, String question) {
-		return AnswerAttemptsHistory.builder().id(20L).userId(1L).question(question).status("PENDING")
-				.sourceAttemptId(sourceAttemptId).intent(Intent.GENERAL).build();
+	private AnswerAttemptsHistory research(Long sourceAttemptId, Long conversationId, String question) {
+		return AnswerAttemptsHistory.builder().id(20L).userId(1L).conversationId(conversationId).question(question)
+				.status("PENDING").sourceAttemptId(sourceAttemptId).intent(Intent.GENERAL).build();
 	}
 }

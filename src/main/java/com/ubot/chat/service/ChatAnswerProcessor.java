@@ -39,10 +39,10 @@ public class ChatAnswerProcessor {
 	private double confidenceThreshold;
 
 	/**
-	 * 이전 대화가 있을 때 원문 검색만으로 끝낼 기준입니다. 이전 대화가 필요한 질문을 원문으로 답하면 틀리고,
-	 * 판정으로 넘기면 호출이 한 번 늘 뿐이라 유사도 기준보다 높게 둡니다. 이전 대화가 없으면 유사도 기준을 씁니다.
+	 * 이전 대화가 있을 때 원문 검색만으로 끝낼 기준입니다. 이전 대화가 없으면 유사도 기준을 씁니다.
+	 * 기본값은 유사도 기준과 같고, 나중에 튜닝할 수 있게 따로 둡니다. 유사도 기준보다 낮게 주면 유사도 기준을 씁니다.
 	 */
-	@Value("${CHAT_SEARCH_FIRST_HISTORY_THRESHOLD:0.80}")
+	@Value("${CHAT_SEARCH_FIRST_HISTORY_THRESHOLD:0.75}")
 	private double searchFirstHistoryThreshold;
 
 	private final FaqRetrievalService faqRetrievalService;
@@ -71,6 +71,10 @@ public class ChatAnswerProcessor {
 		checkCancellation.run();
 		// 판정할 표지가 없는 질문은 원문으로 먼저 검색하고, 기준을 넘지 못하면 그때 판정 LLM을 부릅니다.
 		RetrievalOutcome firstOutcome = null;
+		// 기준을 넘지 못한 원문 검색 결과와 그 기준입니다. 판정 뒤 원문 전체로 다시 검색할 하위 질문이 있으면
+		// 같은 검색을 다시 하지 않고 이 결과를 같은 기준으로 씁니다(가드가 막아 원문으로 돌린 경우 등).
+		RetrievalOutcome failedOriginal = null;
+		double failedOriginalThreshold = confidenceThreshold;
 		if (plan.searchFirst()) {
 			try {
 				firstOutcome = searchFaqs(attempt, attempt.getQuestion());
@@ -83,6 +87,8 @@ public class ChatAnswerProcessor {
 			if (highest == null || highest < threshold) {
 				log.info("원문 검색이 기준에 못 미쳐 판정합니다: 시도ID={}, 최고유사도={}, 기준값={}",
 						attempt.getId(), highest, threshold);
+				failedOriginal = firstOutcome;
+				failedOriginalThreshold = threshold;
 				firstOutcome = null;
 				plan = subQuestionPlanner.judge(attempt, plan);
 				checkCancellation.run();
@@ -101,6 +107,14 @@ public class ChatAnswerProcessor {
 			String searchQuery = plan.items().get(index).searchQuery();
 			String userText = plan.items().get(index).userText();
 			RetrievalOutcome outcome = firstOutcome;
+			double minimumSimilarity = confidenceThreshold;
+			if (outcome == null && failedOriginal != null && searchQuery.equals(attempt.getQuestion())) {
+				// 방금 기준을 넘지 못한 원문 검색과 같은 검색이라 다시 하지 않고, 그 결과를 넘지 못한 기준으로 판단합니다.
+				// 그래서 이 하위 질문은 근거를 찾지 못한 것으로 처리되고, 답변에서는 답할 수 없다고 안내합니다.
+				log.info("원문 검색 결과를 다시 씁니다: 시도ID={}, 하위질문순번={}", attempt.getId(), index);
+				outcome = failedOriginal;
+				minimumSimilarity = failedOriginalThreshold;
+			}
 			if (outcome == null) {
 				try {
 					outcome = searchFaqs(attempt, searchQuery);
@@ -124,14 +138,15 @@ public class ChatAnswerProcessor {
 			}
 			// 유사도 기준은 코사인 유사도에만 적용합니다. 다시 정렬한 후보 전체에서 거른 뒤에 topK개로 줄여야,
 			// 상위 topK개를 먼저 잘라 그 아래의 기준 통과 후보를 잃는 일이 없습니다.
+			double threshold = minimumSimilarity;
 			List<FaqSearchResponseDto> filteredResults = results.stream()
 					.filter(result -> Double.isFinite(result.similarityScore())
-							&& result.similarityScore() >= confidenceThreshold)
+							&& result.similarityScore() >= threshold)
 					.limit(topK)
 					.toList();
 			if (filteredResults.isEmpty()) {
 				log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 하위질문순번={}, 최고유사도={}, 기준값={}",
-						attempt.getId(), index, highestSimilarity(results), confidenceThreshold);
+						attempt.getId(), index, highestSimilarity(results), threshold);
 				unanswered.add(new UnansweredSubQuestion(
 						index, searchQuery, userText, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1()));
 			}

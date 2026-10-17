@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -49,6 +50,7 @@ class ChatAnswerProcessorSubQuestionTest {
 				ChatTestFixtures.collector(), planner);
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
+		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.
 		ReflectionTestUtils.setField(processor, "searchFirstHistoryThreshold", 0.80);
 		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false));
 	}
@@ -168,7 +170,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		var research = AnswerAttemptsHistory.builder().id(200L).userId(1L).question("원문").status("PENDING")
 				.sourceAttemptId(100L).intent(Intent.STORE_DATA).build();
 		when(planner.plan(research)).thenReturn(new SubQuestionPlan(
-				List.of("강남역 매장", "해외 로밍 요금"), SubQuestionPlan.Source.REUSED));
+				List.of("강남역 매장", "해외 로밍 요금"), SubQuestionPlan.Source.LLM));
 		when(vector.getSimilarListByIntent("강남역 매장", Intent.STORE_DATA, 3)).thenReturn(List.of(faq(1L, 0.9)));
 		when(vector.getSimilarListByIntent("해외 로밍 요금", Intent.STORE_DATA, 3)).thenReturn(List.of());
 
@@ -225,7 +227,73 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("이전 대화가 있으면 원문 검색은 더 높은 기준을 넘어야 판정 없이 끝난다")
+	@DisplayName("원문 검색이 기준에 못 미친 뒤 판정 결과가 원문 그대로면 다시 검색하지 않고 그 기준으로 답할 수 없음 처리한다")
+	void reusesFailedOriginalSearch() {
+		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", List.of("일본 로밍 3일 요금"), "하루 1만 원입니다."));
+		var question = "신청 취소는 어떻게 해요?";
+		var plain = AnswerAttemptsHistory.builder().id(303L).userId(1L).conversationId(7L).question(question)
+				.status("PENDING").build();
+		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, history, QuestionRouter.Route.none());
+		when(planner.plan(plain)).thenReturn(first);
+		// 가드가 검색어를 막아 원문 전체로 되돌린 경우입니다.
+		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+				new SubQuestionPlan.SubQuestion(question, question)),
+				SubQuestionPlan.Source.LLM, history, true, null, false));
+		// 0.77은 유사도 기준(0.75)은 넘지만, 이 검색이 넘지 못한 이전 대화 기준(0.80)에는 못 미칩니다.
+		when(vector.getSimilarList(question, 3)).thenReturn(List.of(faq(147L, 0.77)));
+
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+
+		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
+		verify(vector, times(1)).getSimilarList(question, 3);
+		verify(unanswered).createUnansweredQuestion(
+				303L, 0, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77);
+		verifyNoInteractions(ai);
+	}
+
+	@Test
+	@DisplayName("원문 검색이 기준에 못 미친 뒤 막힌 검색어를 원문 조각으로 돌렸으면 조각은 새로 검색한다")
+	void searchesPieceAfterFailedOriginalSearch() {
+		var question = "해지 안 되나요? 그리고 위약금은요?";
+		var plain = AnswerAttemptsHistory.builder().id(304L).userId(1L).question(question).status("PENDING").build();
+		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
+		when(planner.plan(plain)).thenReturn(first);
+		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+				new SubQuestionPlan.SubQuestion("해지 안 되나요?", "해지 안 되나요?"),
+				new SubQuestionPlan.SubQuestion("해지 위약금은 얼마인가요?", "그리고 위약금은요?")),
+				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
+		when(vector.getSimilarList(question, 3)).thenReturn(List.of(faq(1L, 0.6)));
+		var cancel = faq(2L, 0.9);
+		var penalty = faq(3L, 0.9);
+		when(vector.getSimilarList("해지 안 되나요?", 3)).thenReturn(List.of(cancel));
+		when(vector.getSimilarList("해지 위약금은 얼마인가요?", 3)).thenReturn(List.of(penalty));
+
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+
+		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::isAnswered).containsExactly(true, true);
+		verify(vector).getSimilarList("해지 안 되나요?", 3);
+	}
+
+	@Test
+	@DisplayName("이전 대화 기준이 기본값(유사도 기준과 같음)이면 이전 대화가 있어도 원문 검색이 유사도 기준만 넘으면 판정 없이 끝난다")
+	void usesConfidenceThresholdWithHistoryByDefault() {
+		ReflectionTestUtils.setField(processor, "searchFirstHistoryThreshold", 0.75);
+		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", List.of("일본 로밍 3일 요금"), "하루 1만 원입니다."));
+		var question = "신청 취소는 어떻게 해요?";
+		var plain = AnswerAttemptsHistory.builder().id(305L).userId(1L).conversationId(7L).question(question)
+				.status("PENDING").build();
+		when(planner.plan(plain)).thenReturn(SubQuestionPlan.searchFirst(question, history, QuestionRouter.Route.none()));
+		var cancel = faq(147L, 0.77);
+		when(vector.getSimilarList(question, 3)).thenReturn(List.of(cancel));
+
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+
+		assertThat(result.subQuestions()).containsExactly(new SubQuestionFaqs(question, List.of(cancel), question));
+		verify(planner, never()).judge(any(), any());
+	}
+
+	@Test
+	@DisplayName("이전 대화 기준을 유사도 기준보다 높이면 이전 대화가 있을 때 원문 검색은 그 기준을 넘어야 판정 없이 끝난다")
 	void usesHigherThresholdWithHistory() {
 		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", List.of("일본 로밍 3일 요금"), "하루 1만 원입니다."));
 		var question = "신청 취소는 어떻게 해요?";
