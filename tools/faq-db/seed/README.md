@@ -1,22 +1,16 @@
 # FAQ 시드 데이터
 
-`baseline-faqs-N.csv`와 `baseline-faq-variants-N.csv`가 시드의 기준 데이터입니다. 두 파일은 같은 번호로 짝지으며, 번호는 1부터 연속입니다. 한 쌍에는 FAQ를 최대 200건, variant를 최대 1,000건 넣습니다. 마지막 쌍은 이보다 적어도 됩니다. FAQ마다 원본 질문 1개와 유사표현 4개, 총 5개 variant를 저장합니다.
+`baseline-faqs.csv`와 `baseline-faq-variants.csv`가 시드의 기준 데이터입니다. FAQ마다 원본 질문을 첫 variant로 저장하고, 유사표현은 필요한 만큼 추가할 수 있습니다.
 
 ```text
-baseline-faqs-N.csv: faqId,category,question,answer,intent
-baseline-faq-variants-N.csv: originFaqId,variantId,question,vector
+baseline-faqs.csv: faqId,category,question,answer,intent
+baseline-faq-variants.csv: originFaqId,variantId,question
 ```
 
-`vector`는 Ollama `bge-m3:567m`으로 `질문: {variant 질문}\n답변: {해당 FAQ 답변}`을 임베딩한 1,024차원 벡터입니다. 시드는 이를 `faq_embeddings`의 `QUESTION_ANSWER` 유형으로 저장합니다. 시드 실행 중에는 Ollama를 호출하지 않습니다.
+시드 CSV에는 임베딩 벡터가 없습니다. FAQ 검색에 필요한 `QUESTION` 벡터는 데이터를 적재한 뒤 생성해야 합니다.
 
-`days/additional-faq-날짜.json`은 날짜별 추가 적재 대상 FAQ ID와 CSV 번호를 기록합니다. 해당 날짜의 TXT로 CSV를 생성하려면 `tools/faq-db/prepare_additional_faq.py`를, 기존 DB에 그날의 신규 건만 추가하려면 `tools/faq-db/import-additional-faq.ps1 날짜`를 사용합니다. 날짜별 목록을 보존해야 다른 DB에도 같은 추가분을 적재할 수 있습니다.
+추가 FAQ를 준비할 때는 두 CSV에 FAQ와 각 FAQ의 원본 질문 및 유사표현 variant를 추가하고, `days/additional-faq-날짜.json`에 해당 FAQ ID를 기록합니다. 파일 형식은 `{ "date": "1015", "faqIds": ["1001", "1002"] }`입니다. 이 목록을 보존해야 다른 DB에도 같은 추가분을 적재할 수 있습니다.
 
-모든 번호의 파일 쌍을 검사하려면 프로젝트 루트에서 실행합니다.
+FAQ ID는 기존 마지막 ID 다음부터 연속으로, variant ID도 기존 마지막 ID 다음부터 연속으로 지정합니다. 각 FAQ의 첫 variant 질문은 FAQ 원본 질문과 같아야 합니다. CSV를 직접 수정한 뒤 검증 명령으로 형식과 관계를 확인하세요.
 
-```powershell
-python -X utf8 .\tools\faq-db\validate_baseline_seed.py
-```
-
-`reset-local-db.ps1`, `reset-faq-data.ps1`, `reset-faq-tables.ps1`은 이 검증을 통과한 모든 번호의 CSV를 읽습니다. 처음 두 스크립트는 기존 데이터를 삭제하므로 실행 전에 [초기화 안내](../../../docs/how-to/reset-local-db.md)를 확인하세요. `reset-faq-tables.ps1`은 FAQ를 참조하는 이력·로그·미응답 기록이 있으면 중단합니다. 시드에는 기본 계정 `user@user.com`(USER), `admin@admin.com`(ADMIN)이 있으며 비밀번호는 모두 `12345678`입니다.
-
-시드에는 `QUESTION_ANSWER` 벡터만 포함됩니다. 검색 설정이 `QUESTION`이거나 임베딩 Profile이 다르면 해당 벡터를 백필해야 합니다.
+프로젝트 루트에서 `python -X utf8 .\tools\faq-db\validate_baseline_seed.py`로 두 CSV의 형식과 FAQ별 variant를 검사할 수 있습니다. `reset-local-db.ps1`과 `reset-faq-data.ps1`은 FAQ와 variant를 다시 적재하고, `import-additional-faq.ps1 날짜`는 날짜별 목록에 있는 FAQ와 variant만 추가합니다. 어느 스크립트도 벡터를 생성하거나 적재하지 않습니다.

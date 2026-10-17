@@ -38,8 +38,7 @@ class ChatAnswerProcessorResearchTest {
     private static final Runnable NOT_CANCELLED = () -> {
     };
 
-    @Mock
-    FaqVectorService faqVectorService;
+    FaqVectorService faqVectorService = ChatTestFixtures.vectorService();
     @Mock
     AiService aiService;
     @Mock
@@ -53,7 +52,7 @@ class ChatAnswerProcessorResearchTest {
     void setUp() {
         processor = new ChatAnswerProcessor(
                 FaqRetrievalService.denseOnly(faqVectorService), aiService, unansweredQuestionService, chatContextCollector,
-                ChatTestFixtures.disabledCache());
+                ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
     }

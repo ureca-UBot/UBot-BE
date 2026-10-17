@@ -28,8 +28,6 @@ import com.ubot.faq.repository.FaqVectorRepository;
 @DisplayName("FAQ 벡터 서비스 테스트")
 class FaqVectorServiceTest {
 
-    private static final String QUESTION_ANSWER_TEXT = "질문: 질문\n답변: 답변";
-
     private final EmbeddingService embeddingService =
             mock(EmbeddingService.class);
 
@@ -40,10 +38,10 @@ class FaqVectorServiceTest {
             mock(FaqVectorRepository.class);
 
     private final FaqVectorService service =
-            serviceSearching(FaqVectorType.QUESTION);
+            new FaqVectorService(embeddingService, embeddingProfileService, repository);
 
     @Test
-    @DisplayName("사용자 질문을 임베딩한 뒤 현재 프로필과 설정된 벡터 유형으로 유사 FAQ 목록을 조회한다")
+    @DisplayName("사용자 질문을 임베딩한 뒤 현재 프로필의 QUESTION 벡터로 유사 FAQ 목록을 조회한다")
     void getSimilarList_embedsQuestionThenQueriesRepository() {
         PGvector vector = vector(0);
         Long profileId = 10L;
@@ -91,32 +89,19 @@ class FaqVectorServiceTest {
     }
 
     @Test
-    @DisplayName("QUESTION_ANSWER로 설정해도 사용자 질문은 그대로 임베딩하고 FAQ 벡터 유형만 바꿔 검색한다")
-    void getSimilarList_searchesQuestionAnswerVectorsWithPlainUserQuestion() {
-        FaqVectorService questionAnswerService =
-                serviceSearching(FaqVectorType.QUESTION_ANSWER);
-
+    @DisplayName("검색 결과와 같은 질문 벡터를 함께 반환하고 질문은 한 번만 임베딩한다")
+    void searchWithVector_returnsQueryVector() {
         PGvector vector = vector(0);
-        Long profileId = 10L;
+        List<FaqSearchResponseDto> expected = List.of(new FaqSearchResponseDto(1L, "질문", "답변", 0.9, Intent.GENERAL));
+        when(embeddingService.embedText("질문")).thenReturn(vector);
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+        when(repository.getSimilarList(vector, 10L, FaqVectorType.QUESTION, 3)).thenReturn(expected);
 
-        when(embeddingService.embedText("질문"))
-                .thenReturn(vector);
+        FaqVectorService.SearchResult result = service.searchWithVector("질문", null, 3);
 
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
-
-        questionAnswerService.getSimilarList("질문", 3);
-
-        verify(embeddingService)
-                .embedText("질문");
-
-        verify(repository)
-                .getSimilarList(
-                        vector,
-                        profileId,
-                        FaqVectorType.QUESTION_ANSWER,
-                        3
-                );
+        assertThat(result.faqs()).isSameAs(expected);
+        assertThat(result.queryVector()).isSameAs(vector);
+        verify(embeddingService).embedText("질문");
     }
 
     @Test
@@ -194,27 +179,18 @@ class FaqVectorServiceTest {
     }
 
     @Test
-    @DisplayName("새 FAQ는 질문 벡터와 질문+답변 벡터를 각각 임베딩해 현재 프로필과 FAQ 버전으로 저장한다")
-    void saveVectorsForFaq_embedsAndSavesEveryVectorType() {
+    @DisplayName("새 variant는 질문 벡터만 저장한다")
+    void saveQuestionVectorForVariant_savesQuestionVector() {
         PGvector questionVector = vector(0);
-        PGvector questionAnswerVector = vector(1);
         Long profileId = 10L;
 
         when(embeddingService.embedText("질문"))
                 .thenReturn(questionVector);
 
-        when(embeddingService.embedText(QUESTION_ANSWER_TEXT))
-                .thenReturn(questionAnswerVector);
-
         when(embeddingProfileService.getCurrentProfileId())
                 .thenReturn(profileId);
 
-        service.saveVectorsForVariant(
-                1L,
-                3,
-                "질문",
-                "답변"
-        );
+        service.saveQuestionVectorForVariant(1L, 3, "질문");
 
         verify(repository)
                 .saveVectorForVariant(
@@ -225,71 +201,18 @@ class FaqVectorServiceTest {
                         questionVector
                 );
 
-        verify(repository)
-                .saveVectorForVariant(
-                        1L,
-                        profileId,
-                        FaqVectorType.QUESTION_ANSWER,
-                        3,
-                        questionAnswerVector
-                );
+        verify(embeddingService, never()).embedText("질문: 질문\n답변: 답변");
     }
 
     @Test
-    @DisplayName("답변만 바뀌면 질문 벡터는 버전만 갱신하고 질문+답변 벡터만 다시 임베딩한다")
-    void updateVectorsForFaq_reembedsOnlyQuestionAnswerWhenAnswerChanged() {
-        PGvector questionAnswerVector = vector(1);
-        Long profileId = 10L;
-
-        when(embeddingService.embedText(QUESTION_ANSWER_TEXT))
-                .thenReturn(questionAnswerVector);
-
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
-
-        service.updateVectorsForVariant(
-                1L,
-                4,
-                "질문",
-                "답변",
-                true
-        );
-
-        verify(repository)
-                .updateVectorVersionForVariant(
-                        1L,
-                        profileId,
-                        4
-                );
-
-        verify(repository)
-                .saveVectorForVariant(
-                        1L,
-                        profileId,
-                        FaqVectorType.QUESTION_ANSWER,
-                        4,
-                        questionAnswerVector
-                );
-
-        verify(embeddingService, never())
-                .embedText("질문");
-    }
-
-    @Test
-    @DisplayName("질문과 답변이 그대로면 재임베딩하지 않고 두 유형의 벡터 버전만 갱신한다")
-    void updateVectorsForFaq_updatesOnlyVersionsWhenTextIsSame() {
+    @DisplayName("답변이 바뀌어도 유지되는 질문 벡터는 버전만 갱신한다")
+    void updateQuestionVectorVersionForVariant_updatesVersionOnly() {
         Long profileId = 10L;
 
         when(embeddingProfileService.getCurrentProfileId())
                 .thenReturn(profileId);
 
-        service.updateVectorsForVariant(
-                1L,
-                4,
-                "질문",
-                "답변",
-                false
-        );
+        service.updateQuestionVectorVersionForVariant(1L, 4);
 
         verify(repository)
                 .updateVectorVersionForVariant(
@@ -309,15 +232,6 @@ class FaqVectorServiceTest {
                         anyInt(),
                         any()
                 );
-    }
-
-    private FaqVectorService serviceSearching(FaqVectorType searchVectorType) {
-        return new FaqVectorService(
-                embeddingService,
-                embeddingProfileService,
-                repository,
-                searchVectorType
-        );
     }
 
     private PGvector vector(int index) {

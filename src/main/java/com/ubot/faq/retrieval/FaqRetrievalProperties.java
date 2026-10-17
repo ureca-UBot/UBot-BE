@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.StringUtils;
 
 /**
- * FAQ 검색 설정입니다. 검색할 벡터 유형(FAQ_SEARCH_VECTOR_TYPE)은 FaqVectorService가 읽고 검사합니다.
+ * FAQ 검색 설정입니다. 후보 검색은 QUESTION 벡터를 사용합니다.
  */
 @ConfigurationProperties(prefix = "faq.retrieval")
 public class FaqRetrievalProperties implements InitializingBean {

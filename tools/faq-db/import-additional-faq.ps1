@@ -24,32 +24,19 @@ foreach ($id in $sourceIds) {
 
 $faqs = New-Object 'System.Collections.Generic.List[object]'
 $variants = New-Object 'System.Collections.Generic.List[object]'
-$parts = @($manifest.parts | ForEach-Object { [int] $_ })
-if ($parts.Count -eq 0 -or @($parts | Select-Object -Unique).Count -ne $parts.Count) {
-    throw 'Manifest parts are empty or duplicated.'
+$faqPath = Join-Path $seedPath 'baseline-faqs.csv'
+$variantPath = Join-Path $seedPath 'baseline-faq-variants.csv'
+if (-not (Test-Path -LiteralPath $faqPath) -or -not (Test-Path -LiteralPath $variantPath)) {
+    throw 'Missing baseline FAQ or variant CSV.'
 }
-foreach ($part in $parts) {
-    if ($part -lt 6) { throw "Not an additional FAQ part: $part" }
-    $faqPath = Join-Path $seedPath "baseline-faqs-$part.csv"
-    $variantPath = Join-Path $seedPath "baseline-faq-variants-$part.csv"
-    if (-not (Test-Path -LiteralPath $faqPath) -or -not (Test-Path -LiteralPath $variantPath)) {
-        throw "Missing numbered CSV pair for part $part"
-    }
-    $partFaqs = @(Import-Csv -LiteralPath $faqPath -Encoding UTF8)
-    $partVariants = @(Import-Csv -LiteralPath $variantPath -Encoding UTF8)
-    if ($partFaqs.Count -gt 200 -or $partVariants.Count -gt 1000 -or
-        $partVariants.Count -ne 5 * $partFaqs.Count) {
-        throw "Part $part exceeds its capacity or has incomplete variants."
-    }
-    foreach ($faq in $partFaqs) {
-        if ($wanted.Contains([string] $faq.faqId)) { $faqs.Add($faq) }
-    }
-    foreach ($variant in $partVariants) {
-        if ($wanted.Contains([string] $variant.originFaqId)) { $variants.Add($variant) }
-    }
+foreach ($faq in @(Import-Csv -LiteralPath $faqPath -Encoding UTF8)) {
+    if ($wanted.Contains([string] $faq.faqId)) { $faqs.Add($faq) }
+}
+foreach ($variant in @(Import-Csv -LiteralPath $variantPath -Encoding UTF8)) {
+    if ($wanted.Contains([string] $variant.originFaqId)) { $variants.Add($variant) }
 }
 
-if ($faqs.Count -ne $sourceIds.Count -or $variants.Count -ne 5 * $faqs.Count) {
+if ($faqs.Count -ne $sourceIds.Count) {
     throw 'Manifest IDs do not match the selected CSV rows.'
 }
 $faqIds = New-Object 'System.Collections.Generic.HashSet[string]'
@@ -68,16 +55,14 @@ foreach ($variant in $variants) {
         [string]::IsNullOrWhiteSpace([string] $variant.question)) {
         throw "Invalid variant $id"
     }
-    $vector = ConvertFrom-Json -InputObject $variant.vector
-    if (@($vector).Count -ne 1024) { throw "Variant $id does not have a 1024-dimensional vector." }
 }
 foreach ($faq in $faqs) {
     $group = @($variants | Where-Object originFaqId -eq $faq.faqId)
-    if ($group.Count -ne 5 -or $group[0].question -cne $faq.question) {
+    if ($group.Count -eq 0 -or $group[0].question -cne $faq.question) {
         throw "FAQ $($faq.faqId) has invalid variants."
     }
     $questions = @($group | ForEach-Object { ($_.question -replace '\s+', ' ').Trim() })
-    if (@($questions | Select-Object -Unique).Count -ne 5) {
+    if (@($questions | Select-Object -Unique).Count -ne $group.Count) {
         throw "FAQ $($faq.faqId) has duplicate variant questions."
     }
 }
@@ -102,7 +87,7 @@ try {
 
     $faqs | Select-Object faqId, category, question, answer, intent |
         Export-Csv -LiteralPath $localFaq -NoTypeInformation -Encoding UTF8
-    $variants | Select-Object originFaqId, variantId, question, vector |
+    $variants | Select-Object originFaqId, variantId, question |
         Export-Csv -LiteralPath $localVariant -NoTypeInformation -Encoding UTF8
     $sqlText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'import-additional-faq.sql') -Raw -Encoding UTF8
     $sqlText = $sqlText.Replace('__FAQ_FILE__', $remoteFaq).Replace('__VARIANT_FILE__', $remoteVariant)
@@ -117,7 +102,7 @@ try {
     & docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
         -U $databaseUser -d $databaseName -f $remoteSql
     if ($LASTEXITCODE -ne 0) { throw 'Additional FAQ import failed; the transaction was rolled back.' }
-    Write-Host "Inserted $($faqs.Count) FAQs, $($variants.Count) variants and QUESTION_ANSWER vectors."
+    Write-Host "Inserted $($faqs.Count) FAQs and $($variants.Count) variants. No vectors were inserted."
 } finally {
     if ($containerId) {
         & docker exec $containerId rm -f -- $remoteFaq $remoteVariant $remoteSql 2>$null | Out-Null

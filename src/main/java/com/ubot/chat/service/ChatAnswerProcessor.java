@@ -17,6 +17,8 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.DenseFaqCandidates;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.RetrievalOutcome;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
+import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
@@ -47,18 +49,21 @@ public class ChatAnswerProcessor {
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 	private final FaqSemanticCacheService faqSemanticCacheService;
+	private final FaqSentenceFilterService faqSentenceFilterService;
 
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
 			ChatContextCollector chatContextCollector,
-			FaqSemanticCacheService faqSemanticCacheService) {
+			FaqSemanticCacheService faqSemanticCacheService,
+			FaqSentenceFilterService faqSentenceFilterService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
 		this.faqSemanticCacheService = faqSemanticCacheService;
+		this.faqSentenceFilterService = faqSentenceFilterService;
 	}
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
@@ -75,6 +80,9 @@ public class ChatAnswerProcessor {
 			return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
 		checkCancellation.run();
+		log.info("FAQ 질문 벡터 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, 검색시간={}ms, 검색결과=[{}]",
+				attempt.getId(), attempt.getIntent(), dense.candidates().size(),
+				highestSimilarity(dense.candidates()), dense.searchMillis(), formatSearchResults(dense.candidates()));
 		FaqCacheDecision cacheDecision = faqSemanticCacheService.evaluate(requestedIntent, dense.candidates());
 		checkCancellation.run();
 		Optional<FaqSearchResponseDto> cachedFaq = cacheDecision.faq();
@@ -88,49 +96,57 @@ public class ChatAnswerProcessor {
 					attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
 			return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false), List.of(officialFaq));
 		}
-		// MISS이면 원래 검색 후보로 기존 RAG를 이어갑니다. 임베딩·검색은 반복하지 않습니다.
 		RetrievalOutcome outcome = faqRetrievalService.rankCandidates(attempt.getQuestion(), dense, topK);
-		// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
-		List<FaqSearchResponseDto> results = outcome.rankedCandidates();
 		checkCancellation.run();
-		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 재검색의도={}, 결과수={}, 최고유사도={}, Reranker정렬={}, Reranker실패사유={}, 검색결과=[{}]",
-				attempt.getId(), attempt.getIntent(), results == null ? 0 : results.size(),
-				highestSimilarity(results), outcome.reranked(), outcome.fallbackReason(), formatSearchResults(results));
-		if (results == null || results.isEmpty()) {
+		List<FaqSearchResponseDto> ranked = outcome.rankedCandidates();
+		if (ranked == null || ranked.isEmpty()) {
 			log.info("FAQ 검색 결과가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 			createUnansweredQuestion(attempt, UnansweredReason.NO_FAQ, null);
 			return ChatAnswerResult.failed(ChatErrorCode.NO_FAQ);
 		}
-		// 유사도 기준은 코사인 유사도에만 적용합니다. 다시 정렬한 후보 전체에서 거른 뒤에 topK개로 줄여야,
-		// 상위 topK개를 먼저 잘라 그 아래의 기준 통과 후보를 잃는 일이 없습니다.
-		List<FaqSearchResponseDto> filteredResults = results.stream()
+		List<FaqSearchResponseDto> similar = ranked.stream()
 				.filter(result -> Double.isFinite(result.similarityScore())
 						&& result.similarityScore() >= confidenceThreshold)
-				.limit(topK)
 				.toList();
-		if (filteredResults.isEmpty()) {
-			log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 최고유사도={}, 기준값={}",
-					attempt.getId(), highestSimilarity(results), confidenceThreshold);
+		if (similar.isEmpty()) {
+			log.info("FAQ 질문 벡터 유사도가 기준값 미만입니다: 시도ID={}, 최고유사도={}, 기준값={}",
+					attempt.getId(), highestSimilarity(ranked), confidenceThreshold);
 			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
 		}
+		List<FaqSearchResponseDto> candidates = similar.stream().limit(topK).toList();
+		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 유사도통과수={}, 문장검사대상FAQ수={}, Reranker정렬={}, Reranker실패사유={}",
+				attempt.getId(), dense.candidates().size(), similar.size(),
+				candidates.size(), outcome.reranked(), outcome.fallbackReason());
+		List<MatchedFaq> matched = faqSentenceFilterService.filter(dense.queryVector(), candidates);
 		checkCancellation.run();
-		log.info("CHAT route: attemptId={}, source=LLM, faqIds={}, preparationMs={}",
-				attempt.getId(), filteredResults.stream().map(FaqSearchResponseDto::faqId).toList(),
-				elapsedMillis(startedAt));
-		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
+		log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 통과FAQ수={}, 통과FAQ ID={}",
+				attempt.getId(), matched.size(), matched.stream().map(item -> item.faq().faqId()).toList());
+		if (matched.isEmpty()) {
+			log.info("유사도 기준을 통과한 FAQ 답변 문장이 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
+			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
+			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
+		}
+		List<FaqSearchResponseDto> originalFaqs = matched.stream().map(MatchedFaq::faq).toList();
+		List<FaqSearchResponseDto> promptFaqs = matched.stream().map(item -> {
+			FaqSearchResponseDto faq = item.faq();
+			return new FaqSearchResponseDto(faq.faqId(), faq.question(), item.answerSentences(),
+					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable());
+		}).toList();
 		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		AnswerMaterials materials = chatContextCollector.collect(
-				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
+				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), promptFaqs);
+		log.info("선별한 FAQ 답변 문장으로 LLM 답변을 생성합니다: 시도ID={}, FAQ ID={}, 준비시간={}ms",
+				attempt.getId(), originalFaqs.stream().map(FaqSearchResponseDto::faqId).toList(), elapsedMillis(startedAt));
 		AiAnswer answer = aiService.generateAnswer(materials);
 		checkCancellation.run();
 		if (answer == null || !StringUtils.hasText(answer.answer())) {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		if (answer.abstained()) {
-			createUnansweredQuestion(attempt, UnansweredReason.LLM_ABSTAIN, filteredResults.getFirst());
+			createUnansweredQuestion(attempt, UnansweredReason.LLM_ABSTAIN, originalFaqs.getFirst());
 		}
-		return ChatAnswerResult.answered(answer, filteredResults);
+		return ChatAnswerResult.answered(answer, originalFaqs);
 	}
 
 	private long elapsedMillis(long startedAt) {

@@ -24,11 +24,7 @@ POST /chat/questions
   → GET /chat/jobs/{jobId}: 답변 조회
 ```
 
-기본 설정으로 TOP-K 3개를 검색한 뒤, 각 FAQ의 유사도를 기준값 0.75와 비교합니다.
-기준값 이상인 FAQ만 원래 질문과 함께 전달하고, 실제 전달한 FAQ만 참고 로그에 저장합니다.
-기준값 미만이거나 유한한 숫자가 아닌 점수는 제외하며, 남은 FAQ가 없으면 LLM을 호출하지 않고
-`INSUFFICIENT_FAQ`로 실패 처리합니다. 검색 결과 자체가 없으면 기존 `NO_FAQ`를 반환합니다.
-검색 개수와 기준값은 `CHAT_TOP_K`, `CHAT_CONFIDENCE_THRESHOLD`로 설정하며, FAQ를 다시 조회하지 않습니다.
+FAQ 질문 벡터로 후보를 검색합니다. 캐시가 승인하지 않으면 `FAQ_RERANK_ENABLED` 설정에 따라 후보를 다시 정렬하고, `CHAT_CONFIDENCE_THRESHOLD`로 질문 벡터 유사도를 검사합니다. 통과한 후보 중 최대 `CHAT_TOP_K`개의 답변 문장을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 LLM에 전달하고, 실제 통과한 FAQ를 참고 로그에 저장합니다. 두 유사도 검사 중 어느 단계에서든 통과한 FAQ가 없으면 `INSUFFICIENT_FAQ`, 검색 결과 자체가 없으면 `NO_FAQ`를 반환합니다.
 
 프롬프트는 `src/main/resources/prompts/faq-system.txt`(시스템 지침)와
 `faq-user.txt`(사용자 메시지 템플릿)로 분리되어 있고, 두 파일 모두 본문이 들어 있습니다.
@@ -239,72 +235,48 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 
 | 대상 | Profile별 테이블 |
 |---|---|
-| FAQ 질문 표현 벡터 | `faq_embeddings` (`faq_question_variants`의 활성 표현마다 현재 Profile에 `QUESTION`, `QUESTION_ANSWER` 유형을 저장) |
+| FAQ 질문 표현 벡터 | `faq_embeddings` (`faq_question_variants`의 활성 표현마다 현재 Profile에 `QUESTION` 유형을 저장) |
 | 미응답 질문 벡터 | `unanswered_question_embeddings` |
 | 미응답 묶음 중심 벡터 | `unanswered_group_embeddings` |
 
 - FAQ 벡터에는 만들 때의 FAQ 버전(`faq_version`)이 함께 저장되고, FAQ의 현재 `version`과 같은 벡터만 검색에 쓰입니다.
-- FAQ를 만들면 원본 질문과 유사 질문을 각각 variant로 저장하고, 현재 Profile에 각 variant의 두 유형 벡터를 만듭니다. 수정 시 유지되는 variant는 답변이 바뀌었을 때 `QUESTION_ANSWER`만 다시 임베딩하고 두 유형의 `faq_version`을 갱신합니다. 원본 질문이 바뀌면 기존 variant를 모두 종료하고 새로 만듭니다. 다른 Profile의 벡터는 옛 버전으로 남아 검색에서 빠지고, 그 Profile로 돌아갔을 때 백필이 다시 만듭니다.
-- `faq_embeddings.vector_type`은 `ANSWER`도 허용하지만 `QUESTION`과 `QUESTION_ANSWER`만 만듭니다.
+- FAQ를 만들면 원본 질문과 유사 질문을 각각 variant로 저장하고, 현재 Profile에 각 variant의 질문 벡터를 만듭니다. 수정 시 유지되는 variant는 질문 벡터의 `faq_version`을 갱신합니다. 원본 질문이 바뀌면 기존 variant를 모두 종료하고 새로 만듭니다. 다른 Profile의 벡터는 옛 버전으로 남아 검색에서 빠지고, 그 Profile로 돌아갔을 때 백필이 다시 만듭니다.
+- `faq_embeddings.vector_type`은 과거 유형도 허용하지만, 애플리케이션은 `QUESTION`만 새로 만듭니다.
 - 벡터는 위 테이블에만 있습니다. 예전 벡터 컬럼(`faq.vector`, `old_faq.vector`, `unanswered_questions.question_vector`, `unanswered_question_groups.centroid`)은 `V25`에서 지웠고, FAQ 수정 이력에는 벡터를 남기지 않습니다.
 
-### FAQ 벡터 유형
+### FAQ 질문 벡터와 답변 문장 비교
 
-FAQ의 활성 질문 표현(variant)마다 현재 Profile에 두 유형의 벡터를 저장하고, 검색에는 그중 한 유형만 씁니다. 검색 결과는 variant별 유사도를 계산한 뒤 FAQ마다 점수가 가장 높은 표현 하나로 묶습니다.
+FAQ의 활성 질문 표현(variant)마다 현재 Profile에 질문 벡터를 저장합니다. 사용자 질문도 임베딩해 `QUESTION` 벡터와 비교하고, FAQ마다 점수가 가장 높은 표현 하나를 고릅니다. 캐시가 승인하지 않은 경우 질문 벡터 유사도 기준을 통과한 후보 FAQ의 답변을 임베딩해 사용자 질문과 비교합니다. 일반 문장은 문장별로, 안내 문장과 이어지는 번호·글머리 목록은 목록 전체를 하나의 단위로 비교합니다. 목록 뒤에 들여 쓰지 않고 시작하는 일반 문장은 별도로 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 단위만 LLM에 전달합니다.
 
-| `vector_type` | 임베딩하는 텍스트 |
-|---|---|
-| `QUESTION` | variant 질문 |
-| `QUESTION_ANSWER` | `질문: {variant 질문}`과 `답변: {원본 FAQ 답변}`을 줄바꿈으로 이은 한 문자열. 한 번에 임베딩함 |
+FAQ 생성 시 원본과 유사 질문 각각의 질문 벡터를 만듭니다. 원본 질문이나 유사 질문이 바뀌면 새 variant의 질문을 임베딩하고 제거된 variant의 벡터를 삭제합니다. 답변·카테고리·intent·cacheable만 바뀐 경우 유지되는 질문 벡터의 `faq_version`만 갱신합니다.
 
-- 검색에 쓰는 유형은 `FAQ_SEARCH_VECTOR_TYPE`(기본 `QUESTION`)으로 정합니다. 사용자 질문은 유형과 관계없이 질문만 임베딩합니다.
-- 선택한 유형의 현재 버전 벡터가 없는 variant는 다른 유형으로 대신 검색하지 않고 검색에서 빠집니다.
-- FAQ 생성 시 원본과 유사 질문 각각에 두 유형을 만듭니다. 수정 시 아래처럼 처리합니다.
-
-| 바뀐 내용 | `QUESTION` | `QUESTION_ANSWER` |
-|---|---|---|
-| 원본 질문 | 기존 variant의 벡터를 삭제하고 새 variant를 만들어 임베딩 | 기존 variant의 벡터를 삭제하고 새 variant를 만들어 임베딩 |
-| 유사 질문 추가·제거 | 추가된 variant는 새로 임베딩, 제거된 variant는 벡터 삭제 | 추가된 variant는 새로 임베딩, 제거된 variant는 벡터 삭제 |
-| 답변만 (유지되는 variant) | `faq_version`만 갱신 | 다시 임베딩 |
-| 카테고리·intent·cacheable만 (유지되는 variant) | `faq_version`만 갱신 | `faq_version`만 갱신 |
-
-`QUESTION_ANSWER`로 바꾸는 순서는 다음과 같습니다.
-
-1. [백필](#백필)을 실행해 전환할 유형의 variant 벡터를 채웁니다.
-2. 아래 SQL에서 활성 variant 수와 전환할 유형의 준비 수가 같은지 확인합니다. `<profile_id>`는 지금 Profile의 ID입니다.
-3. `FAQ_SEARCH_VECTOR_TYPE=QUESTION_ANSWER`로 바꾸고 백엔드를 다시 시작합니다.
+아래 SQL에서 활성 variant 수와 질문 벡터 준비 수를 비교할 수 있습니다. `<profile_id>`는 지금 Profile의 ID입니다.
 
 ```sql
 SELECT count(*) AS active_variant_count,
-       count(q.faq_question_variant_id) AS question_ready,
-       count(qa.faq_question_variant_id) AS question_answer_ready
+       count(q.faq_question_variant_id) AS question_ready
 FROM faq_question_variants v
 JOIN faq f ON f.id = v.origin_faq_id
 LEFT JOIN faq_embeddings q
        ON q.faq_question_variant_id = v.id AND q.profile_id = <profile_id>
       AND q.vector_type = 'QUESTION' AND q.faq_version = f.version
-LEFT JOIN faq_embeddings qa
-       ON qa.faq_question_variant_id = v.id AND qa.profile_id = <profile_id>
-      AND qa.vector_type = 'QUESTION_ANSWER' AND qa.faq_version = f.version
 WHERE f.deleted_at IS NULL;
 ```
 
-- 되돌릴 때는 `QUESTION` 벡터가 모두 준비됐는지 확인한 뒤 값을 `QUESTION`으로 바꾸고 다시 시작합니다.
-- 배포 스크립트는 검색에 쓰는 유형의 벡터만 확인합니다. 그래서 `QUESTION`으로 배포하는 동안에는 `QUESTION_ANSWER` 벡터가 모자라도 백필하지 않고, `QUESTION_ANSWER`로 바꿔 배포하면 교체 전에 백필합니다([배포 주의할 점](../deploy.md#주의할-점)).
-- 유형마다 유사도 분포가 다릅니다. 유형을 바꾸면 `CHAT_CONFIDENCE_THRESHOLD`가 그대로 맞는지 다시 확인하세요. 종전 FAQ 단위 검색으로 측정한 유사도 평균(`QUESTION` 0.773, `QUESTION_ANSWER` 0.688)은 variant 검색의 기준값으로 그대로 사용할 수 없습니다.
-- **FAQ 검색은 HNSW 인덱스를 쓰지 않고 지금 Profile·유형의 활성 variant 벡터 전체와 비교합니다.** `faq_embeddings`의 HNSW 인덱스 하나에 모든 Profile과 유형의 벡터가 함께 들어 있고, Profile·유형 조건은 인덱스가 후보(`hnsw.ef_search`, 기본 40개)를 고른 뒤에 적용되기 때문입니다. 검색 쿼리는 유사도로 정렬해 각 FAQ의 최고 점수 variant를 고릅니다. 인덱스는 남아 있지만 FAQ 검색에는 쓰이지 않습니다. 인덱스 관련 종전 FAQ 단위 측정은 [FAQ 검색·답변 테스트 보고서](../FAQ_검색_테스트_보고서.md)에 있습니다.
+- 배포 스크립트는 현재 Profile의 `QUESTION` 벡터만 확인하고 누락분을 백필합니다([배포 주의할 점](../deploy.md#주의할-점)).
+- **FAQ 검색은 HNSW 인덱스를 쓰지 않고 지금 Profile의 활성 `QUESTION` 벡터 전체와 비교합니다.** 검색 쿼리는 유사도로 정렬해 각 FAQ의 최고 점수 variant를 고릅니다. 인덱스는 남아 있지만 FAQ 검색에는 쓰이지 않습니다. 인덱스 관련 종전 FAQ 단위 측정은 [FAQ 검색·답변 테스트 보고서](../FAQ_검색_테스트_보고서.md)에 있습니다.
 
 ### 백필
 
-지금 Profile에 현재 FAQ 버전의 벡터가 없는 활성 variant만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. 두 유형을 따로 확인하므로, 한 유형만 있는 variant에는 빠진 유형만 만듭니다. 로컬에서는 백엔드가 시작할 때 자동으로 실행되지 않으므로 직접 실행합니다.
+지금 Profile에 현재 FAQ 버전의 `QUESTION` 벡터가 없는 활성 variant만 임베딩해 채우는 관리자 API입니다. 임베딩 엔진, 모델, `EMBEDDING_PROFILE_VERSION` 중 하나를 바꾼 뒤에 실행합니다. 로컬에서는 백엔드가 시작할 때 자동으로 실행되지 않으므로 직접 실행합니다.
 
 배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
 
-시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)는 variant CSV의 `QUESTION_ANSWER` 벡터를 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다. `QUESTION` 유형이나 vLLM처럼 다른 Profile을 검색하려면 백필로 해당 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
+현재 시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)는 FAQ와 질문 표현만 적재합니다. 시드 적재 뒤에는 백필로 검색에 필요한 `QUESTION` 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|
-| `POST /admin/faqs/embeddings/backfill` | 활성 FAQ의 활성 variant 중 지금 Profile에 현재 FAQ 버전의 벡터가 없는 것. 유형(`QUESTION`, `QUESTION_ANSWER`)마다 따로 확인 | 새로 만든 벡터 수 (variant 하나에 최대 2개) |
+| `POST /admin/faqs/embeddings/backfill` | 활성 FAQ의 활성 variant 중 지금 Profile에 현재 FAQ 버전의 `QUESTION` 벡터가 없는 것 | 새로 만든 벡터 수 (variant 하나에 최대 1개) |
 | `POST /admin/unanswered-groups/embeddings/backfill` | 지금 Profile에 벡터가 없는 미응답 질문. 끝에 묶음별 중심 벡터를 지금 Profile의 질문 벡터 평균으로 다시 계산 | 새로 임베딩한 질문 수 |
 
 전환 순서는 다음과 같습니다.
@@ -323,7 +295,7 @@ WHERE f.deleted_at IS NULL;
 - 다른 주소의 백엔드에는 `-BaseUrl http://<주소>`를 붙입니다. 요청 하나를 기다리는 시간은 `-TimeoutSec`(기본 3600초)로 바꿉니다.
 - 실행 정책 때문에 막히면 `powershell -ExecutionPolicy Bypass -File .\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>`로 실행합니다.
 - 스크립트 없이 하려면 Swagger UI(`/swagger-ui.html`)에서 `POST /auth/login`으로 받은 access token을 `Authorize`에 넣고 위 두 API를 차례로 실행합니다. macOS/Linux에서도 이 방법을 씁니다.
-- 요청은 백필이 끝난 뒤에 응답합니다. 활성 variant와 누락된 유형마다 임베딩하므로 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. 배포 서버의 Nginx는 백필 경로에만 응답 제한 시간 3600초를 적용합니다.
+- 요청은 백필이 끝난 뒤에 응답합니다. 누락된 활성 variant마다 임베딩하므로 호출하는 쪽의 제한 시간을 넉넉히 잡으세요. 배포 서버의 Nginx는 백필 경로에만 응답 제한 시간 3600초를 적용합니다.
 - 한 건씩 바로 저장하므로, 도중에 임베딩 서버 오류로 멈추거나 연결이 끊겨도 그때까지 저장한 벡터는 남습니다. 다시 실행하면 나머지를 채웁니다.
 
 백필하기 전에는 지금 Profile에 벡터가 없어서 아래처럼 동작합니다. 사용자 요청을 받기 전에 백필을 끝내세요.
@@ -331,8 +303,8 @@ WHERE f.deleted_at IS NULL;
 | 기능 | 백필 전 동작 |
 |---|---|
 | 채팅의 FAQ 검색 | 검색 결과가 없어 `CHAT-012`로 끝남 |
-| FAQ 수정 | 새 variant와 답변이 바뀐 유지 variant의 `QUESTION_ANSWER` 벡터는 만들어짐. 유지 variant의 `QUESTION` 벡터가 없으면 버전 갱신만으로는 채워지지 않음 |
-| FAQ 생성 | 정상. 지금 Profile에 모든 새 variant의 두 유형 벡터가 만들어짐 |
+| FAQ 수정 | 새 variant의 질문 벡터는 만들어짐. 유지 variant의 `QUESTION` 벡터가 없으면 버전 갱신만으로는 채워지지 않음 |
+| FAQ 생성 | 정상. 지금 Profile에 모든 새 variant의 질문 벡터가 만들어짐 |
 | 미응답 질문 묶기 | 지금 Profile의 중심 벡터가 없어 기존 묶음을 찾지 못하고 새 묶음을 만듦 |
 
 Profile별로 벡터가 얼마나 채워졌는지는 DB에서 확인합니다([DB 접속](db-access.md)).

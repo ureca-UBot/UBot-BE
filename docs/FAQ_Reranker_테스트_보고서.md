@@ -2,6 +2,8 @@
 
 2026-10-13
 
+> **현재 구현과의 차이:** 이 보고서는 FAQ 질문+답변(`QUESTION_ANSWER`) 벡터로 후보를 찾고 Reranker로 정렬한 결과를 측정했습니다. 현재 구현은 `FAQ_SEARCH_VECTOR_TYPE`을 사용하지 않고 FAQ 질문(`QUESTION`) 벡터로만 후보를 찾으므로, 보고서에서 사용한 `QUESTION_ANSWER` 검색 조합은 현재 설정으로 재현할 수 없습니다. Reranker는 `FAQ_RERANK_ENABLED=true`이면 질문 벡터 검색 후보에 계속 적용됩니다. 아래 측정값을 현재 검색 구성의 품질 수치로 해석하지 마세요.
+
 ## 요약
 
 벡터 검색으로 찾은 FAQ 후보를 Reranker(`BAAI/bge-reranker-v2-m3`)로 다시 정렬하는 방식을 실험했다. 기능은 들어 있고 **기본값은 꺼짐**이다(`FAQ_RERANK_ENABLED=false`). 꺼 두면 기존 동작과 같다.
