@@ -42,6 +42,8 @@ public interface UsageRecordRepository extends JpaRepository<UsageRecord, Long> 
 	 * 무제한 요금제와 허용량 스냅샷이 불완전한(dataUnlimited가 false가 아니거나 dataAmountMb가 정수가 아닌) 기록은
 	 * 제외
 	 * 스냅샷 값의 타입이 잘못된 행이 있어도 오류가 나지 않도록 숫자일 때만 변환
+	 * 허용량이 BIGINT 범위를 넘는 행은 변환 오류로 조회 전체가 실패하지 않도록 제외
+	 * 사용량 비교도 NUMERIC으로 해서 곱셈이 넘치지 않게 함
 	 */
 	@Query(value = """
 			SELECT t.usage_id AS "usageId", t.user_id AS "userId", t.data_used_mb AS "dataUsedMb",
@@ -60,8 +62,9 @@ public interface UsageRecordRepository extends JpaRepository<UsageRecord, Long> 
 			      AND (u.allowance_snapshot -> 'dataUnlimited') = CAST('false' AS JSONB)
 			) t
 			WHERE t.allowance_mb > 0
+			  AND t.allowance_mb <= 9223372036854775807
 			  AND t.allowance_mb = TRUNC(t.allowance_mb)
-			  AND t.data_used_mb * 100 >= t.allowance_mb * :minPercent
+			  AND CAST(t.data_used_mb AS NUMERIC) * 100 >= t.allowance_mb * :minPercent
 			ORDER BY t.usage_id
 			""", nativeQuery = true)
 	List<DataUsageTarget> findDataUsageTargets(

@@ -208,6 +208,26 @@ class SubscriptionReminderIntegrationTest {
         assertThat(keys(lastMonthUser)).isEmpty();
     }
 
+    @Test
+    @DisplayName("허용량이 BIGINT 범위를 넘는 기록은 그 한 건만 건너뛰고 다른 사용자의 알림은 정상 생성한다")
+    void skipsOutOfRangeAllowanceWithoutFailingOtherAlerts() {
+        Long overflowUser = user();
+        usage(subscription(overflowUser, "ACTIVE"), thisMonth(), 9_000,
+                "{\"dataAmountMb\":99999999999999999999,\"dataUnlimited\":false}");
+        Long hugeUser = user();
+        usage(subscription(hugeUser, "ACTIVE"), thisMonth(), 9_000,
+                "{\"dataAmountMb\":1e30,\"dataUnlimited\":false}");
+        Long normalUser = user();
+        Long normal = usage(subscription(normalUser, "ACTIVE"), thisMonth(), 8_600, ALLOWANCE_10GB);
+
+        int created = dataUsageReminderService.sendReminders(today);
+
+        assertThat(created).isGreaterThanOrEqualTo(1);
+        assertThat(keys(overflowUser)).isEmpty();
+        assertThat(keys(hugeUser)).isEmpty();
+        assertThat(keys(normalUser)).containsExactly("DATA_USAGE_THRESHOLD:" + normal + ":80");
+    }
+
     private LocalDate thisMonth() {
         return today.withDayOfMonth(1);
     }
