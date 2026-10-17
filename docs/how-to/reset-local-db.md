@@ -28,4 +28,9 @@ Docker Desktop이 실행 중이고 `.env` 파일이 준비되어 있어야 합�
 - `user@user.com` / `12345678` / `USER`
 - `admin@admin.com` / `12345678` / `ADMIN`
 
+벡터를 적재하기 위해서는 백엔드를 켜고 다음 명령어를 실행하세요.
+
+- `.\tools\faq-db\backfill-embeddings.ps1 -Email admin@admin.com`
+- `12345678 입력`
+
 실행이 끝나면 Compose가 PostgreSQL 컨테이너를 계속 실행합니다. 초기화할 때 Ollama를 실행할 필요는 없습니다. 애플리케이션은 평소처럼 `./gradlew bootRun` 또는 배포 Compose 설정으로 시작하고, 검색 전에 FAQ `QUESTION` 벡터를 [백필](llm-module.md#백필)해야 합니다.
