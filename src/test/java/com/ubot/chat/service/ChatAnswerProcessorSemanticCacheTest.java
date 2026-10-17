@@ -25,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -197,7 +198,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         retrievalProperties.getRerank().setEnabled(rerankEnabled);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, topK),
-                ai, unanswered, collector, new FaqSemanticCacheService(cacheProperties),
+                ai, unanswered, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties),
                 ChatTestFixtures.passthroughSentenceFilter());
         ReflectionTestUtils.setField(processor, "topK", topK);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
@@ -205,8 +206,13 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     private void prepareLlm() {
-        when(collector.collect(any(), anyList())).thenAnswer(invocation -> AnswerMaterials.builder(QUESTION)
-                .addFaqs(invocation.<List<FaqSearchResponseDto>>getArgument(1)).build());
+        when(collector.collectBySubQuestion(any(), anyList())).thenAnswer(invocation -> {
+            List<SubQuestionFaqs> subQuestions = invocation.getArgument(1);
+            return AnswerMaterials.builder(QUESTION)
+                    .addFaqs(subQuestions.stream().flatMap(subQuestion -> subQuestion.faqs().stream()).toList())
+                    .subQuestions(subQuestions)
+                    .build();
+        });
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("LLM 답변", null, false));
     }
 

@@ -2,6 +2,7 @@ package com.ubot.unanswered.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.util.UUID;
 
@@ -93,13 +94,16 @@ class UnansweredGroupServiceTest {
 	}
 
 	@Test
-	@DisplayName("상세 조회는 소속 질문을 최근순으로 함께 반환한다")
+	@DisplayName("상세 조회는 소속 질문을 최근순으로 원문 조각과 검색어를 함께 반환한다")
 	void returnsDetailWithQuestions() {
 		UnansweredGroupDetailResponseDto detail = service.getUnansweredGroup(roamingGroupId);
 
 		assertThat(detail.representativeQuestion()).isEqualTo("해외에서 데이터가 안 돼요");
-		assertThat(detail.questions()).extracting(UnansweredQuestionResponseDto::question)
-				.containsExactly("로밍 중 인터넷이 안 돼요", "해외에서 데이터가 안 돼요");
+		assertThat(detail.questions())
+				.extracting(UnansweredQuestionResponseDto::question, UnansweredQuestionResponseDto::searchQuery)
+				.containsExactly(
+						tuple("로밍 중 인터넷이 안 돼요", "검색어 로밍 중 인터넷이 안 돼요"),
+						tuple("해외에서 데이터가 안 돼요", "검색어 해외에서 데이터가 안 돼요"));
 	}
 
 	@Test
@@ -152,9 +156,9 @@ class UnansweredGroupServiceTest {
 				Long.class, userId, question, UUID.randomUUID().toString());
 		jdbcTemplate.update(
 				"""
-				INSERT INTO unanswered_questions (attempt_id, group_id, question, reason, created_at)
-				VALUES (?, ?, ?, ?, ?::timestamp)
+				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, user_text, reason, created_at)
+				VALUES (?, ?, ?, ?, ?, ?::timestamp)
 				""",
-				attemptId, groupId, question, reason, createdAt);
+				attemptId, groupId, "검색어 " + question, question, reason, createdAt);
 	}
 }

@@ -62,6 +62,8 @@ BEGIN
         SET user_question = '',
             llm_question = '',
             normalized_question = '',
+            sub_question = '',
+            user_text = '',
             user_id = NULL,
             conversation_id = NULL,
             anonymized_at = now_at

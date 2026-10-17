@@ -2,8 +2,11 @@ package com.ubot.prompt.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.llm.enums.LlmMessageRole;
@@ -45,6 +48,99 @@ class PromptServiceTest {
                 .doesNotContain("0.9", "0.6");
         // 시스템 지침이 요구하는 출력 형식을 스키마로도 함께 넘깁니다.
         assertThat(request.responseSchema()).isEqualTo(FaqAnswerFormat.schema());
+    }
+
+    @Test
+    void 원문을_하위_질문_하나로_쓰면_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "유심 재발급 방법과 준비물을 알려주세요.";
+
+        var grouped = service.createPrompt(question, results, List.of(new SubQuestionFaqs(question, results, question)), List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(grouped.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("하위 질문");
+    }
+
+    @Test
+    void 다시_쓴_하위_질문이_하나면_검색어를_보여_주지_않고_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "그거 준비물은요?";
+
+        var rewritten = service.createPrompt(question, results,
+                List.of(new SubQuestionFaqs("유심 재발급 준비물은 무엇인가요?", results, question)), List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(rewritten.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("유심 재발급 준비물은 무엇인가요?");
+    }
+
+    @Test
+    void 나눈_하위_질문은_원문_조각을_제목으로_FAQ를_묶고_근거_없는_질문은_없음으로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        // 검색어(판정 LLM이 다시 쓴 문장)는 답변 LLM에 보여 주지 않고 원문 조각만 제목으로 씁니다.
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법은 무엇인가요?", results, "유심 재발급이랑"),
+                new SubQuestionFaqs("해외 로밍 요금은 얼마인가요?", List.of(), "로밍 요금"));
+
+        var request = service.createPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of());
+
+        assertThat(request.messages().getLast().content()).doesNotContain("무엇인가요", "얼마인가요").isEqualTo("""
+                질문:
+                유심 재발급이랑 로밍 요금
+                참고자료:
+                ## 하위 질문 1: 유심 재발급이랑
+
+                [FAQ ID: 12]
+                질문: 유심 재발급
+                답변: 매장에서 재발급 가능합니다.
+
+                [FAQ ID: 13]
+                질문: 유심 재발급 준비물
+                답변: 준비물 안내 원문
+
+                ## 하위 질문 2: 로밍 요금
+
+                (없음)
+
+                """);
+    }
+
+    @Test
+    void 나눴지만_원문_조각이_없으면_하위_질문_제목_없이_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "둘 다 데이터 몇 기가야?";
+        // 판정 LLM이 이전 대화로 나눴지만 원문에는 자를 근거가 없는 경우입니다. 검색어는 보여 주지 않습니다.
+        var subQuestions = List.of(
+                new SubQuestionFaqs("5G 프리미엄 데이터 제공량", results, null),
+                new SubQuestionFaqs("5G 스탠다드 데이터 제공량", List.of(), null));
+
+        var request = service.createPrompt(question, results, subQuestions, List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(request.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("하위 질문", "프리미엄", "스탠다드");
+    }
+
+    @Test
+    void 이전_대화는_사용자_원문과_답변을_메시지로_시스템_지침과_이번_질문_사이에_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        var history = List.of(
+                new ConversationTurn("유심 재발급 어떻게 해요?", List.of("유심 재발급 방법은 무엇인가요?"), "매장에서 가능합니다."),
+                new ConversationTurn("로밍 요금은?", List.of("로밍 요금은?"), null));
+
+        var request = service.createPrompt("그거 준비물은요?", results, List.of(), List.of(), history);
+
+        assertThat(request.messages()).extracting(message -> message.role(), message -> message.content())
+                .startsWith(
+                        tuple(LlmMessageRole.SYSTEM, TEST_SYSTEM),
+                        tuple(LlmMessageRole.USER, "유심 재발급 어떻게 해요?"),
+                        tuple(LlmMessageRole.ASSISTANT, "매장에서 가능합니다."),
+                        tuple(LlmMessageRole.USER, "로밍 요금은?"),
+                        tuple(LlmMessageRole.ASSISTANT, "(답변 실패)"));
+        assertThat(request.messages()).hasSize(6);
+        assertThat(request.messages().getLast().role()).isEqualTo(LlmMessageRole.USER);
+        assertThat(request.messages().getLast().content()).contains("그거 준비물은요?");
     }
 
     @Test
