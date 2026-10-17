@@ -127,6 +127,9 @@ public class ChatAnswerProcessor {
 		if (answer == null || !StringUtils.hasText(answer.answer())) {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
+		if (answer.abstained()) {
+			createUnansweredQuestion(attempt, UnansweredReason.LLM_ABSTAIN, filteredResults.getFirst());
+		}
 		return ChatAnswerResult.answered(answer, filteredResults);
 	}
 
