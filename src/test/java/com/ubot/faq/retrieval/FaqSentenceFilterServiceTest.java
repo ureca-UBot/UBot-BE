@@ -92,6 +92,50 @@ class FaqSentenceFilterServiceTest {
     }
 
     @Test
+    @DisplayName("1.5GB처럼 숫자 뒤에 공백 없이 이어지는 값은 목록 항목으로 보지 않는다")
+    void keepsDecimalValueSeparateFromPrecedingList() {
+        String answer = "- 추가 데이터 제공\n1.5GB가 제공됩니다.";
+        when(embeddingService.embedTexts(anyList())).thenReturn(List.of(vector(0, 1), vector(1, 0)));
+
+        List<FaqSentenceFilterService.MatchedFaq> result = service.filter(queryVector, List.of(faq(1L, answer)));
+
+        ArgumentCaptor<List<String>> texts = ArgumentCaptor.captor();
+        verify(embeddingService).embedTexts(texts.capture());
+        assertThat(texts.getValue()).containsExactly("추가 데이터 제공", "1.5GB가 제공됩니다.");
+        assertThat(result).extracting(FaqSentenceFilterService.MatchedFaq::answerSentences)
+                .containsExactly("1.5GB가 제공됩니다.");
+    }
+
+    @Test
+    @DisplayName("안내 문장과 목록 사이에 빈 줄이 있어도 한 묶음으로 비교한다")
+    void groupsIntroAndListAcrossBlankLine() {
+        String answer = "신청 방법은 다음과 같습니다.\n\n1. 앱 접속\n2. 메뉴 선택";
+        when(embeddingService.embedTexts(anyList())).thenReturn(List.of(vector(1, 0)));
+
+        List<FaqSentenceFilterService.MatchedFaq> result = service.filter(queryVector, List.of(faq(1L, answer)));
+
+        ArgumentCaptor<List<String>> texts = ArgumentCaptor.captor();
+        verify(embeddingService).embedTexts(texts.capture());
+        assertThat(texts.getValue()).containsExactly("신청 방법은 다음과 같습니다. 앱 접속 메뉴 선택");
+        assertThat(result).extracting(FaqSentenceFilterService.MatchedFaq::answerSentences).containsExactly(answer);
+    }
+
+    @Test
+    @DisplayName("들여 쓴 줄은 직전 목록 항목의 이어지는 내용으로 비교한다")
+    void groupsIndentedContinuationWithList() {
+        String answer = "1. 앱 접속\n  본인 인증 진행\n2. 신청 완료\n안내 종료.";
+        when(embeddingService.embedTexts(anyList())).thenReturn(List.of(vector(1, 0), vector(0, 1)));
+
+        List<FaqSentenceFilterService.MatchedFaq> result = service.filter(queryVector, List.of(faq(1L, answer)));
+
+        ArgumentCaptor<List<String>> texts = ArgumentCaptor.captor();
+        verify(embeddingService).embedTexts(texts.capture());
+        assertThat(texts.getValue()).containsExactly("앱 접속 본인 인증 진행 신청 완료", "안내 종료.");
+        assertThat(result).extracting(FaqSentenceFilterService.MatchedFaq::answerSentences)
+                .containsExactly("1. 앱 접속\n본인 인증 진행\n2. 신청 완료");
+    }
+
+    @Test
     @DisplayName("기준값과 같으면 통과하고 차원이 다른 벡터는 제외하며 통과 FAQ의 순서를 유지한다")
     void handlesBoundaryMismatchAndFaqOrder() {
         FaqSentenceFilterService boundary = new FaqSentenceFilterService(embeddingService, 1.0);

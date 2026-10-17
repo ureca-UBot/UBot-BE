@@ -144,7 +144,7 @@ public class ChatAnswerProcessor {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		if (answer.abstained()) {
-			createUnansweredQuestion(attempt, UnansweredReason.LLM_ABSTAIN, filteredResults.getFirst());
+			createUnansweredQuestion(attempt, UnansweredReason.LLM_ABSTAIN, originalFaqs.getFirst());
 		}
 		return ChatAnswerResult.answered(answer, originalFaqs);
 	}

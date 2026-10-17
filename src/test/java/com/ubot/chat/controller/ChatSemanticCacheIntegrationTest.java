@@ -45,7 +45,7 @@ import com.ubot.user.repository.UserRepository;
 
 /** 실제 인증·검색 SQL·판정·비동기 답변 저장을 연결합니다. 외부 임베딩/LLM 통신만 모의 객체입니다. */
 @SpringBootTest(properties = {
-        "faq.cache.enabled=true", "faq.retrieval.rerank.enabled=false", "FAQ_SEARCH_VECTOR_TYPE=QUESTION_ANSWER",
+        "faq.cache.enabled=true", "faq.retrieval.rerank.enabled=false",
         "CHAT_TOP_K=3", "CHAT_CONFIDENCE_THRESHOLD=0.75"})
 @Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
