@@ -79,9 +79,9 @@ class QuestionLogServiceTest {
 						QuestionLog::getUserText, QuestionLog::getSubQuestionIndex, QuestionLog::getNormalizedQuestion,
 						QuestionLog::getRankingEligible, QuestionLog::getAnswer)
 				.containsExactly(
-						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", "5G 프리미엄 요금이랑", 0,
+						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", "5G 프리미엄 요금이랑", 1,
 								"5g 프리미엄 월 요금", true, "답변"),
-						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량?", "데이터 알려줘", 1,
+						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량?", "데이터 알려줘", 2,
 								"5g 프리미엄 데이터 제공량", false, "답변"));
 	}
 
@@ -160,7 +160,7 @@ class QuestionLogServiceTest {
 				userId, conversationId, 100L, question, searchQueries(question), "답변", ip);
 		assertThat(saved).hasSize(1);
 		assertThat(saved.getFirst().getSubQuestion()).isEqualTo(question);
-		assertThat(saved.getFirst().getSubQuestionIndex()).isZero();
+		assertThat(saved.getFirst().getSubQuestionIndex()).isEqualTo(1);
 		return saved.getFirst();
 	}
 

@@ -127,7 +127,7 @@ class ChatAnswerProcessorResearchTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verify(unansweredQuestionService).createUnansweredQuestion(
-                eq(regular.getId()), eq(0), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.5));
+                eq(regular.getId()), eq(1), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.5));
     }
 
     private AnswerAttemptsHistory regularAttempt() {

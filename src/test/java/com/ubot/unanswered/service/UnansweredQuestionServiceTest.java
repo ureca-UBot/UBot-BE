@@ -108,7 +108,7 @@ class UnansweredQuestionServiceTest {
     void similarQuestionsJoinSameGroup() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -117,7 +117,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
-                0,
+                1,
                 "로밍 중 인터넷이 안 돼요", "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.INSUFFICIENT_FAQ,
                 null,
@@ -175,7 +175,7 @@ class UnansweredQuestionServiceTest {
     void differentQuestionCreatesNewGroup() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -184,7 +184,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("요금제 해지 위약금"),
-                0,
+                1,
                 "요금제 해지 위약금", "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -203,7 +203,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attemptId,
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -212,7 +212,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attemptId,
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -242,7 +242,7 @@ class UnansweredQuestionServiceTest {
     void rejectedGroupIsNotJoined() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -258,7 +258,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
-                0,
+                1,
                 "로밍 중 인터넷이 안 돼요", "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -274,7 +274,7 @@ class UnansweredQuestionServiceTest {
     void doesNotJoinGroupFromAnotherProfile() {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -288,7 +288,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
-                0,
+                1,
                 "로밍 중 인터넷이 안 돼요", "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -307,7 +307,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attemptId,
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -316,7 +316,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 attemptId,
-                1,
+                2,
                 "요금제 해지 위약금", "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -329,8 +329,8 @@ class UnansweredQuestionServiceTest {
                         UnansweredQuestion::getSubQuestion
                 )
                 .containsExactlyInAnyOrder(
-                        tuple(0, "해외에서 데이터가 안 돼요"),
-                        tuple(1, "요금제 해지 위약금")
+                        tuple(1, "해외에서 데이터가 안 돼요"),
+                        tuple(2, "요금제 해지 위약금")
                 );
     }
 
@@ -343,7 +343,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 firstAttempt,
-                0,
+                1,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -353,7 +353,7 @@ class UnansweredQuestionServiceTest {
         // 재시도는 하위 질문을 다시 만들므로 순번이 달라져도 같은 문장이면 건너뜁니다.
         service.createUnansweredQuestion(
                 retryAttempt,
-                1,
+                2,
                 "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
@@ -362,7 +362,7 @@ class UnansweredQuestionServiceTest {
 
         service.createUnansweredQuestion(
                 retryAttempt,
-                0,
+                1,
                 "요금제 해지 위약금", "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,

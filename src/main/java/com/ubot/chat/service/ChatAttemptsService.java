@@ -208,8 +208,8 @@ public class ChatAttemptsService {
 		if (!"PENDING".equals(lockedAttempt.getStatus())) {
 			return Optional.empty();
 		}
-		// 근거를 못 찾은 하위 질문도 행을 남깁니다. 대화 기록은 턴마다 0번 행을 읽으므로 0번이 빠지면 턴이 사라집니다.
-		// 하위 질문 없이 넘어오면 원문 하나로 저장해 0번 행을 남깁니다.
+		// 근거를 못 찾은 하위 질문도 행을 남깁니다. 대화 기록은 턴마다 1번 행을 읽으므로 1번이 빠지면 턴이 사라집니다.
+		// 하위 질문 없이 넘어오면 원문 하나로 저장해 1번 행을 남깁니다.
 		if (subQuestions.isEmpty()) {
 			subQuestions = List.of(new SubQuestionFaqs(lockedAttempt.getQuestion(), List.of(), lockedAttempt.getQuestion()));
 		}
@@ -242,7 +242,7 @@ public class ChatAttemptsService {
 		lockedAttempt.succeed();
 		log.info("답변 성공 이력을 기록했습니다: 시도ID={}, 하위질문수={}, 참고FAQ수={}", lockedAttempt.getId(),
 				subQuestions.size(), subQuestions.stream().mapToInt(subQuestion -> subQuestion.faqs().size()).sum());
-		// 작업 결과는 턴마다 하나라 0번 행을 가리킵니다. 0번 행에 턴의 원문과 답변이 들어 있습니다.
+		// 작업 결과는 턴마다 하나라 1번 행을 가리킵니다. 1번 행에 턴의 원문과 답변이 들어 있습니다.
 		return Optional.of(questionLogs.getFirst().getId());
 	}
 

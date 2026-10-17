@@ -119,7 +119,7 @@ class ChatServiceTest {
 						.userQuestion(call.getArgument(3))
 						.subQuestion(subQuestions.get(index).searchQuery())
 						.userText(subQuestions.get(index).userText())
-						.subQuestionIndex(index)
+						.subQuestionIndex(index + 1)
 						.answer(call.getArgument(5))
 						.build();
 				ReflectionTestUtils.setField(result, "id", 10L + index);

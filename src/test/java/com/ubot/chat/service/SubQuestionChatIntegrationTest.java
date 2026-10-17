@@ -140,9 +140,9 @@ class SubQuestionChatIntegrationTest {
 		assertThat(logs).extracting(QuestionLog::getUserQuestion, QuestionLog::getSubQuestion,
 						QuestionLog::getSubQuestionIndex, QuestionLog::getAnswer)
 				.containsExactly(
-						tuple("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "유심 재발급 방법", 0,
+						tuple("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "유심 재발급 방법", 1,
 								"재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다."),
-						tuple("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "해외 로밍 요금", 1,
+						tuple("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "해외 로밍 요금", 2,
 								"재발급은 매장에서 가능하고, 로밍 요금은 확인할 수 없습니다."));
 		assertThat(faqLogs.findAll()).singleElement().satisfies(faqLog -> {
 			assertThat(faqLog.getQuestionLogId()).isEqualTo(logs.getFirst().getId());
@@ -150,7 +150,7 @@ class SubQuestionChatIntegrationTest {
 		});
 		assertThat(unansweredQuestions.findAll()).extracting(
 						UnansweredQuestion::getSubQuestionIndex, UnansweredQuestion::getSubQuestion)
-				.containsExactly(tuple(1, "해외 로밍 요금"));
+				.containsExactly(tuple(2, "해외 로밍 요금"));
 		// 답변 LLM에는 원문과 함께 하위 질문별 근거가 가고, 제목은 검색어가 아니라 원문 조각입니다.
 		assertThat(answerRequest().messages().getLast().content())
 				.contains("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "## 하위 질문 1: 유심 재발급 방법이랑",
@@ -227,7 +227,7 @@ class SubQuestionChatIntegrationTest {
 		assertThat(response.status()).isEqualTo(ChatJobStatus.SUCCEEDED);
 		assertThat(questionLogs.findAll()).singleElement().satisfies(log -> {
 			assertThat(log.getSubQuestion()).isEqualTo("유심 재발급이랑 비용");
-			assertThat(log.getSubQuestionIndex()).isZero();
+			assertThat(log.getSubQuestionIndex()).isEqualTo(1);
 		});
 	}
 

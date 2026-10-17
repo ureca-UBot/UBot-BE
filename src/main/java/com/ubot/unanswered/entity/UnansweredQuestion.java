@@ -34,7 +34,8 @@ public class UnansweredQuestion {
 	private String userText;
 
 	@Column(name = "sub_question_index")
-	private int subQuestionIndex;
+	@Builder.Default
+	private int subQuestionIndex = 1;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "reason")

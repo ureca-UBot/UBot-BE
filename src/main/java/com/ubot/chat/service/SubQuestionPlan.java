@@ -4,7 +4,7 @@ import com.ubot.ai.dto.ConversationTurn;
 import java.util.List;
 
 /**
- * 한 턴에서 검색할 하위 질문 목록입니다. 목록 순서가 하위 질문 순번(sub_question_index)입니다.
+ * 한 턴에서 검색할 하위 질문 목록입니다. 목록 순서대로 하위 질문 순번(sub_question_index)을 1부터 매깁니다.
  * 원문을 그대로 쓰는 경우도 하위 질문이 1개인 목록입니다.
  * <ul>
  *   <li>items: 하위 질문마다 검색어(searchQuery)와 그에 해당하는 사용자 원문 조각(userText)</li>

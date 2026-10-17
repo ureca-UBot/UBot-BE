@@ -76,7 +76,7 @@ public class QuestionLogService {
 					.userQuestion(question)
 					.subQuestion(subQuestions.get(index).searchQuery())
 					.userText(subQuestions.get(index).userText())
-					.subQuestionIndex(index)
+					.subQuestionIndex(index + 1)
 					.normalizedQuestion(normalizedQuestions.get(index))
 					.answer(answer)
 					.rankingEligible(rankingEligible.get(index))

@@ -77,7 +77,7 @@ public class ConversationService {
 	public List<ConversationMessageResponseDto> getConversationMessageList(Long userId, UUID conversationId) {
 		Conversation conversation = findMemberConversation(userId, conversationId);
 		return questionLogRepository.findAllByConversationIdAndSubQuestionIndexOrderByCreatedAtAscIdAsc(
-						conversation.getId(), 0).stream()
+						conversation.getId(), 1).stream()
 				.map(ConversationMessageResponseDto::from)
 				.toList();
 	}

@@ -43,7 +43,7 @@ public class QuestionLog {
 	private String userText;
 
 	@Column(name = "sub_question_index")
-	private int subQuestionIndex;
+	private int subQuestionIndex = 1;
 
 	@Column(name = "normalized_question")
 	private String normalizedQuestion;
@@ -70,7 +70,7 @@ public class QuestionLog {
 			String userQuestion,
 			String subQuestion,
 			String userText,
-			int subQuestionIndex,
+			Integer subQuestionIndex,
 			String normalizedQuestion,
 			String answer,
 			Boolean rankingEligible,
@@ -82,7 +82,7 @@ public class QuestionLog {
 		this.userQuestion = userQuestion;
 		this.subQuestion = subQuestion;
 		this.userText = userText;
-		this.subQuestionIndex = subQuestionIndex;
+		this.subQuestionIndex = subQuestionIndex == null ? 1 : subQuestionIndex;
 		this.normalizedQuestion = normalizedQuestion;
 		this.answer = answer;
 		this.rankingEligible = rankingEligible;

@@ -66,7 +66,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered).createUnansweredQuestion(1L, 0, "질문", "질문", UnansweredReason.NO_FAQ, null, null);
+		verify(unanswered).createUnansweredQuestion(1L, 1, "질문", "질문", UnansweredReason.NO_FAQ, null, null);
 	}
 
 	@Test
@@ -79,7 +79,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered).createUnansweredQuestion(1L, 0, "질문", "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
+		verify(unanswered).createUnansweredQuestion(1L, 1, "질문", "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
 	}
 
 	@Test

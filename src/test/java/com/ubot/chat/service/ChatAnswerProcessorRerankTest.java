@@ -78,7 +78,7 @@ class ChatAnswerProcessorRerankTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         // 미응답 질문에는 Reranker 1위(2번)가 아니라 벡터 검색 1위(1번)를 남깁니다.
-        verify(unansweredQuestionService).createUnansweredQuestion(eq(100L), eq(0), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.70));
+        verify(unansweredQuestionService).createUnansweredQuestion(eq(100L), eq(1), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.70));
         verifyNoInteractions(aiService);
     }
 

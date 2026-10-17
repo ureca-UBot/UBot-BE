@@ -43,14 +43,14 @@ class ConversationTurnRepositoryTest {
 	@DisplayName("같은 대화의 앞선 턴을 오래된 순으로 최대 개수만큼 원문과 함께 돌려주고, 성공한 턴은 하위 질문과 답변을, 실패한 턴은 원문을 하위 질문으로 쓴다")
 	void returnsRecentTurnsOldestFirst() {
 		Long oldest = attempt("가장 오래된 질문", "SUCCESS", 1, key(), 1, null);
-		log(oldest, "가장 오래된 질문", "가장 오래된 질문", 0, "오래된 답변");
+		log(oldest, "가장 오래된 질문", "가장 오래된 질문", 1, "오래된 답변");
 		attempt("해외 로밍 신청", "FAIL", 2, key(), 1, null);
 		Long split = attempt("요금이랑 데이터 알려줘", "SUCCESS", 3, key(), 1, null);
-		log(split, "요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", 0, "요금 답변");
-		log(split, "요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량", 1, "요금 답변");
+		log(split, "요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", 1, "요금 답변");
+		log(split, "요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량", 2, "요금 답변");
 		// 하위 질문을 저장하기 전의 형식(sub_question 없음)은 원문으로 대신합니다.
 		Long legacy = attempt("유심 재발급", "SUCCESS", 4, key(), 1, null);
-		log(legacy, "유심 재발급", null, 0, "재발급 답변");
+		log(legacy, "유심 재발급", null, 1, "재발급 답변");
 		Long current = attempt("그럼 비용은?", "PENDING", 5, key(), 1, null);
 
 		List<ConversationTurn> turns = repository.findPreviousTurns(current, 3);
@@ -69,7 +69,7 @@ class ConversationTurnRepositoryTest {
 		attempt("유심 재발급", "FAIL", 1, retriedKey, 1, null);
 		attempt("해외 로밍 신청", "FAIL", 2, key(), 1, null);
 		Long retried = attempt("유심 재발급", "SUCCESS", 3, retriedKey, 2, null);
-		log(retried, "유심 재발급", "유심 재발급", 0, "재발급 답변");
+		log(retried, "유심 재발급", "유심 재발급", 1, "재발급 답변");
 		Long current = attempt("그거 비용은?", "PENDING", 4, key(), 1, null);
 
 		assertThat(repository.findPreviousTurns(current, 3)).containsExactly(
@@ -82,7 +82,7 @@ class ConversationTurnRepositoryTest {
 	void retrySeesTurnsBeforeFirstAsk() {
 		String retriedKey = key();
 		Long before = attempt("요금제 변경", "SUCCESS", 1, key(), 1, null);
-		log(before, "요금제 변경", "요금제 변경", 0, "변경 답변");
+		log(before, "요금제 변경", "요금제 변경", 1, "변경 답변");
 		attempt("그거 위약금은?", "FAIL", 2, retriedKey, 1, null);
 		attempt("해외 로밍 신청", "FAIL", 3, key(), 1, null);
 		Long retry = attempt("그거 위약금은?", "PENDING", 4, retriedKey, 2, null);
@@ -95,9 +95,9 @@ class ConversationTurnRepositoryTest {
 	@DisplayName("의도 재검색 시도와 다른 대화의 턴은 이전 대화로 보지 않는다")
 	void ignoresResearchAndOtherConversations() {
 		Long source = attempt("유심 재발급", "SUCCESS", 1, key(), 1, null);
-		log(source, "유심 재발급", "유심 재발급", 0, "원본 답변");
+		log(source, "유심 재발급", "유심 재발급", 1, "원본 답변");
 		Long research = attempt("유심 재발급", "SUCCESS", 2, key(), 1, source);
-		log(research, "유심 재발급", "유심 재발급", 0, "재검색 답변");
+		log(research, "유심 재발급", "유심 재발급", 1, "재검색 답변");
 		Long otherConversation = conversation();
 		jdbcTemplate.update("""
 				INSERT INTO answer_attempts_history (user_id, conversation_id, question, attempt_count, status,

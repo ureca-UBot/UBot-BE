@@ -139,6 +139,7 @@ public class ChatAnswerProcessor {
 		List<SubQuestionFaqs> searched = new ArrayList<>();
 		List<UnansweredSubQuestion> unanswered = new ArrayList<>();
 		for (int index = 0; index < plan.items().size(); index++) {
+			int subQuestionIndex = index + 1;
 			String searchQuery = plan.items().get(index).searchQuery();
 			String userText = plan.items().get(index).userText();
 			RetrievalOutcome outcome = firstOutcome;
@@ -146,7 +147,7 @@ public class ChatAnswerProcessor {
 			if (outcome == null && failedOriginal != null && searchQuery.equals(attempt.getQuestion())) {
 				// 방금 기준을 넘지 못한 원문 검색과 같은 검색이라 다시 하지 않고, 그 결과를 넘지 못한 기준으로 판단합니다.
 				// 그래서 이 하위 질문은 근거를 찾지 못한 것으로 처리되고, 답변에서는 답할 수 없다고 안내합니다.
-				log.info("원문 검색 결과를 다시 씁니다: 시도ID={}, 하위질문순번={}", attempt.getId(), index);
+				log.info("원문 검색 결과를 다시 씁니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
 				outcome = failedOriginal;
 				minimumSimilarity = failedOriginalThreshold;
 			}
@@ -162,12 +163,12 @@ public class ChatAnswerProcessor {
 			checkCancellation.run();
 			log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 하위질문순번={}, 재검색의도={}, 결과수={}, 최고유사도={}, "
 							+ "Reranker정렬={}, Reranker실패사유={}, 검색결과=[{}]",
-					attempt.getId(), index, attempt.getIntent(), results == null ? 0 : results.size(),
+					attempt.getId(), subQuestionIndex, attempt.getIntent(), results == null ? 0 : results.size(),
 					highestSimilarity(results), outcome.reranked(), outcome.fallbackReason(), formatSearchResults(results));
 
 			if (results == null || results.isEmpty()) {
-				log.info("FAQ 검색 결과가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), index);
-				unanswered.add(new UnansweredSubQuestion(index, searchQuery, userText, UnansweredReason.NO_FAQ, null));
+				log.info("FAQ 검색 결과가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
+				unanswered.add(new UnansweredSubQuestion(subQuestionIndex, searchQuery, userText, UnansweredReason.NO_FAQ, null));
 				searched.add(new SubQuestionFaqs(searchQuery, List.of(), userText));
 				continue;
 			}
@@ -181,9 +182,9 @@ public class ChatAnswerProcessor {
 					.toList();
 			if (filteredResults.isEmpty()) {
 				log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 하위질문순번={}, 최고유사도={}, 기준값={}",
-						attempt.getId(), index, highestSimilarity(results), threshold);
+						attempt.getId(), subQuestionIndex, highestSimilarity(results), threshold);
 				unanswered.add(new UnansweredSubQuestion(
-						index, searchQuery, userText, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1()));
+						subQuestionIndex, searchQuery, userText, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1()));
 			}
 			searched.add(new SubQuestionFaqs(searchQuery, filteredResults, userText));
 		}

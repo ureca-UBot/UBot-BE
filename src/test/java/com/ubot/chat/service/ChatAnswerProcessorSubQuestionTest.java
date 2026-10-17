@@ -93,8 +93,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::isAnswered).containsExactly(true, false);
 		assertThat(captureMaterials().subQuestions().get(1).faqs()).isEmpty();
 		verify(unanswered).createUnansweredQuestion(
-				100L, 1, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
-		verify(unanswered, never()).createUnansweredQuestion(any(), eq(0), anyString(), anyString(), any(), any(), any());
+				100L, 2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
+		verify(unanswered, never()).createUnansweredQuestion(any(), eq(1), anyString(), anyString(), any(), any(), any());
 	}
 
 	@Test
@@ -107,9 +107,9 @@ class ChatAnswerProcessorSubQuestionTest {
 		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
-		verify(unanswered).createUnansweredQuestion(100L, 0, "유심 재발급", "유심 재발급", UnansweredReason.NO_FAQ, null, null);
+		verify(unanswered).createUnansweredQuestion(100L, 1, "유심 재발급", "유심 재발급", UnansweredReason.NO_FAQ, null, null);
 		verify(unanswered).createUnansweredQuestion(
-				100L, 1, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
+				100L, 2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
 		verifyNoInteractions(ai);
 	}
 
@@ -128,7 +128,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::userText).containsOnlyNulls();
 		verify(unanswered).createUnansweredQuestion(
-				100L, 1, "해외 로밍 요금", "유심 재발급이랑 해외 로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null);
+				100L, 2, "해외 로밍 요금", "유심 재발급이랑 해외 로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null);
 	}
 
 	@Test
@@ -247,7 +247,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verify(vector, times(1)).getSimilarList(question, 3);
 		verify(unanswered).createUnansweredQuestion(
-				303L, 0, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77);
+				303L, 1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77);
 		verifyNoInteractions(ai);
 	}
 
