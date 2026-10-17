@@ -49,6 +49,10 @@ management:
     health:
       show-details: always
 
+logging:
+  level:
+    com.ubot.faq.retrieval: DEBUG
+
 # spring.ai.ollama와는 별개의 독립적인 설정.
 # EmbeddingService(RestClient 직접 구현)가 참조하는 값으로,
 # Spring AI의 OllamaEmbeddingModel을 쓰지 않기로 한 결정(embedding: none)에 따라

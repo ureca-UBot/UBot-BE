@@ -74,7 +74,7 @@ class FaqServiceTest {
             );
 
     @Test
-    @DisplayName("관리자와 활성 카테고리가 있으면 FAQ를 저장하고 현재 버전의 벡터를 질문과 답변으로 생성한다")
+    @DisplayName("관리자와 활성 카테고리가 있으면 FAQ를 저장하고 현재 버전의 질문 벡터를 생성한다")
     void createFaq_savesFaqAndVector() {
         var request = new FaqCreateRequestDto(
                 2L,
@@ -122,11 +122,10 @@ class FaqServiceTest {
                 .isEqualTo(1);
 
         verify(vectorService)
-                .saveVectorsForVariant(
+                .saveQuestionVectorForVariant(
                         100L,
                         1,
-                        request.question(),
-                        request.answer()
+                        request.question()
                 );
 
         verify(faqRepository, times(1))
@@ -151,9 +150,9 @@ class FaqServiceTest {
 
         assertThat(result.cacheable()).isTrue();
         assertThat(result.similarQuestions()).containsExactly("유사 질문 1", "유사 질문 2");
-        verify(vectorService).saveVectorsForVariant(100L, 1, "원본 질문", "답변");
-        verify(vectorService).saveVectorsForVariant(101L, 1, "유사 질문 1", "답변");
-        verify(vectorService).saveVectorsForVariant(102L, 1, "유사 질문 2", "답변");
+        verify(vectorService).saveQuestionVectorForVariant(100L, 1, "원본 질문");
+        verify(vectorService).saveQuestionVectorForVariant(101L, 1, "유사 질문 1");
+        verify(vectorService).saveQuestionVectorForVariant(102L, 1, "유사 질문 2");
     }
 
     @Test
@@ -211,7 +210,7 @@ class FaqServiceTest {
     }
 
     @Test
-    @DisplayName("질문과 답변이 바뀐 FAQ는 이전 내용을 이력에 저장하고 두 변경을 벡터 서비스에 알린다")
+    @DisplayName("질문과 답변이 바뀐 FAQ는 이전 내용을 이력에 저장하고 새 질문 벡터를 만든다")
     void updateFaq_copiesHistoryAndRegeneratesVector() {
         Faq faq = faq(
                 10L,
@@ -272,11 +271,10 @@ class FaqServiceTest {
 
         verify(variantRepository).delete(oldVariant);
         verify(vectorService)
-                .saveVectorsForVariant(
+                .saveQuestionVectorForVariant(
                         101L,
                         4,
-                        "새 질문",
-                        "새 답변"
+                        "새 질문"
                 );
 
         assertThat(result.version())
@@ -284,7 +282,7 @@ class FaqServiceTest {
     }
 
     @Test
-    @DisplayName("카테고리와 intent만 바뀌면 질문과 답변이 그대로라고 벡터 서비스에 알린다")
+    @DisplayName("카테고리와 intent만 바뀌면 기존 질문 벡터의 버전만 갱신한다")
     void updateFaq_reportsNoTextChangeWhenOnlyCategoryAndIntentChange() {
         Faq faq = faq(
                 10L,
@@ -311,20 +309,14 @@ class FaqServiceTest {
                 );
 
         verify(vectorService)
-                .updateVectorsForVariant(
-                        100L,
-                        2,
-                        "같은 질문",
-                        "답변",
-                        false
-                );
+                .updateQuestionVectorVersionForVariant(100L, 2);
 
         assertThat(result.version())
                 .isEqualTo(2);
     }
 
     @Test
-    @DisplayName("답변만 바뀌면 답변 변경만 벡터 서비스에 알린다")
+    @DisplayName("답변만 바뀌면 기존 질문 벡터의 버전만 갱신한다")
     void updateFaq_updatesOnlyVectorVersionWhenQuestionIsSame() {
         Faq faq = faq(
                 10L,
@@ -371,13 +363,7 @@ class FaqServiceTest {
                 );
 
         verify(vectorService)
-                .updateVectorsForVariant(
-                        100L,
-                        2,
-                        "같은 질문",
-                        "수정 답변",
-                        true
-                );
+                .updateQuestionVectorVersionForVariant(100L, 2);
 
         assertThat(result.version())
                 .isEqualTo(2);
@@ -407,9 +393,9 @@ class FaqServiceTest {
         assertThat(result.version()).isEqualTo(2);
         assertThat(result.similarQuestions()).containsExactly("유지", "신규");
         verify(variantRepository).delete(removed);
-        verify(vectorService).updateVectorsForVariant(100L, 2, "원본", "답변", false);
-        verify(vectorService).updateVectorsForVariant(101L, 2, "유지", "답변", false);
-        verify(vectorService).saveVectorsForVariant(103L, 2, "신규", "답변");
+        verify(vectorService).updateQuestionVectorVersionForVariant(100L, 2);
+        verify(vectorService).updateQuestionVectorVersionForVariant(101L, 2);
+        verify(vectorService).saveQuestionVectorForVariant(103L, 2, "신규");
     }
 
     @Test
@@ -578,8 +564,8 @@ class FaqServiceTest {
         verify(variantRepository).save(variantCaptor.capture());
         assertThat(variantCaptor.getValue().getOriginFaq()).isSameAs(deletedFaq);
         assertThat(variantCaptor.getValue().getQuestion()).isEqualTo(deletedFaq.getQuestion());
-        verify(vectorService).saveVectorsForVariant(
-                100L, deletedFaq.getVersion(), deletedFaq.getQuestion(), deletedFaq.getAnswer());
+        verify(vectorService).saveQuestionVectorForVariant(
+                100L, deletedFaq.getVersion(), deletedFaq.getQuestion());
     }
 
     @Test

@@ -238,9 +238,7 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 벡터는 임베딩 서버·모델·버전의 조합(Embedding Profile)별로 따로 저장되고, 검색은 지금 Profile의 벡터만 씁니다. 설정을 바꾸면 새 Profile이 되는데 거기에는 아직 벡터가 없습니다. 기존 벡터는 지워지지 않고 남아 있습니다.
 
-시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
-
-검색은 `FAQ_SEARCH_VECTOR_TYPE`으로 선택한 유형의 벡터만 씁니다. 시드 스크립트는 `QUESTION_ANSWER` 벡터만 넣으므로 `QUESTION`으로 검색하려면 해당 벡터를 백필해야 합니다.
+시드 스크립트로 FAQ를 넣은 직후에도 같은 증상이 납니다. 스크립트는 FAQ와 질문 표현만 적재하며 벡터는 넣지 않습니다. 검색은 `QUESTION` 벡터를 사용하므로 Ollama와 vLLM 어느 쪽이든 검색 전에 백필해야 합니다.
 
 **해결**
 
@@ -294,7 +292,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `EM-002` | 임베딩 서버가 1024차원이 아닌 벡터를 돌려주는지(다른 모델이 설정됐는지) |
 | `CHAT-010`, `CHAT-008` | PostgreSQL 상태, 애플리케이션 로그 |
 | `CHAT-012` | `faq`에 삭제되지 않은 FAQ가 있는지 ([FAQ 준비](how-to/local-data.md#2-faq-등록)). FAQ가 있는데도 나오면 지금 Embedding Profile에 벡터가 있는지 ([AI_MODE를 바꾼 뒤](#ai_mode를-바꾼-뒤-검색-결과가-없음)) |
-| `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
+| `CHAT-013` | FAQ 질문 벡터 유사도 기준 `CHAT_CONFIDENCE_THRESHOLD` 또는 답변 문장 유사도 기준 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과하지 못함. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
 | `CHAT-014` | `prompts/faq-*.txt`, `prompt.faq.*-location` |
 | `LLM-002` | `.env`의 `OLLAMA_CHAT_MODEL`. `AI_MODE=vllm`이면 `LLM_MODEL` |
 | `LLM-003` | Ollama의 모델 목록에 채팅 모델이 있는지. 없으면 `ollama-init`으로 받습니다([Ollama 모델 준비](#ollama-모델이-준비되지-않음)). `AI_MODE=vllm`이면 [vLLM 서버 준비](#vllm-서버가-준비되지-않음) |

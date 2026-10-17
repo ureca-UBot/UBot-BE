@@ -24,13 +24,14 @@ import org.junit.jupiter.api.Test;
 class ChatServiceResearchTest {
     private static final String KEY = "a".repeat(64);
 
-    private final FaqVectorService vector = mock(FaqVectorService.class);
+    private final FaqVectorService vector = ChatTestFixtures.vectorService();
     private final AiService ai = mock(AiService.class);
     private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
     private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
     private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, new ChatAnswerProcessor(
-            FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache()));
+            FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(),
+            ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter()));
     private final ChatService service = new ChatService(attempts, filter, harness.submissionService,
             ipRegionResolver);
 

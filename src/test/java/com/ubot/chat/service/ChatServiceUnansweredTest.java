@@ -26,11 +26,13 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("채팅 미응답 질문 저장 연결 테스트")
 class ChatServiceUnansweredTest {
-	private final FaqVectorService vector = mock(FaqVectorService.class);
+	private final FaqVectorService vector = ChatTestFixtures.vectorService();
 	private final AiService ai = mock(AiService.class);
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
@@ -44,7 +46,8 @@ class ChatServiceUnansweredTest {
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache());
+				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(),
+				ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
@@ -112,5 +115,40 @@ class ChatServiceUnansweredTest {
 
 		verify(unanswered, never()).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any(), any());
 		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
+	}
+
+	@Test
+	@DisplayName("LLM이 ABSTAIN으로 답하면 1위 FAQ와 함께 LLM_ABSTAIN으로 저장하고 답변은 그대로 보낸다")
+	void recordsLlmAbstain() {
+		answerWithStatus("ABSTAIN");
+
+		verify(unanswered).createUnansweredQuestion(1L, 1, "질문", "질문", UnansweredReason.LLM_ABSTAIN, 1L, 0.9);
+		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"ANSWER", "PARTIAL", "OUT_OF_SCOPE", "CONFLICT"})
+	@DisplayName("ABSTAIN이 아닌 상태는 미응답으로 저장하지 않는다")
+	void doesNotRecordOtherStatuses(String status) {
+		answerWithStatus(status);
+
+		verify(unanswered, never()).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any(), any());
+	}
+
+	private void answerWithStatus(String status) {
+		List<FaqSearchResponseDto> sources = List.of(
+				new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL),
+				new FaqSearchResponseDto(2L, "q2", "a2", 0.8, Intent.GENERAL));
+		when(vector.getSimilarList("질문", 3)).thenReturn(sources);
+		when(ai.generateAnswer(ChatTestFixtures.materialsFor("질문", sources)))
+				.thenReturn(new AiAnswer("자료에 없어 답변할 수 없습니다.", null, false, status));
+		when(attempts.recordSuccess(any(), any(), any(), isNull())).thenAnswer(call -> {
+			AnswerAttemptsHistory saved = call.getArgument(0);
+			saved.succeed();
+			return harness.logAnswer(call.getArgument(1));
+		});
+
+		service.createChat(1L, null, "질문", null, null);
+		harness.runQueuedJobs();
 	}
 }

@@ -16,7 +16,7 @@ import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-@DisplayName("하위 질문 순번의 V34 → V35 데이터 전환")
+@DisplayName("하위 질문 순번의 V35 → V36 데이터 전환")
 class SubQuestionIndexMigrationTest {
 
     @Test
@@ -33,7 +33,7 @@ class SubQuestionIndexMigrationTest {
                 .withReuse(false)) {
             postgres.start();
             Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration").target("34").load().migrate();
+                    .locations("classpath:db/migration").target("35").load().migrate();
             var jdbc = new JdbcTemplate(new DriverManagerDataSource(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
             Long userId = jdbc.queryForObject("""
@@ -58,7 +58,7 @@ class SubQuestionIndexMigrationTest {
                         VALUES (?, ?, ?, ?, ?, 'NO_FAQ')
                         """, attemptId, groupId, "검색어 " + index, "원문 조각 " + index, index);
             }
-            // V34 이전 형식과 attempt 보관 기간이 끝난 행도 기본 순번 0 → 1로 옮깁니다.
+            // V35 이전 형식과 attempt 보관 기간이 끝난 행도 기본 순번 0 → 1로 옮깁니다.
             Long legacyId = jdbc.queryForObject("""
                     INSERT INTO question_log (user_id, user_question) VALUES (?, '이전 형식') RETURNING id
                     """, Long.class, userId);

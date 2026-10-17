@@ -45,7 +45,7 @@ import com.ubot.unanswered.service.UnansweredQuestionService;
 class ChatAnswerProcessorSemanticCacheTest {
     private static final String QUESTION = "이심이 어떤 건지 알려줘";
     private static final Runnable NOT_CANCELLED = () -> { };
-    private final FaqVectorService vectors = mock(FaqVectorService.class);
+    private final FaqVectorService vectors = ChatTestFixtures.vectorService();
     private final AiService ai = mock(AiService.class);
     private final ChatContextCollector collector = mock(ChatContextCollector.class);
     private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
@@ -67,6 +67,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.answer().answer()).isEqualTo(officialAnswer);
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L);
         verify(vectors).getSimilarList(QUESTION, 10);
+        verify(vectors).searchWithVector(QUESTION, null, 10);
         verifyNoMoreInteractions(vectors);
         verifyNoInteractions(reranker, ai, collector, unanswered);
     }
@@ -83,6 +84,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(322L, 14L);
         verify(vectors).getSimilarList(QUESTION, 10);
+        verify(vectors).searchWithVector(QUESTION, null, 10);
         verifyNoMoreInteractions(vectors);
         verify(ai).generateAnswer(any());
     }
@@ -113,6 +115,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L);
         verify(vectors).getSimilarList(QUESTION, 2);
+        verify(vectors).searchWithVector(QUESTION, null, 2);
         verifyNoMoreInteractions(vectors);
     }
 
@@ -143,6 +146,7 @@ class ChatAnswerProcessorSemanticCacheTest {
             verifyNoInteractions(reranker);
         }
         verify(vectors).getSimilarList(QUESTION, candidateK);
+        verify(vectors).searchWithVector(QUESTION, null, candidateK);
         verifyNoMoreInteractions(vectors);
     }
 
@@ -155,6 +159,7 @@ class ChatAnswerProcessorSemanticCacheTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verify(vectors).getSimilarList(QUESTION, 3);
+        verify(vectors).searchWithVector(QUESTION, null, 3);
         verifyNoMoreInteractions(vectors);
         verifyNoInteractions(ai, collector, reranker);
     }
@@ -182,6 +187,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         assertThatThrownBy(() -> processor(true, false, 3).generateAnswer(attempt(), null, cancellation))
                 .isInstanceOf(CancellationException.class);
         verify(vectors).getSimilarList(QUESTION, 3);
+        verify(vectors).searchWithVector(QUESTION, null, 3);
         verifyNoMoreInteractions(vectors);
         verifyNoInteractions(ai, collector, reranker);
     }
@@ -192,7 +198,8 @@ class ChatAnswerProcessorSemanticCacheTest {
         retrievalProperties.getRerank().setEnabled(rerankEnabled);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, topK),
-                ai, unanswered, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties));
+                ai, unanswered, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties),
+                ChatTestFixtures.passthroughSentenceFilter());
         ReflectionTestUtils.setField(processor, "topK", topK);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

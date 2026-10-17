@@ -26,6 +26,8 @@ import com.ubot.conversation.service.ConversationService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
+import com.ubot.faq.service.FaqSearchMockSupport;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -81,6 +83,7 @@ class SubQuestionChatIntegrationTest {
 	@Autowired UnansweredQuestionGroupRepository unansweredGroups;
 	@Autowired JdbcTemplate jdbc;
 	@MockitoBean FaqVectorService vector;
+	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
 	@MockitoBean EmbeddingService embeddingService;
 	@MockitoBean EmbeddingProfileService embeddingProfileService;
@@ -122,6 +125,8 @@ class SubQuestionChatIntegrationTest {
 		when(embeddingProfileService.getCurrentProfileId()).thenReturn(profileId);
 		when(embeddingService.embedText(anyString())).thenReturn(new PGvector(new float[1024]));
 		when(vector.getSimilarList(anyString(), anyInt())).thenReturn(List.of());
+		FaqSearchMockSupport.bridgeSearch(vector);
+		FaqSearchMockSupport.passAnswers(sentenceFilter);
 	}
 
 	@Test

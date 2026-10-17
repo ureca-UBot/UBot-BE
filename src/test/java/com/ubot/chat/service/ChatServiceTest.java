@@ -70,7 +70,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class ChatServiceTest {
-	FaqVectorService vector = mock(FaqVectorService.class);
+	FaqVectorService vector = ChatTestFixtures.vectorService();
 	AiService ai = mock(AiService.class);
 	AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
 	QuestionLogService questions = mock(QuestionLogService.class);
@@ -134,7 +134,8 @@ class ChatServiceTest {
 				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, embeddingService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache());
+				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(),
+				ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, attemptsService, processor, tx);

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -22,6 +23,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqRetrievalService;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
@@ -36,10 +38,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 class ChatAnswerProcessorSubQuestionTest {
 	private static final Runnable NOT_CANCELLED = () -> { };
 
-	private final FaqVectorService vector = mock(FaqVectorService.class);
+	private final FaqVectorService vector = ChatTestFixtures.vectorService();
 	private final AiService ai = mock(AiService.class);
 	private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
 	private final SubQuestionPlanner planner = mock(SubQuestionPlanner.class);
+	private final FaqSentenceFilterService sentenceFilter = ChatTestFixtures.passthroughSentenceFilter();
 	private final AnswerAttemptsHistory attempt = AnswerAttemptsHistory.builder()
 			.id(100L).userId(1L).question("유심 재발급이랑 해외 로밍 요금 알려줘").status("PENDING").build();
 	private ChatAnswerProcessor processor;
@@ -47,7 +50,8 @@ class ChatAnswerProcessorSubQuestionTest {
 	@BeforeEach
 	void setUp() {
 		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, unanswered,
-				ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache());
+				ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(),
+				sentenceFilter);
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.
@@ -95,6 +99,27 @@ class ChatAnswerProcessorSubQuestionTest {
 		verify(unanswered).createUnansweredQuestion(
 				100L, 2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
 		verify(unanswered, never()).createUnansweredQuestion(any(), eq(1), anyString(), anyString(), any(), any(), any());
+	}
+
+	@Test
+	@DisplayName("답변 LLM이 ABSTAIN이면 FAQ를 찾은 하위 질문은 모두 LLM_ABSTAIN으로, 근거 없던 하위 질문은 원래 사유로 기록한다")
+	void recordsLlmAbstainForEveryAnsweredSubQuestion() {
+		plan("유심 재발급", "유심 재발급 비용", "해외 로밍 요금");
+		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9), faq(2L, 0.8)));
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
+		when(vector.getSimilarList("해외 로밍 요금", 3)).thenReturn(List.of(faq(9L, 0.5)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변할 수 없습니다.", null, false, "ABSTAIN"));
+
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+
+		assertThat(result.isFailed()).isFalse();
+		verify(unanswered).createUnansweredQuestion(
+				100L, 1, "유심 재발급", "유심 재발급", UnansweredReason.LLM_ABSTAIN, 1L, 0.9);
+		verify(unanswered).createUnansweredQuestion(
+				100L, 2, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85);
+		verify(unanswered).createUnansweredQuestion(
+				100L, 3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
+		verify(unanswered, times(3)).createUnansweredQuestion(any(), anyInt(), anyString(), anyString(), any(), any(), any());
 	}
 
 	@Test
@@ -272,6 +297,57 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::isAnswered).containsExactly(true, true);
 		verify(vector).getSimilarList("해지 안 되나요?", 3);
+	}
+
+	@Test
+	@DisplayName("원문 검색이 유사도 기준은 넘었지만 통과한 답변 문장이 없으면 판정한 하위 질문으로 다시 검색한다")
+	void judgesWhenOriginalSentenceFilterFails() {
+		var question = "로밍 신청은 어떻게 하고 문자 수신은 무료인가요?";
+		var plain = AnswerAttemptsHistory.builder().id(306L).userId(1L).question(question).status("PENDING").build();
+		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
+		when(planner.plan(plain)).thenReturn(first);
+		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+				new SubQuestionPlan.SubQuestion("로밍 신청 방법은 무엇인가요?", "로밍 신청은 어떻게 하고"),
+				new SubQuestionPlan.SubQuestion("해외 문자 수신은 무료인가요?", "문자 수신은 무료인가요?")),
+				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
+		var broad = faq(190L, 0.9);
+		when(vector.getSimilarList(question, 3)).thenReturn(List.of(broad));
+		doReturn(List.of()).when(sentenceFilter).filter(any(), eq(List.of(broad)));
+		var apply = faq(29L, 0.9);
+		var sms = faq(35L, 0.85);
+		when(vector.getSimilarList("로밍 신청 방법은 무엇인가요?", 3)).thenReturn(List.of(apply));
+		when(vector.getSimilarList("해외 문자 수신은 무료인가요?", 3)).thenReturn(List.of(sms));
+
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+
+		verify(planner).judge(plain, first);
+		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::faqs)
+				.containsExactly(List.of(apply), List.of(sms));
+		verifyNoInteractions(unanswered);
+	}
+
+	@Test
+	@DisplayName("원문 검색의 답변 문장 검사가 실패한 뒤 판정 결과가 원문 그대로면 다시 검색·검사하지 않고 미답변으로 기록한다")
+	void reusesOriginalSentenceFilterFailure() {
+		var question = "신청 취소는 어떻게 해요?";
+		var plain = AnswerAttemptsHistory.builder().id(307L).userId(1L).question(question).status("PENDING").build();
+		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
+		when(planner.plan(plain)).thenReturn(first);
+		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+				new SubQuestionPlan.SubQuestion(question, question)),
+				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
+		var broad = faq(147L, 0.9);
+		when(vector.getSimilarList(question, 3)).thenReturn(List.of(broad));
+		doReturn(List.of()).when(sentenceFilter).filter(any(), eq(List.of(broad)));
+
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+
+		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
+		verify(vector, times(1)).getSimilarList(question, 3);
+		verify(sentenceFilter, times(1)).filter(any(), any());
+		verify(unanswered).createUnansweredQuestion(
+				307L, 1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.9);
+		verifyNoInteractions(ai);
 	}
 
 	@Test

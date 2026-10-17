@@ -24,6 +24,7 @@ import com.ubot.unanswered.dto.response.UnansweredGroupDetailResponseDto;
 import com.ubot.unanswered.dto.response.UnansweredGroupResponseDto;
 import com.ubot.unanswered.dto.response.UnansweredQuestionResponseDto;
 import com.ubot.unanswered.enums.UnansweredGroupStatus;
+import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.exception.UnansweredErrorCode;
 import com.ubot.unanswered.exception.UnansweredException;
 
@@ -106,6 +107,16 @@ class UnansweredGroupServiceTest {
 	}
 
 	@Test
+	@DisplayName("LLM이 답변을 포기한 질문도 사유와 함께 조회된다")
+	void returnsLlmAbstainReason() {
+		question(penaltyGroupId, "약정 위약금 계산해 주세요", "2026-09-30 13:00:00", "LLM_ABSTAIN");
+
+		assertThat(service.getUnansweredGroup(penaltyGroupId).questions())
+				.extracting(UnansweredQuestionResponseDto::reason)
+				.containsExactly(UnansweredReason.LLM_ABSTAIN);
+	}
+
+	@Test
 	@DisplayName("처리 상태를 바꾼다")
 	void updatesStatus() {
 		UnansweredGroupResponseDto result = service.updateUnansweredGroupStatus(
@@ -136,14 +147,18 @@ class UnansweredGroupServiceTest {
 	}
 
 	private void question(Long groupId, String question, String createdAt) {
+		question(groupId, question, createdAt, "NO_FAQ");
+	}
+
+	private void question(Long groupId, String question, String createdAt, String reason) {
 		Long attemptId = jdbcTemplate.queryForObject(
 				"INSERT INTO answer_attempts_history (user_id, question, attempt_count, status, idempotency_key) VALUES (?, ?, 1, 'FAIL', ?) RETURNING attempt_id",
 				Long.class, userId, question, UUID.randomUUID().toString());
 		jdbcTemplate.update(
 				"""
 				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, user_text, reason, created_at)
-				VALUES (?, ?, ?, ?, 'NO_FAQ', ?::timestamp)
+				VALUES (?, ?, ?, ?, ?, ?::timestamp)
 				""",
-				attemptId, groupId, "검색어 " + question, question, createdAt);
+				attemptId, groupId, "검색어 " + question, question, reason, createdAt);
 	}
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 서버의 .env를 읽고 검증합니다.
 # 정하는 값: SPRING_PROFILE, AI_MODE, AI_RUNTIME_MANAGED, EMBEDDING_PROFILE_VERSION,
-#            FAQ_SEARCH_VECTOR_TYPE, CHAT_ENGINE, EMBEDDING_ENGINE, USE_OLLAMA, USE_VLLM
+#            CHAT_ENGINE, EMBEDDING_ENGINE, USE_OLLAMA, USE_VLLM
 # 쓰는 값: ENV_FILE
 
 
@@ -146,9 +146,6 @@ validate_environment() {
   AI_MODE="$(read_env AI_MODE)"
   AI_RUNTIME_MANAGED="$(read_env AI_RUNTIME_MANAGED)"
   EMBEDDING_PROFILE_VERSION="$(read_env EMBEDDING_PROFILE_VERSION)"
-  # 없으면 백엔드 기본값과 같은 QUESTION을 쓴다.
-  FAQ_SEARCH_VECTOR_TYPE="$(read_env FAQ_SEARCH_VECTOR_TYPE)"
-  FAQ_SEARCH_VECTOR_TYPE="${FAQ_SEARCH_VECTOR_TYPE:-QUESTION}"
 
   if [ "${SPRING_PROFILE}" != "prod" ]; then
     echo "ERROR: SPRING_PROFILES_ACTIVE must be prod"
@@ -168,15 +165,6 @@ validate_environment() {
     echo "ERROR: EMBEDDING_PROFILE_VERSION must be >= 1"
     exit 1
   fi
-
-  case "${FAQ_SEARCH_VECTOR_TYPE}" in
-    QUESTION|QUESTION_ANSWER)
-      ;;
-    *)
-      echo "ERROR: FAQ_SEARCH_VECTOR_TYPE must be QUESTION or QUESTION_ANSWER"
-      exit 1
-      ;;
-  esac
 
   case "${AI_MODE}" in
     ollama)
@@ -273,5 +261,4 @@ validate_environment() {
   echo "CHAT_ENGINE=${CHAT_ENGINE}"
   echo "EMBEDDING_ENGINE=${EMBEDDING_ENGINE}"
   echo "EMBEDDING_PROFILE_VERSION=${EMBEDDING_PROFILE_VERSION}"
-  echo "FAQ_SEARCH_VECTOR_TYPE=${FAQ_SEARCH_VECTOR_TYPE}"
 }

@@ -39,7 +39,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("채팅 intent 분기 연결 테스트")
 class ChatServiceIntentRoutingTest {
-	private final FaqVectorService vector = mock(FaqVectorService.class);
+	private final FaqVectorService vector = ChatTestFixtures.vectorService();
 	private final AiService ai = mock(AiService.class);
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
@@ -63,7 +63,8 @@ class ChatServiceIntentRoutingTest {
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
 				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache());
+				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(),
+				ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);
