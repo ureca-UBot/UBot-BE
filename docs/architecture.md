@@ -171,7 +171,7 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 ### 미응답 질문 저장 (#105)
 
-`CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
+`CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에, LLM이 답변 상태를 `ABSTAIN`(자료로 답할 수 없음)으로 낸 질문은 답변을 보낸 뒤 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.
@@ -181,6 +181,7 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 묶음과 소속은 Profile과 무관하게 하나이고, 질문 벡터와 중심 벡터만 Profile별로 `unanswered_question_embeddings`, `unanswered_group_embeddings`에 둡니다. 다른 Profile로 만든 중심과는 비교하지 않으므로, 임베딩 서버를 바꾼 직후에는 기존 묶음을 찾지 못합니다. [백필](how-to/llm-module.md#백필)을 실행하면 기존 질문의 벡터와 묶음 중심이 새 Profile로 채워집니다. 예전 벡터 컬럼(`question_vector`, `centroid`)은 `V25`에서 지웠습니다.
 
 - 기준 미달(`INSUFFICIENT_FAQ`)이면 가장 가까웠던 FAQ와 그 유사도를 함께 남깁니다.
+- LLM이 답할 수 없다고 판단한 질문(`LLM_ABSTAIN`)은 LLM에 넘긴 1위 FAQ와 그 유사도를 남깁니다. 사용자에게는 LLM 답변이 그대로 나가고 채팅은 성공으로 기록됩니다. `PARTIAL`(일부만 답함), `OUT_OF_SCOPE`(상담 범위 밖), `CONFLICT`는 저장하지 않습니다.
 - 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
 - 저장에 실패해도 경고 로그만 남기고 채팅 응답(`CHAT-012`·`CHAT-013`)은 그대로 나갑니다.
 - 재시도도 새 답변 시도이므로, 같은 질문을 재시도해 또 실패하면 한 건씩 더 쌓여 묶음의 질문 수가 늘어납니다.

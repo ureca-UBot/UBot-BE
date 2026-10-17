@@ -110,6 +110,10 @@ notification:
   reservation-reminder-cron: ${NOTIFICATION_RESERVATION_REMINDER_CRON:0 0 * * * *}
   # 요금 납부 리마인더(납부 기한 임박·연체) 생성 시각. Asia/Seoul 기준 Spring cron (기본: 매일 09:00)
   billing-reminder-cron: ${NOTIFICATION_BILLING_REMINDER_CRON:0 0 9 * * *}
+  # 로밍 시작·종료, 약정·할부 만료 리마인더 생성 시각. Asia/Seoul 기준 Spring cron (기본: 매일 09:00)
+  subscription-reminder-cron: ${NOTIFICATION_SUBSCRIPTION_REMINDER_CRON:0 0 9 * * *}
+  # 데이터 사용량 리마인더(80%·100%) 확인 주기. Asia/Seoul 기준 Spring cron (기본: 매시 정각, 24시간)
+  usage-reminder-cron: ${NOTIFICATION_USAGE_REMINDER_CRON:0 0 * * * *}
 
 data-retention:
   # 보관 기간이 지난 데이터 삭제(purge_expired_data) 실행 시각. Asia/Seoul 기준 Spring cron
