@@ -1,6 +1,5 @@
 package com.ubot.common;
 
-import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.common.exception.CommonErrorCode;
 import jakarta.validation.ConstraintViolationException;
@@ -24,12 +23,12 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
 	@ExceptionHandler(ChatException.class)
-	public ResponseEntity<ApiResponse<ChatResponseDto>> handleChatException(ChatException exception) {
+	public ResponseEntity<ApiResponse<Void>> handleChatException(ChatException exception) {
 		ErrorCode errorCode = exception.getErrorCode();
 		log.warn("채팅 요청이 업무 예외로 종료되었습니다: 오류코드={}, 오류메시지={}",
 				errorCode.getCode(), errorCode.getMessage());
 		return ResponseEntity.status(errorCode.getStatus())
-				.body(ApiResponse.error(errorCode.getCode(), exception.getMessage(), exception.getResponse()));
+				.body(ApiResponse.error(errorCode.getCode(), exception.getMessage()));
 	}
 
     @ExceptionHandler(GlobalException.class)

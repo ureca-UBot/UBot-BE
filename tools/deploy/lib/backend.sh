@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# 백엔드와 nginx를 교체하고, health check를 한 뒤, 오래된 백엔드 이미지를 지웁니다.
-# 쓰는 값: COMPOSE, IMAGE_NAME, BACKEND_IMAGE
+# 백엔드(API)·답변 Worker·nginx를 교체하고, health check를 한 뒤, 오래된 백엔드 이미지를 지웁니다.
+# 쓰는 값: COMPOSE, IMAGE_NAME, BACKEND_IMAGE, APP_NETWORK
 
 
 start_application() {
-  echo "== Start backend =="
+  echo "== Start backend and AI worker =="
 
   "${COMPOSE[@]}" \
     up -d \
-    backend
+    backend \
+    ai-worker
 
   echo "== Recreate nginx =="
 
@@ -55,6 +56,47 @@ health_check() {
     --tail=200 \
     backend \
     nginx \
+    || true
+
+  return 1
+}
+
+
+# Worker는 포트를 열지 않으므로, 같은 Docker 네트워크에 curl 컨테이너를 띄워 확인한다.
+worker_health_check() {
+  echo "== AI worker health check =="
+
+  for i in $(seq 1 30); do
+
+    if docker run --rm \
+      --network "${APP_NETWORK}" \
+      curlimages/curl:8.10.1 \
+      -fsS \
+      --max-time 5 \
+      http://ai-worker:8080/actuator/health \
+      >/dev/null 2>&1; then
+
+      echo "AI worker is healthy"
+
+      return 0
+    fi
+
+    echo "AI worker health check attempt ${i}/30 failed"
+
+    sleep 5
+  done
+
+  echo "ERROR: AI worker health check failed"
+
+  "${COMPOSE[@]}" \
+    ps -a \
+    ai-worker \
+    || true
+
+  "${COMPOSE[@]}" \
+    logs \
+    --tail=200 \
+    ai-worker \
     || true
 
   return 1

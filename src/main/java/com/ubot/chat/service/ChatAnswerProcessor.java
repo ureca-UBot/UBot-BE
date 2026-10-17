@@ -1,6 +1,8 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.service.AiService;
@@ -29,7 +31,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * FAQ 검색·유사도 판정·미응답 처리·intent별 자료 수집·AI 호출로 답변을 계산합니다. 결과 저장과 응답 확정은
- * ChatAnswerExecutor가 합니다.
+ * Worker(ChatJobProcessor·ChatJobCompletionService)가 합니다.
  */
 @Slf4j
 @Component
@@ -63,6 +65,7 @@ public class ChatAnswerProcessor {
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
 		long startedAt = System.nanoTime();
 		checkCancellation.run();
+		AnswerProgress.report(Phase.SEARCHING);
 		Intent requestedIntent = attempt.isResearch() ? attempt.getIntent() : null;
 		DenseFaqCandidates dense;
 		try {
@@ -116,6 +119,7 @@ public class ChatAnswerProcessor {
 				attempt.getId(), filteredResults.stream().map(FaqSearchResponseDto::faqId).toList(),
 				elapsedMillis(startedAt));
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다.
+		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		AnswerMaterials materials = chatContextCollector.collect(
 				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), filteredResults);
 		AiAnswer answer = aiService.generateAnswer(materials);

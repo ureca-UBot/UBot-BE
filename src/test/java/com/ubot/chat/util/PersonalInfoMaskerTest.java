@@ -21,10 +21,29 @@ class PersonalInfoMaskerTest {
 			"메일 minha.yu@naver.com 으로 보내 주세요|메일 m***@naver.com 으로 보내 주세요",
 			"5G 요금제 55000원은 얼마예요|5G 요금제 55000원은 얼마예요",
 			"고객센터 114 번호가 뭐예요|고객센터 114 번호가 뭐예요",
-			"매장 전화 02-1234-5678|매장 전화 02-1234-5678"
+			"매장 전화 02-1234-5678|매장 전화 02-1234-5678",
+			"+82 10-1234-5678 로밍 돼요?|010-****-5678 로밍 돼요?",
+			"+821012345678 번호예요|010-****-5678 번호예요",
+			"010 - 1234 - 5678 이에요|010-****-5678 이에요",
+			"010.1234.5678 이에요|010-****-5678 이에요",
+			"900101 - 1234567 이에요|900101-******* 이에요",
+			"카드 1234 5678 9012 3456 등록|카드 ****-****-****-3456 등록",
+			"카드 1234.5678.9012.3456 등록|카드 ****-****-****-3456 등록"
 	})
 	@DisplayName("개인정보만 가리고 나머지 문장은 그대로 둔다")
 	void masksPersonalInfo(String input, String expected) {
 		assertThat(PersonalInfoMasker.mask(input)).isEqualTo(expected);
+	}
+
+	@ParameterizedTest
+	@CsvSource(delimiter = '|', value = {
+			"010-****-5678 번호예요",
+			"900101-******* 이에요",
+			"****-****-****-3456 등록",
+			"m***@naver.com 으로 보내 주세요"
+	})
+	@DisplayName("이미 마스킹된 질문은 다시 마스킹해도 그대로다")
+	void keepsMaskedText(String masked) {
+		assertThat(PersonalInfoMasker.mask(masked)).isEqualTo(masked);
 	}
 }

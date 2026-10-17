@@ -93,7 +93,14 @@ API 호출 → 401 JWT-007 (access token 만료)
 
 ## 채팅
 
-### 질문
+질문·재시도·재검색은 **접수만 하고 바로 `202 Accepted`로 응답**합니다. 답변은 별도 Worker가 작업 스트림에서 받아 만들고, 클라이언트는 받은 `jobId`로 상태를 조회합니다. 답변이 나올 때까지 연결을 붙잡고 기다리지 않습니다.
+
+```text
+POST /chat/questions → 202 { jobId, status: "QUEUED" }
+GET  /chat/jobs/{jobId} → QUEUED → RUNNING → SUCCEEDED(answer) 또는 FAILED(errorCode)
+```
+
+### 질문 접수
 
 ```http
 POST /chat/questions
@@ -103,7 +110,7 @@ Content-Type: application/json
 { "question": "유심을 재발급받으려면 어떻게 하나요?" }
 ```
 
-성공(`200`):
+접수(`202`):
 
 ```json
 {
@@ -111,47 +118,119 @@ Content-Type: application/json
   "code": "SUCCESS",
   "message": "요청이 성공적으로 처리되었습니다.",
   "data": {
-    "answer": "…모델이 생성한 문자열…",
-    "status": "SUCCESS",
+    "jobId": 12345,
+    "status": "QUEUED",
+    "conversationId": "a927bf8e-4ab4-4d3b-814b-dde3c0e62aac",
     "idempotencyKey": "<64자리 16진수>",
-    "attemptCount": 1,
-    "retryable": false
-  }
-}
-```
-
-답변 생성 실패(예: `404 CHAT-013`):
-
-```json
-{
-  "success": false,
-  "code": "CHAT-013",
-  "message": "정확한 답변을 찾지 못했습니다.",
-  "data": {
-    "answer": "정확한 답변을 찾지 못했습니다.",
-    "status": "FAIL",
-    "idempotencyKey": "<64자리 16진수>",
-    "attemptCount": 1,
-    "retryable": true
+    "attemptCount": 1
   }
 }
 ```
 
 - `question`은 공백이 아닌 4000자 이하 문자열입니다. 위반하면 `G-001`입니다.
 - 금지어가 포함되면 `400 FW-003`이며 `data`는 `null`입니다. 시도 기록을 만들지 않으므로 재시도할 수 없습니다.
-- 답변이 나올 때까지 응답이 오지 않습니다. 서버는 최대 `CHAT_RESPONSE_TIMEOUT_MILLIS`(기본 180초)를 기다리고, 넘으면 `504 CHAT-016`을 반환합니다. 배포 환경의 Nginx도 180초에 연결을 끊습니다. **클라이언트 쪽 요청 제한 시간은 180초보다 길게** 두어야 서버의 `CHAT-016` 응답을 받을 수 있습니다. 현재 UBot-FE는 클라이언트 제한 시간을 두지 않습니다.
-- 스트리밍(SSE) 없이 완성된 답변을 한 번에 반환합니다(회의 결정, #82).
+- 비회원 질문 수 초과(`429 CHAT-017`)처럼 접수 단계에서 거절되면 작업을 만들지 않습니다.
+- 같은 질문을 다시 보내면 새 질문으로 접수됩니다. 접수 응답을 받지 못해 다시 보낼 때는 중복 접수될 수 있습니다.
+
+### 상태 조회
+
+```http
+GET /chat/jobs/{jobId}
+Authorization: Bearer <accessToken>
+```
+
+처리 중(`200`):
+
+```json
+{
+  "success": true,
+  "code": "SUCCESS",
+  "data": {
+    "jobId": 12345,
+    "status": "RUNNING",
+    "answer": null,
+    "store": null,
+    "errorCode": null,
+    "errorMessage": null,
+    "retryable": false,
+    "idempotencyKey": "<64자리 16진수>",
+    "attemptCount": 1
+  }
+}
+```
+
+끝난 작업은 `status`가 `SUCCEEDED`(답변 성공) 또는 `FAILED`(실패)입니다.
+
+| status | 의미 | 채워지는 값 |
+|---|---|---|
+| `QUEUED` | 접수되어 대기 중 | 없음. `retryable`은 `false` |
+| `RUNNING` | Worker가 답변을 만드는 중 | 없음. `retryable`은 `false` |
+| `SUCCEEDED` | 답변 완료 | `answer`, 매장 질문이면 `store` |
+| `FAILED` | 답변 실패 | `errorCode`, `errorMessage`, `retryable` |
+
+- 상태 조회는 답변의 성공·실패와 관계없이 `200`입니다. 실패 원인은 `data.errorCode`로 구분합니다(예: `CHAT-012` 검색 결과 없음, `CHAT-013` 근거 부족, `LLM-004` LLM 시간 초과, `CHAT-016` 대기 또는 실행 시간 초과).
+- 본인의 작업만 조회됩니다. 회원은 JWT, 비회원은 질문할 때의 세션 쿠키로 확인합니다. 남의 작업과 없는 작업은 똑같이 `404 CHAT-020`입니다.
+- `jobId`는 순차 번호입니다. 다른 사람의 번호를 넣어도 본인 작업이 아니면 `404 CHAT-020`입니다.
+- 비회원 세션은 30분 동안 요청이 없으면 만료되고, 만료된 뒤에는 이전 작업을 조회할 수 없습니다.
+- 게스트 질문 후 로그인하면 같은 세션 쿠키와 JWT로 상태를 조회하세요. 해당 게스트 대화를 회원에게 귀속한 뒤 조회하며, 이후에는 JWT로 조회합니다.
+- 새 작업의 답변과 지도·위치 요청 정보는 성공 상태와 함께 DB에 저장됩니다. Redis 캐시 만료·유실에도 유지됩니다.
+- 조회 간격은 1~2초를 권합니다. Nginx는 질문 요청 제한과 별도로 상태 조회를 IP당 20회/초, burst 40으로 제한합니다. 429·5xx·네트워크 오류는 지수 백오프와 jitter로 재조회하며, 성공·실패 확정 시 폴링을 종료합니다.
+- jobId와 conversationId를 화면 상태에 보관해 재조회에 사용합니다. 회원 작업은 API 재시작 뒤에도 조회할 수 있습니다. 게스트는 기존 메모리 세션을 사용하므로 API 재시작·세션 만료 시 조회 권한을 잃을 수 있습니다. 새 질문 POST를 자동 반복하지 마세요.
+- 접수 뒤 `CHAT_WORKER_MAX_QUEUE_WAIT`(기본 10분) 안에 시작하지 못한 질문은 `FAILED`·`CHAT-016`으로 끝나며 재시도할 수 있습니다.
+
+### 처리 단계와 제한 시간
+
+접수·상태 조회 응답에는 `phase`, `phaseUpdatedAt`, `deadlineAt`, `serverTime`이 추가됩니다.
+기존 `status`와 오류·재시도 필드는 그대로 사용합니다. 시간은 UTC ISO-8601 문자열(`Z`)입니다.
+
+| phase | 안내 문구 예시 |
+|---|---|
+| `WAITING` | 질문을 접수했습니다. 순서를 기다리고 있습니다. |
+| `SEARCHING` | 질문과 관련된 정보를 찾고 있습니다. |
+| `COLLECTING_CONTEXT` | 답변에 필요한 정보를 확인하고 있습니다. |
+| `WAITING_FOR_MODEL` | 답변 생성을 준비하고 있습니다. |
+| `GENERATING` | 답변을 생성하고 있습니다. |
+
+`GENERATING`에는 모델의 도구 호출과 최종 답변 처리도 포함됩니다. 단계는 금방 지나가거나 생략될 수 있으므로
+프론트는 모든 단계를 순서대로 받아야 한다고 가정하지 않습니다. 단계 저장이 일시적으로 실패하면 마지막으로
+저장한 단계가 보일 수 있습니다. `phaseUpdatedAt`은 진행률이나 heartbeat가 아닙니다.
+
+```json
+{
+  "jobId": 123,
+  "status": "RUNNING",
+  "phase": "GENERATING",
+  "phaseUpdatedAt": "2026-10-15T08:00:05Z",
+  "deadlineAt": "2026-10-15T08:03:00Z",
+  "serverTime": "2026-10-15T08:00:10Z"
+}
+```
+
+- `QUEUED`의 마감은 접수 시각 + `CHAT_WORKER_MAX_QUEUE_WAIT`(기본 10분)입니다.
+  안내 예: “요청이 많으면 답변 생성 시작까지 최대 10분 기다릴 수 있습니다.”
+- `RUNNING`의 마감은 이번 실행 선점 시각 + `CHAT_WORKER_EXECUTION_TIMEOUT`(기본 3분)입니다.
+  검색·정보 수집·모델 대기·생성이 이 시간을 함께 쓰며, 단계가 바뀌어도 연장되지 않습니다.
+- 시간 문구를 10분·3분으로 고정하지 말고 `deadlineAt - serverTime`으로 남은 제한 시간을 계산합니다.
+  응답 수신 뒤 경과 시간은 브라우저의 단조 시계로 계산하면 사용자 PC 시계가 달라도 표시할 수 있습니다.
+- 워커 장애로 새 실행이 작업을 넘겨받으면 기존 복구 정책에 따라 실행 제한을 다시 부여하고 마감도 갱신합니다.
+  따라서 접수 후 총 13분 안에 반드시 완료된다는 의미가 아닙니다.
+- 성공·실패 시 `phase`, `deadlineAt`은 `null`입니다. `phaseUpdatedAt`은 종료 시각입니다.
+- 마이그레이션 이전 작업의 새 필드는 `null`일 수 있습니다. 선점 직후에도 실제 처리 단계가 아직 없을 수 있어
+  `phase=null`이면 기존 `status`로 “대기 중” 또는 “처리 중”을 표시하고, 마감이 없으면 카운트다운을 생략합니다.
+- 제한 시간은 완료 예상 시간이 아닙니다. 만료 감지·실패 저장에는 지연이 생길 수 있으므로, 카운트다운이 0이 되어도
+  프론트가 실패를 확정하지 않습니다. “처리 결과를 확인하고 있습니다”로 안내하고 서버 최종 상태를 확인합니다.
+- 같은 `jobId`로 다시 조회하면 DB에 남은 단계와 마감을 받습니다. 작업 목록 조회나 요청 중복 방지 기능은 추가되지 않았습니다.
 
 ### 재시도
 
 ```http
 POST /chat/questions/retries
 Authorization: Bearer <accessToken>
-Idempotency-Key: <실패 응답의 idempotencyKey>
+Idempotency-Key: <실패한 작업의 idempotencyKey>
 ```
 
-- 본문은 없습니다. 질문은 서버가 기존 기록에서 가져옵니다.
-- `data.retryable`이 `true`일 때만 재시도 버튼을 보여 주면 됩니다. `retryable`은 안내값이고, 실제 요청이 오면 서버가 본인 기록인지와 재시도 조건을 다시 검사합니다(#82). UBot-FE는 `status === "FAIL"`, `retryable`, `idempotencyKey`가 모두 있을 때만 재시도합니다.
+- 본문은 없습니다. 질문은 서버가 기존 기록에서 가져옵니다. 응답은 질문 접수와 같은 `202`이며 **새 `jobId`**로 다시 조회합니다(`conversationId`는 없습니다).
+- 상태 조회의 `retryable`이 `true`일 때만 재시도 버튼을 보여 주면 됩니다. `retryable`은 안내값이고, 실제 요청이 오면 서버가 본인 기록인지와 재시도 조건을 다시 검사합니다(#82).
 - 최초 요청을 포함해 최대 `CHAT_MAX_ATTEMPTS`(기본 3)회까지 시도할 수 있습니다. 거절 사유는 `CHAT-003`(본인 기록 없음), `CHAT-004`(처리 중), `CHAT-005`(이미 성공), `CHAT-006`(횟수 초과), `CHAT-007`, `CHAT-011`(키 형식 오류)이며, 이때 `data`는 `null`입니다.
 
 ### 의도 재검색
@@ -161,7 +240,7 @@ Idempotency-Key: <실패 응답의 idempotencyKey>
 ```http
 POST /chat/questions/research
 Authorization: Bearer <accessToken>
-Idempotency-Key: <성공 응답의 idempotencyKey>
+Idempotency-Key: <성공한 작업의 idempotencyKey>
 Content-Type: application/json
 
 { "intent": "STORE_DATA", "latitude": 37.4979, "longitude": 127.0276 }
@@ -169,7 +248,7 @@ Content-Type: application/json
 
 - `intent`는 필수입니다. 알 수 없는 값이면 `400`입니다.
 - `latitude`·`longitude`는 선택이며 함께 보내거나 함께 생략합니다. 매장 의도에서 현재 위치를 쓰고 싶을 때만 보내면 됩니다. 한쪽만 보내거나 범위(위도 ±90, 경도 ±180)를 벗어나면 `G-001`입니다.
-- 질문은 서버가 원본 기록에서 가져옵니다. 응답 형식은 질문·재시도와 같은 `ChatResponseDto`이며, `idempotencyKey`는 **재검색 시도의 새 키**입니다. 원본의 키를 덮어쓰지 마세요.
+- 응답은 질문 접수와 같은 `202`입니다. `idempotencyKey`는 **재검색 시도의 새 키**입니다. 원본의 키를 덮어쓰지 마세요.
 - 재검색한 답변은 재시도할 수 없습니다(`retryable`은 항상 `false`). 실패하면 다른 의도를 고르게 하세요.
 - 같은 질문의 같은 의도는 한 번만 재검색할 수 있습니다. 거절 사유는 `CHAT-018`(재검색할 수 없는 답변), `CHAT-019`(이미 재검색한 의도), `CHAT-003`(본인 기록 없음)이며 이때 `data`는 `null`입니다. 비로그인이면 `401`입니다.
 - 재검색이 `CHAT-012`·`CHAT-013`으로 끝나면 해당 의도의 FAQ에서 근거를 찾지 못했다는 뜻입니다.
@@ -177,9 +256,9 @@ Content-Type: application/json
 ### 알아 둘 점
 
 - **`answer`는 답변 문장입니다.** 백엔드가 모델 출력 JSON을 파싱해 안쪽 `answer`만 내려 줍니다([LLM 모듈 안내](llm-module.md#출력-형식과-서버-처리)). 2026-10-12 이전에 저장된 대화 기록은 JSON 문자열 그대로일 수 있으므로, UBot-FE의 `ChatMessages.tsx`(`getAnswerText`)처럼 JSON이면 안쪽 `answer`를, 일반 문장이면 그대로 표시하는 처리를 유지합니다.
-- **대화 이력 API가 없습니다.** 새로고침하면 화면의 대화는 사라집니다. 이전 대화 기억은 2차 MVP 범위입니다(#81).
-- **요청을 중간에 끊어도 서버 작업은 계속됩니다.** 브라우저가 요청을 끊어도 서버는 답변을 끝까지 만들어 저장하거나 제한 시간에 실패로 기록합니다. 끊긴 요청의 결과를 다시 받을 방법은 없습니다. 성공으로 끝났다면 재시도는 `CHAT-005`로 거절됩니다.
+- **화면을 떠나도 서버 작업은 계속됩니다.** 조회를 멈춰도 Worker는 답변을 끝까지 만들어 저장합니다. 같은 `jobId`로 다시 조회하면 결과를 받을 수 있습니다(비회원은 세션이 살아 있을 때만).
 - 같은 사용자가 여러 질문을 동시에 보내는 것을 서버가 막지는 않습니다. UBot-FE는 한 번에 한 요청만 보내도록 막고 있습니다.
+- 스트리밍(SSE) 없이 완성된 답변을 한 번에 돌려줍니다(회의 결정, #82).
 
 ## 매장·위치·길찾기
 

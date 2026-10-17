@@ -1,6 +1,7 @@
 package com.ubot.chat.entity;
 
 import com.ubot.chat.entity.converter.AnswerAttemptErrorCodeConverter;
+import com.ubot.chat.util.PersonalInfoMasker;
 import com.ubot.common.ErrorCode;
 import com.ubot.faq.enums.Intent;
 import jakarta.persistence.Column;
@@ -126,7 +127,7 @@ public class AnswerAttemptsHistory {
 		return AnswerAttemptsHistory.builder()
 				.userId(source.userId)
 				.conversationId(source.conversationId)
-				.question(source.question)
+				.question(PersonalInfoMasker.mask(source.question))
 				.attemptCount(1)
 				.idempotencyKey(idempotencyKey)
 				.sourceAttemptId(source.id)

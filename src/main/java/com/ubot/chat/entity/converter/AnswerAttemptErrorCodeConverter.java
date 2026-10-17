@@ -21,7 +21,16 @@ public class AnswerAttemptErrorCodeConverter implements AttributeConverter<Error
 		return dbData == null ? null : resolve(dbData);
 	}
 
-	private ErrorCode resolve(String value) {
+	public static boolean supports(ErrorCode errorCode) {
+		try {
+			resolve(errorCode.getCode());
+			return true;
+		} catch (IllegalArgumentException exception) {
+			return false;
+		}
+	}
+
+	private static ErrorCode resolve(String value) {
 		for (ChatErrorCode code : ChatErrorCode.values()) {
 			if (code.getCode().equals(value)) {
 				return code;
