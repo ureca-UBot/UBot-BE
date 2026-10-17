@@ -252,7 +252,7 @@ class DataRetentionPurgeIntegrationTest {
 	private boolean isAnonymized(Long questionLogId) {
 		return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
 				SELECT anonymized_at IS NOT NULL AND user_question = '' AND llm_question = ''
-				       AND normalized_question = '' AND sub_question = ''
+				       AND normalized_question = '' AND sub_question = '' AND user_text = ''
 				       AND user_id IS NULL AND conversation_id IS NULL
 				FROM question_log WHERE id = ?
 				""", Boolean.class, questionLogId));
@@ -313,9 +313,9 @@ class DataRetentionPurgeIntegrationTest {
 
 	private Long createQuestionLog(Long userId, Long conversationId, LocalDateTime createdAt) {
 		Long id = jdbcTemplate.queryForObject("""
-				INSERT INTO question_log (user_id, user_question, sub_question, normalized_question, llm_question,
+				INSERT INTO question_log (user_id, user_question, sub_question, user_text, normalized_question, llm_question,
 				                          conversation_id, created_at)
-				VALUES (?, 'q', 'q', 'q', 'q', ?, ?)
+				VALUES (?, 'q', 'q', 'q', 'q', 'q', ?, ?)
 				RETURNING id
 				""", Long.class, userId, conversationId, createdAt);
 		questionLogIds.add(id);
@@ -348,8 +348,8 @@ class DataRetentionPurgeIntegrationTest {
 
 	private Long createUnansweredQuestion(Long attemptId, Long groupId) {
 		return jdbcTemplate.queryForObject("""
-				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, reason)
-				VALUES (?, ?, 'q', 'NO_FAQ')
+				INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, user_text, reason)
+				VALUES (?, ?, 'q', 'q', 'NO_FAQ')
 				RETURNING id
 				""", Long.class, attemptId, groupId);
 	}

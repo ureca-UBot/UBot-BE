@@ -34,9 +34,13 @@ public class QuestionLog {
 	@Column(name = "user_question")
 	private String userQuestion;
 
-	// 검색·랭킹에 쓴 하위 질문입니다. 하위 질문 저장 이전의 행은 null입니다.
+	// 검색·랭킹에 쓴 하위 질문의 검색어(판정 LLM이 다시 쓴 것)입니다. 하위 질문 저장 이전의 행은 null입니다.
 	@Column(name = "sub_question")
 	private String subQuestion;
+
+	// 하위 질문에 해당하는 원문 조각입니다. 질문을 나눴지만 원문을 자를 근거가 없었던 턴과 하위 질문 저장 이전의 행은 null입니다.
+	@Column(name = "user_text")
+	private String userText;
 
 	@Column(name = "sub_question_index")
 	private int subQuestionIndex;
@@ -65,6 +69,7 @@ public class QuestionLog {
 			Long attemptId,
 			String userQuestion,
 			String subQuestion,
+			String userText,
 			int subQuestionIndex,
 			String normalizedQuestion,
 			String answer,
@@ -76,6 +81,7 @@ public class QuestionLog {
 		this.attemptId = attemptId;
 		this.userQuestion = userQuestion;
 		this.subQuestion = subQuestion;
+		this.userText = userText;
 		this.subQuestionIndex = subQuestionIndex;
 		this.normalizedQuestion = normalizedQuestion;
 		this.answer = answer;

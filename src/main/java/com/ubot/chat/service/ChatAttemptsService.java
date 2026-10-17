@@ -212,7 +212,7 @@ public class ChatAttemptsService {
 					currentAttempt.getConversationId(),
 					currentAttempt.getId(),
 					currentAttempt.getQuestion(),
-					subQuestions.stream().map(SubQuestionFaqs::subQuestion).toList(),
+					subQuestions,
 					answer,
 					userIp);
 

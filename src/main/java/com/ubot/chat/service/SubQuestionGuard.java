@@ -1,6 +1,8 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.chat.service.QuestionMorphology.Morph;
+import com.ubot.chat.service.QuestionMorphology.Word;
 import java.lang.Character.UnicodeScript;
 import java.text.Normalizer;
 import java.util.ArrayList;
@@ -12,43 +14,66 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import kr.pe.bab2min.Kiwi;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * 판정 LLM이 정리한 하위 질문을 원문 질문과 이전 대화에 비추어 검사합니다.
+ * 판정 LLM이 다시 쓴 검색어(하위 질문)를 원문에 비추어 검사합니다. 검색어는 FAQ 검색에만 쓰고 답변 LLM에는 보여 주지 않으므로,
+ * 검색을 엉뚱한 쪽으로 끌고 가는 변형만 막고 나머지 다시 쓰기는 그대로 둡니다.
  * <ul>
- *   <li>뜻을 바꾸지 않고 고칠 수 있는 것(외국 문자, 깨진 숫자, 원문 표기와 다른 키워드, 출처 없는 명사)은 고칩니다.</li>
- *   <li>뜻이 바뀌었을 수 있으면(원문의 의문사가 다른 의문사로 바뀜, 원문 키워드 누락, 고칠 수 없는 숫자) 원문으로 돌아가게 합니다.</li>
- *   <li>이전 질문에서만 가져왔거나 내용어가 없는 하위 질문, 겹치는 하위 질문은 버립니다.</li>
+ *   <li>버림: 봇에게 내린 명령이 질문으로 바뀐 하위 질문, 내용어가 없는 하위 질문, 겹치는 하위 질문</li>
+ *   <li>막음(그 하위 질문은 원문 조각으로 검색): 부정이 빠지거나 생김, 질문 대신 답을 씀, 프롬프트 문구가 새어 나옴, 고칠 수 없는 숫자</li>
+ *   <li>고침: 원문에 없는 외국 문자는 지우고, 깨진 숫자와 철자가 바뀐 원문 명사는 원문 표기로 되돌림</li>
  * </ul>
- * 출처는 원문 질문과 판정 LLM에 넘긴 이전 대화(하위 질문과 답변)입니다. 출처에 있는지는 공백을 뺀 문자열 포함으로 봅니다.
+ * 원문 조각은 OriginalQuestionSplitter가 자릅니다. 조각을 못 자르면 원문 조각은 비워 두고(답변 LLM에는 원문만 보여 줌),
+ * 막은 하위 질문은 원문 전체로 검색합니다.
+ * 출처는 원문 질문과 판정 LLM에 넘긴 이전 대화입니다. 출처에 있는지는 공백을 뺀 문자열 포함으로 봅니다.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 class SubQuestionGuard {
-	private static final Kiwi.AnalyzeOption ANALYZE_OPTION = new Kiwi.AnalyzeOption(Kiwi.Match.allWithNormalizing);
 	private static final Set<UnicodeScript> ALWAYS_ALLOWED_SCRIPTS =
 			EnumSet.of(UnicodeScript.COMMON, UnicodeScript.INHERITED, UnicodeScript.HANGUL, UnicodeScript.LATIN);
 	private static final Pattern NUMBER = Pattern.compile("\\d+");
 	private static final Pattern LEADING_HANGUL = Pattern.compile("^[가-힣]+");
-	private static final Set<String> INTERROGATIVES =
-			Set.of("얼마", "어떻", "어떤", "어디", "언제", "몇", "무엇", "뭐", "왜", "며칠", "누구", "무슨", "어느");
-	// 다시 쓰면서 지워야 하는 말이라 원문의 내용어로 세지 않습니다. 지시어('첫 번째 거', '그 중에'의 거·중 포함),
+	private static final Pattern LATIN_WORD = Pattern.compile("[A-Za-z]+");
+	/** 봇에게 내린 명령의 표지입니다. 대답 방식 지시, 지시 무시, 가정, 꾸며 내기, 내부 지시·형식 언급, 주입 태그입니다. */
+	private static final Pattern COMMAND = Pattern.compile(
+			"(라고|다고)\\s*만?\\s*(말|답|대답|알려)?\\s*(해|하세요|하라|줘)|무시|가정하|가정할|가정했|프롬프트|지시|sub_questions|json"
+					+ "|아무거나|지어내|하지\\s*마|<\\s*/?\\s*system|(대답|답변|답)\\s*해",
+			Pattern.CASE_INSENSITIVE);
+	/** 판정 프롬프트의 나열이 그대로 새어 나온 꼴입니다. 나열 낱말 두 개가 '나·이나·와·과'로 엮이거나 '되는지 여부'입니다. */
+	private static final Pattern PROMPT_LEAK = Pattern.compile(
+			"(서비스|상품|절차|조건|상황|여부|방법)(이나|나|와|과|·|,)\\s*(서비스|상품|절차|조건|상황|여부|방법)|되는지\\s*여부");
+	private static final Set<String> CLAUSE_ENDINGS = Set.of("고", "는데", "ㄴ데", "지만");
+	// 다시 쓰면서 지워야 하는 말이라 내용어로 세지 않습니다. 지시어('첫 번째 거', '그 중에'의 거·중 포함),
 	// 이전 대화를 가리키는 말, 인사입니다.
 	private static final Set<String> NOT_CONTENT = Set.of(
 			"그거", "그것", "그건", "거기", "이거", "이것", "저거", "저것", "저기", "여기", "거", "것", "건", "중",
 			"저번", "처음", "번째", "아까", "안녕", "감사");
-	// 어느 질문에나 붙는 용언이라 원문에서 왔다는 근거로 쓰지 않습니다.
-	private static final Set<String> LIGHT_PREDICATES = Set.of("있", "없", "하", "되", "이", "아니", "같");
 
-	private final Kiwi kiwi;
+	private final QuestionMorphology morphology;
+	private final OriginalQuestionSplitter splitter;
 
-	/** 검사 결과입니다. 원문으로 돌아가야 하면 subQuestions는 원문 하나입니다. */
-	record Result(List<String> subQuestions, boolean fallback, Set<Reason> reasons) {
+	/**
+	 * 검사를 통과한 하위 질문입니다. searchQuery는 검색에 쓸 검색어이고 userText는 그에 해당하는 원문 조각입니다.
+	 * 원문을 자를 근거가 없었으면 userText는 null입니다.
+	 */
+	record Item(String searchQuery, String userText) {
+	}
+
+	/** 검사 결과입니다. 모두 버려 원문으로 돌아가면 items는 원문 하나입니다. */
+	record Result(List<Item> items, boolean fallback, Set<Reason> reasons) {
+		Result {
+			items = List.copyOf(items);
+		}
+
+		List<String> searchQueries() {
+			return items.stream().map(Item::searchQuery).toList();
+		}
+
 		Outcome outcome() {
 			return fallback ? Outcome.FALLBACK : reasons.isEmpty() ? Outcome.PASSED : Outcome.MODIFIED;
 		}
@@ -57,79 +82,197 @@ class SubQuestionGuard {
 	enum Outcome { PASSED, MODIFIED, FALLBACK }
 
 	enum Reason {
-		FOREIGN_SCRIPT_REMOVED, NUMBER_FIXED, KEYWORD_FIXED, NOUN_REMOVED,
-		HISTORY_ONLY_DROPPED, NO_CONTENT_DROPPED, DUPLICATE_DROPPED,
-		NUMBER_UNRECOVERABLE, NEW_INTERROGATIVE, KEYWORD_MISSING, EMPTY, ERROR
+		FOREIGN_SCRIPT_REMOVED, NUMBER_FIXED, KEYWORD_FIXED,
+		NO_CONTENT_DROPPED, DUPLICATE_DROPPED, COMMAND_DROPPED,
+		NEGATION_CHANGED, ANSWER_WRITTEN, PROMPT_LEAK, NUMBER_UNRECOVERABLE,
+		EMPTY, ERROR
 	}
 
-	Result check(String question, List<ConversationTurn> history, List<String> subQuestions) {
+	/** rawQueries는 가드를 거치기 전 판정 LLM이 낸 검색어입니다. */
+	Result check(String question, List<ConversationTurn> history, List<String> rawQueries) {
 		try {
-			return inspect(question, history, subQuestions);
+			return inspect(question, history, rawQueries);
 		} catch (RuntimeException exception) {
 			// 가드는 검색어를 다듬는 단계라, 분석에 실패하면 답변을 실패시키지 않고 원문으로 진행합니다.
 			log.warn("하위 질문 가드 검사에 실패해 원문으로 검색합니다: 사유={}", exception.toString());
-			return fallback(question, Reason.ERROR);
+			return fallback(question, EnumSet.of(Reason.ERROR));
 		}
 	}
 
-	private Result inspect(String question, List<ConversationTurn> history, List<String> subQuestions) {
+	private Result inspect(String question, List<ConversationTurn> history, List<String> rawQueries) {
 		Sources sources = new Sources(normalize(question), history);
-		List<Morph> originalMorphs = analyze(sources.original);
-		Set<String> originalInterrogatives = new HashSet<>();
-		originalMorphs.stream().filter(SubQuestionGuard::isInterrogative).forEach(m -> originalInterrogatives.add(m.form()));
-		List<Anchor> originalOnly = originalOnlyAnchors(originalMorphs, sources);
-
 		Set<Reason> reasons = EnumSet.noneOf(Reason.class);
-		List<String> kept = new ArrayList<>();
+
+		List<String> candidates = new ArrayList<>();
+		for (String rawQuery : rawQueries) {
+			String text = removeForeignScripts(normalize(rawQuery), sources.scripts, reasons);
+			if (contentMorphs(morphology.analyze(text)).isEmpty()) {
+				reasons.add(Reason.NO_CONTENT_DROPPED);
+				continue;
+			}
+			candidates.add(text);
+		}
+		// 하위 질문이 하나면 원문 전체가 그 조각입니다. 여럿인데 자를 근거가 없으면 원문 조각 없이(null) 둡니다.
+		// 이건 오류가 아니라 판정 LLM이 이전 대화 등으로 나눈 경우라, 검색은 나눈 대로 하고 답변 LLM에는 원문만 보여 줍니다.
+		List<String> pieces = candidates.size() == 1
+				? List.of(question)
+				: splitter.split(question, candidates).orElse(null);
+
+		List<Morph> originalMorphs = morphology.analyze(sources.original);
+		Set<String> commandForms = commandForms(question);
+		List<Item> kept = new ArrayList<>();
 		Set<String> seen = new HashSet<>();
-		for (String subQuestion : subQuestions) {
-			String text = removeForeignScripts(normalize(subQuestion), sources.scripts, reasons);
-			List<Morph> initial = analyze(text);
-			if (contentMorphs(initial).isEmpty()) {
-				reasons.add(Reason.NO_CONTENT_DROPPED);
+		for (int index = 0; index < candidates.size(); index++) {
+			String userText = pieces == null ? null : pieces.get(index);
+			// 뜻이 바뀌었는지 비교하고, 막은 검색어를 대신할 원문입니다. 조각이 없으면 원문 전체입니다.
+			String piece = userText == null ? question : userText;
+			String text = candidates.get(index);
+			List<Morph> morphs = morphology.analyze(text);
+			if (isCommand(text, morphs, commandForms)) {
+				reasons.add(Reason.COMMAND_DROPPED);
 				continue;
 			}
-			if (!history.isEmpty() && !originalOnly.isEmpty() && !mentionsAny(text, initial, originalOnly)) {
-				reasons.add(Reason.HISTORY_ONLY_DROPPED);
-				continue;
+			Reason blocked = null;
+			String fixed = fixNumbers(text, sources, reasons);
+			if (fixed == null) {
+				blocked = Reason.NUMBER_UNRECOVERABLE;
+			} else {
+				text = tidy(fixNouns(fixed, morphology.analyze(fixed), sources, originalMorphs, reasons));
+				morphs = morphology.analyze(text);
+				blocked = changedMeaning(text, morphs, piece, originalMorphs, sources);
 			}
-			text = fixNumbers(text, sources, reasons);
-			if (text == null) {
-				return fallback(question, Reason.NUMBER_UNRECOVERABLE);
-			}
-			List<Morph> morphs = analyze(text);
-			// 원문에 의문사가 없으면 '알려줘'를 '뭐예요?'로 바꾸듯 묻는 꼴만 바꾼 것이라 보고, 의문사가 다른 의문사로 바뀐 경우만 봅니다.
-			if (!originalInterrogatives.isEmpty()
-					&& morphs.stream().anyMatch(m -> isInterrogative(m) && !originalInterrogatives.contains(m.form()))) {
-				return fallback(question, Reason.NEW_INTERROGATIVE);
-			}
-			text = tidy(fixNouns(text, morphs, sources, originalMorphs, reasons));
-			if (contentMorphs(analyze(text)).isEmpty()) {
-				reasons.add(Reason.NO_CONTENT_DROPPED);
-				continue;
+			if (blocked != null) {
+				reasons.add(blocked);
+				text = piece;
 			}
 			if (!seen.add(key(text))) {
 				reasons.add(Reason.DUPLICATE_DROPPED);
 				continue;
 			}
-			kept.add(text);
+			kept.add(new Item(text, userText));
 		}
 		if (kept.isEmpty()) {
-			return fallback(question, Reason.EMPTY);
+			reasons.add(Reason.EMPTY);
+			return fallback(question, reasons);
 		}
-		if (missesOriginalKeyword(originalMorphs, kept)) {
-			return fallback(question, Reason.KEYWORD_MISSING);
-		}
-		return new Result(List.copyOf(kept), false, reasons);
+		return new Result(kept, false, reasons);
 	}
 
-	private static Result fallback(String question, Reason reason) {
-		return new Result(List.of(question), true, EnumSet.of(reason));
+	private static Result fallback(String question, Set<Reason> reasons) {
+		return new Result(List.of(new Item(question, question)), true, reasons);
+	}
+
+	// ---------- 뜻이 바뀐 검색어 ----------
+
+	/** 부정, 답을 써 버림, 프롬프트 문구 누출 중 하나면 그 사유를, 아니면 null을 반환합니다. */
+	private Reason changedMeaning(String text, List<Morph> morphs, String piece, List<Morph> originalMorphs, Sources sources) {
+		List<Morph> pieceMorphs = morphology.analyze(piece);
+		// 부정이 빠졌는지는 그 조각과, 새로 생겼는지는 원문 전체와 봅니다. 옆 조각의 부정을 빌려 쓰는 보충은 허용합니다.
+		int negations = negations(morphs);
+		if (negations < negations(pieceMorphs) || (negations > 0 && negations(originalMorphs) == 0)) {
+			return Reason.NEGATION_CHANGED;
+		}
+		if (endsDeclarative(text, morphs) && !endsDeclarative(piece, pieceMorphs)) {
+			return Reason.ANSWER_WRITTEN;
+		}
+		Matcher latin = LATIN_WORD.matcher(text);
+		while (latin.find()) {
+			if (!sources.contains(latin.group())) {
+				return Reason.PROMPT_LEAK;
+			}
+		}
+		Matcher leak = PROMPT_LEAK.matcher(text);
+		while (leak.find()) {
+			if (!sources.contains(leak.group())) {
+				return Reason.PROMPT_LEAK;
+			}
+		}
+		return null;
+	}
+
+	/** 부정 표지 수입니다. 부사 '안'·'못', 보조용언 '않'·'못하'이고, '안'을 '않'으로 잘못 쓴 경우도 셉니다. */
+	private static int negations(List<Morph> morphs) {
+		int count = 0;
+		for (Morph morph : morphs) {
+			boolean adverb = morph.tag().equals("MAG") && (morph.form().equals("안") || morph.form().equals("못"));
+			boolean auxiliary = morph.tag().startsWith("VX") && (morph.form().equals("않") || morph.form().equals("못하"));
+			boolean misspelled = morph.surface().startsWith("않") && !morph.tag().startsWith("VX");
+			if (adverb || auxiliary || misspelled) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	/** 물음표 없이 '-다', '-니다'로 끝나면 질문이 아니라 답을 쓴 것으로 봅니다. Kiwi는 'ㅂ니다'를 받침 자모(ᆸ니다)로 냅니다. */
+	private static boolean endsDeclarative(String text, List<Morph> morphs) {
+		if (text.strip().endsWith("?")) {
+			return false;
+		}
+		Morph ending = null;
+		for (Morph morph : morphs) {
+			if (morph.tag().equals("EF")) {
+				ending = morph;
+			}
+		}
+		return ending != null && (ending.form().endsWith("니다") || Set.of("다", "는다", "ㄴ다", "ᆫ다").contains(ending.form()));
+	}
+
+	// ---------- 명령 ----------
+
+	/**
+	 * 검색어에 명령 표지가 있거나, 검색어의 내용어 대부분이 원문의 명령 문장에서 왔으면 명령으로 봅니다.
+	 * 원문 조각에 명령이 섞여 있어도 검색어가 정상 질문이면 통과시킵니다('이전 지시는 무시해. 해지 위약금 있어요?').
+	 */
+	private boolean isCommand(String text, List<Morph> morphs, Set<String> commandForms) {
+		if (COMMAND.matcher(text).find()) {
+			return true;
+		}
+		List<String> forms = morphs.stream().filter(SubQuestionGuard::isCommandForm).map(Morph::form).toList();
+		long fromCommand = forms.stream().filter(commandForms::contains).count();
+		return !forms.isEmpty() && fromCommand * 2 > forms.size();
+	}
+
+	/** 원문을 마디로 끊어 명령 표지가 있는 마디의 내용어를 모읍니다. 문장 부호·연결어미 뒤와 '{', '<' 앞에서 끊습니다. */
+	private Set<String> commandForms(String question) {
+		List<List<Word>> clauses = new ArrayList<>();
+		List<Word> current = new ArrayList<>();
+		for (Word word : morphology.words(question.replace("{", " {").replace("<", " <"))) {
+			if ((word.text().startsWith("{") || word.text().startsWith("<")) && !current.isEmpty()) {
+				clauses.add(current);
+				current = new ArrayList<>();
+			}
+			current.add(word);
+			Morph last = word.last();
+			char end = word.text().charAt(word.text().length() - 1);
+			if (end == '.' || end == '?' || end == '!'
+					|| (last != null && last.tag().equals("EC") && CLAUSE_ENDINGS.contains(last.form()))) {
+				clauses.add(current);
+				current = new ArrayList<>();
+			}
+		}
+		if (!current.isEmpty()) {
+			clauses.add(current);
+		}
+		Set<String> forms = new HashSet<>();
+		for (List<Word> clause : clauses) {
+			String text = String.join(" ", clause.stream().map(Word::text).toList());
+			if (COMMAND.matcher(text).find()) {
+				clause.forEach(word -> word.morphs().stream().filter(SubQuestionGuard::isCommandForm)
+						.forEach(morph -> forms.add(morph.form())));
+			}
+		}
+		return forms;
+	}
+
+	private static boolean isCommandForm(Morph morph) {
+		String tag = morph.tag();
+		return tag.equals("NNG") || tag.equals("NNP") || tag.equals("SN") || tag.equals("SL") || morph.isPredicate();
 	}
 
 	// ---------- 외국 문자 ----------
 
-	/** 원문과 이전 대화에 없는 문자 체계(한자, 가나 등)의 글자를 지웁니다. 라틴 문자는 새 명사 검사에서 봅니다. */
+	/** 원문과 이전 대화에 없는 문자 체계(한자, 가나 등)의 글자를 지웁니다. */
 	private static String removeForeignScripts(String text, Set<UnicodeScript> allowed, Set<Reason> reasons) {
 		StringBuilder out = new StringBuilder();
 		text.codePoints().forEach(codePoint -> {
@@ -185,125 +328,44 @@ class SubQuestionGuard {
 		return candidate.startsWith(number) || number.startsWith(candidate) || editDistance(toInts(number), toInts(candidate)) <= 1;
 	}
 
-	// ---------- 새 명사와 표기 ----------
+	// ---------- 명사 철자 ----------
 
 	/**
-	 * 출처에 없는 명사를 고칩니다. 원문이나 이전 대화의 명사와 표기만 조금 다르면 그 표기로 바꾸고, 아니면 뒤에 붙은 조사와 함께 지웁니다.
-	 * 관형형 어미 뒤의 의존명사('할 수', '보낼 때')와 '하다'가 붙어 서술어가 된 명사('설정할', '가능한')는 문장의 뼈대라 건드리지 않습니다.
+	 * 출처에 없는 명사가 원문 명사의 철자만 바꾼 것이면 원문 표기로 되돌립니다('테헤가로' → '테헤란로').
+	 * 음절 수가 같고 자모가 조금만 다른 원문 명사를 찾으며(2음절은 1개, 3음절 이상은 2개까지), 한쪽이 다른 쪽을 포함하면 바꾸지 않습니다.
+	 * 짝이 없는 명사는 FAQ 표현으로 다시 쓴 말일 수 있어 그대로 둡니다.
 	 */
-	private String fixNouns(String text, List<Morph> morphs, Sources sources, List<Morph> originalMorphs,
+	private static String fixNouns(String text, List<Morph> morphs, Sources sources, List<Morph> originalMorphs,
 			Set<Reason> reasons) {
 		StringBuilder out = new StringBuilder(text);
 		// 뒤에서부터 고쳐야 앞 형태소의 위치가 바뀌지 않습니다.
 		for (int i = morphs.size() - 1; i >= 0; i--) {
 			Morph morph = morphs.get(i);
-			if (!isCheckedNoun(morphs, i) || sources.contains(morph.surface())) {
+			String surface = morph.surface();
+			if (!(morph.tag().equals("NNG") || morph.tag().equals("NNP")) || surface.codePointCount(0, surface.length()) < 2
+					|| sources.contains(surface)) {
 				continue;
 			}
-			String similar = similarKeyword(morph.surface(), originalMorphs, sources);
-			if (similar != null) {
-				out.replace(morph.start(), morph.end(), similar);
-				reasons.add(Reason.KEYWORD_FIXED);
-				continue;
+			for (Morph original : originalMorphs) {
+				if ((original.tag().equals("NNG") || original.tag().equals("NNP")) && isMisspelling(surface, original.surface())) {
+					out.replace(morph.start(), morph.end(), original.surface());
+					reasons.add(Reason.KEYWORD_FIXED);
+					break;
+				}
 			}
-			int end = morph.end();
-			for (int j = i + 1; j < morphs.size() && morphs.get(j).tag().startsWith("J") && morphs.get(j).start() <= end; j++) {
-				end = Math.max(end, morphs.get(j).end());
-			}
-			out.delete(morph.start(), end);
-			reasons.add(Reason.NOUN_REMOVED);
 		}
 		return out.toString();
 	}
 
-	private static boolean isCheckedNoun(List<Morph> morphs, int index) {
-		Morph morph = morphs.get(index);
-		String tag = morph.tag();
-		if (!(tag.equals("NNG") || tag.equals("NNP") || tag.equals("NNB") || tag.equals("SL")) || morph.surface().isBlank()) {
+	private static boolean isMisspelling(String surface, String candidate) {
+		if (surface.length() != candidate.length() || surface.contains(candidate) || candidate.contains(surface)) {
 			return false;
 		}
-		if (tag.equals("NNB") && index > 0 && morphs.get(index - 1).tag().startsWith("ETM")) {
-			return false;
-		}
-		return index + 1 >= morphs.size() || !(morphs.get(index + 1).tag().startsWith("XSV")
-				|| morphs.get(index + 1).tag().startsWith("XSA"));
+		int distance = editDistance(toJamo(surface.toLowerCase(Locale.ROOT)), toJamo(candidate.toLowerCase(Locale.ROOT)));
+		return distance > 0 && distance <= (surface.length() >= 3 ? 2 : 1);
 	}
 
-	/** 표기만 조금 다른 출처의 명사를 찾습니다. 원문의 명사를 먼저, 그다음 최근 턴부터 이전 대화의 명사를 봅니다. */
-	private String similarKeyword(String surface, List<Morph> originalMorphs, Sources sources) {
-		if (surface.codePointCount(0, surface.length()) < 2) {
-			return null;
-		}
-		for (Morph morph : originalMorphs) {
-			if (isNounLike(morph) && isSimilar(surface, morph.surface())) {
-				return morph.surface();
-			}
-		}
-		for (String turn : sources.turnsLatestFirst) {
-			for (Morph morph : analyze(turn)) {
-				if (isNounLike(morph) && isSimilar(surface, morph.surface())) {
-					return morph.surface();
-				}
-			}
-		}
-		return null;
-	}
-
-	private static boolean isNounLike(Morph morph) {
-		return morph.tag().equals("NNG") || morph.tag().equals("NNP") || morph.tag().equals("SL");
-	}
-
-	/** 한글은 자모 단위로, 그 밖의 글자는 대소문자를 무시하고 글자 단위로 편집 거리를 잽니다. 긴 낱말만 두 글자까지 봐줍니다. */
-	private static boolean isSimilar(String surface, String candidate) {
-		if (surface.equals(candidate) || Math.abs(surface.length() - candidate.length()) > 1) {
-			return false;
-		}
-		List<Integer> left = toJamo(surface.toLowerCase(Locale.ROOT));
-		List<Integer> right = toJamo(candidate.toLowerCase(Locale.ROOT));
-		int distance = editDistance(left, right);
-		return distance > 0 && distance <= (Math.min(left.size(), right.size()) >= 10 ? 2 : 1);
-	}
-
-	// ---------- 버리기와 누락 ----------
-
-	/**
-	 * 원문에만 있고 이전 질문에는 없는 내용어입니다. 하위 질문이 이 중 하나도 담지 않으면 이전 질문을 옮겨 온 것으로 봅니다.
-	 * 이전 질문이 원문의 내용어를 모두 담고 있으면(같은 질문을 다시 물으면) 빈 목록이라 이 검사를 하지 않습니다.
-	 */
-	private static List<Anchor> originalOnlyAnchors(List<Morph> originalMorphs, Sources sources) {
-		List<Anchor> anchors = new ArrayList<>();
-		for (int i = 0; i < originalMorphs.size(); i++) {
-			Morph morph = originalMorphs.get(i);
-			boolean predicate = (morph.tag().startsWith("VV") || morph.tag().startsWith("VA"))
-					&& !LIGHT_PREDICATES.contains(morph.form());
-			if ((isContent(originalMorphs, i) || isInterrogative(morph) || predicate)
-					&& !sources.previousQuestionsKey.contains(key(morph.surface()))) {
-				anchors.add(new Anchor(key(morph.surface()), morph.form()));
-			}
-		}
-		return anchors;
-	}
-
-	/** 원문의 내용어나 의문사가 남은 하위 질문 어디에도 없으면 true입니다. */
-	private boolean missesOriginalKeyword(List<Morph> originalMorphs, List<String> subQuestions) {
-		String joined = String.join(" ", subQuestions);
-		List<Morph> morphs = analyze(joined);
-		for (int i = 0; i < originalMorphs.size(); i++) {
-			Morph morph = originalMorphs.get(i);
-			if ((isContent(originalMorphs, i) || isInterrogative(morph))
-					&& !mentionsAny(joined, morphs, List.of(new Anchor(key(morph.surface()), morph.form())))) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static boolean mentionsAny(String text, List<Morph> morphs, List<Anchor> anchors) {
-		String textKey = key(text);
-		Set<String> forms = new HashSet<>();
-		morphs.forEach(m -> forms.add(m.form()));
-		return anchors.stream().anyMatch(anchor -> textKey.contains(anchor.key()) || forms.contains(anchor.form()));
-	}
+	// ---------- 형태소와 문자열 ----------
 
 	private static List<Morph> contentMorphs(List<Morph> morphs) {
 		List<Morph> content = new ArrayList<>();
@@ -322,29 +384,6 @@ class SubQuestionGuard {
 		boolean content = tag.equals("NNG") || tag.equals("NNP") || tag.equals("SL") || tag.equals("SN") || tag.equals("XR")
 				|| (tag.equals("NNB") && (index == 0 || !morphs.get(index - 1).tag().startsWith("ETM")));
 		return content && !morph.surface().isBlank() && !NOT_CONTENT.contains(key(morph.surface()));
-	}
-
-	private static boolean isInterrogative(Morph morph) {
-		return INTERROGATIVES.contains(morph.form());
-	}
-
-	// ---------- 형태소와 문자열 ----------
-
-	/** 형태소 분석 결과입니다. form은 Kiwi가 정규화한 형태라 원문과 다를 수 있어, 원문에서 잘라 낸 surface를 함께 둡니다. */
-	private record Morph(String form, String tag, int start, int end, String surface) {
-	}
-
-	private record Anchor(String key, String form) {
-	}
-
-	private List<Morph> analyze(String text) {
-		List<Morph> morphs = new ArrayList<>();
-		for (Kiwi.Token token : kiwi.tokenize(text, ANALYZE_OPTION)) {
-			int start = Math.min(token.position, text.length());
-			int end = Math.min(start + token.length, text.length());
-			morphs.add(new Morph(token.form, Kiwi.POSTag.toString(token.tag), start, end, text.substring(start, end)));
-		}
-		return morphs;
 	}
 
 	/** NFC로 맞추고 전각 영숫자·기호를 반각으로 바꿉니다. */
@@ -421,21 +460,17 @@ class SubQuestionGuard {
 	/** 한 번의 검사에서 쓰는 출처입니다. */
 	private static final class Sources {
 		final String original;
-		final List<String> turnsLatestFirst = new ArrayList<>();
 		final String key;
-		final String previousQuestionsKey;
 		final Set<UnicodeScript> scripts = EnumSet.noneOf(UnicodeScript.class);
 		final List<String> numbers;
 
 		Sources(String original, List<ConversationTurn> history) {
 			this.original = original;
-			StringBuilder previousQuestions = new StringBuilder();
+			List<String> turnsLatestFirst = new ArrayList<>();
 			for (ConversationTurn turn : history) {
-				String questions = normalize(String.join(" ", turn.subQuestions()));
-				previousQuestions.append(questions).append(' ');
+				String questions = normalize(turn.question() + " " + String.join(" ", turn.searchQueries()));
 				turnsLatestFirst.addFirst(questions + " " + (turn.answer() == null ? "" : normalize(turn.answer())));
 			}
-			this.previousQuestionsKey = SubQuestionGuard.key(previousQuestions.toString());
 			StringBuilder all = new StringBuilder(original);
 			turnsLatestFirst.forEach(turn -> all.append(' ').append(turn));
 			this.key = SubQuestionGuard.key(all.toString());

@@ -109,7 +109,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -118,7 +118,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
                 0,
-                "로밍 중 인터넷이 안 돼요",
+                "로밍 중 인터넷이 안 돼요", "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.INSUFFICIENT_FAQ,
                 null,
                 0.61
@@ -176,7 +176,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -185,7 +185,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("요금제 해지 위약금"),
                 0,
-                "요금제 해지 위약금",
+                "요금제 해지 위약금", "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -204,7 +204,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attemptId,
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -213,7 +213,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attemptId,
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -243,7 +243,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -259,7 +259,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
                 0,
-                "로밍 중 인터넷이 안 돼요",
+                "로밍 중 인터넷이 안 돼요", "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -275,7 +275,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("해외에서 데이터가 안 돼요"),
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -289,7 +289,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attempt("로밍 중 인터넷이 안 돼요"),
                 0,
-                "로밍 중 인터넷이 안 돼요",
+                "로밍 중 인터넷이 안 돼요", "로밍 중 인터넷이 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -308,7 +308,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attemptId,
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -317,7 +317,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 attemptId,
                 1,
-                "요금제 해지 위약금",
+                "요금제 해지 위약금", "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -344,7 +344,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 firstAttempt,
                 0,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -354,7 +354,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 retryAttempt,
                 1,
-                "해외에서 데이터가 안 돼요",
+                "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
                 UnansweredReason.NO_FAQ,
                 null,
                 null
@@ -363,7 +363,7 @@ class UnansweredQuestionServiceTest {
         service.createUnansweredQuestion(
                 retryAttempt,
                 0,
-                "요금제 해지 위약금",
+                "요금제 해지 위약금", "요금제 해지 위약금",
                 UnansweredReason.NO_FAQ,
                 null,
                 null

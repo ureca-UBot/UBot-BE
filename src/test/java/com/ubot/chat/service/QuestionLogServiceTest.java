@@ -13,10 +13,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.ranking.enums.RegionSido;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,16 +70,18 @@ class QuestionLogServiceTest {
 				eq(1L), eq("5g 프리미엄 데이터 제공량"), any(), any())).thenReturn(true);
 
 		List<QuestionLog> saved = questionLogService.saveTurn(1L, null, 100L, "5G 프리미엄 요금이랑 데이터 알려줘",
-				List.of("5G 프리미엄 월 요금", "5G 프리미엄 데이터 제공량?"), "답변", "127.0.0.1");
+				List.of(new SubQuestionFaqs("5G 프리미엄 월 요금", List.of(), "5G 프리미엄 요금이랑"),
+						new SubQuestionFaqs("5G 프리미엄 데이터 제공량?", List.of(), "데이터 알려줘")),
+				"답변", "127.0.0.1");
 
 		assertThat(saved)
 				.extracting(QuestionLog::getAttemptId, QuestionLog::getUserQuestion, QuestionLog::getSubQuestion,
-						QuestionLog::getSubQuestionIndex, QuestionLog::getNormalizedQuestion,
+						QuestionLog::getUserText, QuestionLog::getSubQuestionIndex, QuestionLog::getNormalizedQuestion,
 						QuestionLog::getRankingEligible, QuestionLog::getAnswer)
 				.containsExactly(
-						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", 0,
+						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", "5G 프리미엄 요금이랑", 0,
 								"5g 프리미엄 월 요금", true, "답변"),
-						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량?", 1,
+						tuple(100L, "5G 프리미엄 요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량?", "데이터 알려줘", 1,
 								"5g 프리미엄 데이터 제공량", false, "답변"));
 	}
 
@@ -88,7 +92,7 @@ class QuestionLogServiceTest {
 		long first = ("1:b").hashCode();
 		long second = ("1:a").hashCode();
 
-		questionLogService.saveTurn(1L, null, 100L, "원문", List.of("b", "a"), "답변", "127.0.0.1");
+		questionLogService.saveTurn(1L, null, 100L, "원문", searchQueries("b", "a"), "답변", "127.0.0.1");
 
 		InOrder order = inOrder(questionLogRepository);
 		order.verify(questionLogRepository).acquireAdvisoryLock(Math.min(first, second));
@@ -103,7 +107,7 @@ class QuestionLogServiceTest {
 				anyLong(), anyString(), any(), any())).thenReturn(false);
 
 		List<QuestionLog> saved = questionLogService.saveTurn(
-				1L, null, 100L, "원문", List.of("유심 재발급", "유심 재발급?"), "답변", "127.0.0.1");
+				1L, null, 100L, "원문", searchQueries("유심 재발급", "유심 재발급?"), "답변", "127.0.0.1");
 
 		assertThat(saved).extracting(QuestionLog::getRankingEligible).containsExactly(true, false);
 		verify(questionLogRepository, times(1)).acquireAdvisoryLock(anyLong());
@@ -153,10 +157,15 @@ class QuestionLogServiceTest {
 	/** 질문을 나누지 않은 턴을 저장합니다. 원문이 하위 질문 하나가 됩니다. */
 	private QuestionLog saveOriginal(Long userId, Long conversationId, String question, String ip) {
 		List<QuestionLog> saved = questionLogService.saveTurn(
-				userId, conversationId, 100L, question, List.of(question), "답변", ip);
+				userId, conversationId, 100L, question, searchQueries(question), "답변", ip);
 		assertThat(saved).hasSize(1);
 		assertThat(saved.getFirst().getSubQuestion()).isEqualTo(question);
 		assertThat(saved.getFirst().getSubQuestionIndex()).isZero();
 		return saved.getFirst();
+	}
+
+	/** 원문 조각이 검색어와 같은 하위 질문들입니다. */
+	private static List<SubQuestionFaqs> searchQueries(String... queries) {
+		return Arrays.stream(queries).map(query -> new SubQuestionFaqs(query, List.of(), query)).toList();
 	}
 }

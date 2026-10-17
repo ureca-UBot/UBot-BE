@@ -3,11 +3,14 @@
 -- 판정을 거치지 않은 질문은 원문을 하위 질문 1개(sub_question_index = 0)로 저장하므로 기존 행과 구조가 같습니다.
 
 -- question_log 한 행은 하위 질문 하나입니다. user_question은 화면에 보여 줄 원문으로 같은 턴의 모든 행에 같은 값이 들어가고,
--- sub_question은 검색·랭킹에 쓴 질문입니다. 기존 행은 sub_question이 NULL이며 읽을 때 user_question으로 대신합니다.
+-- sub_question은 검색·랭킹에 쓴 검색어(판정 LLM이 다시 쓴 것)입니다. 기존 행은 sub_question이 NULL이며 읽을 때 user_question으로 대신합니다.
+-- user_text는 그 하위 질문에 해당하는 원문 조각으로, 답변 LLM에 하위 질문 제목으로 보여 준 값입니다. 의도 재검색이 다시 씁니다.
+-- 질문을 나눴지만 원문을 자를 근거가 없었던 턴과 기존 행은 NULL입니다(답변 LLM에는 원문만 보여 줍니다).
 -- attempt_id는 같은 턴의 행을 묶습니다. 시도 로그(3개월)가 질문 로그(3년)보다 먼저 지워지므로 연결만 끊습니다.
 ALTER TABLE question_log
     ADD COLUMN attempt_id         BIGINT REFERENCES answer_attempts_history (attempt_id) ON DELETE SET NULL,
     ADD COLUMN sub_question       TEXT,
+    ADD COLUMN user_text          TEXT,
     ADD COLUMN sub_question_index SMALLINT NOT NULL DEFAULT 0 CHECK (sub_question_index BETWEEN 0 AND 2);
 
 -- 시도 로그를 지울 때 SET NULL 대상을 찾는 데 씁니다. 없으면 삭제 배치마다 question_log 전체를 읽습니다.
@@ -19,10 +22,17 @@ CREATE UNIQUE INDEX uq_question_log_attempt_sub_question
     WHERE attempt_id IS NOT NULL;
 
 -- 미답변 질문 한 행은 실패한 하위 질문 하나입니다. 하위 질문 텍스트를 테이블마다 같은 이름으로 부르도록 컬럼 이름을 바꿉니다.
+-- sub_question은 검색·묶음(임베딩)·묶음 대표 질문에 쓴 검색어이고, user_text는 관리자 화면에 검색어와 함께 보여 줄 원문 조각입니다.
+-- 원문을 자를 근거가 없었으면 user_text는 원문 전체입니다. 기존 행은 sub_question이 원문이므로 그대로 옮깁니다.
 -- 한 시도에서 하위 질문이 여러 개 실패할 수 있으므로 시도당 한 건이던 UNIQUE를 하위 질문 순번까지 넓힙니다.
 ALTER TABLE unanswered_questions RENAME COLUMN question TO sub_question;
 
 ALTER TABLE unanswered_questions
+    ADD COLUMN user_text          TEXT,
     ADD COLUMN sub_question_index SMALLINT NOT NULL DEFAULT 0 CHECK (sub_question_index BETWEEN 0 AND 2),
     DROP CONSTRAINT unanswered_questions_attempt_id_key,
     ADD CONSTRAINT uq_unanswered_questions_attempt_sub_question UNIQUE (attempt_id, sub_question_index);
+
+UPDATE unanswered_questions SET user_text = sub_question;
+
+ALTER TABLE unanswered_questions ALTER COLUMN user_text SET NOT NULL;

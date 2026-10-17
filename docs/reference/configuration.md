@@ -82,7 +82,8 @@ src/main/resources/
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
 | `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
-| `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 답변 전에 판정 LLM으로 질문을 정리할지 여부. 켜면 이전 대화(최대 3턴)를 참고해 현재 질문에 맥락을 보완하고 여러 질문을 하위 질문(최대 3개)으로 나눔. LLM 호출이 한 번 늘어남. 끄면 원문 하나로 검색 | `true` | 키가 없으면 `true` |
+| `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 판정 LLM으로 질문을 정리할지 여부. 켜면 질문 분리·멀티턴 표지가 있는 질문, 또는 원문 검색이 기준에 못 미친 질문만 판정 LLM이 이전 대화(최대 3턴)를 참고해 하위 질문(최대 3개)별 검색어를 만듦(LLM 호출이 한 번 늘어남). 검색어는 검색에만 쓰고, 답변 LLM에는 원문과 원문 조각, 멀티턴이면 이전 대화를 넘김. 끄면 원문 하나로 검색하고 이전 대화도 넘기지 않음 | `true` | 키가 없으면 `true` |
+| `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 판정할 표지가 없는 질문을 원문으로 먼저 검색할 때, 이전 대화가 있으면 이 값 이상이어야 판정 없이 끝냄(이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`). 이전 대화가 필요한 질문이 원문 검색으로 엉뚱한 FAQ를 통과하는 것을 줄이기 위해 유사도 기준보다 높게 둠 | `0.80` | 키가 없으면 `0.80` |
 | `FAQ_SEARCH_VECTOR_TYPE` | `FaqVectorService`, CD: FAQ 검색에 쓰는 벡터 유형. `QUESTION`(질문만) 또는 `QUESTION_ANSWER`(질문+답변). 바꾸기 전에 그 유형의 벡터를 백필해야 함([FAQ 벡터 유형](../how-to/llm-module.md#faq-벡터-유형)) | `QUESTION` | 키가 없으면 `QUESTION`. 빈 값이나 다른 값이면 기동 실패 |
 | `FAQ_RERANK_ENABLED` | `FaqRetrievalService`: 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로만 정함([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
 | `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |

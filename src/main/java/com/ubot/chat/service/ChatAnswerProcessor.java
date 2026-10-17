@@ -26,6 +26,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * 하위 질문 정리·하위 질문별 FAQ 검색·유사도 판정·미응답 처리·intent별 자료 수집·AI 호출로 답변을 계산합니다.
+ * 판정할 표지가 없는 질문은 원문으로 먼저 검색하고, 기준을 넘지 못할 때만 판정 LLM으로 하위 질문을 정리합니다.
  * 결과 저장과 응답 확정은 ChatAnswerExecutor가 합니다.
  */
 @Slf4j
@@ -36,6 +37,13 @@ public class ChatAnswerProcessor {
 
 	@Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}")
 	private double confidenceThreshold;
+
+	/**
+	 * 이전 대화가 있을 때 원문 검색만으로 끝낼 기준입니다. 이전 대화가 필요한 질문을 원문으로 답하면 틀리고,
+	 * 판정으로 넘기면 호출이 한 번 늘 뿐이라 유사도 기준보다 높게 둡니다. 이전 대화가 없으면 유사도 기준을 씁니다.
+	 */
+	@Value("${CHAT_SEARCH_FIRST_HISTORY_THRESHOLD:0.80}")
+	private double searchFirstHistoryThreshold;
 
 	private final FaqRetrievalService faqRetrievalService;
 	private final AiService aiService;
@@ -61,22 +69,44 @@ public class ChatAnswerProcessor {
 		checkCancellation.run();
 		SubQuestionPlan plan = subQuestionPlanner.plan(attempt);
 		checkCancellation.run();
+		// 판정할 표지가 없는 질문은 원문으로 먼저 검색하고, 기준을 넘지 못하면 그때 판정 LLM을 부릅니다.
+		RetrievalOutcome firstOutcome = null;
+		if (plan.searchFirst()) {
+			try {
+				firstOutcome = searchFaqs(attempt, attempt.getQuestion());
+			} catch (DataAccessException exception) {
+				return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
+			}
+			double threshold = plan.history().isEmpty()
+					? confidenceThreshold : Math.max(confidenceThreshold, searchFirstHistoryThreshold);
+			Double highest = highestSimilarity(firstOutcome.rankedCandidates());
+			if (highest == null || highest < threshold) {
+				log.info("원문 검색이 기준에 못 미쳐 판정합니다: 시도ID={}, 최고유사도={}, 기준값={}",
+						attempt.getId(), highest, threshold);
+				firstOutcome = null;
+				plan = subQuestionPlanner.judge(attempt, plan);
+				checkCancellation.run();
+			}
+		}
 		if (plan.isTooMany()) {
 			log.info("하위 질문이 너무 많아 답변하지 않습니다: 시도ID={}, 하위질문수={}, 최대={}",
-					attempt.getId(), plan.subQuestions().size(), SubQuestionPlan.MAX_SUB_QUESTIONS);
+					attempt.getId(), plan.items().size(), SubQuestionPlan.MAX_SUB_QUESTIONS);
 			return ChatAnswerResult.failed(ChatErrorCode.TOO_MANY_SUB_QUESTIONS);
 		}
 
 		// 하위 질문마다 따로 검색하고 유사도 기준을 적용합니다. 원문 하나면 기존 흐름과 같습니다.
 		List<SubQuestionFaqs> searched = new ArrayList<>();
 		List<UnansweredSubQuestion> unanswered = new ArrayList<>();
-		for (int index = 0; index < plan.subQuestions().size(); index++) {
-			String subQuestion = plan.subQuestions().get(index);
-			RetrievalOutcome outcome;
-			try {
-				outcome = searchFaqs(attempt, subQuestion);
-			} catch (DataAccessException exception) {
-				return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
+		for (int index = 0; index < plan.items().size(); index++) {
+			String searchQuery = plan.items().get(index).searchQuery();
+			String userText = plan.items().get(index).userText();
+			RetrievalOutcome outcome = firstOutcome;
+			if (outcome == null) {
+				try {
+					outcome = searchFaqs(attempt, searchQuery);
+				} catch (DataAccessException exception) {
+					return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
+				}
 			}
 			// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
 			List<FaqSearchResponseDto> results = outcome.rankedCandidates();
@@ -88,8 +118,8 @@ public class ChatAnswerProcessor {
 
 			if (results == null || results.isEmpty()) {
 				log.info("FAQ 검색 결과가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), index);
-				unanswered.add(new UnansweredSubQuestion(index, subQuestion, UnansweredReason.NO_FAQ, null));
-				searched.add(new SubQuestionFaqs(subQuestion, List.of()));
+				unanswered.add(new UnansweredSubQuestion(index, searchQuery, userText, UnansweredReason.NO_FAQ, null));
+				searched.add(new SubQuestionFaqs(searchQuery, List.of(), userText));
 				continue;
 			}
 			// 유사도 기준은 코사인 유사도에만 적용합니다. 다시 정렬한 후보 전체에서 거른 뒤에 topK개로 줄여야,
@@ -103,9 +133,9 @@ public class ChatAnswerProcessor {
 				log.info("FAQ 유사도가 기준값 미만입니다: 시도ID={}, 하위질문순번={}, 최고유사도={}, 기준값={}",
 						attempt.getId(), index, highestSimilarity(results), confidenceThreshold);
 				unanswered.add(new UnansweredSubQuestion(
-						index, subQuestion, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1()));
+						index, searchQuery, userText, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1()));
 			}
-			searched.add(new SubQuestionFaqs(subQuestion, filteredResults));
+			searched.add(new SubQuestionFaqs(searchQuery, filteredResults, userText));
 		}
 
 		unanswered.forEach(subQuestion -> createUnansweredQuestion(attempt, subQuestion));
@@ -117,8 +147,10 @@ public class ChatAnswerProcessor {
 
 		checkCancellation.run();
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다. 근거를 못 찾은 하위 질문은 그 부분만 답할 수 없다고 안내합니다.
+		// 이전 대화는 이번 질문이 이전 대화를 써야 할 때만 넘깁니다(이전 답변의 틀린 내용이 옮겨 가는 것을 줄입니다).
 		AnswerMaterials materials = chatContextCollector.collectBySubQuestion(
-				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), searched);
+				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), searched)
+				.withHistory(plan.historyForAnswer());
 		AiAnswer answer = aiService.generateAnswer(materials);
 		checkCancellation.run();
 		if (answer == null || !StringUtils.hasText(answer.answer())) {
@@ -128,9 +160,9 @@ public class ChatAnswerProcessor {
 	}
 
 	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
-	private RetrievalOutcome searchFaqs(AnswerAttemptsHistory attempt, String subQuestion) {
+	private RetrievalOutcome searchFaqs(AnswerAttemptsHistory attempt, String searchQuery) {
 		return faqRetrievalService.retrieve(
-				subQuestion, attempt.isResearch() ? attempt.getIntent() : null, topK);
+				searchQuery, attempt.isResearch() ? attempt.getIntent() : null, topK);
 	}
 
 	private void createUnansweredQuestion(AnswerAttemptsHistory attempt, UnansweredSubQuestion subQuestion) {
@@ -143,7 +175,9 @@ public class ChatAnswerProcessor {
 			unansweredQuestionService.createUnansweredQuestion(
 					attempt.getId(),
 					subQuestion.index(),
-					subQuestion.text(),
+					subQuestion.searchQuery(),
+					// 원문을 자를 근거가 없었으면 관리자 화면에는 원문 전체를 보여 줍니다.
+					subQuestion.userText() == null ? attempt.getQuestion() : subQuestion.userText(),
 					subQuestion.reason(),
 					bestResult == null ? null : bestResult.faqId(),
 					bestResult == null ? null : bestResult.similarityScore());
@@ -180,8 +214,8 @@ public class ChatAnswerProcessor {
 		return value == null ? "없음" : value.replaceAll("[\\r\\n\\t]+", " ");
 	}
 
-	/** 근거를 찾지 못한 하위 질문입니다. bestResult는 검색 결과가 없었으면 null입니다. */
+	/** 근거를 찾지 못한 하위 질문입니다. userText는 원문을 자를 근거가 없었으면, bestResult는 검색 결과가 없었으면 null입니다. */
 	private record UnansweredSubQuestion(
-			int index, String text, UnansweredReason reason, FaqSearchResponseDto bestResult) {
+			int index, String searchQuery, String userText, UnansweredReason reason, FaqSearchResponseDto bestResult) {
 	}
 }

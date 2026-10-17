@@ -36,7 +36,7 @@ public class ChatContextCollector {
 
 	/** 질문을 나누지 않았을 때입니다. 원문을 하위 질문 하나로 봅니다. */
 	public AnswerMaterials collect(ChatContext context, List<FaqSearchResponseDto> filteredResults) {
-		return collectBySubQuestion(context, List.of(new SubQuestionFaqs(context.question(), filteredResults)));
+		return collectBySubQuestion(context, List.of(new SubQuestionFaqs(context.question(), filteredResults, context.question())));
 	}
 
 	/**
@@ -61,9 +61,9 @@ public class ChatContextCollector {
 				.map(FaqSearchResponseDto::faqId)
 				.collect(Collectors.toSet());
 		materials.subQuestions(subQuestions.stream()
-				.map(subQuestion -> new SubQuestionFaqs(subQuestion.subQuestion(), subQuestion.faqs().stream()
+				.map(subQuestion -> new SubQuestionFaqs(subQuestion.searchQuery(), subQuestion.faqs().stream()
 						.filter(faq -> includedFaqIds.contains(faq.faqId()))
-						.toList()))
+						.toList(), subQuestion.userText()))
 				.toList());
 		return materials.build();
 	}

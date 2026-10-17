@@ -83,6 +83,7 @@ public class UnansweredQuestionVectorRepository {
             int subQuestionIndex,
             Long groupId,
             String subQuestion,
+            String userText,
             PGvector vector,
             Long profileId,
             UnansweredReason reason,
@@ -96,11 +97,12 @@ public class UnansweredQuestionVectorRepository {
                     sub_question_index,
                     group_id,
                     sub_question,
+                    user_text,
                     reason,
                     best_faq_id,
                     best_similarity
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """,
                 Long.class,
@@ -108,6 +110,7 @@ public class UnansweredQuestionVectorRepository {
                 subQuestionIndex,
                 groupId,
                 subQuestion,
+                userText,
                 reason.name(),
                 bestFaqId,
                 bestSimilarity

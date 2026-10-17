@@ -60,16 +60,16 @@ public final class SubQuestionFormat {
         if (questions == null || !questions.isArray()) {
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
-        List<String> subQuestions = new ArrayList<>();
+        List<String> rawQueries = new ArrayList<>();
         for (JsonNode question : questions) {
             if (question.isString() && StringUtils.hasText(question.asString())) {
-                subQuestions.add(question.asString().strip());
+                rawQueries.add(question.asString().strip());
             }
         }
-        if (subQuestions.isEmpty()) {
+        if (rawQueries.isEmpty()) {
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
-        return List.copyOf(subQuestions);
+        return List.copyOf(rawQueries);
     }
 
     private static Map<String, Object> createSchema() {

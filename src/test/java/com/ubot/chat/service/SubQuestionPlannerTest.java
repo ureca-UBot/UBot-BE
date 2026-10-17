@@ -2,6 +2,7 @@ package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -23,6 +24,7 @@ import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.SubQuestionPromptService;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,54 +39,109 @@ class SubQuestionPlannerTest {
 	private final SubQuestionPromptService prompts = mock(SubQuestionPromptService.class);
 	private final LlmService llm = mock(LlmService.class);
 	private final SubQuestionGuard guard = mock(SubQuestionGuard.class);
+	private final QuestionRouter router = mock(QuestionRouter.class);
+	private final MultiTurnDetector detector = mock(MultiTurnDetector.class);
 	private final LlmRequestDto request = new LlmRequestDto(List.of());
+	private final QuestionRouter.Route judgeRoute = new QuestionRouter.Route(List.of("접속조사"), List.of());
 
 	@BeforeEach
 	void passGuard() {
-		when(guard.check(any(), any(), any())).thenAnswer(invocation -> new SubQuestionGuard.Result(
-				invocation.getArgument(2), false, EnumSet.noneOf(SubQuestionGuard.Reason.class)));
+		when(guard.check(any(), any(), any())).thenAnswer(invocation -> result(invocation.getArgument(2), false,
+				EnumSet.noneOf(SubQuestionGuard.Reason.class)));
+		when(router.route(any(), anyBoolean())).thenReturn(judgeRoute);
 	}
 
 	private SubQuestionPlanner planner(boolean enabled) {
-		return new SubQuestionPlanner(enabled, turns, questionLogs, prompts, llm, guard);
+		return new SubQuestionPlanner(enabled, turns, questionLogs, prompts, llm, guard, router, detector);
+	}
+
+	private static SubQuestionGuard.Result result(List<String> subQuestions, boolean fallback,
+			EnumSet<SubQuestionGuard.Reason> reasons) {
+		return new SubQuestionGuard.Result(subQuestions.stream()
+				.map(subQuestion -> new SubQuestionGuard.Item(subQuestion, subQuestion)).toList(), fallback, reasons);
 	}
 
 	@Test
-	@DisplayName("판정 LLM이 정리한 하위 질문을 쓰고, 같은 대화의 이전 대화를 최대 3개 넘긴다")
+	@DisplayName("판정 LLM이 정리한 하위 질문을 쓰고, 같은 대화의 이전 대화를 최대 3개 넘기며, 멀티턴이면 답변에도 이전 대화를 넘긴다")
 	void usesLlmOutputWithHistory() {
-		var history = List.of(new ConversationTurn(List.of("5G 프리미엄 요금제"), "월 89,000원입니다."));
+		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", List.of("5G 프리미엄 요금제"), "월 89,000원입니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"5G 프리미엄 요금제 데이터 제공량\"]}"));
+		when(detector.isMultiTurn("그럼 데이터는?", history, List.of("5G 프리미엄 요금제 데이터 제공량"), judgeRoute))
+				.thenReturn(true);
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "그럼 데이터는?"));
 
-		assertThat(plan.subQuestions()).containsExactly("5G 프리미엄 요금제 데이터 제공량");
+		assertThat(plan.searchQueries()).containsExactly("5G 프리미엄 요금제 데이터 제공량");
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM);
+		assertThat(plan.historyForAnswer()).isEqualTo(history);
 	}
 
 	@Test
-	@DisplayName("가드가 고친 하위 질문을 쓰고, 가드가 원문으로 돌리면 원문 하나로 진행한다")
+	@DisplayName("멀티턴이 아니면 이전 대화가 있어도 답변에는 넘기지 않는다")
+	void keepsHistoryFromAnswerWhenNotMultiTurn() {
+		var history = List.of(new ConversationTurn("유심 재발급 방법", List.of("유심 재발급 방법"), "매장에서 가능합니다."));
+		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
+		when(prompts.createPrompt(any(), any())).thenReturn(request);
+		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+				"{\"sub_questions\": [\"해외 로밍 신청 방법\", \"로밍 요금\"]}"));
+
+		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "해외 로밍 신청이랑 요금 알려줘"));
+
+		assertThat(plan.history()).isEqualTo(history);
+		assertThat(plan.multiTurn()).isFalse();
+		assertThat(plan.historyForAnswer()).isEmpty();
+	}
+
+	@Test
+	@DisplayName("판정할 표지가 없으면 판정 LLM 없이 원문으로 먼저 검색하는 계획을 내고, 실패하면 같은 이전 대화로 판정한다")
+	void searchesOriginalFirstWithoutMarks() {
+		var history = List.of(new ConversationTurn("유심 재발급 방법", List.of("유심 재발급 방법"), "매장에서 가능합니다."));
+		var none = QuestionRouter.Route.none();
+		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
+		when(router.route("해외 로밍은 어떻게 신청하나요?", true)).thenReturn(none);
+		when(prompts.createPrompt("해외 로밍은 어떻게 신청하나요?", history)).thenReturn(request);
+		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto("{\"sub_questions\": [\"해외 로밍 신청 방법\"]}"));
+		AnswerAttemptsHistory attempt = attempt(10L, 7L, "해외 로밍은 어떻게 신청하나요?");
+
+		SubQuestionPlan first = planner(true).plan(attempt);
+
+		assertThat(first.searchFirst()).isTrue();
+		assertThat(first.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL_SEARCH_FIRST);
+		assertThat(first.searchQueries()).containsExactly("해외 로밍은 어떻게 신청하나요?");
+		assertThat(first.history()).isEqualTo(history);
+		verifyNoInteractions(llm);
+
+		SubQuestionPlan judged = planner(true).judge(attempt, first);
+
+		assertThat(judged.searchFirst()).isFalse();
+		assertThat(judged.searchQueries()).containsExactly("해외 로밍 신청 방법");
+		verify(prompts).createPrompt("해외 로밍은 어떻게 신청하나요?", history);
+	}
+
+	@Test
+	@DisplayName("가드가 고친 하위 질문을 쓰고, 가드가 모두 버려 원문으로 돌리면 원문 하나로 진행한다")
 	void appliesGuardResult() {
-		var history = List.of(new ConversationTurn(List.of("매장 예약 방법"), "앱에서 예약할 수 있습니다."));
+		var history = List.of(new ConversationTurn("매장 예약 방법", List.of("매장 예약 방법"), "앱에서 예약할 수 있습니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"제주도 연동 매장 예약 가능吗?\"]}"));
 		when(guard.check("제주도 연동 매장 예약 가능해요?", history, List.of("제주도 연동 매장 예약 가능吗?")))
-				.thenReturn(new SubQuestionGuard.Result(List.of("제주도 연동 매장 예약 가능?"), false,
+				.thenReturn(result(List.of("제주도 연동 매장 예약 가능?"), false,
 						EnumSet.of(SubQuestionGuard.Reason.FOREIGN_SCRIPT_REMOVED)));
 		when(guard.check("며칠부터 정지돼요?", history, List.of("제주도 연동 매장 예약 가능吗?")))
-				.thenReturn(new SubQuestionGuard.Result(List.of("며칠부터 정지돼요?"), true,
-						EnumSet.of(SubQuestionGuard.Reason.NEW_INTERROGATIVE)));
+				.thenReturn(result(List.of("며칠부터 정지돼요?"), true,
+						EnumSet.of(SubQuestionGuard.Reason.COMMAND_DROPPED, SubQuestionGuard.Reason.EMPTY)));
 
 		SubQuestionPlan modified = planner(true).plan(attempt(10L, 7L, "제주도 연동 매장 예약 가능해요?"));
 		SubQuestionPlan fallback = planner(true).plan(attempt(10L, 7L, "며칠부터 정지돼요?"));
 
-		assertThat(modified.subQuestions()).containsExactly("제주도 연동 매장 예약 가능?");
+		assertThat(modified.searchQueries()).containsExactly("제주도 연동 매장 예약 가능?");
 		assertThat(modified.source()).isEqualTo(SubQuestionPlan.Source.LLM);
-		assertThat(fallback.subQuestions()).containsExactly("며칠부터 정지돼요?");
+		assertThat(fallback.searchQueries()).containsExactly("며칠부터 정지돼요?");
 		assertThat(fallback.source()).isEqualTo(SubQuestionPlan.Source.GUARD_FALLBACK);
 	}
 
@@ -97,7 +154,7 @@ class SubQuestionPlannerTest {
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, null, "유심 재발급"));
 
-		assertThat(plan.subQuestions()).containsExactly("유심 재발급");
+		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
 		verifyNoInteractions(turns);
 	}
 
@@ -110,7 +167,7 @@ class SubQuestionPlannerTest {
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, null, "a b c d"));
 
-		assertThat(plan.subQuestions()).hasSize(4);
+		assertThat(plan.searchQueries()).hasSize(4);
 		assertThat(plan.isTooMany()).isTrue();
 	}
 
@@ -127,7 +184,7 @@ class SubQuestionPlannerTest {
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "유심 재발급"));
 
-		assertThat(plan.subQuestions()).containsExactly("유심 재발급");
+		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM_FAILED);
 	}
 
@@ -136,7 +193,7 @@ class SubQuestionPlannerTest {
 	void skipsJudgeWhenDisabled() {
 		SubQuestionPlan plan = planner(false).plan(attempt(10L, 7L, "유심 재발급"));
 
-		assertThat(plan.subQuestions()).containsExactly("유심 재발급");
+		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL);
 		verifyNoInteractions(turns, prompts, llm, guard);
 	}
@@ -145,14 +202,34 @@ class SubQuestionPlannerTest {
 	@DisplayName("재검색은 판정 LLM 없이 원본 시도의 하위 질문을 순서대로 다시 쓰고, 하위 질문이 없던 행은 원문을 쓴다")
 	void reusesSourceSubQuestionsForResearch() {
 		when(questionLogs.findAllByAttemptIdOrderBySubQuestionIndexAsc(5L)).thenReturn(List.of(
-				QuestionLog.builder().userQuestion("요금이랑 데이터").subQuestion("월 요금").subQuestionIndex(0).build(),
-				QuestionLog.builder().userQuestion("요금이랑 데이터").subQuestionIndex(1).build()));
+				QuestionLog.builder().userQuestion("요금이랑 데이터").subQuestion("월 요금").userText("요금이랑")
+						.subQuestionIndex(0).build(),
+				QuestionLog.builder().userQuestion("요금이랑 데이터").userText("데이터").subQuestionIndex(1).build()));
 
 		SubQuestionPlan plan = planner(true).plan(research(5L, "요금이랑 데이터"));
 
-		assertThat(plan.subQuestions()).containsExactly("월 요금", "요금이랑 데이터");
+		// 원문을 다시 자르지 않고 원본에 저장한 원문 조각을 그대로 씁니다.
+		assertThat(plan.items()).containsExactly(
+				new SubQuestionPlan.SubQuestion("월 요금", "요금이랑"),
+				new SubQuestionPlan.SubQuestion("요금이랑 데이터", "데이터"));
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.REUSED);
+		assertThat(plan.multiTurn()).isFalse();
 		verifyNoInteractions(llm, turns);
+	}
+
+	@Test
+	@DisplayName("원본에서 원문을 자를 근거가 없어 원문 조각이 비어 있었으면 재검색도 원문 조각 없이 쓴다")
+	void keepsMissingPieceForResearch() {
+		when(questionLogs.findAllByAttemptIdOrderBySubQuestionIndexAsc(5L)).thenReturn(List.of(
+				QuestionLog.builder().userQuestion("둘 다 데이터 몇 기가야?").subQuestion("5G 프리미엄 데이터 제공량")
+						.subQuestionIndex(0).build(),
+				QuestionLog.builder().userQuestion("둘 다 데이터 몇 기가야?").subQuestion("5G 스탠다드 데이터 제공량")
+						.subQuestionIndex(1).build()));
+
+		SubQuestionPlan plan = planner(true).plan(research(5L, "둘 다 데이터 몇 기가야?"));
+
+		assertThat(plan.items()).extracting(SubQuestionPlan.SubQuestion::userText).containsOnlyNulls();
+		assertThat(plan.searchQueries()).containsExactly("5G 프리미엄 데이터 제공량", "5G 스탠다드 데이터 제공량");
 	}
 
 	@Test
@@ -162,7 +239,7 @@ class SubQuestionPlannerTest {
 
 		SubQuestionPlan plan = planner(true).plan(research(5L, "유심 재발급"));
 
-		assertThat(plan.subQuestions()).containsExactly("유심 재발급");
+		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
 		verify(questionLogs).findAllByAttemptIdOrderBySubQuestionIndexAsc(5L);
 		verifyNoInteractions(llm);
 	}

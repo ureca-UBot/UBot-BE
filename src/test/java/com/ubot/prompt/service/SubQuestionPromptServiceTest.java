@@ -26,8 +26,9 @@ class SubQuestionPromptServiceTest {
     @DisplayName("이전 대화를 오래된 순으로 번호를 붙여 넣고, 실패한 턴은 답변 실패로 표시한다")
     void formatsHistory() {
         var request = service.createPrompt("그럼 요금은?", List.of(
-                new ConversationTurn(List.of("5G 프리미엄 월 요금", "5G 프리미엄 데이터 제공량"), "월 89,000원입니다."),
-                new ConversationTurn(List.of("해외 로밍 신청"), null)));
+                new ConversationTurn("5G 프리미엄 요금이랑 데이터 알려줘",
+                        List.of("5G 프리미엄 월 요금", "5G 프리미엄 데이터 제공량"), "월 89,000원입니다."),
+                new ConversationTurn("해외 로밍 신청", List.of("해외 로밍 신청"), null)));
 
         assertThat(request.messages()).extracting(message -> message.role())
                 .containsExactly(LlmMessageRole.SYSTEM, LlmMessageRole.USER);
@@ -59,7 +60,7 @@ class SubQuestionPromptServiceTest {
     void truncatesLongAnswer() {
         String answer = "가".repeat(SubQuestionPromptService.MAX_ANSWER_LENGTH + 10);
 
-        var request = service.createPrompt("그거 얼마야?", List.of(new ConversationTurn(List.of("질문"), answer)));
+        var request = service.createPrompt("그거 얼마야?", List.of(new ConversationTurn("질문", List.of("질문"), answer)));
 
         assertThat(request.messages().getLast().content())
                 .contains("답변: " + "가".repeat(SubQuestionPromptService.MAX_ANSWER_LENGTH) + "…\n")
@@ -70,7 +71,7 @@ class SubQuestionPromptServiceTest {
     @DisplayName("질문이나 이전 답변 안의 자리표시자는 다시 치환하지 않는다")
     void doesNotReplaceTwice() {
         var request = service.createPrompt("{{history}} $1",
-                List.of(new ConversationTurn(List.of("{{question}}"), "\\ 답변")));
+                List.of(new ConversationTurn("{{question}}", List.of("{{question}}"), "\\ 답변")));
 
         assertThat(request.messages().getLast().content())
                 .contains("[1] 질문: {{question}}\n답변: \\ 답변", "현재 질문:\n{{history}} $1");

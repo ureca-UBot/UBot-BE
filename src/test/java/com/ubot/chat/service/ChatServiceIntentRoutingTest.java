@@ -93,7 +93,7 @@ class ChatServiceIntentRoutingTest {
 		assertThat(materials.storeMap()).isNull();
 		verifyNoInteractions(nearbyStoreSearcher);
 		// faq_log는 intent와 관계없이 threshold를 넘은 검색 결과 전체로 남깁니다.
-		verify(attempts).saveAnswerSuccess(attempt, "답변", List.of(new SubQuestionFaqs("근처 매장 알려줘", sources.subList(0, 2))), "127.0.0.1");
+		verify(attempts).saveAnswerSuccess(attempt, "답변", List.of(new SubQuestionFaqs("근처 매장 알려줘", sources.subList(0, 2), "근처 매장 알려줘")), "127.0.0.1");
 	}
 
 	@Test

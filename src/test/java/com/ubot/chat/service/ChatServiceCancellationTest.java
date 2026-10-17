@@ -130,7 +130,7 @@ class ChatServiceCancellationTest {
 		assertThat(other.cancel(true)).isFalse();
 		verify(vector).getSimilarList("질문", 3);
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
-		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", List.of(new SubQuestionFaqs("질문", sources)), null);
+		verify(attempts).saveAnswerSuccess(otherAttempt, "답변", List.of(new SubQuestionFaqs("질문", sources, "질문")), null);
 		verify(attempts, never()).saveAnswerSuccess(eq(attempt), anyString(), anyList(), isNull());
 		verify(attempts, never()).saveAnswerFailure(any(), any());
 	}

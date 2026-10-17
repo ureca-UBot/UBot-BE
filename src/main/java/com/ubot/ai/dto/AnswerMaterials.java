@@ -13,6 +13,7 @@ import java.util.Set;
  * faqs, sections, tools, subQuestions는 비어 있을 수는 있어도 null이 아닙니다.
  * storeMap만 매장을 조회하지 않았으면 null입니다.
  * subQuestions는 하위 질문마다 faqs 중 그 질문으로 찾은 FAQ를 묶은 것입니다. 비어 있으면 질문을 나누지 않은 것으로 봅니다.
+ * history는 답변 LLM에 넘길 이전 대화입니다. 이번 질문이 이전 대화를 써야 할 때만 채우고, 아니면 비어 있습니다.
  */
 public record AnswerMaterials(
         String question,
@@ -20,7 +21,8 @@ public record AnswerMaterials(
         List<ContextSection> sections,
         Set<AiTool> tools,
         StoreMapResult storeMap,
-        List<SubQuestionFaqs> subQuestions) {
+        List<SubQuestionFaqs> subQuestions,
+        List<ConversationTurn> history) {
 
     public AnswerMaterials {
         // Builder를 거치지 않고 만들어도 컬렉션은 null 없이 불변으로 고정합니다.
@@ -28,6 +30,17 @@ public record AnswerMaterials(
         sections = sections == null ? List.of() : List.copyOf(sections);
         tools = tools == null || tools.isEmpty() ? Set.of() : Collections.unmodifiableSet(EnumSet.copyOf(tools));
         subQuestions = subQuestions == null ? List.of() : List.copyOf(subQuestions);
+        history = history == null ? List.of() : List.copyOf(history);
+    }
+
+    public AnswerMaterials(
+            String question,
+            List<FaqSearchResponseDto> faqs,
+            List<ContextSection> sections,
+            Set<AiTool> tools,
+            StoreMapResult storeMap,
+            List<SubQuestionFaqs> subQuestions) {
+        this(question, faqs, sections, tools, storeMap, subQuestions, List.of());
     }
 
     public AnswerMaterials(
@@ -36,7 +49,12 @@ public record AnswerMaterials(
             List<ContextSection> sections,
             Set<AiTool> tools,
             StoreMapResult storeMap) {
-        this(question, faqs, sections, tools, storeMap, List.of());
+        this(question, faqs, sections, tools, storeMap, List.of(), List.of());
+    }
+
+    /** 이전 대화를 넣은 사본입니다. */
+    public AnswerMaterials withHistory(List<ConversationTurn> values) {
+        return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, values);
     }
 
     /** 원문과 다르게 다시 쓰거나 나눈 하위 질문이 있는지 반환합니다. */
@@ -89,7 +107,7 @@ public record AnswerMaterials(
 
         public AnswerMaterials build() {
         	// 복사와 불변 처리는 생성자가 맡습니다.
-            return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions);
+            return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, List.of());
         }
     }
 }

@@ -101,7 +101,7 @@ class ChatServiceTest {
 						&& a.getIdempotencyKey().equals(call.getArgument(1)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
 		when(questions.saveTurn(any(), any(), any(), anyString(), anyList(), anyString(), isNull())).thenAnswer(call -> {
-			List<String> subQuestions = call.getArgument(4);
+			List<SubQuestionFaqs> subQuestions = call.getArgument(4);
 			List<QuestionLog> results = new ArrayList<>();
 			for (int index = 0; index < subQuestions.size(); index++) {
 				QuestionLog result = QuestionLog.builder()
@@ -109,7 +109,8 @@ class ChatServiceTest {
 						.conversationId(call.getArgument(1))
 						.attemptId(call.getArgument(2))
 						.userQuestion(call.getArgument(3))
-						.subQuestion(subQuestions.get(index))
+						.subQuestion(subQuestions.get(index).searchQuery())
+						.userText(subQuestions.get(index).userText())
 						.subQuestionIndex(index)
 						.answer(call.getArgument(5))
 						.build();
@@ -172,7 +173,8 @@ class ChatServiceTest {
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
 		// 질문을 나누기 전까지는 원문을 하위 질문 1개(순번 0)로 저장하고 답변 시도와 연결합니다.
-		verify(questions).saveTurn(1L, null, saved.getFirst().getId(), "질문", List.of("질문"), "생성된 답변", null);
+		verify(questions).saveTurn(1L, null, saved.getFirst().getId(), "질문",
+				List.of(new SubQuestionFaqs("질문", sources, "질문")), "생성된 답변", null);
 		verify(faqLogs).saveAll(argThat(items -> {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(list::add);
@@ -441,7 +443,7 @@ class ChatServiceTest {
 				.question("질문").status("PENDING").build();
 
 		attemptsService.saveAnswerSuccess(staleAttempt, "늦게 도착한 답변",
-				List.of(new SubQuestionFaqs("질문", List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)))), null);
+				List.of(new SubQuestionFaqs("질문", List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)), "질문")), null);
 		attemptsService.saveAnswerFailure(staleAttempt, ChatErrorCode.INTERNAL_ERROR);
 
 		assertThat(stored.getStatus()).isEqualTo(status);
@@ -502,7 +504,8 @@ class ChatServiceTest {
 				ChatAttemptsService.createGuestIdempotencyKey(7L, "질문", attempt.getCreatedAt())).hasSize(64);
 		assertThat(ChatAttemptsService.createGuestIdempotencyKey(8L, "질문", attempt.getCreatedAt()))
 				.isNotEqualTo(attempt.getIdempotencyKey());
-		verify(questions).saveTurn(null, 7L, attempt.getId(), "질문", List.of("질문"), "생성된 답변", null);
+		verify(questions).saveTurn(null, 7L, attempt.getId(), "질문",
+				List.of(new SubQuestionFaqs("질문", sources, "질문")), "생성된 답변", null);
 	}
 
 	@Test void guestQuestionLimitCountsAnswersAndMissingFaqButNotSystemFailures() {

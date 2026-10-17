@@ -138,10 +138,10 @@ class SubQuestionChatIntegrationTest {
 		assertThat(unansweredQuestions.findAll()).extracting(
 						UnansweredQuestion::getSubQuestionIndex, UnansweredQuestion::getSubQuestion)
 				.containsExactly(tuple(1, "해외 로밍 요금"));
-		// 답변 LLM에는 원문과 함께 하위 질문별 근거가 갑니다.
+		// 답변 LLM에는 원문과 함께 하위 질문별 근거가 가고, 제목은 검색어가 아니라 원문 조각입니다.
 		assertThat(answerRequest().messages().getLast().content())
-				.contains("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "## 하위 질문 1: 유심 재발급 방법",
-						"[FAQ ID: " + reissueFaqId + "]", "## 하위 질문 2: 해외 로밍 요금");
+				.contains("유심 재발급 방법이랑 해외 로밍 요금 알려줘", "## 하위 질문 1: 유심 재발급 방법이랑",
+						"[FAQ ID: " + reissueFaqId + "]", "## 하위 질문 2: 해외 로밍 요금 알려줘");
 		assertThat(conversationService.getConversationMessageList(userId, conversationPublicId))
 				.singleElement().satisfies(message -> {
 					assertThat(message.question()).isEqualTo("유심 재발급 방법이랑 해외 로밍 요금 알려줘");
@@ -150,7 +150,7 @@ class SubQuestionChatIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("다음 질문의 판정에는 앞선 턴의 하위 질문과 답변이 이전 대화로 들어가고, 다시 쓴 질문으로 검색한다")
+	@DisplayName("다음 질문의 판정에는 앞선 턴의 하위 질문과 답변이 이전 대화로 들어가고, 다시 쓴 질문으로 검색하며, 멀티턴이면 답변에도 이전 대화를 넣는다")
 	void nextQuestionUsesPreviousTurn() {
 		judgeReturns("유심 재발급 방법");
 		when(vector.getSimilarList("유심 재발급 방법", 3)).thenReturn(List.of(
@@ -172,6 +172,10 @@ class SubQuestionChatIntegrationTest {
 				.contains("[1] 질문: 유심 재발급 방법", "답변: 매장에서 재발급할 수 있습니다.", "현재 질문:\n그럼 비용은?");
 		verify(vector).getSimilarList("유심 재발급 비용", 3);
 		verify(vector, never()).getSimilarList("그럼 비용은?", 3);
+		// '그럼'으로 이어 물은 질문이라 답변 LLM에 앞선 턴(사용자 원문과 답변)이 메시지로 들어갑니다.
+		assertThat(answerRequest().messages()).extracting(message -> message.role(), message -> message.content())
+				.contains(tuple(com.ubot.llm.enums.LlmMessageRole.USER, "유심 재발급 방법 알려줘"),
+						tuple(com.ubot.llm.enums.LlmMessageRole.ASSISTANT, "매장에서 재발급할 수 있습니다."));
 	}
 
 	@Test
@@ -179,7 +183,8 @@ class SubQuestionChatIntegrationTest {
 	void rejectsTooManySubQuestions() {
 		judgeReturns("a", "b", "c", "d");
 
-		var task = chatService.createChat(userId, conversationId, "a b c d", null, null);
+		// 나열 표지(쉼표)가 있어 원문 검색 없이 바로 판정합니다.
+		var task = chatService.createChat(userId, conversationId, "a, b, c, d", null, null);
 
 		assertThatThrownBy(() -> task.result().join())
 				.isInstanceOf(CompletionException.class)
@@ -203,15 +208,16 @@ class SubQuestionChatIntegrationTest {
 	@DisplayName("판정 LLM이 실패하면 원문으로 검색해 답변한다")
 	void fallsBackToOriginalWhenJudgeFails() {
 		when(llm.generateAnswer(argThat(this::isJudge))).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
-		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(
+		when(vector.getSimilarList("유심 재발급이랑 비용", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
 		answerReturns("매장에서 재발급할 수 있습니다.");
 
-		var response = ask("유심 재발급");
+		// 분리 표지('이랑')가 있어 판정 LLM을 부르고, 실패하면 원문으로 검색합니다.
+		var response = ask("유심 재발급이랑 비용");
 
 		assertThat(response.status()).isEqualTo("SUCCESS");
 		assertThat(questionLogs.findAll()).singleElement().satisfies(log -> {
-			assertThat(log.getSubQuestion()).isEqualTo("유심 재발급");
+			assertThat(log.getSubQuestion()).isEqualTo("유심 재발급이랑 비용");
 			assertThat(log.getSubQuestionIndex()).isZero();
 		});
 	}

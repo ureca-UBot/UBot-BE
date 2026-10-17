@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.util.IpRegionResolver;
@@ -27,8 +28,8 @@ public class QuestionLogService {
 
 	/**
 	 * 한 턴을 하위 질문마다 질문 로그 한 행으로 저장하고, 하위 질문 순서대로 반환합니다.
-	 * question은 사용자가 입력한 원문으로 모든 행에 같은 값이 들어가고, 랭킹 중복 판정은 하위 질문으로 합니다.
-	 * 질문을 나누지 않았으면 subQuestions에 원문 하나를 넘깁니다.
+	 * question은 사용자가 입력한 원문으로 모든 행에 같은 값이 들어가고, 랭킹 중복 판정은 검색어로 합니다.
+	 * 하위 질문마다 검색어는 sub_question, 원문 조각은 user_text 컬럼에 저장합니다. 질문을 나누지 않았으면 원문 하나를 넘깁니다.
 	 */
 	@Transactional
 	List<QuestionLog> saveTurn(
@@ -36,13 +37,15 @@ public class QuestionLogService {
 			Long conversationId,
 			Long attemptId,
 			String question,
-			List<String> subQuestions,
+			List<SubQuestionFaqs> subQuestions,
 			String answer,
 			String userIp
 	){
 
 		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
-		List<String> normalizedQuestions = subQuestions.stream().map(this::normalize).toList();
+		List<String> normalizedQuestions = subQuestions.stream()
+				.map(subQuestion -> normalize(subQuestion.searchQuery()))
+				.toList();
 
 		// 게스트 질문은 세션을 새로 만들기 쉬워 랭킹 조작 비용이 낮으므로 실시간 검색어 집계에서 제외합니다.
 		// 로그인 이후 생성된 회원 질문부터 집계에 포함합니다.
@@ -57,7 +60,8 @@ public class QuestionLogService {
 					.conversationId(conversationId)
 					.attemptId(attemptId)
 					.userQuestion(question)
-					.subQuestion(subQuestions.get(index))
+					.subQuestion(subQuestions.get(index).searchQuery())
+					.userText(subQuestions.get(index).userText())
 					.subQuestionIndex(index)
 					.normalizedQuestion(normalizedQuestions.get(index))
 					.answer(answer)

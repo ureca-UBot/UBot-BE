@@ -67,7 +67,7 @@ public class SubQuestionPromptService {
         for (int index = 0; index < history.size(); index++) {
             ConversationTurn turn = history.get(index);
             text.append('[').append(index + 1).append("] 질문: ")
-                    .append(String.join(" / ", turn.subQuestions())).append('\n')
+                    .append(String.join(" / ", turn.searchQueries())).append('\n')
                     .append("답변: ").append(turn.isAnswered() ? truncate(turn.answer()) : FAILED_ANSWER)
                     .append("\n\n");
         }
