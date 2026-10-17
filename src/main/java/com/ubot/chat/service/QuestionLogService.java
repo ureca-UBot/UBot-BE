@@ -26,11 +26,6 @@ public class QuestionLogService {
 	@Value("${ranking.window-minutes}")
 	private int rankingWindowMinutes;
 
-	/**
-	 * 한 턴을 하위 질문마다 질문 로그 한 행으로 저장하고, 하위 질문 순서대로 반환합니다.
-	 * question은 사용자가 입력한 원문으로 모든 행에 같은 값이 들어가고, 랭킹 중복 판정은 검색어로 합니다.
-	 * 하위 질문마다 검색어는 sub_question, 원문 조각은 user_text 컬럼에 저장합니다. 질문을 나누지 않았으면 원문 하나를 넘깁니다.
-	 */
 	@Transactional
 	List<QuestionLog> saveTurn(
 			Long userId,
@@ -41,8 +36,27 @@ public class QuestionLogService {
 			String answer,
 			String userIp
 	){
+		return saveTurn(userId, conversationId, attemptId, question, subQuestions, answer,
+				ipRegionResolver.resolve(userIp).orElse(null));
+	}
 
-		RegionSido regionSido = ipRegionResolver.resolve(userIp).orElse(null);
+	/**
+	 * 한 턴을 하위 질문마다 질문 로그 한 행으로 저장하고, 하위 질문 순서대로 반환합니다.
+	 * question은 사용자가 입력한 원문으로 모든 행에 같은 값이 들어가고, 랭킹 중복 판정은 검색어로 합니다.
+	 * 하위 질문마다 검색어는 sub_question, 원문 조각은 user_text 컬럼에 저장합니다. 질문을 나누지 않았으면 원문 하나를 넘깁니다.
+	 * Worker는 요청 IP 대신 접수 때 정한 지역을 넘깁니다.
+	 */
+	@Transactional
+	List<QuestionLog> saveTurn(
+			Long userId,
+			Long conversationId,
+			Long attemptId,
+			String question,
+			List<SubQuestionFaqs> subQuestions,
+			String answer,
+			RegionSido regionSido
+	){
+
 		List<String> normalizedQuestions = subQuestions.stream()
 				.map(subQuestion -> normalize(subQuestion.searchQuery()))
 				.toList();

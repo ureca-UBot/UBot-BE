@@ -432,7 +432,7 @@ public interface FaqRepository
 | 절 | Notion | 현재 코드 |
 |---|---|---|
 | 1. 들여쓰기 | 4칸 크기의 탭 | 탭 82개 파일, 공백 53개 파일로 섞여 있음 (`ai`, `prompt`, `llm`, `embedding`, `store` 등은 공백) |
-| 2. 공통 패키지 | `global/` 아래 `config/`, `exception/`, `security/` | `common/`에 `ApiResponse`, `ErrorCode`, `GlobalException`, `GlobalExceptionHandler`, `PageResponseDto`, `OpenApiConfig`, `exception/CommonErrorCode`. `global/`에는 `config/AsyncConfig` 하나뿐. 보안 설정은 `auth/config/` |
+| 2. 공통 패키지 | `global/` 아래 `config/`, `exception/`, `security/` | `common/`에 `ApiResponse`, `ErrorCode`, `GlobalException`, `GlobalExceptionHandler`, `PageResponseDto`, `OpenApiConfig`, `exception/CommonErrorCode`. `global/`에는 `config/AppRole`(프로세스 역할), `config/WorkerActuatorOnlyFilter`뿐. 보안 설정은 `auth/config/` |
 | 2. 도메인 하위 패키지 | `controller`, `service`, `repository`, `entity`, `dto` | 추가로 `enums/`, `exception/`(`<도메인>ErrorCode`, `<도메인>Exception`), `client/`(외부 API: `direction`, `location`, `llm`) |
 | 2. DTO 폴더 | `dto/request`, `dto/response` | `store`, `direction`, `location`은 `dto/` 바로 아래에 둠 |
 | 3. `@Table` | 예시에 `@Table(name = ...)` | `Faq`, `FaqCategory`, `FaqLog`, `OldFaq`는 `@Table` 없이 클래스 이름으로 매핑 |

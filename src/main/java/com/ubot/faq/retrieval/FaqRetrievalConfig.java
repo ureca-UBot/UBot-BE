@@ -8,11 +8,12 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import com.ubot.faq.cache.FaqCacheProperties;
 import com.ubot.faq.retrieval.rerank.HttpRerankerClient;
 import com.ubot.faq.retrieval.rerank.RerankerClient;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(FaqRetrievalProperties.class)
+@EnableConfigurationProperties({FaqRetrievalProperties.class, FaqCacheProperties.class})
 public class FaqRetrievalConfig {
 
     /** Reranker를 꺼 두면 이 클라이언트는 호출되지 않습니다. 만들 때는 서버에 연결하지 않습니다. */

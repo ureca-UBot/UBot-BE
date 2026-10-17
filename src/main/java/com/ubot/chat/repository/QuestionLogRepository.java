@@ -41,6 +41,8 @@ public interface QuestionLogRepository extends JpaRepository<QuestionLog, Long> 
 	)
 	void acquireAdvisoryLock(@Param("lockKey") long lockKey);
 
+	List<QuestionLog> findAllByConversationIdOrderByCreatedAtAscIdAsc(Long conversationId);
+
 	/** 한 턴의 행은 하위 질문마다 하나이므로, 성공한 턴에 항상 있는 0번 행만 읽어 턴마다 한 메시지로 만듭니다. */
 	List<QuestionLog> findAllByConversationIdAndSubQuestionIndexOrderByCreatedAtAscIdAsc(
 			Long conversationId, int subQuestionIndex);

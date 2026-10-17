@@ -119,7 +119,7 @@ class ChatAnswerProcessorRerankTest {
         properties.getRerank().setEnabled(true);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(faqVectorService, new FaqRerankService(rerankerClient), properties, 3),
-                aiService, unansweredQuestionService, chatContextCollector, ChatTestFixtures.originalSubQuestions());
+                aiService, unansweredQuestionService, chatContextCollector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

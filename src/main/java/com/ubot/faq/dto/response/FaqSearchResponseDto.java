@@ -14,13 +14,14 @@ import com.ubot.faq.enums.Intent;
  * @param intent FAQ에 저장된 처리 의도. 채팅이 이 값으로 자료 수집 방식을 정하므로 {@code null}일 수 없습니다.
  * @param variantId 실제로 매칭된 질문 variant ID
  * @param variantQuestion 실제로 매칭된 variant 질문
+ * @param cacheable 관리자가 승인한 공식 답변 반환 여부
  */
 public record FaqSearchResponseDto(
         Long faqId, String question, String answer, double similarityScore, Intent intent,
-        Long variantId, String variantQuestion) {
+        Long variantId, String variantQuestion, boolean cacheable) {
 
     public FaqSearchResponseDto(Long faqId, String question, String answer, double similarityScore, Intent intent) {
-        this(faqId, question, answer, similarityScore, intent, null, null);
+        this(faqId, question, answer, similarityScore, intent, null, null, false);
     }
 
     /*

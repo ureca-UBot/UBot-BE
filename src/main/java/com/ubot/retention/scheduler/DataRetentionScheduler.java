@@ -3,6 +3,7 @@ package com.ubot.retention.scheduler;
 import java.time.Duration;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.core.retry.RetryException;
 import org.springframework.core.retry.RetryPolicy;
 import org.springframework.core.retry.RetryTemplate;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import com.ubot.global.config.AppRole;
 
 /**
  * 보관 기간이 지난 데이터를 매일 지웁니다. 삭제 조건은 R__purge_expired_data.sql의 프로시저에 있습니다.
@@ -20,6 +22,7 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  * 트랜잭션 안에서 CALL 하면 PostgreSQL이 "invalid transaction termination"으로 실패시킵니다.
  */
 @Component
+@ConditionalOnExpression(AppRole.RUNS_SCHEDULERS)
 @Slf4j
 public class DataRetentionScheduler {
 	private static final String PURGE_SQL = "CALL purge_expired_data()";

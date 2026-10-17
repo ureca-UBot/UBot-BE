@@ -11,6 +11,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.RedisTestConfiguration;
+import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
+import com.ubot.chat.job.entity.ChatJobStatus;
+import com.ubot.chat.job.service.ChatJobQueryService;
+import com.ubot.chat.job.stream.ChatJobStream;
+import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
@@ -36,7 +42,7 @@ import com.pgvector.PGvector;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,6 +50,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -58,11 +65,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 		"CHAT_SUB_QUESTION_ENABLED=true",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75"})
-@Import(PgvectorTestConfiguration.class)
+@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("질문 분리·멀티턴 채팅 통합 테스트")
 class SubQuestionChatIntegrationTest {
 	@Autowired ChatService chatService;
+	@Autowired ChatJobWorker worker;
+	@Autowired ChatJobQueryService jobQuery;
+	@Autowired StringRedisTemplate redis;
 	@Autowired ConversationService conversationService;
 	@Autowired AnswerAttemptsHistoryRepository attempts;
 	@Autowired QuestionLogRepository questionLogs;
@@ -82,6 +92,9 @@ class SubQuestionChatIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+		redis.delete(ChatJobStream.STREAM_KEY);
+		redis.delete(redis.keys("chat:jobs:result:*"));
+		redis.delete(redis.keys("chat:jobs:published:*"));
 		unansweredQuestions.deleteAllInBatch();
 		unansweredGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -121,7 +134,7 @@ class SubQuestionChatIntegrationTest {
 
 		var response = ask("유심 재발급 방법이랑 해외 로밍 요금 알려줘");
 
-		assertThat(response.status()).isEqualTo("SUCCESS");
+		assertThat(response.status()).isEqualTo(ChatJobStatus.SUCCEEDED);
 		List<QuestionLog> logs = questionLogs.findAll().stream()
 				.sorted(Comparator.comparingInt(QuestionLog::getSubQuestionIndex)).toList();
 		assertThat(logs).extracting(QuestionLog::getUserQuestion, QuestionLog::getSubQuestion,
@@ -164,7 +177,7 @@ class SubQuestionChatIntegrationTest {
 		answerReturns("비용 안내입니다.");
 		var response = ask("그럼 비용은?");
 
-		assertThat(response.status()).isEqualTo("SUCCESS");
+		assertThat(response.status()).isEqualTo(ChatJobStatus.SUCCEEDED);
 		ArgumentCaptor<LlmRequestDto> requests = ArgumentCaptor.forClass(LlmRequestDto.class);
 		verify(llm, org.mockito.Mockito.atLeastOnce()).generateAnswer(requests.capture());
 		LlmRequestDto lastJudge = requests.getAllValues().stream().filter(this::isJudge).reduce((a, b) -> b).orElseThrow();
@@ -184,16 +197,12 @@ class SubQuestionChatIntegrationTest {
 		judgeReturns("a", "b", "c", "d");
 
 		// 나열 표지(쉼표)가 있어 원문 검색 없이 바로 판정합니다.
-		var task = chatService.createChat(userId, conversationId, "a, b, c, d", null, null);
+		var response = ask("a, b, c, d");
 
-		assertThatThrownBy(() -> task.result().join())
-				.isInstanceOf(CompletionException.class)
-				.cause().isInstanceOfSatisfying(ChatException.class, exception -> {
-					assertThat(exception.getErrorCode()).isEqualTo(ChatErrorCode.TOO_MANY_SUB_QUESTIONS);
-					assertThat(exception.getResponse().answer())
-							.isEqualTo("너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요.");
-					assertThat(exception.getResponse().retryable()).isFalse();
-				});
+		assertThat(response.status()).isEqualTo(ChatJobStatus.FAILED);
+		assertThat(response.errorCode()).isEqualTo(ChatErrorCode.TOO_MANY_SUB_QUESTIONS.getCode());
+		assertThat(response.errorMessage()).isEqualTo("너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요.");
+		assertThat(response.retryable()).isFalse();
 		var attempt = attempts.findAll().getFirst();
 		assertThat(attempt.getErrorCode()).isEqualTo(ChatErrorCode.TOO_MANY_SUB_QUESTIONS);
 		assertThat(questionLogs.findAll()).isEmpty();
@@ -215,15 +224,18 @@ class SubQuestionChatIntegrationTest {
 		// 분리 표지('이랑')가 있어 판정 LLM을 부르고, 실패하면 원문으로 검색합니다.
 		var response = ask("유심 재발급이랑 비용");
 
-		assertThat(response.status()).isEqualTo("SUCCESS");
+		assertThat(response.status()).isEqualTo(ChatJobStatus.SUCCEEDED);
 		assertThat(questionLogs.findAll()).singleElement().satisfies(log -> {
 			assertThat(log.getSubQuestion()).isEqualTo("유심 재발급이랑 비용");
 			assertThat(log.getSubQuestionIndex()).isZero();
 		});
 	}
 
-	private com.ubot.chat.dto.response.ChatResponseDto ask(String question) {
-		return chatService.createChat(userId, conversationId, question, null, null).result().join();
+	/** 질문을 접수하고 Worker가 처리한 뒤의 작업 상태를 돌려줍니다. 테스트 프로필은 Worker가 스스로 가져가지 않습니다. */
+	private ChatJobStatusResponseDto ask(String question) {
+		var submission = chatService.createChat(userId, conversationId, question, null, null);
+		worker.processAvailableJobs();
+		return jobQuery.getStatus(submission.response().jobId(), userId, Optional.empty());
 	}
 
 	private void judgeReturns(String... subQuestions) {

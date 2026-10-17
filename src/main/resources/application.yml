@@ -9,6 +9,11 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
 
+  datasource:
+    hikari:
+      # 프로세스별 DB 연결 수. API·Worker 합이 max_connections보다 작아야 함
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+
 management:
   endpoints:
     web:
@@ -28,6 +33,26 @@ operation-monitoring:
     read-timeout: ${PROMETHEUS_READ_TIMEOUT:10s}
 
 app:
+  # api: 접수·조회·나머지 API, worker: 답변 Worker만, all: 둘 다(로컬)
+  role: ${APP_ROLE:all}
+  chat:
+    worker:
+      concurrency: ${CHAT_WORKER_CONCURRENCY:4}
+      polling-enabled: true
+      read-block: ${CHAT_WORKER_READ_BLOCK:2s}
+      # 그룹 안 Worker 이름. 컨테이너에서는 호스트 이름 사용
+      consumer-name: ${CHAT_WORKER_CONSUMER_NAME:${HOSTNAME:local}}
+      max-queue-wait: ${CHAT_WORKER_MAX_QUEUE_WAIT:10m}
+      republish-after: ${CHAT_WORKER_REPUBLISH_AFTER:30s}
+      reclaim-idle: ${CHAT_WORKER_RECLAIM_IDLE:5m}
+      # heartbeat가 이 시간 넘게 없으면 죽은 실행으로 보고 넘겨받음. reclaim-idle 이하
+      heartbeat-timeout: ${CHAT_WORKER_HEARTBEAT_TIMEOUT:1m}
+      max-deliveries: ${CHAT_WORKER_MAX_DELIVERIES:3}
+      recovery-interval: ${CHAT_WORKER_RECOVERY_INTERVAL:15s}
+      result-ttl: ${CHAT_WORKER_RESULT_TTL:24h}
+      execution-timeout: ${CHAT_WORKER_EXECUTION_TIMEOUT:180s}
+      # 종료 때 실행 중 작업 대기 시간. 컨테이너 종료 유예 시간보다 짧아야 함
+      shutdown-wait: ${CHAT_WORKER_SHUTDOWN_WAIT:20s}
   ai:
     mode: ${AI_MODE:ollama}
     chat-engine: ${AI_CHAT_ENGINE:}
@@ -59,6 +84,11 @@ faq-monitoring:
     minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
 
 faq:
+  cache:
+    # 공식 FAQ 답변을 그대로 반환합니다. 운영 질문셋 검증 후 켭니다.
+    enabled: ${FAQ_CACHE_ENABLED:false}
+    min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
+    min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
   retrieval:
     rerank:
       # 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 꺼 두면 Reranker 서버가 없어도 됩니다.
@@ -77,6 +107,12 @@ faq:
 kiwi:
   # 하위 질문 가드가 쓰는 형태소 분석기 모델 디렉터리. Gradle downloadKiwi 작업이 .kiwi/model에 받고, Docker 이미지는 KIWI_MODEL_PATH로 지정합니다.
   model-path: ${KIWI_MODEL_PATH:.kiwi/model}
+
+notification:
+  # 방문 예약 리마인더(24시간·6시간·1시간 전) 확인 주기. Asia/Seoul 기준 Spring cron (기본: 매시 정각)
+  reservation-reminder-cron: ${NOTIFICATION_RESERVATION_REMINDER_CRON:0 0 * * * *}
+  # 요금 납부 리마인더(납부 기한 임박·연체) 생성 시각. Asia/Seoul 기준 Spring cron (기본: 매일 09:00)
+  billing-reminder-cron: ${NOTIFICATION_BILLING_REMINDER_CRON:0 0 9 * * *}
 
 data-retention:
   # 보관 기간이 지난 데이터 삭제(purge_expired_data) 실행 시각. Asia/Seoul 기준 Spring cron

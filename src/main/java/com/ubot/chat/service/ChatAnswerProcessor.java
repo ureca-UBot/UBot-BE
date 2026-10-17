@@ -1,6 +1,8 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.SubQuestionFaqs;
@@ -9,7 +11,11 @@ import com.ubot.chat.context.ChatContext;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.faq.cache.FaqCacheDecision;
+import com.ubot.faq.cache.FaqSemanticCacheService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.DenseFaqCandidates;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -18,6 +24,7 @@ import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -26,8 +33,8 @@ import org.springframework.util.StringUtils;
 
 /**
  * 하위 질문 정리·하위 질문별 FAQ 검색·유사도 판정·미응답 처리·intent별 자료 수집·AI 호출로 답변을 계산합니다.
- * 판정할 표지가 없는 질문은 원문으로 먼저 검색하고, 기준을 넘지 못할 때만 판정 LLM으로 하위 질문을 정리합니다.
- * 결과 저장과 응답 확정은 ChatAnswerExecutor가 합니다.
+ * 판정할 표지가 없는 질문은 원문으로 먼저 검색하고(이때만 FAQ 시맨틱 캐시를 봅니다), 기준을 넘지 못할 때만 판정 LLM으로
+ * 하위 질문을 정리합니다. 결과 저장과 응답 확정은 Worker(ChatJobProcessor·ChatJobCompletionService)가 합니다.
  */
 @Slf4j
 @Component
@@ -50,23 +57,28 @@ public class ChatAnswerProcessor {
 	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 	private final SubQuestionPlanner subQuestionPlanner;
+	private final FaqSemanticCacheService faqSemanticCacheService;
 
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
 			AiService aiService,
 			UnansweredQuestionService unansweredQuestionService,
 			ChatContextCollector chatContextCollector,
-			SubQuestionPlanner subQuestionPlanner) {
+			SubQuestionPlanner subQuestionPlanner,
+			FaqSemanticCacheService faqSemanticCacheService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
 		this.subQuestionPlanner = subQuestionPlanner;
+		this.faqSemanticCacheService = faqSemanticCacheService;
 	}
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
+		long startedAt = System.nanoTime();
 		checkCancellation.run();
+		AnswerProgress.report(Phase.SEARCHING);
 		SubQuestionPlan plan = subQuestionPlanner.plan(attempt);
 		checkCancellation.run();
 		// 판정할 표지가 없는 질문은 원문으로 먼저 검색하고, 기준을 넘지 못하면 그때 판정 LLM을 부릅니다.
@@ -76,11 +88,34 @@ public class ChatAnswerProcessor {
 		RetrievalOutcome failedOriginal = null;
 		double failedOriginalThreshold = confidenceThreshold;
 		if (plan.searchFirst()) {
+			String question = attempt.getQuestion();
+			Intent requestedIntent = requestedIntent(attempt);
+			DenseFaqCandidates dense;
 			try {
-				firstOutcome = searchFaqs(attempt, attempt.getQuestion());
+				dense = faqRetrievalService.searchCandidates(question, requestedIntent, topK,
+						faqSemanticCacheService.minimumCandidateCount(requestedIntent));
 			} catch (DataAccessException exception) {
 				return ChatAnswerResult.failed(ChatErrorCode.VECTOR_SEARCH_FAILED);
 			}
+			checkCancellation.run();
+			// 시맨틱 캐시는 분리·멀티턴 표지가 없어 원문 하나로 검색하는 이 경로에서만 봅니다.
+			// 표지가 있으면 FAQ 하나의 공식 답변으로 끝내면 나머지 질문이 빠지거나 이전 대화의 맥락을 잃습니다.
+			FaqCacheDecision cacheDecision = faqSemanticCacheService.evaluate(requestedIntent, dense.candidates());
+			checkCancellation.run();
+			Optional<FaqSearchResponseDto> cachedFaq = cacheDecision.faq();
+			log.info("FAQ_CACHE decision: attemptId={}, reason={}, faqId={}, score={}, margin={}",
+					attempt.getId(), cacheDecision.reason(),
+					cachedFaq.map(FaqSearchResponseDto::faqId).orElse(null),
+					cacheDecision.similarity(), cacheDecision.margin());
+			if (cachedFaq.isPresent()) {
+				FaqSearchResponseDto officialFaq = cachedFaq.get();
+				log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
+						attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
+				return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false),
+						List.of(new SubQuestionFaqs(question, List.of(officialFaq), question)));
+			}
+			// MISS이면 같은 검색 후보로 이어갑니다. 임베딩·검색은 반복하지 않습니다.
+			firstOutcome = faqRetrievalService.rankCandidates(question, dense, topK);
 			double threshold = plan.history().isEmpty()
 					? confidenceThreshold : Math.max(confidenceThreshold, searchFirstHistoryThreshold);
 			Double highest = highestSimilarity(firstOutcome.rankedCandidates());
@@ -161,8 +196,13 @@ public class ChatAnswerProcessor {
 		}
 
 		checkCancellation.run();
+		log.info("CHAT route: attemptId={}, source=LLM, faqIds={}, preparationMs={}",
+				attempt.getId(), searched.stream().flatMap(subQuestion -> subQuestion.faqs().stream())
+						.map(FaqSearchResponseDto::faqId).toList(),
+				elapsedMillis(startedAt));
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다. 근거를 못 찾은 하위 질문은 그 부분만 답할 수 없다고 안내합니다.
 		// 이전 대화는 이번 질문이 이전 대화를 써야 할 때만 넘깁니다(이전 답변의 틀린 내용이 옮겨 가는 것을 줄입니다).
+		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		AnswerMaterials materials = chatContextCollector.collectBySubQuestion(
 				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), searched)
 				.withHistory(plan.historyForAnswer());
@@ -176,8 +216,16 @@ public class ChatAnswerProcessor {
 
 	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
 	private RetrievalOutcome searchFaqs(AnswerAttemptsHistory attempt, String searchQuery) {
-		return faqRetrievalService.retrieve(
-				searchQuery, attempt.isResearch() ? attempt.getIntent() : null, topK);
+		DenseFaqCandidates dense = faqRetrievalService.searchCandidates(searchQuery, requestedIntent(attempt), topK, 0);
+		return faqRetrievalService.rankCandidates(searchQuery, dense, topK);
+	}
+
+	private Intent requestedIntent(AnswerAttemptsHistory attempt) {
+		return attempt.isResearch() ? attempt.getIntent() : null;
+	}
+
+	private long elapsedMillis(long startedAt) {
+		return (System.nanoTime() - startedAt) / 1_000_000;
 	}
 
 	private void createUnansweredQuestion(AnswerAttemptsHistory attempt, UnansweredSubQuestion subQuestion) {

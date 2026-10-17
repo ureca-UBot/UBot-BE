@@ -58,7 +58,8 @@ public class SubQuestionPlanner {
 
 	SubQuestionPlan plan(AnswerAttemptsHistory attempt) {
 		if (!enabled) {
-			return SubQuestionPlan.original(attempt.getQuestion(), SubQuestionPlan.Source.ORIGINAL);
+			// 끄면 원문 하나로 검색합니다. 원문 먼저 검색 경로를 타야 FAQ 시맨틱 캐시도 보고, 기준 미달이어도 판정하지 않습니다(judge).
+			return SubQuestionPlan.searchFirst(attempt.getQuestion(), List.of(), QuestionRouter.Route.none());
 		}
 		List<ConversationTurn> history;
 		try {
@@ -78,8 +79,11 @@ public class SubQuestionPlanner {
 		return judge(attempt, history, route);
 	}
 
-	/** 원문으로 먼저 검색했는데 실패했을 때 판정 LLM을 부릅니다. */
+	/** 원문으로 먼저 검색했는데 실패했을 때 판정 LLM을 부릅니다. 질문 정리를 껐으면 부르지 않고 원문 그대로 둡니다. */
 	SubQuestionPlan judge(AnswerAttemptsHistory attempt, SubQuestionPlan searchFirst) {
+		if (!enabled) {
+			return SubQuestionPlan.original(attempt.getQuestion(), SubQuestionPlan.Source.ORIGINAL);
+		}
 		return judge(attempt, searchFirst.history(), searchFirst.route());
 	}
 

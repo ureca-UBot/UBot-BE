@@ -4,6 +4,10 @@ import com.ubot.ai.dto.Location;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
+import com.ubot.chat.job.dto.ChatRequestContext;
+import com.ubot.chat.job.service.ChatSubmissionService;
+import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
+import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.faq.enums.Intent;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import lombok.extern.slf4j.Slf4j;
@@ -16,70 +20,59 @@ import org.springframework.util.StringUtils;
 public class ChatService {
 	private final ChatAttemptsService chatAttemptsService;
 	private final ForbiddenWordFilterService forbiddenWordFilterService;
-	private final ChatAnswerExecutor chatAnswerExecutor;
+	private final ChatSubmissionService chatSubmissionService;
+	private final IpRegionResolver ipRegionResolver;
 
 	public ChatService(
 			ChatAttemptsService chatAttemptsService,
 			ForbiddenWordFilterService forbiddenWordFilterService,
-			ChatAnswerExecutor chatAnswerExecutor) {
+			ChatSubmissionService chatSubmissionService,
+			IpRegionResolver ipRegionResolver) {
 		this.chatAttemptsService = chatAttemptsService;
 		this.forbiddenWordFilterService = forbiddenWordFilterService;
-		this.chatAnswerExecutor = chatAnswerExecutor;
-	}
-
-	/** 위치 없이 질문합니다. */
-	public ChatAnswerTask createChat(Long userId, String question, String userIp) {
-		return createChat(userId, question, null, userIp);
+		this.chatSubmissionService = chatSubmissionService;
+		this.ipRegionResolver = ipRegionResolver;
 	}
 
 	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
-	public ChatAnswerTask createChat(Long userId, String question, Location myLocation, String userIp) {
+	public ChatSubmission createChat(Long userId, Long conversationId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, question);
-		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}", attempt.getId(), userId);
-		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
-	}
-
-	public ChatAnswerTask createChat(
-			Long userId, Long conversationId, String question, Location myLocation, String userIp) {
-		validateQuestion(question);
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, conversationId, question);
-		log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 대화ID={}", attempt.getId(), userId, conversationId);
-		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
-	}
-
-	/** 위치 없이 질문합니다. */
-	public ChatAnswerTask createGuestChat(Long conversationId, String question, String userIp) {
-		return createGuestChat(conversationId, question, null, userIp);
+		return chatSubmissionService.submit(() -> {
+			AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, conversationId, question);
+			log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 대화ID={}", attempt.getId(), userId, conversationId);
+			return attempt;
+		}, context(myLocation, userIp));
 	}
 
 	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
-	public ChatAnswerTask createGuestChat(Long conversationId, String question, Location myLocation, String userIp) {
+	public ChatSubmission createGuestChat(Long conversationId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
-		log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}", attempt.getId(), conversationId);
-		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
+		return chatSubmissionService.submit(() -> {
+			AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
+			log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}", attempt.getId(), conversationId);
+			return attempt;
+		}, context(myLocation, userIp));
 	}
 
 	// 시도 이력에 위치를 저장하지 않으므로 재시도는 회원·게스트 모두 위치 없이 진행합니다.
-	public ChatAnswerTask retryChat(Long userId, String idempotencyKey, String userIp) {
+	public ChatSubmission retryChat(Long userId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
-		log.info("회원 답변 재시도를 생성했습니다: 시도ID={}, 사용자ID={}, 재시도횟수={}", attempt.getId(), userId, attempt.getAttemptCount());
-		return chatAnswerExecutor.startAnswerGeneration(attempt, null, userIp);
+		return chatSubmissionService.submit(() -> {
+			AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
+			log.info("회원 답변 재시도를 생성했습니다: 시도ID={}, 사용자ID={}, 재시도횟수={}",
+					attempt.getId(), userId, attempt.getAttemptCount());
+			return attempt;
+		}, context(null, userIp));
 	}
 
-	public ChatAnswerTask retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
+	public ChatSubmission retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
-
-		AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
-		log.info("비회원 답변 재시도를 생성했습니다: 시도ID={}, 대화ID={}, 재시도횟수={}", attempt.getId(), conversationId,
-				attempt.getAttemptCount());
-		return chatAnswerExecutor.startAnswerGeneration(attempt, null, userIp);
+		return chatSubmissionService.submit(() -> {
+			AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
+			log.info("비회원 답변 재시도를 생성했습니다: 시도ID={}, 대화ID={}, 재시도횟수={}",
+					attempt.getId(), conversationId, attempt.getAttemptCount());
+			return attempt;
+		}, context(null, userIp));
 	}
 
 	/**
@@ -87,17 +80,23 @@ public class ChatService {
 	 * 질문은 최초 요청에서 이미 검증된 원본 attempt의 것을 그대로 쓰므로 다시 검증하지 않습니다.
 	 * myLocation은 사용자가 내 위치 기준으로 요청했을 때만 있습니다.
 	 */
-	public ChatAnswerTask researchChat(
+	public ChatSubmission researchChat(
 			Long userId, String idempotencyKey, Intent intent, Location myLocation, String userIp) {
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_REQUEST);
 		if (intent == null) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
+		return chatSubmissionService.submit(() -> {
+			AnswerAttemptsHistory attempt = chatAttemptsService.createResearchAttempt(userId, idempotencyKey, intent);
+			log.info("회원 의도 재검색 시도를 생성했습니다: 시도ID={}, 원본시도ID={}, 사용자ID={}, 의도={}",
+					attempt.getId(), attempt.getSourceAttemptId(), userId, intent);
+			return attempt;
+		}, context(myLocation, userIp));
+	}
 
-		AnswerAttemptsHistory attempt = chatAttemptsService.createResearchAttempt(userId, idempotencyKey, intent);
-		log.info("회원 의도 재검색 시도를 생성했습니다: 시도ID={}, 원본시도ID={}, 사용자ID={}, 의도={}",
-				attempt.getId(), attempt.getSourceAttemptId(), userId, intent);
-		return chatAnswerExecutor.startAnswerGeneration(attempt, myLocation, userIp);
+	// Worker는 요청 객체를 못 보므로 좌표·접속 지역을 작업에 담아 넘김
+	private ChatRequestContext context(Location myLocation, String userIp) {
+		return ChatRequestContext.of(myLocation, ipRegionResolver.resolve(userIp).orElse(null));
 	}
 
 	private void validateQuestion(String question) {

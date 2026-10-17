@@ -186,12 +186,17 @@ class SubQuestionPlannerTest {
 	}
 
 	@Test
-	@DisplayName("판정을 끄면 판정 LLM과 이전 대화를 쓰지 않고 원문 하나로 진행한다")
+	@DisplayName("판정을 끄면 판정 LLM과 이전 대화를 쓰지 않고 원문 하나로 먼저 검색하며, 원문 검색이 실패해도 판정하지 않는다")
 	void skipsJudgeWhenDisabled() {
-		SubQuestionPlan plan = planner(false).plan(attempt(10L, 7L, "유심 재발급"));
+		var attempt = attempt(10L, 7L, "유심 재발급");
+		SubQuestionPlan plan = planner(false).plan(attempt);
 
 		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
-		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL);
+		// 원문 먼저 검색 경로를 타야 FAQ 시맨틱 캐시를 봅니다.
+		assertThat(plan.searchFirst()).isTrue();
+		SubQuestionPlan judged = planner(false).judge(attempt, plan);
+		assertThat(judged.searchQueries()).containsExactly("유심 재발급");
+		assertThat(judged.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL);
 		verifyNoInteractions(turns, prompts, llm, guard);
 	}
 

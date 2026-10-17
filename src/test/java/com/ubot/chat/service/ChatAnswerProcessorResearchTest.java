@@ -52,7 +52,8 @@ class ChatAnswerProcessorResearchTest {
     @BeforeEach
     void setUp() {
         processor = new ChatAnswerProcessor(
-                FaqRetrievalService.denseOnly(faqVectorService), aiService, unansweredQuestionService, chatContextCollector, ChatTestFixtures.originalSubQuestions());
+                FaqRetrievalService.denseOnly(faqVectorService), aiService, unansweredQuestionService, chatContextCollector,
+                ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
     }

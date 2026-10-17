@@ -1,10 +1,13 @@
 package com.ubot.chat.controller;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
+import com.ubot.chat.job.stream.ChatJobStream;
+import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.service.ChatService;
@@ -42,6 +45,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.annotation.DirtiesContext;
@@ -56,7 +60,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -72,7 +75,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=3"})
-@Import(PgvectorTestConfiguration.class)
+@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("게스트 채팅 통합 테스트")
@@ -91,15 +94,22 @@ class GuestChatIntegrationTest {
 	@Autowired UnansweredQuestionRepository unansweredQuestions;
 	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@Autowired JdbcTemplate jdbc;
+	@Autowired StringRedisTemplate redis;
+	@Autowired ChatJobWorker worker;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean LlmClient llm;
 
 	User user;
 	User admin;
 	Long faqId;
+	ChatJobTestFlow flow;
 
 	@BeforeEach
 	void setup() {
+		redis.delete(ChatJobStream.STREAM_KEY);
+		redis.delete(redis.keys("chat:jobs:result:*"));
+		redis.delete(redis.keys("chat:jobs:published:*"));
+		flow = new ChatJobTestFlow(mvc, worker);
 		unansweredQuestions.deleteAllInBatch();
 		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -122,12 +132,13 @@ class GuestChatIntegrationTest {
 	@Test
 	@DisplayName("최초 요청은 세션과 Conversation을 만들고, 같은 세션은 재사용하며, 다른 세션과 만료된 세션은 새로 만든다")
 	void sessionLifecycleCreatesAndReusesConversation() throws Exception {
-		var first = mvc.perform(question(ANSWERABLE)).andExpect(request().asyncStarted()).andReturn();
+		var first = flow.submit(question(ANSWERABLE));
 		MockHttpSession session = (MockHttpSession) first.getRequest().getSession(false);
 		assertThat(session).as("최초 게스트 요청에서 세션 생성").isNotNull();
 		assertThat(session.getMaxInactiveInterval()).isEqualTo(30 * 60);
-		first.getAsyncResult(10_000);
-		mvc.perform(asyncDispatch(first)).andExpect(status().isOk());
+		worker.processAvailableJobs();
+		mvc.perform(flow.statusOf(first)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
 		assertThat(conversationCount()).isEqualTo(1);
 
 		complete(question(ANSWERABLE).session(session), null);
@@ -140,10 +151,8 @@ class GuestChatIntegrationTest {
 
 		Long expiredConversationId = conversationId(session);
 		session.invalidate();
-		var afterExpiry = mvc.perform(question(ANSWERABLE).session(session))
-				.andExpect(request().asyncStarted()).andReturn();
-		afterExpiry.getAsyncResult(10_000);
-		mvc.perform(asyncDispatch(afterExpiry)).andExpect(status().isOk());
+		flow.submit(question(ANSWERABLE).session(session));
+		worker.processAvailableJobs();
 		assertThat(conversationCount()).as("만료된 세션은 이전 Conversation을 재사용하지 않음").isEqualTo(3);
 		assertThat(attempts.findAll()).extracting(AnswerAttemptsHistory::getConversationId)
 				.filteredOn(expiredConversationId::equals).hasSize(2);
@@ -183,7 +192,7 @@ class GuestChatIntegrationTest {
 				.andExpect(jsonPath("$.code").value(ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED.getCode()));
 
 		assertThat(complete(retry(systemFailureKey).session(session), null))
-				.contains("\"attemptCount\":2", "\"status\":\"SUCCESS\"");
+				.contains("\"attemptCount\":2", "\"status\":\"SUCCEEDED\"");
 		assertThat(complete(retry(missingFaqKey).session(session), ChatErrorCode.NO_FAQ))
 				.contains("\"attemptCount\":2");
 
@@ -212,7 +221,7 @@ class GuestChatIntegrationTest {
 				Callable<String> call = () -> {
 					barrier.await(5, TimeUnit.SECONDS);
 					try {
-						chatService.createGuestChat(conversationId, questionText, null);
+						chatService.createGuestChat(conversationId, questionText, null, null);
 						return "ACCEPTED";
 					} catch (ChatException exception) {
 						return exception.getErrorCode().getCode();
@@ -229,11 +238,7 @@ class GuestChatIntegrationTest {
 		} finally {
 			release.countDown();
 		}
-		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-		while (System.nanoTime() < deadline
-				&& attempts.findAll().stream().anyMatch(attempt -> "PENDING".equals(attempt.getStatus()))) {
-			Thread.sleep(20);
-		}
+		assertThat(worker.processAvailableJobs()).isEqualTo(maxQuestionCount);
 		assertThat(attempts.findAll()).allMatch(attempt -> "SUCCESS".equals(attempt.getStatus()));
 	}
 
@@ -318,12 +323,7 @@ class GuestChatIntegrationTest {
 	}
 
 	private String complete(MockHttpServletRequestBuilder request, ErrorCode expectedError) throws Exception {
-		var pending = mvc.perform(request).andExpect(request().asyncStarted()).andReturn();
-		pending.getAsyncResult(10_000);
-		return mvc.perform(asyncDispatch(pending))
-				.andExpect(status().is(expectedError == null ? 200 : expectedError.getStatus().value()))
-				.andExpect(jsonPath("$.code").value(expectedError == null ? "SUCCESS" : expectedError.getCode()))
-				.andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+		return flow.complete(request, expectedError);
 	}
 
 	private String keyFrom(String body) {

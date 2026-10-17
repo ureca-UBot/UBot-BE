@@ -47,7 +47,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@BeforeEach
 	void setUp() {
 		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, unanswered,
-				ChatTestFixtures.collector(), planner);
+				ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.

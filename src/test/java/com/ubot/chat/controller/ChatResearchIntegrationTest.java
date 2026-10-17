@@ -1,9 +1,12 @@
 package com.ubot.chat.controller;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.chat.job.stream.ChatJobStream;
+import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.common.ErrorCode;
@@ -31,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.annotation.DirtiesContext;
@@ -45,7 +49,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -59,7 +62,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "CHAT_TOP_K=3",
         "CHAT_CONFIDENCE_THRESHOLD=0.75",
         "CHAT_MAX_ATTEMPTS=3" })
-@Import(PgvectorTestConfiguration.class)
+@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("의도 재검색 통합 테스트")
@@ -84,6 +87,10 @@ class ChatResearchIntegrationTest {
     UnansweredQuestionGroupRepository unansweredQuestionGroups;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    StringRedisTemplate redis;
+    @Autowired
+    ChatJobWorker worker;
     @MockitoBean
     FaqVectorService vector;
     @MockitoBean
@@ -91,9 +98,14 @@ class ChatResearchIntegrationTest {
 
     User user;
     Long faqId;
+    ChatJobTestFlow flow;
 
     @BeforeEach
     void setup() {
+        redis.delete(ChatJobStream.STREAM_KEY);
+        redis.delete(redis.keys("chat:jobs:result:*"));
+        redis.delete(redis.keys("chat:jobs:published:*"));
+        flow = new ChatJobTestFlow(mvc, worker);
         unansweredQuestions.deleteAllInBatch();
         unansweredQuestionGroups.deleteAllInBatch();
         faqLogs.deleteAllInBatch();
@@ -119,7 +131,7 @@ class ChatResearchIntegrationTest {
 
         String body = complete(memberResearch(originalKey, "USER_DATA"), null);
 
-        assertThat(body).contains("재검색 답변", "\"status\":\"SUCCESS\"", "\"attemptCount\":1");
+        assertThat(body).contains("재검색 답변", "\"status\":\"SUCCEEDED\"", "\"attemptCount\":1");
         String researchKey = keyFrom(body);
         assertThat(researchKey).isNotEqualTo(originalKey);
         AnswerAttemptsHistory original = latest(originalKey);
@@ -156,7 +168,7 @@ class ChatResearchIntegrationTest {
 
         String body = complete(memberResearch(originalKey, "STORE_DATA"), ChatErrorCode.NO_FAQ);
 
-        assertThat(body).contains("\"status\":\"FAIL\"", "\"retryable\":false");
+        assertThat(body).contains("\"status\":\"FAILED\"", "\"retryable\":false");
         assertThat(unansweredQuestions.count()).isZero();
         String researchKey = keyFrom(body);
         assertThat(latest(researchKey).getSourceAttemptId()).isNotNull();
@@ -231,7 +243,7 @@ class ChatResearchIntegrationTest {
         String body = complete(research(guestKey, "GENERAL").session(session)
                 .header("Authorization", bearer(user)), null);
 
-        assertThat(body).contains("\"status\":\"SUCCESS\"");
+        assertThat(body).contains("\"status\":\"SUCCEEDED\"");
         assertThat(attempts.findAll()).hasSize(2)
                 .allSatisfy(attempt -> assertThat(attempt.getUserId()).isEqualTo(user.getId()));
         assertThat(session.isInvalid()).isTrue();
@@ -256,12 +268,7 @@ class ChatResearchIntegrationTest {
     }
 
     private String complete(MockHttpServletRequestBuilder request, ErrorCode expectedError) throws Exception {
-        var pending = mvc.perform(request).andExpect(request().asyncStarted()).andReturn();
-        pending.getAsyncResult(10_000);
-        return mvc.perform(asyncDispatch(pending))
-                .andExpect(status().is(expectedError == null ? 200 : expectedError.getStatus().value()))
-                .andExpect(jsonPath("$.code").value(expectedError == null ? "SUCCESS" : expectedError.getCode()))
-                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        return flow.complete(request, expectedError);
     }
 
     private String keyFrom(String body) {
