@@ -1,6 +1,7 @@
 package com.ubot.monitoring.faqmonitoring.service;
 
 import com.ubot.common.GlobalException;
+import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.CommonErrorCode;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.exception.FaqErrorCode;
@@ -85,6 +86,11 @@ public class FaqMonitoringService {
 
 	@Transactional(readOnly = true)
 	public FaqImprovementResponse getFaqImprovements() {
+		return getFaqImprovements(0, Integer.MAX_VALUE);
+	}
+
+	@Transactional(readOnly = true)
+	public FaqImprovementResponse getFaqImprovements(int page, int size) {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
 		List<FaqImprovementItem> items = improvementQueryRepository
@@ -95,8 +101,14 @@ public class FaqMonitoringService {
 				.sorted(Comparator
 						.comparingInt((FaqImprovementItem item) -> item.improvementTypes().size()).reversed()
 						.thenComparing(Comparator.comparingLong(FaqImprovementItem::topKCount).reversed())
-						.thenComparingDouble(FaqImprovementItem::averageSimilarity))
+						.thenComparingDouble(FaqImprovementItem::averageSimilarity)
+						.thenComparingLong(FaqImprovementItem::faqId))
 				.toList();
+		int fromIndex = (int) Math.min((long) page * size, items.size());
+		int toIndex = (int) Math.min((long) fromIndex + size, items.size());
+		PageResponseDto<FaqImprovementItem> result = PageResponseDto.of(
+				items.subList(fromIndex, toIndex), page, size, items.size()
+		);
 
 		log.info(
 				"개선 필요 FAQ를 조회했습니다. evaluatedAt={}, 결과 수={}, 유사도 기준={}, 낮은 Gap 비율 기준={}, 미사용 기간={}분",
@@ -106,7 +118,7 @@ public class FaqMonitoringService {
 				lowGapRateThreshold,
 				unusedMinutes
 		);
-		return new FaqImprovementResponse(evaluatedAt, items);
+		return FaqImprovementResponse.of(evaluatedAt, result);
 	}
 
 	@Transactional(readOnly = true)
