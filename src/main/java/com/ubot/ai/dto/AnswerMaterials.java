@@ -57,11 +57,6 @@ public record AnswerMaterials(
         return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, values);
     }
 
-    /** 원문과 다르게 다시 쓰거나 나눈 하위 질문이 있는지 반환합니다. */
-    public boolean hasRewrittenSubQuestions() {
-        return SubQuestionFaqs.isRewritten(question, subQuestions);
-    }
-
     public static Builder builder(String question) {
         return new Builder(question);
     }

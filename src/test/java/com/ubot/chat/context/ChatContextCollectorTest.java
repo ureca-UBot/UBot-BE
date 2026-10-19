@@ -74,7 +74,6 @@ class ChatContextCollectorTest {
 				new SubQuestionFaqs("유심 재발급 방법", List.of(general1), "유심 재발급 방법"),
 				new SubQuestionFaqs("유심 재발급 비용", List.of(general1, general2), "유심 재발급 비용"),
 				new SubQuestionFaqs("해외 로밍 요금", List.of(), "해외 로밍 요금"));
-		assertThat(materials.hasRewrittenSubQuestions()).isTrue();
 	}
 
 	@Test

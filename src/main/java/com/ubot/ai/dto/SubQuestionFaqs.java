@@ -19,10 +19,4 @@ public record SubQuestionFaqs(String searchQuery, List<FaqSearchResponseDto> faq
     public boolean isAnswered() {
         return !faqs.isEmpty();
     }
-
-    /** 검색어가 원문과 다르게 다시 쓰이거나 하위 질문이 여러 개로 나뉘었는지 반환합니다. */
-    public static boolean isRewritten(String question, List<SubQuestionFaqs> subQuestions) {
-        return subQuestions != null && (subQuestions.size() > 1
-                || (subQuestions.size() == 1 && !subQuestions.getFirst().searchQuery().equals(question)));
-    }
 }

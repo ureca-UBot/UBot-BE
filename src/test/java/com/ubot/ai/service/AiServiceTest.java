@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
@@ -119,20 +120,40 @@ class AiServiceTest {
     }
 
     @Test
-    void 다시_쓴_하위_질문이_있으면_장소_검증용_질문에_함께_넣는다() {
-        var subQuestions = List.of(new SubQuestionFaqs("강남역 매장 영업시간", List.of(), "강남역 매장 영업시간"));
-        var materials = AnswerMaterials.builder("거기 영업시간은?").enableTool(AiTool.STORE_SEARCH)
-                .subQuestions(subQuestions).build();
-        when(promptService.createPrompt("거기 영업시간은?", List.of(), subQuestions, List.of(), List.of())).thenReturn(prompt);
+    void 이전_대화가_있으면_사용자_질문과_답변을_장소_검증용_질문에_함께_넣는다() {
+        var history = List.of(new ConversationTurn("강남역 매장 알려줘", List.of("강남역 근처 매장"), "강남역점이 있습니다."));
+        var materials = AnswerMaterials.builder("거기 영업시간은?").enableTool(AiTool.STORE_SEARCH).build()
+                .withHistory(history);
+        when(promptService.createPrompt("거기 영업시간은?", List.of(), List.of(), List.of(), history)).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
         aiService.generateAnswer(materials);
 
         ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
         verify(llmService).generateAnswer(request.capture());
-        // 장소(강남역)가 이전 대화에만 있어도 도구의 "질문에 있는 장소인지" 검사를 통과하게 합니다.
+        // 장소(강남역)가 이전 대화에만 있어도 도구의 "질문에 있는 장소인지" 검사를 통과하게 합니다. 이전 검색어는 넣지 않습니다.
         assertThat(request.getValue().toolContext())
-                .containsEntry(StoreTools.QUESTION, "거기 영업시간은?\n강남역 매장 영업시간");
+                .containsEntry(StoreTools.QUESTION, "거기 영업시간은?\n강남역 매장 알려줘\n강남역점이 있습니다.");
+    }
+
+    @Test
+    void 판정_LLM이_다시_쓴_검색어는_장소_검증용_질문에_넣지_않는다() {
+        // 원문에 없는 장소(강남역)를 판정 LLM이 검색어에 지어낸 경우입니다.
+        var subQuestions = List.of(
+                new SubQuestionFaqs("강남역 근처 매장", List.of(), "근처 매장이랑"),
+                new SubQuestionFaqs("매장 영업시간", List.of(), "영업시간도 알려줘"));
+        var materials = AnswerMaterials.builder("근처 매장이랑 영업시간도 알려줘").enableTool(AiTool.STORE_SEARCH)
+                .subQuestions(subQuestions).build();
+        when(promptService.createPrompt("근처 매장이랑 영업시간도 알려줘", List.of(), subQuestions, List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolContext())
+                .containsEntry(StoreTools.QUESTION, "근처 매장이랑 영업시간도 알려줘");
     }
 
     @Test
