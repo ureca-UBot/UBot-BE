@@ -30,6 +30,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.mockito.Mockito.verifyNoInteractions;
+
 @DisplayName("채팅 미응답 질문 저장 연결 테스트")
 class ChatServiceUnansweredTest {
 	private final FaqVectorService vector = ChatTestFixtures.vectorService();
@@ -45,13 +50,11 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(),
-				ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
-		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
+		service = new ChatService(attempts, ChatTestFixtures.inputGuard(),
 				harness.submissionService, ipRegionResolver);
 		when(attempts.createAnswerAttempt(1L, null, "질문")).thenReturn(attempt);
 		when(attempts.recordFailure(any(), any())).thenAnswer(call -> {

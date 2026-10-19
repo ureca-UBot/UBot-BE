@@ -20,6 +20,7 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.guest.entity.GuestChatSettings;
 import com.ubot.guest.repository.GuestChatSettingsRepository;
 import com.ubot.llm.service.LlmService;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.ranking.enums.RegionSido;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -108,6 +109,21 @@ public class ChatAttemptsService {
 		});
 	}
 
+	/** 회원 본인의 최신 시도 기록을 조회합니다. */
+	public AnswerAttemptsHistory getLatestAnswerAttempt(Long userId, String idempotencyKey) {
+		return answerAttemptsHistoryRepository
+				.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
+				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+	}
+
+	/** 해당 비회원 대화의 최신 시도 기록만 조회합니다. */
+	public AnswerAttemptsHistory getLatestGuestAnswerAttempt(Long conversationId, String idempotencyKey) {
+		return answerAttemptsHistoryRepository
+				.findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
+						conversationId, idempotencyKey)
+				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+	}
+
 	public AnswerAttemptsHistory createRetryAttempt(Long userId, String idempotencyKey) {
 		return createRetryAttempt(userId, null, idempotencyKey);
 	}
@@ -166,13 +182,9 @@ public class ChatAttemptsService {
 					: answerAttemptsHistoryRepository
 							.findInitialAttemptsForLock(userId, idempotencyKey, 1))
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
-			AnswerAttemptsHistory latestAttempt = (guest
-					? answerAttemptsHistoryRepository
-							.findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
-									conversationId, idempotencyKey)
-					: answerAttemptsHistoryRepository
-							.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey))
-					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+			AnswerAttemptsHistory latestAttempt = guest
+					? getLatestGuestAnswerAttempt(conversationId, idempotencyKey)
+					: getLatestAnswerAttempt(userId, idempotencyKey);
 
 			validateRetryAttempt(latestAttempt).ifPresent(errorCode -> {
 				throw new ChatException(errorCode);
@@ -274,6 +286,10 @@ public class ChatAttemptsService {
 			return Optional.of(ChatErrorCode.LIMIT_REACHED);
 		}
 		if (!"FAIL".equals(attempt.getStatus())) {
+			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
+		}
+		// 출력 가드가 거절한 질문은 API를 직접 재호출해도 새 시도를 만들지 않습니다.
+		if (attempt.getErrorCode() == LlmErrorCode.LLM_OUTPUT_REJECTED) {
 			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}
 		return Optional.empty();

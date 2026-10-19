@@ -32,6 +32,7 @@ public class AiService {
     private final PromptService promptService;
     private final LlmService llmService;
     private final AiToolRegistry toolRegistry;
+    private final AiOutputGuardService aiOutputGuardService;
 
     public AiAnswer generateAnswer(AnswerMaterials materials) {
         // ChatAnswerProcessor가 intent별로 모은 자료를 받습니다. DB를 다시 조회하지 않습니다.
@@ -55,17 +56,17 @@ public class AiService {
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
         // 빈 응답 판단은 ChatAnswerProcessor가 합니다.
         LlmResponseDto response = llmService.generateAnswer(request);
-        // 모델이 낸 JSON에서 화면에 보여 줄 answer만 꺼냅니다. 근거는 로그로만 남기고, 상태는 미응답 판단에 씁니다.
+        // 기존 파서와 출력 가드로 답변을 검사합니다. 상태는 미응답 판단에 씁니다.
+        StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
         String answer = null;
         String status = null;
         if (response != null && StringUtils.hasText(response.answer())) {
             FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
+            aiOutputGuardService.validateEvidenceIds(parsed.evidenceIds(), materials);
             log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
-            answer = parsed.answer();
+            answer = aiOutputGuardService.filterAnswer(parsed.answer(), materials, storeMap);
             status = parsed.status();
         }
-        // 지도 정보는 도구 결과를 먼저 쓰고, 없으면 핸들러가 내 위치로 바로 조회한 결과를 씁니다.
-        StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status);
     }
 

@@ -61,14 +61,11 @@ class ChatServiceIntentRoutingTest {
 
 	@BeforeEach
 	void setUp() {
-		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(),
-				ChatTestFixtures.passthroughSentenceFilter());
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);
-		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
+		service = new ChatService(attempts, ChatTestFixtures.inputGuard(),
 				harness.submissionService, ipRegionResolver);
 		when(attempts.createAnswerAttempt(1L, null, "근처 매장 알려줘")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
@@ -169,6 +166,7 @@ class ChatServiceIntentRoutingTest {
 	@Test
 	@DisplayName("재시도는 위치 없이 도구 경로로 처리한다")
 	void retryHasNoLocation() {
+		when(attempts.getLatestAnswerAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		service.retryChat(1L, attempt.getIdempotencyKey(), null);
 		harness.runQueuedJobs();
 

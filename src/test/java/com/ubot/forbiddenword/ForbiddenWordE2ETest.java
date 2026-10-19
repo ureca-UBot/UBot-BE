@@ -79,7 +79,7 @@ class ForbiddenWordE2ETest {
 	}
 
 	@Test
-	@DisplayName("관리자가 금지어를 등록하면 일반 사용자의 채팅 질문이 400(FW-003)으로 차단된다")
+	@DisplayName("관리자가 금지어를 등록하면 처리할 내용이 없는 채팅 질문은 400(CHAT-021)으로 차단된다")
 	void adminRegistersWordAndChatIsBlocked() throws Exception {
 		String adminToken = signUpAndLogin(ADMIN_EMAIL, true);
 		String userToken = signUpAndLogin(USER_EMAIL, false);
@@ -92,8 +92,8 @@ class ForbiddenWordE2ETest {
 		mockMvc.perform(post("/chat/questions").header("Authorization", "Bearer " + userToken)
 						.contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"너 진짜 바보야\"}"))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("FW-003"))
-				.andExpect(jsonPath("$.message").value("사용할 수 없는 표현이 포함되어 있습니다."));
+				.andExpect(jsonPath("$.code").value("CHAT-021"))
+				.andExpect(jsonPath("$.message").value("처리할 질문이 남아 있지 않습니다. 질문할 내용을 입력하거나 내용을 수정해서 다시 질문해 주세요."));
 
 		// 차단된 질문은 답변 시도 기록조차 남기지 않습니다.
 		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answer_attempts_history", Integer.class)).isZero();
@@ -115,11 +115,11 @@ class ForbiddenWordE2ETest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("INACTIVE"));
 
-		// 더 이상 금지어 검사에는 걸리지 않으므로 400(FW-003)이 아니어야 합니다.
+		// 금지어가 비활성화되면 같은 질문이 입력 가드에서 제거되지 않습니다.
 		MvcResult chat = mockMvc.perform(post("/chat/questions").header("Authorization", "Bearer " + userToken)
 						.contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"너 진짜 바보야\"}"))
 				.andReturn();
-		assertThat(chat.getResponse().getContentAsString()).doesNotContain("FW-003");
+		assertThat(chat.getResponse().getContentAsString()).doesNotContain("FW-003", "CHAT-021");
 	}
 
 	@Test

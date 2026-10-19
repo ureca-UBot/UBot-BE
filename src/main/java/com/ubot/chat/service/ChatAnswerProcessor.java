@@ -62,6 +62,7 @@ public class ChatAnswerProcessor {
 	private final SubQuestionPlanner subQuestionPlanner;
 	private final FaqSemanticCacheService faqSemanticCacheService;
 	private final FaqSentenceFilterService faqSentenceFilterService;
+	private final ChatInputGuardService chatInputGuardService;
 
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
@@ -70,7 +71,8 @@ public class ChatAnswerProcessor {
 			ChatContextCollector chatContextCollector,
 			SubQuestionPlanner subQuestionPlanner,
 			FaqSemanticCacheService faqSemanticCacheService,
-			FaqSentenceFilterService faqSentenceFilterService) {
+			FaqSentenceFilterService faqSentenceFilterService,
+			ChatInputGuardService chatInputGuardService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
 		this.unansweredQuestionService = unansweredQuestionService;
@@ -78,14 +80,17 @@ public class ChatAnswerProcessor {
 		this.subQuestionPlanner = subQuestionPlanner;
 		this.faqSemanticCacheService = faqSemanticCacheService;
 		this.faqSentenceFilterService = faqSentenceFilterService;
+		this.chatInputGuardService = chatInputGuardService;
 	}
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
 		long startedAt = System.nanoTime();
 		checkCancellation.run();
+		// 시도 원문은 보존하고 정리본만 질문 정리·검색·답변 생성에 전달합니다.
+		String preparedQuestion = chatInputGuardService.prepareQuestion(attempt.getQuestion());
 		AnswerProgress.report(Phase.SEARCHING);
-		SubQuestionPlan plan = subQuestionPlanner.plan(attempt);
+		SubQuestionPlan plan = subQuestionPlanner.plan(attempt, preparedQuestion);
 		checkCancellation.run();
 		// 판정할 표지가 없는 질문은 원문으로 먼저 검색하고, 질문 유사도 기준이나 답변 문장 검사를 넘지 못하면 그때 판정 LLM을 부릅니다.
 		GatedFaqs firstResult = null;
@@ -93,7 +98,7 @@ public class ChatAnswerProcessor {
 		// 같은 검색·문장 검사를 다시 하지 않고 이 결과를 씁니다(가드가 막아 원문으로 돌린 경우 등).
 		GatedFaqs failedOriginal = null;
 		if (plan.searchFirst()) {
-			String question = attempt.getQuestion();
+			String question = preparedQuestion;
 			Intent requestedIntent = requestedIntent(attempt);
 			DenseFaqCandidates dense;
 			try {
@@ -140,7 +145,7 @@ public class ChatAnswerProcessor {
 							attempt.getId(), highest, threshold);
 				}
 				failedOriginal = originalResult;
-				plan = subQuestionPlanner.judge(attempt, plan);
+				plan = subQuestionPlanner.judge(attempt, plan, preparedQuestion);
 				checkCancellation.run();
 			}
 		}
@@ -160,7 +165,7 @@ public class ChatAnswerProcessor {
 			String searchQuery = plan.items().get(index).searchQuery();
 			String userText = plan.items().get(index).userText();
 			GatedFaqs result = firstResult;
-			if (result == null && failedOriginal != null && searchQuery.equals(attempt.getQuestion())) {
+			if (result == null && failedOriginal != null && searchQuery.equals(preparedQuestion)) {
 				// 방금 실패한 원문 검색과 같은 검색이라 검색·답변 문장 검사를 다시 하지 않고 그 결과를 씁니다.
 				// 그래서 이 하위 질문은 근거를 찾지 못한 것으로 처리되고, 답변에서는 답할 수 없다고 안내합니다.
 				log.info("원문 검색 결과를 다시 씁니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
@@ -199,7 +204,7 @@ public class ChatAnswerProcessor {
 		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		// 공통 FAQ 목록은 같은 FAQ를 한 번만 넣되, 하위 질문마다 고른 답변 문장을 합칩니다(하위 질문별 묶음과 근거를 맞춥니다).
 		AnswerMaterials materials = chatContextCollector.collectBySubQuestion(
-				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), promptSearched,
+				new ChatContext(attempt.getUserId(), preparedQuestion, location), promptSearched,
 				CommonFaqMerger.merge(searched, promptSearched))
 				.withHistory(plan.historyForAnswer());
 		AiAnswer answer = aiService.generateAnswer(materials);

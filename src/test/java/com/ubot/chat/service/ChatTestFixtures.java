@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
@@ -25,6 +26,19 @@ import java.util.List;
 final class ChatTestFixtures {
 	static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
 	private ChatTestFixtures() {
+	}
+
+	static ChatInputGuardService inputGuard() {
+		return inputGuard(mock(ForbiddenWordFilterService.class));
+	}
+
+	static ChatInputGuardService inputGuard(ForbiddenWordFilterService filter) {
+		return new ChatInputGuardService(filter, new ChatPromptInjectionService());
+	}
+
+	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */
+	static ChatInputGuardService passthroughInputGuard() {
+		return mock(ChatInputGuardService.class, invocation -> invocation.getArgument(0));
 	}
 
 	static FaqSemanticCacheService disabledCache() {
@@ -72,7 +86,7 @@ final class ChatTestFixtures {
 	static SubQuestionPlanner originalSubQuestions() {
 		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class),
 				mock(SubQuestionPromptService.class), mock(LlmService.class), mock(SubQuestionGuard.class),
-				mock(QuestionRouter.class), mock(MultiTurnDetector.class));
+				mock(QuestionRouter.class), mock(MultiTurnDetector.class), inputGuard());
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */
