@@ -103,6 +103,8 @@ faq:
       max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
       failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
       failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
+  variant:
+    sentence-similarity-treshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
 
 
 notification:
