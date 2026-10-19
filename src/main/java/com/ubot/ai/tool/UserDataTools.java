@@ -52,6 +52,8 @@ public class UserDataTools {
     static final String TOO_OLD_MONTH_MESSAGE = "최근 12개월(%s~%s) 기록만 조회할 수 있습니다.";
     static final String ALREADY_PROVIDED_MESSAGE =
             "%s %s은(는) 가장 최근 기록이라 사용자 정보 섹션에 이미 있습니다. 도구를 다시 호출하지 말고 그 내용으로 답하세요.";
+    // 도구 결과는 호출을 정한 뒤에 읽으므로, 여기 둔 안내는 도구 호출 여부에 영향을 주지 않습니다.
+    static final String BILLING_BASIS_MESSAGE = "답변은 \"%s\"로 시작하세요.";
 
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("uuuu-M");
 
@@ -82,7 +84,8 @@ public class UserDataTools {
         return lookupByMonth(month, phoneLast4, toolContext, "청구서",
                 (userId, subscription) -> billingService.getMyBillingRecordList(
                         userId, subscription.subscriptionId(), null, 0, LOOKUP_MONTHS).content(),
-                BillingRecordResponseDto::billingMonth, UserDataSummarizer::formatBilling);
+                BillingRecordResponseDto::billingMonth, billing -> UserDataSummarizer.formatBilling(billing) + "\n"
+                        + String.format(BILLING_BASIS_MESSAGE, UserDataSummarizer.billingBasis(billing)));
     }
 
     /**

@@ -81,7 +81,9 @@ class UserDataToolsTest {
                         billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
 
         assertThat(tools.getBillingByMonth("2026-9", null, LOGGED_IN))
-                .contains("2026-09 청구분(8월 사용분): 총 78,000원", "납부 완료(2026-09-20, 자동이체)");
+                .contains("2026년 9월 청구서(8월 사용분): 총 78,000원", "납부 완료(2026-09-20, 자동이체)")
+                // 고객이 다른 달로 읽었으면 정정할 수 있게, 어느 청구서 기준인지 답변 첫머리에 밝히게 합니다.
+                .endsWith("\n답변은 \"2026년 9월 청구서(8월 사용분) 기준으로 안내드립니다.\"로 시작하세요.");
         assertThat(tools.getBillingByMonth("2026-08", null, LOGGED_IN))
                 .isEqualTo("010-****-5678 회선\n2026-08 청구서 기록이 없습니다.");
     }

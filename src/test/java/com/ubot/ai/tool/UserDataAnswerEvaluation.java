@@ -25,14 +25,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,7 +87,10 @@ class UserDataAnswerEvaluation {
     private static final String AMBIGUOUS = "AMBIGUOUS";
     private static final String MATCHED = "일치";
     private static final String MISMATCHED = "불일치";
-    private static final String COMPARED = "비교";
+    private static final String NO_TOOL = "-";
+    private static final String BASIS_PHRASE = "기준으로 안내드립니다";
+    private static final Pattern MONTH_ARGUMENT = Pattern.compile("month=([^,]+)");
+    private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("uuuu-M");
 
     @TestConfiguration(proxyBeanMethods = false)
     static class FixedClockConfiguration {
@@ -220,14 +228,12 @@ class UserDataAnswerEvaluation {
     }
 
     private String judge(Question question, List<String> enabledTools, List<ToolCall> questionCalls, String error) {
-        // 사용한 달과 청구된 달 중 어느 쪽으로 읽어도 되는 요금 질문은 정답을 정하지 않고, 어떻게 답했는지만 비교합니다.
-        if (AMBIGUOUS.equals(question.expected())) {
-            return COMPARED;
-        }
         if (error != null) {
             return MISMATCHED;
         }
         boolean matched = switch (question.expected()) {
+            // 사용한 달과 청구된 달 중 어느 쪽으로 읽어도 되는 요금 질문은 적힌 해석 중 하나에 맞으면 일치입니다.
+            case AMBIGUOUS -> matchedInterpretation(question.expectedTool(), questionCalls) >= 0;
             // 적힌 도구를 모두, 적힌 횟수 이상 호출해야 일치입니다. 그 밖의 도구를 더 불러도 불일치로 보지 않습니다.
             case "TOOL" -> expectedToolCounts(question.expectedTool()).entrySet().stream()
                     .allMatch(expected -> questionCalls.stream()
@@ -236,6 +242,42 @@ class UserDataAnswerEvaluation {
             default -> questionCalls.isEmpty();
         };
         return matched ? MATCHED : MISMATCHED;
+    }
+
+    /**
+     * "-|getBillingByMonth@2026-09"처럼 `|`로 나눈 해석 중 맞은 것의 순번(0이 해석 A)을, 맞은 것이 없으면 -1을 돌려줍니다.
+     * "-"는 도구를 부르지 않고 요약으로 답한 것이고, "도구@YYYY-MM"은 그 도구를 그 달로 부른 것입니다(`;`로 여러 개).
+     */
+    private static int matchedInterpretation(String interpretations, List<ToolCall> questionCalls) {
+        String[] alternatives = interpretations.split("\\|");
+        for (int i = 0; i < alternatives.length; i++) {
+            String alternative = alternatives[i].strip();
+            boolean matched = NO_TOOL.equals(alternative)
+                    ? questionCalls.isEmpty()
+                    : Arrays.stream(alternative.split(";")).map(String::strip).allMatch(expected -> {
+                        String[] nameAndMonth = expected.split("@");
+                        YearMonth month = YearMonth.parse(nameAndMonth[1], MONTH_FORMAT);
+                        return questionCalls.stream().anyMatch(call ->
+                                call.name().equals(nameAndMonth[0]) && month.equals(monthArgument(call)));
+                    });
+            if (matched) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 모델이 "2026-9"처럼 넣어도 같은 달로 봅니다. 읽을 수 없으면 null입니다. */
+    private static YearMonth monthArgument(ToolCall call) {
+        Matcher matcher = MONTH_ARGUMENT.matcher(call.arguments());
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return YearMonth.parse(matcher.group(1).strip(), MONTH_FORMAT);
+        } catch (DateTimeParseException exception) {
+            return null;
+        }
     }
 
     /** "getUsageByMonth;getBillingByMonth"는 각 1번, "getUsageByMonth*2"는 2번 호출을 뜻합니다. */
@@ -307,23 +349,21 @@ class UserDataAnswerEvaluation {
             Map<String, Long> userIds, String abortReason) {
         StringBuilder md = new StringBuilder();
         long matched = results.stream().filter(Result::matched).count();
-        List<Result> compared = results.stream().filter(Result::compared).toList();
+        List<Result> ambiguous = results.stream().filter(result -> AMBIGUOUS.equals(result.question().expected())).toList();
         md.append("# USER_DATA 답변 평가 결과\n\n");
         md.append("- 실행 시각: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append('\n');
         md.append("- 채팅 엔진: ").append(aiRuntimeProperties.resolvedChatEngine())
                 .append(" / 모델: ").append(llmService.getModelName()).append('\n');
         md.append("- 기준일: ").append(BASE_TIME.toLocalDate()).append(" (Asia/Seoul 고정)\n");
-        md.append("- 결과: ").append(matched).append(" / ").append(results.size() - compared.size()).append(" 일치");
-        if (!compared.isEmpty()) {
-            md.append(" (").append(AMBIGUOUS).append(" ").append(compared.size()).append("개는 판정하지 않고 비교만 함)");
-        }
+        md.append("- 결과: ").append(matched).append(" / ").append(results.size()).append(" 일치");
         if (results.size() < total) {
             md.append(" (전체 ").append(total).append("개 중 ").append(results.size()).append("개만 실행)");
         }
         md.append('\n');
         md.append("- 판정 기준: PRELOADED·UNAVAILABLE은 도구 미호출, LOGIN_REQUIRED는 도구 미호출이면서 도구가 켜지지 않음, ")
                 .append("TOOL은 기대 도구를 모두 호출(`a;b`는 각 1번 이상, `a*2`는 2번 이상). 오류는 불일치입니다. ")
-                .append(AMBIGUOUS).append("(사용한 달과 청구된 달 중 어느 쪽으로도 읽히는 요금 질문)는 판정하지 않습니다. ")
+                .append(AMBIGUOUS).append("(사용한 달과 청구된 달 중 어느 쪽으로도 읽히는 요금 질문)는 기대 도구 칸에 `|`로 나눈 해석 중 ")
+                .append("하나에 맞으면 일치입니다(`-`는 도구 미호출, `도구@YYYY-MM`은 그 달로 호출). ")
                 .append("답변 내용의 정확성은 아래 정답 데이터와 비교해 사람이 확인합니다.\n");
         if (abortReason != null) {
             md.append("\n> **중단됨:** ").append(abortReason).append('\n');
@@ -333,7 +373,7 @@ class UserDataAnswerEvaluation {
         Map<String, List<Result>> byExpected = results.stream()
                 .collect(Collectors.groupingBy(result -> result.question().expected(), LinkedHashMap::new, Collectors.toList()));
         byExpected.forEach((expected, group) -> md.append("| ").append(expected).append(" | ")
-                .append(AMBIGUOUS.equals(expected) ? COMPARED : String.valueOf(group.stream().filter(Result::matched).count()))
+                .append(group.stream().filter(Result::matched).count())
                 .append(" | ").append(group.size()).append(" |\n"));
 
         md.append("\n## 불일치 목록\n\n");
@@ -351,16 +391,24 @@ class UserDataAnswerEvaluation {
             }
         }
 
-        if (!compared.isEmpty()) {
+        if (!ambiguous.isEmpty()) {
             md.append("\n## 모호한 요금 질문 비교\n\n")
                     .append("청구서는 전월 사용분을 그달에 청구합니다. 그래서 \"9월 요금\"은 9월에 쓴 요금(10월 청구서)으로도, ")
-                    .append("9월에 청구된 요금(9월 청구서)으로도 읽힙니다. 도구를 부르지 않았다면 요약의 최근 청구서로 답한 것입니다.\n\n")
-                    .append("| 번호 | 질문 | 가능한 해석 | 실제 도구 호출 | 답변 |\n|---|---|---|---|---|\n");
-            for (Result result : compared) {
+                    .append("9월에 청구된 요금(9월 청구서)으로도 읽힙니다. 도구를 부르지 않았다면 요약의 최근 청구서로 답한 것입니다. ")
+                    .append("어느 해석으로 답하든 고객이 정정할 수 있게 답변 첫머리에 \"…청구서(…사용분) ")
+                    .append(BASIS_PHRASE).append(".\"로 기준을 밝혀야 합니다.\n\n")
+                    .append("| 번호 | 질문 | 가능한 해석 | 실제 도구 호출 | 판정 | 고른 해석 | 기준 명시 | 답변 |\n")
+                    .append("|---|---|---|---|---|---|---|---|\n");
+            for (Result result : ambiguous) {
+                int interpretation = result.error() == null
+                        ? matchedInterpretation(result.question().expectedTool(), result.calls()) : -1;
                 md.append("| ").append(result.question().number())
                         .append(" | ").append(cell(result.question().text()))
                         .append(" | ").append(cell(result.question().note()))
                         .append(" | ").append(cell(actualLabel(result)))
+                        .append(" | ").append(result.verdict())
+                        .append(" | ").append(interpretation < 0 ? "없음" : String.valueOf((char) ('A' + interpretation)))
+                        .append(" | ").append(result.answer() != null && result.answer().contains(BASIS_PHRASE) ? "O" : "X")
                         .append(" | ").append(cell(result.answer() == null ? "(답변 없음)" : result.answer())).append(" |\n");
             }
         }
@@ -451,6 +499,9 @@ class UserDataAnswerEvaluation {
         List<String> lines = new ClassPathResource(QUESTIONS).getContentAsString(StandardCharsets.UTF_8).lines()
                 .filter(line -> !line.isBlank()).toList();
         List<String> header = parseCsvLine(lines.getFirst().replace("﻿", ""));
+        // "1,8,52"처럼 번호를 주면 그 질문만 실행합니다. 비우면 전체를 실행합니다.
+        List<String> onlyNumbers = Arrays.stream(firstNonBlank(loadEnv().get("EVAL_QUESTION_NUMBERS"), "").split(","))
+                .map(String::strip).filter(number -> !number.isEmpty()).toList();
         List<Question> questions = new ArrayList<>();
         for (String line : lines.subList(1, lines.size())) {
             List<String> values = parseCsvLine(line);
@@ -458,8 +509,10 @@ class UserDataAnswerEvaluation {
             for (int i = 0; i < header.size(); i++) {
                 row.put(header.get(i), i < values.size() ? values.get(i).strip() : "");
             }
-            questions.add(new Question(row.get("번호"), row.get("질문"), row.get("사용자"),
-                    row.get("기대 처리"), row.get("기대 도구"), row.get("비고")));
+            if (onlyNumbers.isEmpty() || onlyNumbers.contains(row.get("번호"))) {
+                questions.add(new Question(row.get("번호"), row.get("질문"), row.get("사용자"),
+                        row.get("기대 처리"), row.get("기대 도구"), row.get("비고")));
+            }
         }
         return questions;
     }
@@ -530,16 +583,12 @@ class UserDataAnswerEvaluation {
     private record ToolCall(String name, String arguments, String returned) {
     }
 
-    /** verdict는 MATCHED, MISMATCHED, COMPARED 중 하나입니다. */
+    /** verdict는 MATCHED, MISMATCHED 중 하나입니다. */
     private record Result(Question question, List<String> enabledTools, List<ToolCall> calls, String answer,
             String error, long elapsedMillis, String verdict) {
 
         boolean matched() {
             return MATCHED.equals(verdict);
-        }
-
-        boolean compared() {
-            return COMPARED.equals(verdict);
         }
     }
 }

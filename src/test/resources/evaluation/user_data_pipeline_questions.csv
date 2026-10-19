@@ -67,18 +67,18 @@
 66,끝번호 5678 회선 지난달 사용량 알려줘,Y,B,TOOL,getUsageByMonth,phoneLast4 사용 (사용자 B의 010-1234-5678)
 67,끝번호 0001 회선 9월 청구서 보여줘,Y,B,TOOL,getBillingByMonth,phoneLast4 사용 (사용자 B의 010-9876-0001)
 68,지난달 데이터 사용량 알려줘,Y,B,TOOL,getUsageByMonth,회선이 2개라 두 회선을 각각 조회하거나 번호 되묻기
-69,9월 요금 알려줘,Y,A,AMBIGUOUS,,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
-70,9월달 요금 얼마 나왔어?,Y,A,AMBIGUOUS,,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
-71,8월 요금 얼마 나왔어요?,Y,A,AMBIGUOUS,,해석 A: 8월 사용분 = 2026-09 청구서(getBillingByMonth 2026-09) / 해석 B: 2026-08 청구서(getBillingByMonth 2026-08·연체)
-72,지난달 요금 얼마야?,Y,A,AMBIGUOUS,,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
-73,지난달 요금 냈어?,Y,A,AMBIGUOUS,,해석 A: 2026-10 청구서 미납(요약) / 해석 B: 2026-09 청구서 납부 완료(getBillingByMonth 2026-09)
-74,10월 요금 얼마야?,Y,A,AMBIGUOUS,,해석 A: 10월 사용분은 아직 청구 전 / 해석 B: 2026-10 청구서(요약)
-75,지난달이랑 이번 달 요금 차이가 얼마야?,Y,A,AMBIGUOUS,,해석 A: 9월 사용분(2026-10 청구서)과 아직 청구 전인 10월 사용분 / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)와 2026-10 청구서(요약)
-76,6월 요금에 로밍 요금 있었어?,Y,A,AMBIGUOUS,,해석 A: 6월 사용분 = 2026-07 청구서·로밍 92400원 있음 / 해석 B: 2026-06 청구서·로밍 없음
-77,7월 요금에 로밍 요금 있었어?,Y,A,AMBIGUOUS,,해석 A: 7월 사용분 = 2026-08 청구서·로밍 없음 / 해석 B: 2026-07 청구서·로밍 92400원 있음
-78,9월 사용분 요금 얼마야?,Y,A,AMBIGUOUS,,대조군(모호하지 않음): 2026-10 청구서(요약)
-79,9월 청구분 요금 얼마야?,Y,A,AMBIGUOUS,,대조군(모호하지 않음): 2026-09 청구서(getBillingByMonth 2026-09)
-80,9월에 쓴 요금 얼마야?,Y,A,AMBIGUOUS,,대조군(모호하지 않음): 2026-10 청구서(요약)
+69,9월 요금 알려줘,Y,A,AMBIGUOUS,-|getBillingByMonth@2026-09,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
+70,9월달 요금 얼마 나왔어?,Y,A,AMBIGUOUS,-|getBillingByMonth@2026-09,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
+71,8월 요금 얼마 나왔어요?,Y,A,AMBIGUOUS,getBillingByMonth@2026-09|getBillingByMonth@2026-08,해석 A: 8월 사용분 = 2026-09 청구서(getBillingByMonth 2026-09) / 해석 B: 2026-08 청구서(getBillingByMonth 2026-08·연체)
+72,지난달 요금 얼마야?,Y,A,AMBIGUOUS,-|getBillingByMonth@2026-09,해석 A: 9월 사용분 = 2026-10 청구서(요약) / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)
+73,지난달 요금 냈어?,Y,A,AMBIGUOUS,-|getBillingByMonth@2026-09,해석 A: 2026-10 청구서 미납(요약) / 해석 B: 2026-09 청구서 납부 완료(getBillingByMonth 2026-09)
+74,10월 요금 얼마야?,Y,A,AMBIGUOUS,-,해석 A: 10월 사용분은 아직 청구 전 / 해석 B: 2026-10 청구서(요약)
+75,지난달이랑 이번 달 요금 차이가 얼마야?,Y,A,AMBIGUOUS,-|getBillingByMonth@2026-09,해석 A: 9월 사용분(2026-10 청구서)과 아직 청구 전인 10월 사용분 / 해석 B: 2026-09 청구서(getBillingByMonth 2026-09)와 2026-10 청구서(요약)
+76,6월 요금에 로밍 요금 있었어?,Y,A,AMBIGUOUS,getBillingByMonth@2026-07|getBillingByMonth@2026-06,해석 A: 6월 사용분 = 2026-07 청구서·로밍 92400원 있음 / 해석 B: 2026-06 청구서·로밍 없음
+77,7월 요금에 로밍 요금 있었어?,Y,A,AMBIGUOUS,getBillingByMonth@2026-08|getBillingByMonth@2026-07,해석 A: 7월 사용분 = 2026-08 청구서·로밍 없음 / 해석 B: 2026-07 청구서·로밍 92400원 있음
+78,9월 사용분 요금 얼마야?,Y,A,AMBIGUOUS,-,대조군(모호하지 않음): 2026-10 청구서(요약)
+79,9월 청구분 요금 얼마야?,Y,A,AMBIGUOUS,getBillingByMonth@2026-09,대조군(모호하지 않음): 2026-09 청구서(getBillingByMonth 2026-09)
+80,9월에 쓴 요금 얼마야?,Y,A,AMBIGUOUS,-,대조군(모호하지 않음): 2026-10 청구서(요약)
 81,소액결제 얼마 썼어?,Y,A,UNAVAILABLE,,제공 불가
 82,멤버십 포인트 얼마 있어?,Y,A,UNAVAILABLE,,제공 불가
 83,지금 해지하면 위약금 얼마야?,Y,A,UNAVAILABLE,,할인반환금 제공 불가

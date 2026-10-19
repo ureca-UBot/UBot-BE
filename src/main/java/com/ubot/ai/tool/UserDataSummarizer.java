@@ -30,6 +30,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -67,6 +68,11 @@ public class UserDataSummarizer {
     static final String UNAVAILABLE_NOTICE =
             "제공되지 않는 정보: 소액결제, 포인트·멤버십, 할인반환금(위약금), 요금제 변경 가능 여부, "
                     + "로밍 차단·번호도용 방지 서비스 가입 여부, 중고폰 반납 보상. 이 정보는 추측하지 말고 확인할 수 없다고 안내하세요.";
+    // "9월 요금"은 9월 사용분으로도 9월 청구서로도 읽히므로, 어느 청구서로 답했는지 밝혀 고객이 정정할 수 있게 합니다.
+    // "요금·청구서 답변은 ~" 같은 질문 유형 지시는 이번 달 요금 질문에서도 최근 청구서를 도구로 다시 조회하게 만들므로,
+    // 청구서 줄에 "기준"을 적고 그 줄을 쓸 때만 기준을 밝히도록 줄 끝에 붙입니다.
+    static final String SUMMARY_BILLING_SEPARATOR = " 기준: 총 ";
+    static final String BILLING_BASIS_NOTE = "이 청구서를 근거로 답할 때는 이 기준을 밝힌다.";
 
     private static final String UNKNOWN = "정보 없음";
 
@@ -103,13 +109,11 @@ public class UserDataSummarizer {
                 text.append(formatSubscriptionSummary(i + 1, summary.subscriptions().get(i)));
             }
         }
-        return text.append('\n')
-                .append(coverageNotice(summary)).append(TOOL_GUIDE).append('\n')
-                .append(UNAVAILABLE_NOTICE)
-                .toString();
+        text.append('\n').append(coverageNotice(summary)).append(TOOL_GUIDE).append('\n');
+        return text.append(UNAVAILABLE_NOTICE).toString();
     }
 
-    /** 이 자료에 들어 있는 사용량·청구서의 달을 알려 줍니다. 예: "이 자료에는 가장 최근 달(사용량 2026-10, 청구서 2026-10 청구분)만 있습니다. " */
+    /** 이 자료에 들어 있는 사용량·청구서의 달을 알려 줍니다. 예: "이 자료에는 가장 최근 달(사용량 2026-10, 2026년 10월 청구서)만 있습니다. " */
     private String coverageNotice(UserDataSummary summary) {
         String usageMonths = summary.subscriptions().stream()
                 .filter(subscription -> subscription.latestUsage() != null)
@@ -117,14 +121,15 @@ public class UserDataSummarizer {
                 .distinct().sorted(Comparator.reverseOrder()).collect(Collectors.joining("·"));
         String billingMonths = summary.subscriptions().stream()
                 .filter(subscription -> subscription.latestBilling() != null)
-                .map(subscription -> subscription.latestBilling().billingMonth().toString())
-                .distinct().sorted(Comparator.reverseOrder()).collect(Collectors.joining("·"));
+                .map(subscription -> subscription.latestBilling().billingMonth())
+                .distinct().sorted(Comparator.reverseOrder())
+                .map(UserDataSummarizer::monthLabel).collect(Collectors.joining("·"));
         List<String> parts = new ArrayList<>();
         if (!usageMonths.isEmpty()) {
             parts.add("사용량 " + usageMonths);
         }
         if (!billingMonths.isEmpty()) {
-            parts.add("청구서 " + billingMonths + " 청구분");
+            parts.add(billingMonths + " 청구서");
         }
         if (parts.isEmpty()) {
             return "이 자료에는 사용량·청구서 기록이 없습니다. ";
@@ -189,14 +194,16 @@ public class UserDataSummarizer {
         text.append("- 최근 사용량: ")
                 .append(summary.latestUsage() == null ? "기록 없음" : formatUsage(summary.latestUsage())).append('\n');
         text.append("- ").append(LATEST_BILLING_LABEL).append(": ")
-                .append(summary.latestBilling() == null ? "기록 없음" : formatBilling(summary.latestBilling())).append('\n');
+                .append(summary.latestBilling() == null ? "기록 없음"
+                        : formatBilling(summary.latestBilling(), SUMMARY_BILLING_SEPARATOR) + ". " + BILLING_BASIS_NOTE)
+                .append('\n');
         text.append("- 미납: ");
         if (summary.unpaidBillings().isEmpty()) {
             text.append("없음(최근 ").append(RECENT_BILLING_COUNT).append("개월 청구 기준)\n");
         } else {
             List<String> unpaid = new ArrayList<>();
             for (BillingRecordResponseDto billing : summary.unpaidBillings()) {
-                unpaid.add(billing.billingMonth() + " 청구분 미납액 " + won(unpaidAmount(billing))
+                unpaid.add(monthLabel(billing.billingMonth()) + " 청구서 미납액 " + won(unpaidAmount(billing))
                         + "(납부 기한 " + valueOrUnknown(billing.dueDate()) + ", " + paymentStatusLabel(billing.paymentStatus()) + ")");
             }
             text.append(String.join(", ", unpaid)).append('\n');
@@ -282,11 +289,28 @@ public class UserDataSummarizer {
                         usage.remainingSmsCount() == null ? null : usage.remainingSmsCount() + "건", allowance);
     }
 
-    /** billing_records.billing_month는 청구서가 나온 달이고, 금액은 전월 사용분입니다. 예: "2026-10 청구분(9월 사용분)" */
+    /** 답변 첫머리에 그대로 옮겨 쓸 기준 문장입니다. 예: "2026년 10월 청구서(9월 사용분) 기준으로 안내드립니다." */
+    static String billingBasis(BillingRecordResponseDto billing) {
+        return billingTitle(billing) + " 기준으로 안내드립니다.";
+    }
+
+    /** billing_records.billing_month는 청구서가 나온 달이고, 금액은 전월 사용분입니다. 예: "2026년 10월 청구서(9월 사용분)" */
+    private static String billingTitle(BillingRecordResponseDto billing) {
+        return monthLabel(billing.billingMonth()) + " 청구서(" + billing.billingMonth().minusMonths(1).getMonthValue() + "월 사용분)";
+    }
+
+    /** 답변 문구와 같게 "2026년 10월"로 적습니다. 도구 인자는 YYYY-MM 그대로 받습니다. */
+    private static String monthLabel(YearMonth month) {
+        return month.getYear() + "년 " + month.getMonthValue() + "월";
+    }
+
     static String formatBilling(BillingRecordResponseDto billing) {
+        return formatBilling(billing, ": 총 ");
+    }
+
+    private static String formatBilling(BillingRecordResponseDto billing, String separator) {
         StringBuilder text = new StringBuilder();
-        text.append(billing.billingMonth()).append(" 청구분(")
-                .append(billing.billingMonth().minusMonths(1).getMonthValue()).append("월 사용분): 총 ")
+        text.append(billingTitle(billing)).append(separator)
                 .append(won(billing.totalAmount()))
                 .append("(기본료 ").append(won(billing.baseFee()))
                 .append(", 부가서비스 ").append(won(billing.addonFee()))
