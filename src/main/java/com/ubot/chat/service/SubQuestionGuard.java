@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>버림: 봇에게 내린 명령이 질문으로 바뀐 하위 질문, 내용어가 없는 하위 질문, 겹치는 하위 질문</li>
  *   <li>막음(그 하위 질문은 원문 조각으로 검색): 부정이 빠지거나 생김, 질문 대신 답을 씀, 프롬프트 문구가 새어 나옴, 고칠 수 없는 숫자</li>
- *   <li>고침: 원문에 없는 외국 문자는 지우고, 깨진 숫자와 철자가 바뀐 원문 명사는 원문 표기로 되돌림</li>
+ *   <li>고침: 출처에 없는 외국 문자와 출처·FAQ에 없는 영어 단어는 지우고, 깨진 숫자와 철자가 바뀐 원문 명사는 원문 표기로 되돌림</li>
  * </ul>
  * 원문 조각은 OriginalQuestionSplitter가 자릅니다. 조각을 못 자르면 원문 조각은 비워 두고(답변 LLM에는 원문만 보여 줌),
  * 막은 하위 질문은 원문 전체로 검색합니다.
@@ -84,7 +84,7 @@ class SubQuestionGuard {
 	enum Outcome { PASSED, MODIFIED, FALLBACK }
 
 	enum Reason {
-		FOREIGN_SCRIPT_REMOVED, NUMBER_FIXED, KEYWORD_FIXED,
+		FOREIGN_SCRIPT_REMOVED, ENGLISH_WORD_REMOVED, NUMBER_FIXED, KEYWORD_FIXED,
 		NO_CONTENT_DROPPED, DUPLICATE_DROPPED, COMMAND_DROPPED,
 		NEGATION_CHANGED, ANSWER_WRITTEN, PROMPT_LEAK, NUMBER_UNRECOVERABLE,
 		EMPTY, ERROR
@@ -144,12 +144,19 @@ class SubQuestionGuard {
 				reasons.add(Reason.COMMAND_DROPPED);
 				continue;
 			}
+			// 명령 표지는 먼저 검사하고, 허용되지 않은 영어만 지워 나머지 다시 쓰기는 유지합니다.
+			text = removeUnsourcedEnglish(text, sources, reasons);
 			Reason blocked = null;
 			String fixed = fixNumbers(text, sources, reasons);
 			if (fixed == null) {
 				blocked = Reason.NUMBER_UNRECOVERABLE;
 			} else {
-				text = tidy(fixNouns(fixed, morphology.analyze(fixed), sources, originalMorphs, reasons));
+				List<Morph> fixedMorphs = morphology.analyze(fixed);
+				if (contentMorphs(fixedMorphs).isEmpty()) {
+					reasons.add(Reason.NO_CONTENT_DROPPED);
+					continue;
+				}
+				text = tidy(fixNouns(fixed, fixedMorphs, sources, originalMorphs, reasons));
 				morphs = morphology.analyze(text);
 				blocked = changedMeaning(text, morphs, piece, originalMorphs, sources);
 			}
@@ -186,12 +193,6 @@ class SubQuestionGuard {
 		}
 		if (endsDeclarative(text, morphs) && !endsDeclarative(piece, pieceMorphs)) {
 			return Reason.ANSWER_WRITTEN;
-		}
-		Matcher latin = LATIN_WORD.matcher(text);
-		while (latin.find()) {
-			if (englishPolicy.requiresSource(latin.group()) && !sources.contains(latin.group())) {
-				return Reason.PROMPT_LEAK;
-			}
 		}
 		Matcher leak = PROMPT_LEAK.matcher(text);
 		while (leak.find()) {
@@ -298,6 +299,25 @@ class SubQuestionGuard {
 		}
 		reasons.add(Reason.FOREIGN_SCRIPT_REMOVED);
 		return tidy(out.toString());
+	}
+
+	/** FAQ와 원문·이전 대화에 없는 영어 단어만 지우고 나머지 검색어는 유지합니다. */
+	private String removeUnsourcedEnglish(String text, Sources sources, Set<Reason> reasons) {
+		Matcher matcher = LATIN_WORD.matcher(text);
+		StringBuilder out = new StringBuilder();
+		boolean removed = false;
+		while (matcher.find()) {
+			if (englishPolicy.requiresSource(matcher.group()) && !sources.contains(matcher.group())) {
+				matcher.appendReplacement(out, "");
+				removed = true;
+			}
+		}
+		if (!removed) {
+			return text;
+		}
+		matcher.appendTail(out);
+		reasons.add(Reason.ENGLISH_WORD_REMOVED);
+		return tidy(out.toString()).replaceAll("\\?{2,}", "?");
 	}
 
 	// ---------- 숫자 ----------

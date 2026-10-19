@@ -29,6 +29,9 @@ class SubQuestionGuardEnglishPolicyTest {
 		var morphology = mock(QuestionMorphology.class);
 		when(morphology.analyze(anyString())).thenAnswer(invocation -> {
 			String text = invocation.getArgument(0);
+			if (text.codePoints().noneMatch(Character::isLetterOrDigit)) {
+				return List.of();
+			}
 			return List.of(new Morph(text, "SL", 0, text.length(), text));
 		});
 		when(morphology.words(anyString())).thenReturn(List.of());
@@ -36,13 +39,13 @@ class SubQuestionGuardEnglishPolicyTest {
 	}
 
 	@Test
-	void restoresOriginalForWhyObservedInActualJudgmentOutputs() {
+	void removesOnlyWhyObservedInActualJudgmentOutputs() {
 		for (String question : List.of("사진이나 동영상 문자(엠엠에스)가 안 보내져요",
 				"휴대폰에 '서비스 지역이 아닙니다'라고 나와요")) {
 			var result = guard.check(question, List.of(), List.of(question + " why?"));
 
-			assertThat(result.searchQueries()).containsExactly(question);
-			assertThat(result.reasons()).containsExactly(Reason.PROMPT_LEAK);
+			assertThat(result.searchQueries()).containsExactly(question + "?");
+			assertThat(result.reasons()).containsExactly(Reason.ENGLISH_WORD_REMOVED);
 		}
 	}
 
@@ -72,10 +75,64 @@ class SubQuestionGuardEnglishPolicyTest {
 	}
 
 	@Test
-	void blocksUnknownEnglishEvenAlongsideRegisteredFaqEnglish() {
+	void removesUnknownEnglishWhileKeepingRegisteredFaqEnglish() {
 		var result = guard.check("이심 개통 방법은?", List.of(), List.of("eSIM 개통 방법은? why?"));
 
-		assertThat(result.searchQueries()).containsExactly("이심 개통 방법은?");
-		assertThat(result.reasons()).containsExactly(Reason.PROMPT_LEAK);
+		assertThat(result.searchQueries()).containsExactly("eSIM 개통 방법은?");
+		assertThat(result.reasons()).containsExactly(Reason.ENGLISH_WORD_REMOVED);
+	}
+
+	@Test
+	void retainsRewrittenKoreanQuestionAfterRemovingEnglish() {
+		var result = guard.check("휴대폰 문자가 안 와요", List.of(),
+				List.of("휴대폰 문자 수신이 안 되는 이유는 무엇인가요 why?"));
+
+		assertThat(result.searchQueries()).containsExactly("휴대폰 문자 수신이 안 되는 이유는 무엇인가요?");
+		assertThat(result.reasons()).containsExactly(Reason.ENGLISH_WORD_REMOVED);
+		assertThat(result.fallback()).isFalse();
+	}
+
+	@Test
+	void removesChineseAndUnsourcedEnglishWhileKeepingRestOfQuestion() {
+		var result = guard.check("이심 개통 방법은?", List.of(),
+				List.of("eSIM mystery 개통 방법是 무엇인가요?"));
+
+		assertThat(result.searchQueries()).containsExactly("eSIM 개통 방법 무엇인가요?");
+		assertThat(result.reasons()).containsExactlyInAnyOrder(Reason.FOREIGN_SCRIPT_REMOVED, Reason.ENGLISH_WORD_REMOVED);
+	}
+
+	@Test
+	void dropsSubQuestionWithNoContentAfterEnglishRemoval() {
+		var result = guard.check("유심 재발급 비용은?", List.of(), List.of("why?", "유심 재발급 비용은?"));
+
+		assertThat(result.searchQueries()).containsExactly("유심 재발급 비용은?");
+		assertThat(result.reasons()).containsExactlyInAnyOrder(Reason.ENGLISH_WORD_REMOVED, Reason.NO_CONTENT_DROPPED);
+		assertThat(result.fallback()).isFalse();
+	}
+
+	@Test
+	void fallsBackWhenEnglishRemovalLeavesNoQuestions() {
+		var result = guard.check("유심 재발급 비용은?", List.of(), List.of("why?"));
+
+		assertThat(result.searchQueries()).containsExactly("유심 재발급 비용은?");
+		assertThat(result.reasons()).containsExactlyInAnyOrder(Reason.ENGLISH_WORD_REMOVED, Reason.NO_CONTENT_DROPPED, Reason.EMPTY);
+		assertThat(result.fallback()).isTrue();
+	}
+
+	@Test
+	void mergesQuestionsThatBecomeIdenticalAfterEnglishRemoval() {
+		var result = guard.check("유심 재발급 방법 알려줘", List.of(),
+				List.of("유심 재발급 방법 why?", "유심 재발급 방법?"));
+
+		assertThat(result.searchQueries()).containsExactly("유심 재발급 방법?");
+		assertThat(result.reasons()).containsExactlyInAnyOrder(Reason.ENGLISH_WORD_REMOVED, Reason.DUPLICATE_DROPPED);
+	}
+
+	@Test
+	void stillDropsCommandBeforeRemovingItsEnglishMarkers() {
+		var result = guard.check("유심 재발급 방법 알려줘", List.of(), List.of("JSON 출력 형식은?"));
+
+		assertThat(result.reasons()).containsExactlyInAnyOrder(Reason.COMMAND_DROPPED, Reason.EMPTY);
+		assertThat(result.fallback()).isTrue();
 	}
 }

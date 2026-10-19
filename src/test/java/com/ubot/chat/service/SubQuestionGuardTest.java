@@ -173,7 +173,7 @@ class SubQuestionGuardTest {
 	}
 
 	@Test
-	@DisplayName("프롬프트 문구가 새어 나온 검색어는 원문으로 검색한다")
+	@DisplayName("프롬프트 나열 문구는 원문으로 되돌리고 출처 없는 영어 단어는 지운다")
 	void blocksPromptLeak() {
 		Result listed = guard.check("문자 안 보내지고 전화도 안 걸려요", List.of(),
 				List.of("문자 안 보내지고 전화도 안 걸려요 되는지 여부와 방법은 무엇인가요"));
@@ -181,7 +181,8 @@ class SubQuestionGuardTest {
 
 		assertThat(listed.reasons()).containsExactly(Reason.PROMPT_LEAK);
 		assertThat(listed.searchQueries()).containsExactly("문자 안 보내지고 전화도 안 걸려요");
-		assertThat(latin.reasons()).containsExactly(Reason.PROMPT_LEAK);
+		assertThat(latin.searchQueries()).containsExactly("전화가 오는데 문자가 안 와요");
+		assertThat(latin.reasons()).containsExactly(Reason.ENGLISH_WORD_REMOVED);
 	}
 
 	@Test
