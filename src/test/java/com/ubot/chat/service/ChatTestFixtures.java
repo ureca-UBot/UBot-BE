@@ -10,9 +10,12 @@ import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
 import com.ubot.chat.context.UserIntentHandler;
+import com.ubot.chat.repository.ConversationTurnRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.cache.FaqCacheProperties;
 import com.ubot.faq.cache.FaqSemanticCacheService;
+import com.ubot.llm.service.LlmService;
+import com.ubot.prompt.service.SubQuestionPromptService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.pgvector.PGvector;
@@ -64,6 +67,13 @@ final class ChatTestFixtures {
 		return new ChatContextCollector(List.of(
 				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
 				new UserIntentHandler(mock(UserDataSummarizer.class))));
+	}
+
+	/** 판정 LLM을 부르지 않고 원문을 하위 질문 하나로 쓰는 정리기입니다. */
+	static SubQuestionPlanner originalSubQuestions() {
+		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class),
+				mock(SubQuestionPromptService.class), mock(LlmService.class), mock(SubQuestionGuard.class),
+				mock(QuestionRouter.class), mock(MultiTurnDetector.class));
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

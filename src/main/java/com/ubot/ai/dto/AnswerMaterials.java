@@ -8,10 +8,12 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
-/** 
- * intent별 핸들러가 모은 답변 자료입니다. AiService로 넘어간 뒤에는 바뀌지 않습니다. 
- * faqs, sections, tools는 비어 있을 수는 있어도 null이 아닙니다.
+/**
+ * intent별 핸들러가 모은 답변 자료입니다. AiService로 넘어간 뒤에는 바뀌지 않습니다.
+ * faqs, sections, tools, subQuestions, history는 비어 있을 수는 있어도 null이 아닙니다.
  * storeMap은 매장을 조회하지 않았으면 null이고, userId는 비회원이면 null입니다.
+ * subQuestions는 하위 질문마다 faqs 중 그 질문으로 찾은 FAQ를 묶은 것입니다. 비어 있으면 질문을 나누지 않은 것으로 봅니다.
+ * history는 답변 LLM에 넘길 이전 대화입니다. 이번 질문이 이전 대화를 써야 할 때만 채우고, 아니면 비어 있습니다.
  * userDataSummary는 가입 정보를 미리 조회하지 않았으면 null이며, 답변에 쓰인 기록을 화면용 카드로 고를 때만 씁니다.
  */
 public record AnswerMaterials(
@@ -20,6 +22,8 @@ public record AnswerMaterials(
         List<ContextSection> sections,
         Set<AiTool> tools,
         StoreMapResult storeMap,
+        List<SubQuestionFaqs> subQuestions,
+        List<ConversationTurn> history,
         Long userId,
         UserDataSummary userDataSummary) {
 
@@ -28,8 +32,35 @@ public record AnswerMaterials(
         faqs = faqs == null ? List.of() : List.copyOf(faqs);
         sections = sections == null ? List.of() : List.copyOf(sections);
         tools = tools == null || tools.isEmpty() ? Set.of() : Collections.unmodifiableSet(EnumSet.copyOf(tools));
+        subQuestions = subQuestions == null ? List.of() : List.copyOf(subQuestions);
+        history = history == null ? List.of() : List.copyOf(history);
     }
-    
+
+    public AnswerMaterials(
+            String question,
+            List<FaqSearchResponseDto> faqs,
+            List<ContextSection> sections,
+            Set<AiTool> tools,
+            StoreMapResult storeMap,
+            List<SubQuestionFaqs> subQuestions) {
+        this(question, faqs, sections, tools, storeMap, subQuestions, List.of(), null, null);
+    }
+
+    public AnswerMaterials(
+            String question,
+            List<FaqSearchResponseDto> faqs,
+            List<ContextSection> sections,
+            Set<AiTool> tools,
+            StoreMapResult storeMap) {
+        this(question, faqs, sections, tools, storeMap, List.of(), List.of(), null, null);
+    }
+
+    /** 이전 대화를 넣은 사본입니다. 가입 정보 도구가 쓰는 userId와 카드용 userDataSummary도 그대로 옮깁니다. */
+    public AnswerMaterials withHistory(List<ConversationTurn> values) {
+        return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, values, userId,
+                userDataSummary);
+    }
+
     public static Builder builder(String question) {
         return new Builder(question);
     }
@@ -42,6 +73,7 @@ public record AnswerMaterials(
         private final List<ContextSection> sections = new ArrayList<>();
         private final Set<AiTool> tools = EnumSet.noneOf(AiTool.class);
         private StoreMapResult storeMap;
+        private List<SubQuestionFaqs> subQuestions = List.of();
         private Long userId;
         private UserDataSummary userDataSummary;
 
@@ -63,9 +95,14 @@ public record AnswerMaterials(
             tools.add(tool);
             return this;
         }
-        
+
         public Builder storeMap(StoreMapResult value) {
             storeMap = value;
+            return this;
+        }
+
+        public Builder subQuestions(List<SubQuestionFaqs> values) {
+            subQuestions = values;
             return this;
         }
 
@@ -83,7 +120,8 @@ public record AnswerMaterials(
 
         public AnswerMaterials build() {
         	// 복사와 불변 처리는 생성자가 맡습니다.
-            return new AnswerMaterials(question, faqs, sections, tools, storeMap, userId, userDataSummary);
+            return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, List.of(), userId,
+                    userDataSummary);
         }
     }
 }

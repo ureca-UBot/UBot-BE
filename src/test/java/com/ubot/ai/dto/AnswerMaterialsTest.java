@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,19 @@ class AnswerMaterialsTest {
         assertThat(materials.tools()).isEmpty();
         assertThat(materials.storeMap()).isNull();
         assertThat(materials.userId()).isNull();
+    }
+
+    @Test
+    void 이전_대화를_넣은_사본도_사용자_ID와_가입_정보_요약을_유지한다() {
+        // 답변 직전에 항상 withHistory를 거치므로, 여기서 빠지면 회원 질문의 가입 정보 도구와 카드가 조용히 꺼집니다.
+        var summary = new UserDataSummary(LocalDate.of(2026, 10, 19), null, List.of());
+        AnswerMaterials materials = AnswerMaterials.builder("질문").userId(7L).userDataSummary(summary).build();
+
+        AnswerMaterials withHistory = materials.withHistory(List.of(new ConversationTurn("이전 질문", "이전 답변")));
+
+        assertThat(withHistory.history()).hasSize(1);
+        assertThat(withHistory.userId()).isEqualTo(7L);
+        assertThat(withHistory.userDataSummary()).isSameAs(summary);
     }
 
     @Test

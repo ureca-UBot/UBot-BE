@@ -40,7 +40,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** 재검색 attempt 생성 규칙을 실제 JPA·부분 유니크 인덱스·행 잠금과 함께 검증합니다. */
 @SpringBootTest(properties = {
         "prompt.faq.system-location=classpath:prompts/test-faq-system.txt",
-        "prompt.faq.user-location=classpath:prompts/test-faq-user.txt" })
+        "prompt.faq.user-location=classpath:prompts/test-faq-user.txt",
+        // LLM 호출 횟수를 검증하므로 판정 LLM은 끕니다. 판정은 SubQuestionChatIntegrationTest에서 확인합니다.
+        "CHAT_SUB_QUESTION_ENABLED=false" })
 @Import(PgvectorTestConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ChatAttemptsServiceResearchTest {

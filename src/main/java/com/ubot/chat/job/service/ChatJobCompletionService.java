@@ -80,7 +80,7 @@ public class ChatJobCompletionService {
 	}
 
 	private Completion finishSucceeded(ChatJob job, AnswerAttemptsHistory attempt, ChatJobOutcome outcome, RegionSido region) {
-		Optional<Long> questionLogId = chatAttemptsService.recordSuccess(attempt, outcome.answer(), outcome.faqs(), region);
+		Optional<Long> questionLogId = chatAttemptsService.recordSuccess(attempt, outcome.answer(), outcome.subQuestions(), region);
 		if (questionLogId.isEmpty()) {
 			return finishWithoutRecording(job, attempt);
 		}

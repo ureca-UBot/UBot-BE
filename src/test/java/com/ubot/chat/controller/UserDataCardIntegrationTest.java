@@ -66,6 +66,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  */
 // 사용자 정보 섹션을 넣을 {{context}} 자리가 있어야 하므로 테스트용이 아닌 실제 프롬프트 파일을 씁니다.
 @SpringBootTest(properties = {
+		// LLM mock이 답변 요청만 흉내 내므로 질문 분리 판정 LLM은 끕니다. 판정은 SubQuestionChatIntegrationTest에서 확인합니다.
+		"CHAT_SUB_QUESTION_ENABLED=false",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75"})
 @Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class, UserDataCardIntegrationTest.FixedClockConfiguration.class})
