@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -116,9 +117,18 @@ class SubQuestionGuard {
 		}
 		// 하위 질문이 하나면 원문 전체가 그 조각입니다. 여럿인데 자를 근거가 없으면 원문 조각 없이(null) 둡니다.
 		// 이건 오류가 아니라 판정 LLM이 이전 대화 등으로 나눈 경우라, 검색은 나눈 대로 하고 답변 LLM에는 원문만 보여 줍니다.
-		List<String> pieces = candidates.size() == 1
-				? List.of(question)
-				: splitter.split(question, candidates).orElse(null);
+		// 자를 때 하위 질문 순서를 원문에 맞춰 다시 놓을 수 있어, 아래 검사는 다시 놓은 순서로 합니다.
+		// 명령 하위 질문도 함께 자른 뒤 버려야, 명령 조각이 남은 하위 질문에 붙지 않습니다.
+		List<String> pieces = null;
+		if (candidates.size() == 1) {
+			pieces = List.of(question);
+		} else {
+			Optional<OriginalQuestionSplitter.Split> split = splitter.split(question, candidates);
+			if (split.isPresent()) {
+				candidates = split.get().searchQueries();
+				pieces = split.get().pieces();
+			}
+		}
 
 		List<Morph> originalMorphs = morphology.analyze(sources.original);
 		Set<String> commandForms = commandForms(question);

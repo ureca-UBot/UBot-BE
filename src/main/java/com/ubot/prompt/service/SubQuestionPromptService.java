@@ -10,9 +10,6 @@ import com.ubot.prompt.format.SubQuestionFormat;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +22,6 @@ import org.springframework.util.StringUtils;
 public class SubQuestionPromptService {
 
     private static final Pattern INPUT_PLACEHOLDER = Pattern.compile("\\{\\{(question|history)\\}\\}");
-    private static final Pattern ENGLISH_WORD = Pattern.compile("[A-Za-z]+");
     private static final String EMPTY_VALUE = "(없음)";
     private static final String FAILED_ANSWER = "(답변 실패)";
     // 이전 답변이 길면 판정 요청이 커지므로 앞부분만 넘깁니다. 가리키는 대상은 대부분 답변 앞쪽에 있습니다.
@@ -64,16 +60,6 @@ public class SubQuestionPromptService {
                 new LlmMessageRequestDto(LlmMessageRole.SYSTEM, systemPrompt),
                 new LlmMessageRequestDto(LlmMessageRole.USER, userPrompt)))
                 .withResponseSchema(SubQuestionFormat.schema());
-    }
-
-    /** 사용자 템플릿의 {{question}}, {{history}}는 입력으로 치환되므로 이름 자체를 유출 표지로 세지 않습니다. */
-    public Set<String> englishWords() {
-        String systemPrompt = readPrompt(systemPromptResource);
-        String userTemplate = INPUT_PLACEHOLDER.matcher(readPrompt(userPromptResource)).replaceAll("");
-        String promptText = systemPrompt + "\n" + userTemplate;
-        return ENGLISH_WORD.matcher(promptText).results()
-                .map(match -> match.group().toLowerCase(Locale.ROOT))
-                .collect(Collectors.toUnmodifiableSet());
     }
 
     private String formatHistory(List<ConversationTurn> history) {

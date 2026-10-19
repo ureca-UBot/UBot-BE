@@ -9,7 +9,6 @@ import static org.mockito.Mockito.when;
 
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.faq.service.FaqChangedEvent;
-import com.ubot.prompt.service.SubQuestionPromptService;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -17,7 +16,6 @@ import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -33,7 +31,7 @@ class FaqEnglishVocabularyWiringTest {
 	@Test
 	void initializesAndRefreshesOnlyCommittedChangesThroughActualRedisSubscription() throws Exception {
 		var repository = mock(FaqRepository.class);
-		when(repository.findActiveEnglishWords(null)).thenReturn(List.of());
+		when(repository.findActiveEnglishWords(null)).thenReturn(List.of(word(1L, "esim")));
 		when(repository.findActiveEnglishWords(2L)).thenReturn(List.of(word(2L, "faq")));
 		try (var redis = new GenericContainer<>("redis:8-alpine").withExposedPorts(6379);
 				var context = new AnnotationConfigApplicationContext()) {
@@ -43,13 +41,12 @@ class FaqEnglishVocabularyWiringTest {
 					() -> new LettuceConnectionFactory(redis.getHost(), redis.getMappedPort(6379)));
 			context.registerBean(StringRedisTemplate.class,
 					() -> spy(new StringRedisTemplate(context.getBean(RedisConnectionFactory.class))));
-			context.registerBean(SubQuestionPromptService.class, () -> new SubQuestionPromptService(
-					new ClassPathResource("prompts/sub-question-system.txt"), new ClassPathResource("prompts/sub-question-user.txt")));
 			context.registerBean(TestTransactionManager.class);
 			context.register(TransactionConfig.class, SubQuestionEnglishPolicy.class, FaqEnglishVocabularyEvents.class);
 			context.refresh();
 			var policy = context.getBean(SubQuestionEnglishPolicy.class);
-			await(() -> policy.requiresSource("FAQ"));
+			await(() -> !policy.requiresSource("eSIM"));
+			assertThat(policy.requiresSource("FAQ")).isTrue();
 			var transactions = new TransactionTemplate(context.getBean(TestTransactionManager.class));
 			var change = new FaqChangedEvent(Set.of(2L));
 
