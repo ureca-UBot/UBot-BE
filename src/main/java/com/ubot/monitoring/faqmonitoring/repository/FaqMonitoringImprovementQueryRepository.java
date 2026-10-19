@@ -29,11 +29,11 @@ public class FaqMonitoringImprovementQueryRepository {
 						f.updated_at AS version_started_at, fl.question_log_id, fl.rank, fl.similarity,
 						ql.created_at AS question_created_at
 					FROM faq f
-					LEFT JOIN faq_log fl
-						ON fl.faq_id = f.id
+					LEFT JOIN (
+						faq_log fl
+						JOIN question_log ql ON ql.id = fl.question_log_id
+					) ON fl.faq_id = f.id
 						AND fl.rank <= :topK
-					LEFT JOIN question_log ql
-						ON ql.id = fl.question_log_id
 						AND ql.created_at >= f.updated_at
 						AND ql.created_at < :evaluatedAt
 					WHERE f.deleted_at IS NULL
@@ -45,7 +45,6 @@ public class FaqMonitoringImprovementQueryRepository {
 							WHERE question_created_at >= :recentUsageStartAt
 						) AS recent_usage_count
 					FROM current_version_logs
-					WHERE question_created_at IS NOT NULL OR question_log_id IS NULL
 					GROUP BY faq_id, question, intent, faq_version, version_started_at
 				), top1_gaps AS (
 					SELECT first_log.faq_id,

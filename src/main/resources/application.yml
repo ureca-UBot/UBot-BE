@@ -79,7 +79,7 @@ faq-monitoring:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
     low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.30}
-    unused-days: ${FAQ_IMPROVEMENT_UNUSED_DAYS:7}
+    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:10}
     minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:20}
     minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
 
@@ -102,7 +102,7 @@ faq:
       # 요청이 몰리거나 Reranker가 연속으로 실패할 때 호출을 건너뛰는 보호 장치
       max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
       failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
-      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}  
+      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
   variant:
     sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
 

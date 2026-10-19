@@ -52,8 +52,8 @@ public class FaqMonitoringService {
 	@Value("${faq-monitoring.improvement.low-gap-rate-threshold}")
 	private double lowGapRateThreshold;
 
-	@Value("${faq-monitoring.improvement.unused-days}")
-	private int unusedDays;
+	@Value("${faq-monitoring.improvement.unused-minutes}")
+	private int unusedMinutes;
 
 	@Value("${faq-monitoring.improvement.minimum-top-k-samples}")
 	private int minimumTopKSampleCount;
@@ -86,7 +86,7 @@ public class FaqMonitoringService {
 	@Transactional(readOnly = true)
 	public FaqImprovementResponse getFaqImprovements() {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
-		LocalDateTime recentUsageStartAt = evaluatedAt.minusDays(unusedDays);
+		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
 		List<FaqImprovementItem> items = improvementQueryRepository
 				.findCurrentVersionMetrics(evaluatedAt, recentUsageStartAt, improvementTopK)
 				.stream()
@@ -99,12 +99,12 @@ public class FaqMonitoringService {
 				.toList();
 
 		log.info(
-				"개선 필요 FAQ를 조회했습니다. evaluatedAt={}, 결과 수={}, 유사도 기준={}, 낮은 Gap 비율 기준={}, 미사용 기간={}일",
+				"개선 필요 FAQ를 조회했습니다. evaluatedAt={}, 결과 수={}, 유사도 기준={}, 낮은 Gap 비율 기준={}, 미사용 기간={}분",
 				evaluatedAt,
 				items.size(),
 				lowSimilarityThreshold,
 				lowGapRateThreshold,
-				unusedDays
+				unusedMinutes
 		);
 		return new FaqImprovementResponse(evaluatedAt, items);
 	}
@@ -169,7 +169,7 @@ public class FaqMonitoringService {
 				&& metric.lowGapRate() >= lowGapRateThreshold) {
 			types.add(FaqImprovementType.DUPLICATE_SUSPECTED);
 		}
-		if (!metric.versionStartedAt().plusDays(unusedDays).isAfter(evaluatedAt)
+		if (!metric.versionStartedAt().plusMinutes(unusedMinutes).isAfter(evaluatedAt)
 				&& metric.recentUsageCount() == 0) {
 			types.add(FaqImprovementType.LOW_USAGE);
 		}
