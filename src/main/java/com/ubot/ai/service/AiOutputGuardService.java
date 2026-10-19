@@ -83,7 +83,10 @@ public class AiOutputGuardService {
             "실제\\s*(?:요금|정보|자료|내용|사실)(?:과|와)?\\s*달라도"
                     + "|(?:이|해당)\\s*(?:FAQ|문서|자료)(?:를|을)\\s*읽(?:으면|고)"
                     + "|\\[(?:운영\\s*공지|도구\\s*성공|API\\s*성공|SYSTEM|DEVELOPER)\\]"
-                    + "[^.!?。！？\\n]{0,80}(?:간주|출력해|생략해|무시해|답해|바꿔)", Pattern.CASE_INSENSITIVE);
+                    + "[^.!?。！？\\n]{0,80}(?:간주|출력해|생략해|무시해|답해|바꿔)"
+                    + "|(?:이전|기존|상위|시스템)\\s*(?:지시|지침|명령|규칙)(?:을|를)?\\s*(?:(?:모두|전부)\\s*)?"
+                    + "(?:무시하고|무시한\\s*채|무시한\\s*상태로)[^.!?。！？\\n]{0,120}"
+                    + "(?:답|대답|응답|출력)(?:하세요|하라|해(?:라|줘)?|하시오)", Pattern.CASE_INSENSITIVE);
     private static final Pattern FREE_BENEFIT = Pattern.compile("무료");
     private static final Pattern FREE_DECLARATION = Pattern.compile(
             "^\\s*(?:입니|예요|이다|이지만|이며|이므로|지만|라고\\s*(?:답|안내)"
@@ -2708,14 +2711,14 @@ public class AiOutputGuardService {
         if (!action.equals(sourceAction)) return false;
         String claim = requirementRestriction(localConditionContext(context), action);
         String source = requirementRestriction(localConditionContext(sourceContext), sourceAction);
-        if (claim.equals(source)) return true;
-        if (sameConditionTopic(claim, source, question)) return true;
-        // '관련 서비스'는 질문에 명시된 같은 서비스의 원문 근거로만 연결합니다.
-        if (!context.strip().matches("^(?:해당|관련)\\s*서비스(?:는|은)?\\s+.*")) return false;
-        Matcher subject = REQUIREMENT_SUBJECT.matcher(sourceContext);
-        return subject.find() && StringUtils.hasText(question)
-                && question.replaceAll("\\s+", "").contains(subject.group(1).replaceAll("\\s+", ""))
-                && claim.equals(requirementRestriction(sourceContext.substring(subject.end()), sourceAction));
+        // 지시 대명사 주어는 일반 생략 비교보다 먼저 확인해, 다른 서비스의 제한으로 연결하지 않습니다.
+        if (context.strip().matches("^(?:해당|관련)\\s*서비스(?:는|은)?\\s+.*")) {
+            Matcher subject = REQUIREMENT_SUBJECT.matcher(sourceContext);
+            return subject.find() && StringUtils.hasText(question)
+                    && question.replaceAll("\\s+", "").contains(subject.group(1).replaceAll("\\s+", ""))
+                    && claim.equals(requirementRestriction(sourceContext.substring(subject.end()), sourceAction));
+        }
+        return claim.equals(source) || sameConditionTopic(claim, source, question);
     }
 
     /** 금액의 배수 단위와 그 뒤의 실제 한정 조사를 구분합니다. */
