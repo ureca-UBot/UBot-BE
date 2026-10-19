@@ -8,6 +8,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.ai.config.AiRuntimeProperties;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.service.AiService;
 import com.ubot.billing.service.BillingService;
 import com.ubot.chat.context.ChatContext;
@@ -212,18 +213,20 @@ class UserDataAnswerEvaluation {
         long start = System.nanoTime();
         List<String> enabledTools = List.of();
         String answer = null;
+        UserDataCards userData = null;
         String error = null;
         try {
             AnswerMaterials materials = collector.collect(new ChatContext(userId, question.text(), null), List.of(USER_DATA_FAQ));
             enabledTools = materials.tools().stream().map(Enum::name).toList();
             AiAnswer aiAnswer = aiService.generateAnswer(materials);
             answer = aiAnswer == null ? null : aiAnswer.answer();
+            userData = aiAnswer == null ? null : aiAnswer.userData();
         } catch (RuntimeException exception) {
             error = exception.getClass().getSimpleName() + ": " + exception.getMessage();
         }
         long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
         List<ToolCall> questionCalls = List.copyOf(calls);
-        return new Result(question, enabledTools, questionCalls, answer, error, elapsedMillis,
+        return new Result(question, enabledTools, questionCalls, answer, userData, error, elapsedMillis,
                 judge(question, enabledTools, questionCalls, error));
     }
 
@@ -413,6 +416,18 @@ class UserDataAnswerEvaluation {
             }
         }
 
+        // 화면 카드는 판정에 넣지 않고, 답변에 쓰인 기록이 제대로 붙었는지 사람이 볼 수 있게 한 표로 모읍니다.
+        md.append("\n## 화면 카드\n\n")
+                .append("답변과 함께 화면에 보내는 요금제·사용량·청구서 카드입니다. 도구로 조회한 기록과, 요약 중 답변에 나온 기록으로 만듭니다.\n\n")
+                .append("| 번호 | 질문 | 사용자 | 카드 | 답변 |\n|---|---|---|---|---|\n");
+        for (Result result : results) {
+            md.append("| ").append(result.question().number())
+                    .append(" | ").append(cell(result.question().text()))
+                    .append(" | ").append(userLabel(result.question()))
+                    .append(" | ").append(cell(cardLabel(result.userData())))
+                    .append(" | ").append(cell(result.answer() == null ? "(답변 없음)" : result.answer())).append(" |\n");
+        }
+
         md.append("\n## 사용자별 정답 데이터\n\n");
         groundTruth.forEach((key, text) -> md.append("### 사용자 ").append(key)
                 .append(" (user_id=").append(userIds.get(key)).append(")\n\n").append(text));
@@ -436,6 +451,7 @@ class UserDataAnswerEvaluation {
                 call.returned().lines().forEach(line -> md.append("    ").append(line).append('\n'));
                 md.append("    ```\n");
             }
+            md.append("- 화면 카드: ").append(cardLabel(result.userData())).append('\n');
             md.append("- 소요 시간: ").append(result.elapsedMillis()).append("ms\n");
             if (result.error() != null) {
                 md.append("- 오류: `").append(result.error().replace('`', '\'')).append("`\n");
@@ -451,7 +467,7 @@ class UserDataAnswerEvaluation {
     private String csv(List<Result> results) {
         StringBuilder csv = new StringBuilder();
         csv.append(csvRow(List.of("번호", "질문", "사용자", "기대 처리", "기대 도구", "켜진 도구",
-                "실제 도구 호출", "판정", "답변", "소요ms", "오류")));
+                "실제 도구 호출", "판정", "답변", "화면 카드", "소요ms", "오류")));
         for (Result result : results) {
             Question question = result.question();
             csv.append(csvRow(List.of(question.number(), question.text(), userLabel(question), question.expected(),
@@ -460,10 +476,24 @@ class UserDataAnswerEvaluation {
                             .collect(Collectors.joining(" ; ")),
                     result.verdict(),
                     result.answer() == null ? "" : result.answer(),
+                    cardLabel(result.userData()),
                     String.valueOf(result.elapsedMillis()),
                     result.error() == null ? "" : result.error())));
         }
         return csv.toString();
+    }
+
+    /** 예: "요금제 010-****-1357 5G 스탠다드 ; 청구서 010-****-1357 2026-10(9월 사용분) ; 사용량 010-****-1357 2026-09" */
+    private static String cardLabel(UserDataCards cards) {
+        if (cards == null) {
+            return "없음";
+        }
+        List<String> labels = new ArrayList<>();
+        cards.plans().forEach(card -> labels.add("요금제 " + card.phoneNumber() + " " + card.plan().summary().name()));
+        cards.usages().forEach(card -> labels.add("사용량 " + card.phoneNumber() + " " + card.usage().billingMonth()));
+        cards.billings().forEach(card -> labels.add("청구서 " + card.phoneNumber() + " " + card.billing().billingMonth()
+                + "(" + card.usageMonth() + "월 사용분)"));
+        return String.join(" ; ", labels);
     }
 
     private String csvRow(List<String> values) {
@@ -496,7 +526,9 @@ class UserDataAnswerEvaluation {
     // ---- 입력 ----
 
     private List<Question> readQuestions() throws IOException {
-        List<String> lines = new ClassPathResource(QUESTIONS).getContentAsString(StandardCharsets.UTF_8).lines()
+        // 카드 확인용처럼 다른 질문 묶음을 돌릴 때는 EVAL_QUESTIONS_FILE에 classpath 경로를 줍니다.
+        String questionsFile = firstNonBlank(loadEnv().get("EVAL_QUESTIONS_FILE"), QUESTIONS);
+        List<String> lines = new ClassPathResource(questionsFile).getContentAsString(StandardCharsets.UTF_8).lines()
                 .filter(line -> !line.isBlank()).toList();
         List<String> header = parseCsvLine(lines.getFirst().replace("﻿", ""));
         // "1,8,52"처럼 번호를 주면 그 질문만 실행합니다. 비우면 전체를 실행합니다.
@@ -585,7 +617,7 @@ class UserDataAnswerEvaluation {
 
     /** verdict는 MATCHED, MISMATCHED 중 하나입니다. */
     private record Result(Question question, List<String> enabledTools, List<ToolCall> calls, String answer,
-            String error, long elapsedMillis, String verdict) {
+            UserDataCards userData, String error, long elapsedMillis, String verdict) {
 
         boolean matched() {
             return MATCHED.equals(verdict);
