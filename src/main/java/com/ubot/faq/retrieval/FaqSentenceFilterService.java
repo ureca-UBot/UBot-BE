@@ -27,7 +27,7 @@ public class FaqSentenceFilterService {
 
     public FaqSentenceFilterService(
             EmbeddingService embeddingService,
-            @Value("${faq.variant.sentence-similarity-treshold}") double threshold
+            @Value("${faq.variant.sentence-similarity-threshold}") double threshold
     ) {
         this.embeddingService = embeddingService;
         this.threshold = threshold;
