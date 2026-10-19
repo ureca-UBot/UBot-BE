@@ -230,6 +230,26 @@ class AiServiceTest {
     }
 
     @Test
+    void 모델이_답을_보류하면_조회한_기록이_있어도_카드를_붙이지_않고_보류_상태는_유지한다() {
+        var materials = AnswerMaterials.builder("요금제 변경할 수 있어?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("요금제 변경할 수 있어?", List.of(), List.of())).thenReturn(prompt);
+        // 도구가 청구서를 남기고, 답변에도 요약 청구서가 나오지만 모델은 답을 보류한 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            return new LlmResponseDto("{\"answer\":\"2026년 10월 청구서만으로는 요금제 변경 가능 여부를 확인할 수 없습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData()).isNull();
+        assertThat(answer.abstained()).isTrue();
+    }
+
+    @Test
     void 도구가_매장을_조회하지_않으면_지도_정보는_없다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
         when(promptService.createPrompt("근처 매장", List.of(), List.of())).thenReturn(prompt);
