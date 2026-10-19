@@ -468,8 +468,7 @@ class SubQuestionGuard {
 			this.original = original;
 			List<String> turnsLatestFirst = new ArrayList<>();
 			for (ConversationTurn turn : history) {
-				String questions = normalize(turn.question() + " " + String.join(" ", turn.searchQueries()));
-				turnsLatestFirst.addFirst(questions + " " + (turn.answer() == null ? "" : normalize(turn.answer())));
+				turnsLatestFirst.addFirst(normalize(turn.question()) + " " + (turn.answer() == null ? "" : normalize(turn.answer())));
 			}
 			StringBuilder all = new StringBuilder(original);
 			turnsLatestFirst.forEach(turn -> all.append(' ').append(turn));

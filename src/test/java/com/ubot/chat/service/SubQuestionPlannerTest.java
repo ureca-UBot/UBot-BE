@@ -61,7 +61,7 @@ class SubQuestionPlannerTest {
 	@Test
 	@DisplayName("판정 LLM이 정리한 하위 질문을 쓰고, 같은 대화의 이전 대화를 최대 3개 넘기며, 멀티턴이면 답변에도 이전 대화를 넘긴다")
 	void usesLlmOutputWithHistory() {
-		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", List.of("5G 프리미엄 요금제"), "월 89,000원입니다."));
+		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", "월 89,000원입니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
@@ -79,7 +79,7 @@ class SubQuestionPlannerTest {
 	@Test
 	@DisplayName("멀티턴이 아니면 이전 대화가 있어도 답변에는 넘기지 않는다")
 	void keepsHistoryFromAnswerWhenNotMultiTurn() {
-		var history = List.of(new ConversationTurn("유심 재발급 방법", List.of("유심 재발급 방법"), "매장에서 가능합니다."));
+		var history = List.of(new ConversationTurn("유심 재발급 방법", "매장에서 가능합니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
@@ -95,7 +95,7 @@ class SubQuestionPlannerTest {
 	@Test
 	@DisplayName("판정할 표지가 없으면 판정 LLM 없이 원문으로 먼저 검색하는 계획을 내고, 실패하면 같은 이전 대화로 판정한다")
 	void searchesOriginalFirstWithoutMarks() {
-		var history = List.of(new ConversationTurn("유심 재발급 방법", List.of("유심 재발급 방법"), "매장에서 가능합니다."));
+		var history = List.of(new ConversationTurn("유심 재발급 방법", "매장에서 가능합니다."));
 		var none = QuestionRouter.Route.none();
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(router.route("해외 로밍은 어떻게 신청하나요?", true)).thenReturn(none);
@@ -121,7 +121,7 @@ class SubQuestionPlannerTest {
 	@Test
 	@DisplayName("가드가 고친 하위 질문을 쓰고, 가드가 모두 버려 원문으로 돌리면 원문 하나로 진행한다")
 	void appliesGuardResult() {
-		var history = List.of(new ConversationTurn("매장 예약 방법", List.of("매장 예약 방법"), "앱에서 예약할 수 있습니다."));
+		var history = List.of(new ConversationTurn("매장 예약 방법", "앱에서 예약할 수 있습니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
@@ -203,7 +203,7 @@ class SubQuestionPlannerTest {
 	@Test
 	@DisplayName("재검색도 표지가 있으면 판정 LLM을 부르고, 이전 대화는 원본 시도를 물을 때 기준으로 읽는다")
 	void researchJudgesWithSourceHistory() {
-		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", List.of("5G 프리미엄 요금제"), "월 89,000원입니다."));
+		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", "월 89,000원입니다."));
 		when(turns.findPreviousTurns(5L, 3)).thenReturn(history);
 		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
 		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(

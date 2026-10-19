@@ -281,7 +281,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@Test
 	@DisplayName("원문 검색이 기준에 못 미친 뒤 판정 결과가 원문 그대로면 다시 검색하지 않고 그 기준으로 답할 수 없음 처리한다")
 	void reusesFailedOriginalSearch() {
-		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", List.of("일본 로밍 3일 요금"), "하루 1만 원입니다."));
+		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", "하루 1만 원입니다."));
 		var question = "신청 취소는 어떻게 해요?";
 		var plain = AnswerAttemptsHistory.builder().id(303L).userId(1L).conversationId(7L).question(question)
 				.status("PENDING").build();
@@ -381,7 +381,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@DisplayName("이전 대화 기준이 기본값(유사도 기준과 같음)이면 이전 대화가 있어도 원문 검색이 유사도 기준만 넘으면 판정 없이 끝난다")
 	void usesConfidenceThresholdWithHistoryByDefault() {
 		ReflectionTestUtils.setField(processor, "searchFirstHistoryThreshold", 0.75);
-		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", List.of("일본 로밍 3일 요금"), "하루 1만 원입니다."));
+		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", "하루 1만 원입니다."));
 		var question = "신청 취소는 어떻게 해요?";
 		var plain = AnswerAttemptsHistory.builder().id(305L).userId(1L).conversationId(7L).question(question)
 				.status("PENDING").build();
@@ -398,7 +398,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@Test
 	@DisplayName("이전 대화 기준을 유사도 기준보다 높이면 이전 대화가 있을 때 원문 검색은 그 기준을 넘어야 판정 없이 끝난다")
 	void usesHigherThresholdWithHistory() {
-		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", List.of("일본 로밍 3일 요금"), "하루 1만 원입니다."));
+		var history = List.of(new ConversationTurn("일본에서 3일 쓰면 얼마예요?", "하루 1만 원입니다."));
 		var question = "신청 취소는 어떻게 해요?";
 		var plain = AnswerAttemptsHistory.builder().id(302L).userId(1L).conversationId(7L).question(question)
 				.status("PENDING").build();
@@ -421,7 +421,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@Test
 	@DisplayName("멀티턴이 아니면 이전 대화가 있어도 답변 자료에 넣지 않는다")
 	void leavesHistoryOutWhenNotMultiTurn() {
-		var history = List.of(new ConversationTurn("유심 재발급 방법", List.of("유심 재발급 방법"), "매장에서 가능합니다."));
+		var history = List.of(new ConversationTurn("유심 재발급 방법", "매장에서 가능합니다."));
 		when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("해외 로밍 신청 방법", "해외 로밍 신청")),
 				SubQuestionPlan.Source.LLM, history, false, null, false));

@@ -66,8 +66,9 @@ public class SubQuestionPromptService {
         StringBuilder text = new StringBuilder();
         for (int index = 0; index < history.size(); index++) {
             ConversationTurn turn = history.get(index);
+            // 이전 질문은 사용자가 입력한 원문을 넣습니다. 판정 LLM이 다시 쓴 검색어를 넣으면 지어낸 말이 다음 턴으로 옮겨 갑니다.
             text.append('[').append(index + 1).append("] 질문: ")
-                    .append(String.join(" / ", turn.searchQueries())).append('\n')
+                    .append(turn.question()).append('\n')
                     .append("답변: ").append(turn.isAnswered() ? truncate(turn.answer()) : FAILED_ANSWER)
                     .append("\n\n");
         }

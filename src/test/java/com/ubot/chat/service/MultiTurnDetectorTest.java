@@ -79,6 +79,6 @@ class MultiTurnDetectorTest {
 	}
 
 	private static List<ConversationTurn> turns(String question, String answer) {
-		return List.of(new ConversationTurn(question, List.of(question), answer));
+		return List.of(new ConversationTurn(question, answer));
 	}
 }

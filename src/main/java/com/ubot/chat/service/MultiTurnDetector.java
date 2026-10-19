@@ -48,7 +48,6 @@ class MultiTurnDetector {
 		Set<String> historyForms = new HashSet<>();
 		for (ConversationTurn turn : history) {
 			historyForms.addAll(forms(turn.question()));
-			turn.searchQueries().forEach(searchQuery -> historyForms.addAll(forms(searchQuery)));
 			if (turn.answer() != null) {
 				historyForms.addAll(forms(turn.answer()));
 			}

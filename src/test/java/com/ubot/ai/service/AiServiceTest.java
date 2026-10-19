@@ -121,7 +121,7 @@ class AiServiceTest {
 
     @Test
     void 이전_대화가_있으면_사용자_질문과_답변을_장소_검증용_질문에_함께_넣는다() {
-        var history = List.of(new ConversationTurn("강남역 매장 알려줘", List.of("강남역 근처 매장"), "강남역점이 있습니다."));
+        var history = List.of(new ConversationTurn("강남역 매장 알려줘", "강남역점이 있습니다."));
         var materials = AnswerMaterials.builder("거기 영업시간은?").enableTool(AiTool.STORE_SEARCH).build()
                 .withHistory(history);
         when(promptService.createPrompt("거기 영업시간은?", List.of(), List.of(), List.of(), history)).thenReturn(prompt);

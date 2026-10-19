@@ -126,8 +126,8 @@ class PromptServiceTest {
     void 이전_대화는_사용자_원문과_답변을_메시지로_시스템_지침과_이번_질문_사이에_넣는다() {
         var service = service(TEST_SYSTEM, TEST_TEMPLATE);
         var history = List.of(
-                new ConversationTurn("유심 재발급 어떻게 해요?", List.of("유심 재발급 방법은 무엇인가요?"), "매장에서 가능합니다."),
-                new ConversationTurn("로밍 요금은?", List.of("로밍 요금은?"), null));
+                new ConversationTurn("유심 재발급 어떻게 해요?", "매장에서 가능합니다."),
+                new ConversationTurn("로밍 요금은?", null));
 
         var request = service.createPrompt("그거 준비물은요?", results, List.of(), List.of(), history);
 

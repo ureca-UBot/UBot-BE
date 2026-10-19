@@ -40,7 +40,7 @@ class ConversationTurnRepositoryTest {
 	}
 
 	@Test
-	@DisplayName("같은 대화의 앞선 턴을 오래된 순으로 최대 개수만큼 원문과 함께 돌려주고, 성공한 턴은 하위 질문과 답변을, 실패한 턴은 원문을 하위 질문으로 쓴다")
+	@DisplayName("같은 대화의 앞선 턴을 오래된 순으로 최대 개수만큼 원문과 함께 돌려주고, 성공한 턴은 답변을 함께, 실패한 턴은 답변 없이 돌려준다")
 	void returnsRecentTurnsOldestFirst() {
 		Long oldest = attempt("가장 오래된 질문", "SUCCESS", 1, key(), 1, null);
 		log(oldest, "가장 오래된 질문", "가장 오래된 질문", 1, "오래된 답변");
@@ -48,7 +48,7 @@ class ConversationTurnRepositoryTest {
 		Long split = attempt("요금이랑 데이터 알려줘", "SUCCESS", 3, key(), 1, null);
 		log(split, "요금이랑 데이터 알려줘", "5G 프리미엄 월 요금", 1, "요금 답변");
 		log(split, "요금이랑 데이터 알려줘", "5G 프리미엄 데이터 제공량", 2, "요금 답변");
-		// 하위 질문을 저장하기 전의 형식(sub_question 없음)은 원문으로 대신합니다.
+		// 하위 질문을 저장하기 전의 형식(sub_question 없음)도 같은 방식으로 읽습니다.
 		Long legacy = attempt("유심 재발급", "SUCCESS", 4, key(), 1, null);
 		log(legacy, "유심 재발급", null, 1, "재발급 답변");
 		Long current = attempt("그럼 비용은?", "PENDING", 5, key(), 1, null);
@@ -56,10 +56,10 @@ class ConversationTurnRepositoryTest {
 		List<ConversationTurn> turns = repository.findPreviousTurns(current, 3);
 
 		assertThat(turns).containsExactly(
-				new ConversationTurn("해외 로밍 신청", List.of("해외 로밍 신청"), null),
-				// 원문은 사용자가 입력한 질문이고, 하위 질문은 질문 로그의 검색어입니다.
-				new ConversationTurn("요금이랑 데이터 알려줘", List.of("5G 프리미엄 월 요금", "5G 프리미엄 데이터 제공량"), "요금 답변"),
-				new ConversationTurn("유심 재발급", List.of("유심 재발급"), "재발급 답변"));
+				new ConversationTurn("해외 로밍 신청", null),
+				// 하위 질문이 여러 개인 턴도 검색어가 아니라 사용자가 입력한 원문 하나로 돌려줍니다.
+				new ConversationTurn("요금이랑 데이터 알려줘", "요금 답변"),
+				new ConversationTurn("유심 재발급", "재발급 답변"));
 	}
 
 	@Test
@@ -73,8 +73,8 @@ class ConversationTurnRepositoryTest {
 		Long current = attempt("그거 비용은?", "PENDING", 4, key(), 1, null);
 
 		assertThat(repository.findPreviousTurns(current, 3)).containsExactly(
-				new ConversationTurn("유심 재발급", List.of("유심 재발급"), "재발급 답변"),
-				new ConversationTurn("해외 로밍 신청", List.of("해외 로밍 신청"), null));
+				new ConversationTurn("유심 재발급", "재발급 답변"),
+				new ConversationTurn("해외 로밍 신청", null));
 	}
 
 	@Test
@@ -88,7 +88,7 @@ class ConversationTurnRepositoryTest {
 		Long retry = attempt("그거 위약금은?", "PENDING", 4, retriedKey, 2, null);
 
 		assertThat(repository.findPreviousTurns(retry, 3)).containsExactly(
-				new ConversationTurn("요금제 변경", List.of("요금제 변경"), "변경 답변"));
+				new ConversationTurn("요금제 변경", "변경 답변"));
 	}
 
 	@Test
@@ -107,7 +107,7 @@ class ConversationTurnRepositoryTest {
 		Long current = attempt("그거 비용은?", "PENDING", 4, key(), 1, null);
 
 		assertThat(repository.findPreviousTurns(current, 3)).containsExactly(
-				new ConversationTurn("유심 재발급", List.of("유심 재발급"), "원본 답변"));
+				new ConversationTurn("유심 재발급", "원본 답변"));
 	}
 
 	@Test
