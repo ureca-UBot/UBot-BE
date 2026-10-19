@@ -91,6 +91,11 @@ public class FaqMonitoringService {
 
 	@Transactional(readOnly = true)
 	public FaqImprovementResponse getFaqImprovements(int page, int size) {
+		return getFaqImprovements(null, page, size);
+	}
+
+	@Transactional(readOnly = true)
+	public FaqImprovementResponse getFaqImprovements(List<FaqImprovementType> types, int page, int size) {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
 		List<FaqImprovementItem> items = improvementQueryRepository
@@ -98,6 +103,8 @@ public class FaqMonitoringService {
 				.stream()
 				.map(metric -> toImprovementItem(metric, evaluatedAt))
 				.flatMap(java.util.Optional::stream)
+				.filter(item -> types == null || types.isEmpty()
+						|| item.improvementTypes().containsAll(types))
 				.sorted(Comparator
 						.comparingInt((FaqImprovementItem item) -> item.improvementTypes().size()).reversed()
 						.thenComparing(Comparator.comparingLong(FaqImprovementItem::topKCount).reversed())
