@@ -6,10 +6,12 @@ import static com.ubot.ai.tool.UserDataFixtures.page;
 import static com.ubot.ai.tool.UserDataFixtures.subscription;
 import static com.ubot.ai.tool.UserDataFixtures.usage;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.UserDataCards;
 import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.billing.service.BillingService;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
@@ -103,6 +105,45 @@ class UserDataToolsTest {
                 .isEqualTo("010-****-5678 회선\n" + String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-09", "청구서"));
         assertThat(tools.getBillingByMonth("2026-10", null, LOGGED_IN))
                 .isEqualTo("010-****-5678 회선\n2026-10 청구서 기록이 없습니다.");
+    }
+
+    @Test
+    void 조회한_기록은_화면_카드용으로_recorder에_남긴다() {
+        givenSubscriptions();
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(usage(YearMonth.of(2026, 10)), usage(YearMonth.of(2026, 9)))));
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(
+                        billing(YearMonth.of(2026, 10), PaymentStatus.UNPAID),
+                        billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
+        UserDataRecorder recorder = new UserDataRecorder();
+        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder));
+
+        tools.getUsageByMonth("2026-09", null, context);
+        tools.getBillingByMonth("2026-09", null, context);
+        // 미리 넣은 달을 다시 물어도 그 기록으로 답하므로 남깁니다.
+        tools.getBillingByMonth("2026-10", null, context);
+        // 기록이 없는 달은 남기지 않습니다.
+        tools.getBillingByMonth("2026-08", null, context);
+
+        assertThat(recorder.cards().usages()).singleElement().satisfies(card -> {
+            assertThat(card.phoneNumber()).isEqualTo("010-****-5678");
+            assertThat(card.usage().billingMonth()).isEqualTo(YearMonth.of(2026, 9));
+        });
+        assertThat(recorder.cards().billings())
+                .extracting(card -> card.billing().billingMonth(), UserDataCards.BillingCard::usageMonth)
+                .containsExactly(tuple(YearMonth.of(2026, 9), 8), tuple(YearMonth.of(2026, 10), 9));
+    }
+
+    @Test
+    void recorder가_없어도_조회는_그대로_한다() {
+        givenSubscriptions();
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(
+                        billing(YearMonth.of(2026, 10), PaymentStatus.UNPAID),
+                        billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
+
+        assertThat(tools.getBillingByMonth("2026-09", null, LOGGED_IN)).contains("2026년 9월 청구서(8월 사용분): 총 78,000원");
     }
 
     @Test

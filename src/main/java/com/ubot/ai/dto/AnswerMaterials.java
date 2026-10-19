@@ -12,6 +12,7 @@ import java.util.Set;
  * intent별 핸들러가 모은 답변 자료입니다. AiService로 넘어간 뒤에는 바뀌지 않습니다. 
  * faqs, sections, tools는 비어 있을 수는 있어도 null이 아닙니다.
  * storeMap은 매장을 조회하지 않았으면 null이고, userId는 비회원이면 null입니다.
+ * userDataSummary는 가입 정보를 미리 조회하지 않았으면 null이며, 답변에 쓰인 기록을 화면용 카드로 고를 때만 씁니다.
  */
 public record AnswerMaterials(
         String question,
@@ -19,7 +20,8 @@ public record AnswerMaterials(
         List<ContextSection> sections,
         Set<AiTool> tools,
         StoreMapResult storeMap,
-        Long userId) {
+        Long userId,
+        UserDataSummary userDataSummary) {
 
     public AnswerMaterials {
         // Builder를 거치지 않고 만들어도 컬렉션은 null 없이 불변으로 고정합니다.
@@ -41,6 +43,7 @@ public record AnswerMaterials(
         private final Set<AiTool> tools = EnumSet.noneOf(AiTool.class);
         private StoreMapResult storeMap;
         private Long userId;
+        private UserDataSummary userDataSummary;
 
         private Builder(String question) {
             this.question = question;
@@ -72,9 +75,15 @@ public record AnswerMaterials(
             return this;
         }
 
+        /** 화면 카드용으로만 쓰는 조회 결과입니다. LLM에는 이 객체가 아니라 핸들러가 만든 요약 문자열이 들어갑니다. */
+        public Builder userDataSummary(UserDataSummary value) {
+            userDataSummary = value;
+            return this;
+        }
+
         public AnswerMaterials build() {
         	// 복사와 불변 처리는 생성자가 맡습니다.
-            return new AnswerMaterials(question, faqs, sections, tools, storeMap, userId);
+            return new AnswerMaterials(question, faqs, sections, tools, storeMap, userId, userDataSummary);
         }
     }
 }

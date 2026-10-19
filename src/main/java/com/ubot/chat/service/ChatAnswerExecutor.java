@@ -90,7 +90,7 @@ public class ChatAnswerExecutor {
 				log.info("답변 생성에 성공했습니다: 시도ID={}, 처리시간={}ms", attempt.getId(), elapsedMillis(startedAt));
 				// 저장 커밋과 성공 응답 확정 사이에 타임아웃이 끼어들지 않게 합니다.
 				return ChatResponseDto.from(savedAttempt, answer.answer(), false,
-						ChatStoreDto.of(answer.locationRequired(), answer.storeMap()));
+						ChatStoreDto.of(answer.locationRequired(), answer.storeMap()), answer.userData());
 			});
 		} catch (GlobalException exception) {
 			log.warn("답변 생성이 업무 예외로 종료되었습니다: 시도ID={}, 오류코드={}, 오류메시지={}",

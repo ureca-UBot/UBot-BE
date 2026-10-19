@@ -2,6 +2,7 @@ package com.ubot.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -13,12 +14,17 @@ import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.UserDataCards;
+import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
+import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserDataTools;
+import com.ubot.billing.dto.response.BillingRecordResponseDto;
+import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
@@ -33,6 +39,13 @@ import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.store.service.StoreService;
+import com.ubot.subscription.dto.response.SubscriptionResponseDto;
+import com.ubot.subscription.enums.SimStatus;
+import com.ubot.subscription.enums.SimType;
+import com.ubot.subscription.enums.SubscriptionStatus;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,7 +128,9 @@ class AiServiceTest {
                 .containsEntry(StoreTools.QUESTION, "근처 매장 알려줘")
                 .hasEntrySatisfying(StoreTools.RECORDER,
                         recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
-                .hasSize(2);
+                .hasEntrySatisfying(UserDataTools.RECORDER,
+                        recorder -> assertThat(recorder).isInstanceOf(UserDataRecorder.class))
+                .hasSize(3);
     }
 
     @Test
@@ -163,6 +178,55 @@ class AiServiceTest {
 
         assertThat(answer.answer()).isEqualTo("근처 매장을 지도에 표시했어요.");
         assertThat(answer.storeMap()).isSameAs(storeMap);
+    }
+
+    @Test
+    void 도구가_조회한_청구서와_답변에_쓰인_요약_청구서를_중복_없이_합쳐_카드로_반환한다() {
+        var materials = AnswerMaterials.builder("지난달이랑 이번 달 요금 차이").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("지난달이랑 이번 달 요금 차이", List.of(), List.of())).thenReturn(prompt);
+        // 실제 도구 실행 대신, 도구가 9월 청구서와 (이미 요약에 있는) 10월 청구서를 recorder에 남기는 상황을 흉내 냅니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 10)));
+            return new LlmResponseDto("{\"answer\":\"2026년 10월 청구서는 9월 청구서보다 1,000원 많습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData().billings())
+                .extracting(card -> card.billing().billingMonth(), UserDataCards.BillingCard::usageMonth)
+                .containsExactly(tuple(YearMonth.of(2026, 9), 8), tuple(YearMonth.of(2026, 10), 9));
+        assertThat(answer.userData().plans()).isEmpty();
+    }
+
+    @Test
+    void 도구를_부르지_않으면_답변에_쓰인_요약_기록만_카드로_반환한다() {
+        var materials = AnswerMaterials.builder("이번 달 요금 얼마야?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("이번 달 요금 얼마야?", List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"이번 달 요금은 2026년 10월 청구서 기준 78,000원입니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData().billings()).singleElement().satisfies(card -> {
+            assertThat(card.phoneNumber()).isEqualTo("010-****-5678");
+            assertThat(card.billing().billingMonth()).isEqualTo(YearMonth.of(2026, 10));
+        });
+    }
+
+    @Test
+    void 답변에_쓰인_가입_정보가_없으면_카드는_없다() {
+        var materials = AnswerMaterials.builder("결합 상품 있어?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("결합 상품 있어?", List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("결합 상품은 없습니다."));
+
+        assertThat(aiService.generateAnswer(materials).userData()).isNull();
     }
 
     @Test
@@ -221,5 +285,20 @@ class AiServiceTest {
         assertThatThrownBy(() -> aiService.generateAnswer(AnswerMaterials.builder("질문").addFaqs(faqs).build()))
                 .isSameAs(failure);
         verifyNoInteractions(llmService);
+    }
+
+    /** 회선 하나에 최근 청구서만 있는 가입 정보입니다. */
+    private static UserDataSummary summaryWithLatestBilling(YearMonth month) {
+        var subscription = new SubscriptionResponseDto(1L, "010-1234-5678", SubscriptionStatus.ACTIVE,
+                LocalDateTime.of(2024, 3, 2, 10, 0), null, 1L, "5G 스탠다드", SimType.USIM, "********1234",
+                SimStatus.ACTIVE, LocalDateTime.of(2024, 3, 2, 10, 0), null);
+        return new UserDataSummary(LocalDate.of(2026, 10, 12), new UserDataSummary.Profile("홍길동", 30, "서울", null),
+                List.of(new UserDataSummary.SubscriptionSummary(subscription, null, null, billing(month), List.of(), null,
+                        List.of(), List.of(), List.of())));
+    }
+
+    private static BillingRecordResponseDto billing(YearMonth month) {
+        return new BillingRecordResponseDto(1L, month, 75000, 3000, 0, 0, 0, 78000, month.atDay(25),
+                PaymentStatus.UNPAID, 0, null, null);
     }
 }

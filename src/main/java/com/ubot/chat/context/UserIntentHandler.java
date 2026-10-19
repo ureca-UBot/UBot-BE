@@ -2,6 +2,7 @@ package com.ubot.chat.context;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -42,8 +43,10 @@ public class UserIntentHandler implements IntentHandler {
 			return;
 		}
 		try {
-			String summary = userDataSummarizer.format(userDataSummarizer.summarize(context.userId()));
-			materials.addSection(new ContextSection(SECTION_TITLE, summary));
+			UserDataSummary summary = userDataSummarizer.summarize(context.userId());
+			materials.addSection(new ContextSection(SECTION_TITLE, userDataSummarizer.format(summary)));
+			// 답변에 쓰인 기록을 화면 카드로 고를 수 있게 조회 결과 객체도 넘깁니다. LLM에는 들어가지 않습니다.
+			materials.userDataSummary(summary);
 		} catch (UserException exception) {
 			// 탈퇴했거나 없는 사용자는 도구로 조회해도 결과가 없으므로 도구를 붙이지 않습니다.
 			materials.addSection(new ContextSection(SECTION_TITLE, NOT_FOUND_CONTENT));

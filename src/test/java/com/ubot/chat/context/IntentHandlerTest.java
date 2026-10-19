@@ -100,6 +100,8 @@ class IntentHandlerTest {
 		assertThat(built.sections()).containsExactly(
 				new ContextSection(UserIntentHandler.SECTION_TITLE, "조회 기준일: 2026-10-12"));
 		assertThat(built.tools()).containsExactly(AiTool.USER_DATA_LOOKUP);
+		// 답변에 쓰인 기록을 화면 카드로 고를 수 있게 조회 결과 객체도 넘깁니다.
+		assertThat(built.userDataSummary()).isSameAs(summary);
 	}
 
 	@Test
@@ -114,6 +116,7 @@ class IntentHandlerTest {
 		assertThat(built.sections()).containsExactly(
 				new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.NOT_FOUND_CONTENT));
 		assertThat(built.tools()).isEmpty();
+		assertThat(built.userDataSummary()).isNull();
 	}
 
 	@Test
@@ -128,6 +131,7 @@ class IntentHandlerTest {
 		assertThat(built.sections()).containsExactly(
 				new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.LOOKUP_FAILED_CONTENT));
 		assertThat(built.tools()).containsExactly(AiTool.USER_DATA_LOOKUP);
+		assertThat(built.userDataSummary()).isNull();
 	}
 
 	@Test
@@ -141,6 +145,7 @@ class IntentHandlerTest {
 		assertThat(built.sections()).extracting(ContextSection::content)
 				.containsExactly(UserIntentHandler.LOGIN_REQUIRED_CONTENT);
 		assertThat(built.tools()).isEmpty();
+		assertThat(built.userDataSummary()).isNull();
 		verifyNoInteractions(summarizer);
 	}
 }
