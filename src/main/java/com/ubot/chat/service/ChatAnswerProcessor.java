@@ -23,8 +23,11 @@ import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -115,28 +118,40 @@ public class ChatAnswerProcessor {
 			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
 		}
 		List<FaqSearchResponseDto> candidates = similar.stream().limit(topK).toList();
+		List<FaqSearchResponseDto> sentenceCandidates = candidates.stream()
+				.filter(faq -> faq.intent() == Intent.GENERAL)
+				.toList();
 		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 검색후보수={}, 유사도통과수={}, 문장검사대상FAQ수={}, Reranker정렬={}, Reranker실패사유={}",
 				attempt.getId(), dense.candidates().size(), similar.size(),
-				candidates.size(), outcome.reranked(), outcome.fallbackReason());
-		List<MatchedFaq> matched = faqSentenceFilterService.filter(dense.queryVector(), candidates);
+				sentenceCandidates.size(), outcome.reranked(), outcome.fallbackReason());
+		List<MatchedFaq> matched = sentenceCandidates.isEmpty() ? List.of()
+				: faqSentenceFilterService.filter(dense.queryVector(), sentenceCandidates);
 		checkCancellation.run();
 		log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 통과FAQ수={}, 통과FAQ ID={}",
 				attempt.getId(), matched.size(), matched.stream().map(item -> item.faq().faqId()).toList());
-		if (matched.isEmpty()) {
-			log.info("유사도 기준을 통과한 FAQ 답변 문장이 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
+		Map<Long, String> matchedAnswers = matched.stream()
+				.collect(Collectors.toMap(item -> item.faq().faqId(), MatchedFaq::answerSentences));
+		List<FaqSearchResponseDto> originalFaqs = new ArrayList<>();
+		List<FaqSearchResponseDto> promptFaqs = new ArrayList<>();
+		for (FaqSearchResponseDto faq : candidates) {
+			boolean generalFaq = faq.intent() == Intent.GENERAL;
+			String answer = generalFaq ? matchedAnswers.get(faq.faqId()) : faq.answer();
+			if (generalFaq && answer == null) {
+				continue;
+			}
+			originalFaqs.add(faq);
+			promptFaqs.add(new FaqSearchResponseDto(faq.faqId(), faq.question(), answer,
+					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable()));
+		}
+		if (originalFaqs.isEmpty()) {
+			log.info("답변 근거로 사용할 FAQ가 없어 미응답으로 처리합니다: 시도ID={}", attempt.getId());
 			createUnansweredQuestion(attempt, UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 			return ChatAnswerResult.failed(ChatErrorCode.INSUFFICIENT_FAQ);
 		}
-		List<FaqSearchResponseDto> originalFaqs = matched.stream().map(MatchedFaq::faq).toList();
-		List<FaqSearchResponseDto> promptFaqs = matched.stream().map(item -> {
-			FaqSearchResponseDto faq = item.faq();
-			return new FaqSearchResponseDto(faq.faqId(), faq.question(), item.answerSentences(),
-					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable());
-		}).toList();
 		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
 		AnswerMaterials materials = chatContextCollector.collect(
 				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), promptFaqs);
-		log.info("선별한 FAQ 답변 문장으로 LLM 답변을 생성합니다: 시도ID={}, FAQ ID={}, 준비시간={}ms",
+		log.info("FAQ 및 조회 자료로 LLM 답변을 생성합니다: 시도ID={}, FAQ ID={}, 준비시간={}ms",
 				attempt.getId(), originalFaqs.stream().map(FaqSearchResponseDto::faqId).toList(), elapsedMillis(startedAt));
 		AiAnswer answer = aiService.generateAnswer(materials);
 		checkCancellation.run();
