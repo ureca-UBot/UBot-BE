@@ -1,6 +1,7 @@
 package com.ubot.monitoring.faqmonitoring.repository;
 
 import com.ubot.faq.enums.Intent;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCandidate;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementMetric;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,7 +22,8 @@ public class FaqMonitoringImprovementQueryRepository {
 	public List<FaqImprovementMetric> findCurrentVersionMetrics(
 			LocalDateTime evaluatedAt,
 			LocalDateTime recentUsageStartAt,
-			int topK
+			int topK,
+			double lowGapThreshold
 	) {
 		String sql = """
 				WITH current_version_logs AS (
@@ -61,7 +63,7 @@ public class FaqMonitoringImprovementQueryRepository {
 					SELECT faq_id, COUNT(*) AS top1_sample_count,
 						COALESCE(AVG(gap), 0.0) AS average_top_gap,
 						COALESCE(
-							COUNT(*) FILTER (WHERE gap < 0.05)::double precision / NULLIF(COUNT(*), 0),
+							COUNT(*) FILTER (WHERE gap < :lowGapThreshold)::double precision / NULLIF(COUNT(*), 0),
 							0.0
 						) AS low_gap_rate
 					FROM top1_gaps
@@ -79,6 +81,7 @@ public class FaqMonitoringImprovementQueryRepository {
 		MapSqlParameterSource parameters = new MapSqlParameterSource()
 				.addValue("evaluatedAt", evaluatedAt)
 				.addValue("recentUsageStartAt", recentUsageStartAt)
+				.addValue("lowGapThreshold", lowGapThreshold)
 				.addValue("topK", topK);
 		return jdbcTemplate.query(sql, parameters, (rs, rowNum) -> new FaqImprovementMetric(
 				rs.getLong("faq_id"),
@@ -92,6 +95,62 @@ public class FaqMonitoringImprovementQueryRepository {
 				rs.getLong("recent_usage_count"),
 				rs.getDouble("average_top_gap"),
 				rs.getDouble("low_gap_rate")
+		));
+	}
+
+	public List<FaqDuplicateCandidate> findDuplicateCandidates(
+			Long faqId,
+			LocalDateTime evaluatedAt,
+			double lowGapThreshold
+	) {
+		String sql = """
+				WITH pair_counts AS (
+					SELECT other_faq.id AS candidate_faq_id, COUNT(*) AS pair_count
+					FROM faq target_faq
+					JOIN faq_log target_log
+						ON target_log.faq_id = target_faq.id
+						AND target_log.rank = 1
+					JOIN question_log ql
+						ON ql.id = target_log.question_log_id
+						AND ql.created_at >= target_faq.updated_at
+						AND ql.created_at < :evaluatedAt
+					JOIN faq_log other_log
+						ON other_log.question_log_id = target_log.question_log_id
+						AND other_log.rank = 2
+						AND other_log.faq_id <> target_faq.id
+					JOIN faq other_faq
+						ON other_faq.id = other_log.faq_id
+						AND other_faq.deleted_at IS NULL
+						AND ql.created_at >= other_faq.updated_at
+					WHERE target_faq.id = :faqId
+						AND target_faq.deleted_at IS NULL
+						AND target_log.similarity - other_log.similarity < :lowGapThreshold
+					GROUP BY other_faq.id
+				), top1_counts AS (
+					SELECT fl.faq_id, COUNT(fl.question_log_id) AS top1_count
+					FROM pair_counts pairs
+					JOIN faq f ON f.id = pairs.candidate_faq_id
+					JOIN faq_log fl ON fl.faq_id = f.id AND fl.rank = 1
+					JOIN question_log ql ON ql.id = fl.question_log_id
+						AND ql.created_at >= f.updated_at
+						AND ql.created_at < :evaluatedAt
+					GROUP BY fl.faq_id
+				)
+				SELECT pairs.candidate_faq_id, f.question,
+					COALESCE(counts.top1_count, 0) AS top1_count, pairs.pair_count
+				FROM pair_counts pairs
+				JOIN faq f ON f.id = pairs.candidate_faq_id AND f.deleted_at IS NULL
+				LEFT JOIN top1_counts counts ON counts.faq_id = pairs.candidate_faq_id
+				ORDER BY pairs.pair_count DESC, pairs.candidate_faq_id ASC
+				""";
+
+		MapSqlParameterSource parameters = new MapSqlParameterSource()
+				.addValue("faqId", faqId)
+				.addValue("evaluatedAt", evaluatedAt)
+				.addValue("lowGapThreshold", lowGapThreshold);
+		return jdbcTemplate.query(sql, parameters, (rs, rowNum) -> new FaqDuplicateCandidate(
+				rs.getLong("candidate_faq_id"), rs.getString("question"),
+				rs.getLong("top1_count"), rs.getLong("pair_count")
 		));
 	}
 }

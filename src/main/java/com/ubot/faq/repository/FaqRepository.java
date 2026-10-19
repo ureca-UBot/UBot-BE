@@ -20,6 +20,8 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
 """)
 	Optional<Faq> findActiveById(Long faqId);
 
+	boolean existsByIdAndDeletedAtIsNull(Long faqId);
+
 	@Query("""
 		select f
 		from Faq f

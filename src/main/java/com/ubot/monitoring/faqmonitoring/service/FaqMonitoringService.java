@@ -12,6 +12,7 @@ import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrend;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrendPeriod;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrendPoint;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqTrendWindow;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCandidate;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementItem;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementMetric;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
@@ -52,6 +53,9 @@ public class FaqMonitoringService {
 
 	@Value("${faq-monitoring.improvement.low-gap-rate-threshold}")
 	private double lowGapRateThreshold;
+
+	@Value("${faq-monitoring.improvement.low-gap-threshold}")
+	private double lowGapThreshold;
 
 	@Value("${faq-monitoring.improvement.unused-minutes}")
 	private int unusedMinutes;
@@ -99,7 +103,7 @@ public class FaqMonitoringService {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
 		List<FaqImprovementItem> items = improvementQueryRepository
-				.findCurrentVersionMetrics(evaluatedAt, recentUsageStartAt, improvementTopK)
+				.findCurrentVersionMetrics(evaluatedAt, recentUsageStartAt, improvementTopK, lowGapThreshold)
 				.stream()
 				.map(metric -> toImprovementItem(metric, evaluatedAt))
 				.flatMap(java.util.Optional::stream)
@@ -126,6 +130,16 @@ public class FaqMonitoringService {
 				unusedMinutes
 		);
 		return FaqImprovementResponse.of(evaluatedAt, result);
+	}
+
+	@Transactional(readOnly = true)
+	public List<FaqDuplicateCandidate> getDuplicateCandidates(Long faqId) {
+		if (!faqRepository.existsByIdAndDeletedAtIsNull(faqId)) {
+			throw new FaqException(FaqErrorCode.FAQ_NOT_FOUND);
+		}
+		return improvementQueryRepository.findDuplicateCandidates(
+				faqId, LocalDateTime.now(SERVICE_ZONE), lowGapThreshold
+		);
 	}
 
 	@Transactional(readOnly = true)
