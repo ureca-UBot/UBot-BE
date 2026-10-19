@@ -1,11 +1,15 @@
 package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import kr.pe.bab2min.Kiwi;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -25,6 +29,15 @@ class QuestionRouterTest {
 	@AfterAll
 	static void closeKiwi() throws Exception {
 		kiwi.close();
+	}
+
+	@Test
+	@DisplayName("형태소 분석이 실패하면 답변을 실패시키지 않고 표지가 없는 것으로 본다")
+	void treatsAnalysisFailureAsNoMarks() {
+		QuestionMorphology failing = mock(QuestionMorphology.class);
+		when(failing.words(any())).thenThrow(new MorphologyException(new Exception("Kiwi 분석 실패")));
+
+		assertThat(new QuestionRouter(failing).route("유심 재발급이랑 비용 알려줘", true)).isEqualTo(QuestionRouter.Route.none());
 	}
 
 	@ParameterizedTest

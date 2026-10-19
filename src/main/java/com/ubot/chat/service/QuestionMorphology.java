@@ -38,7 +38,14 @@ class QuestionMorphology {
 		if (text == null || text.isBlank()) {
 			return morphs;
 		}
-		for (Kiwi.Token token : kiwi.tokenize(text, ANALYZE_OPTION)) {
+		Kiwi.Token[] tokens;
+		try {
+			tokens = kiwi.tokenize(text, ANALYZE_OPTION);
+		} catch (Exception exception) {
+			// 네이티브 코드는 선언하지 않은 checked 예외도 던지므로 Exception으로 받아 한 가지 예외로 바꿉니다.
+			throw new MorphologyException(exception);
+		}
+		for (Kiwi.Token token : tokens) {
 			int start = Math.min(token.position, text.length());
 			int end = Math.min(start + token.length, text.length());
 			morphs.add(new Morph(token.form, Kiwi.POSTag.toString(token.tag), start, end, text.substring(start, end)));

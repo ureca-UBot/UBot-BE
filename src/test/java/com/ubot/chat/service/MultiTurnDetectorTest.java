@@ -1,6 +1,9 @@
 package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.ConversationTurn;
 import java.util.List;
@@ -26,6 +29,17 @@ class MultiTurnDetectorTest {
 	@AfterAll
 	static void closeKiwi() throws Exception {
 		kiwi.close();
+	}
+
+	@Test
+	@DisplayName("형태소 분석이 실패하면 답변을 실패시키지 않고 멀티턴이 아닌 것으로 본다")
+	void treatsAnalysisFailureAsNotMultiTurn() {
+		QuestionMorphology failing = mock(QuestionMorphology.class);
+		when(failing.words(any())).thenThrow(new MorphologyException(new Exception("Kiwi 분석 실패")));
+		var history = turns("유심 재발급 방법 알려줘", "신분증을 지참해 매장을 방문하면 재발급할 수 있습니다.");
+
+		assertThat(new MultiTurnDetector(failing).isMultiTurn("그거 비용은?", history, List.of("유심 재발급 비용"), NO_MARK))
+				.isFalse();
 	}
 
 	@Test

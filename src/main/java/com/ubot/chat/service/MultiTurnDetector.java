@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
  *   <li>원문에 멀티턴 표지가 있음(QuestionRouter)</li>
  * </ul>
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 class MultiTurnDetector {
@@ -27,7 +29,18 @@ class MultiTurnDetector {
 
 	private final QuestionMorphology morphology;
 
+	/** 형태소 분석(Kiwi)이 실패하면 답변을 실패시키지 않고 멀티턴이 아닌 것으로 봅니다(이전 대화를 답변 LLM에 넘기지 않음). */
 	boolean isMultiTurn(String question, List<ConversationTurn> history, List<String> searchQueries, QuestionRouter.Route route) {
+		try {
+			return detect(question, history, searchQueries, route);
+		} catch (RuntimeException exception) {
+			// Kiwi 실패(MorphologyException)와 분석 코드의 오류를 함께 잡습니다.
+			log.warn("멀티턴 판정에 실패해 이전 대화 없이 답합니다", exception);
+			return false;
+		}
+	}
+
+	private boolean detect(String question, List<ConversationTurn> history, List<String> searchQueries, QuestionRouter.Route route) {
 		if (history.isEmpty()) {
 			return false;
 		}

@@ -1,6 +1,9 @@
 package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.chat.service.SubQuestionGuard.Item;
@@ -33,6 +36,22 @@ class SubQuestionGuardTest {
 	@AfterAll
 	static void closeKiwi() throws Exception {
 		kiwi.close();
+	}
+
+	@Test
+	@DisplayName("형태소 분석이 실패하면 답변을 실패시키지 않고 원문 하나로 돌아간다")
+	void fallsBackToOriginalWhenAnalysisFails() {
+		QuestionMorphology failing = mock(QuestionMorphology.class);
+		MorphologyException failure = new MorphologyException(new Exception("Kiwi 분석 실패"));
+		when(failing.analyze(any())).thenThrow(failure);
+		when(failing.words(any())).thenThrow(failure);
+		var failingGuard = new SubQuestionGuard(failing, new OriginalQuestionSplitter(failing));
+
+		Result result = failingGuard.check("유심 재발급이랑 비용 알려줘", List.of(), List.of("유심 재발급 방법", "유심 재발급 비용"));
+
+		assertThat(result.items()).containsExactly(new Item("유심 재발급이랑 비용 알려줘", "유심 재발급이랑 비용 알려줘"));
+		assertThat(result.fallback()).isTrue();
+		assertThat(result.reasons()).containsExactly(Reason.ERROR);
 	}
 
 	@Test

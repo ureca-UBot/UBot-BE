@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
  * 표지를 놓치면 답이 틀리고, 잘못 잡으면 판정 호출이 한 번 늘 뿐이라 표지는 넓게 잡습니다.
  * 멀티턴 표지는 이전 대화가 있을 때만 봅니다. 이전 대화가 없으면 채울 맥락이 없습니다.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 class QuestionRouter {
@@ -58,9 +60,19 @@ class QuestionRouter {
 		}
 	}
 
+	/**
+	 * 형태소 분석(Kiwi)이 실패하면 답변을 실패시키지 않고 표지가 없는 것으로 봅니다. 그러면 원문으로 먼저 검색하고,
+	 * 기준에 못 미칠 때 판정 LLM을 부르므로 질문 분리·맥락 보완 기회는 남습니다.
+	 */
 	Route route(String question, boolean hasHistory) {
-		List<Word> words = morphology.words(question);
-		return new Route(splitMarks(question, words), hasHistory ? multiTurnMarks(question, words) : List.of());
+		try {
+			List<Word> words = morphology.words(question);
+			return new Route(splitMarks(question, words), hasHistory ? multiTurnMarks(question, words) : List.of());
+		} catch (RuntimeException exception) {
+			// Kiwi 실패(MorphologyException)와 분석 코드의 오류를 함께 잡습니다.
+			log.warn("경로 분류에 실패해 표지가 없는 것으로 보고 원문으로 먼저 검색합니다", exception);
+			return Route.none();
+		}
 	}
 
 	private List<String> multiTurnMarks(String question, List<Word> words) {

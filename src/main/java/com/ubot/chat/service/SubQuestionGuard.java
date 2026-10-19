@@ -94,7 +94,8 @@ class SubQuestionGuard {
 			return inspect(question, history, rawQueries);
 		} catch (RuntimeException exception) {
 			// 가드는 검색어를 다듬는 단계라, 분석에 실패하면 답변을 실패시키지 않고 원문으로 진행합니다.
-			log.warn("하위 질문 가드 검사에 실패해 원문으로 검색합니다: 사유={}", exception.toString());
+			// Kiwi 실패(MorphologyException)와 가드 코드의 오류를 함께 잡습니다.
+			log.warn("하위 질문 가드 검사에 실패해 원문으로 검색합니다", exception);
 			return fallback(question, EnumSet.of(Reason.ERROR));
 		}
 	}
