@@ -56,6 +56,7 @@ class SubQuestionGuard {
 
 	private final QuestionMorphology morphology;
 	private final OriginalQuestionSplitter splitter;
+	private final SubQuestionEnglishPolicy englishPolicy;
 
 	/**
 	 * 검사를 통과한 하위 질문입니다. searchQuery는 검색에 쓸 검색어이고 userText는 그에 해당하는 원문 조각입니다.
@@ -178,7 +179,7 @@ class SubQuestionGuard {
 		}
 		Matcher latin = LATIN_WORD.matcher(text);
 		while (latin.find()) {
-			if (!sources.contains(latin.group())) {
+			if (englishPolicy.requiresSource(latin.group()) && !sources.contains(latin.group())) {
 				return Reason.PROMPT_LEAK;
 			}
 		}

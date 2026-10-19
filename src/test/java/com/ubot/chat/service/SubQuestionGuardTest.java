@@ -10,12 +10,15 @@ import com.ubot.chat.service.SubQuestionGuard.Item;
 import com.ubot.chat.service.SubQuestionGuard.Outcome;
 import com.ubot.chat.service.SubQuestionGuard.Reason;
 import com.ubot.chat.service.SubQuestionGuard.Result;
+import com.ubot.faq.repository.FaqRepository;
+import com.ubot.prompt.service.SubQuestionPromptService;
 import java.util.List;
 import kr.pe.bab2min.Kiwi;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 
 /**
  * 실제 Kiwi 모델로 확인합니다. 모델 경로는 Gradle test 작업이 KIWI_MODEL_PATH로 넘깁니다.
@@ -30,7 +33,21 @@ class SubQuestionGuardTest {
 	static void loadKiwi() throws Exception {
 		kiwi = Kiwi.init(System.getenv().getOrDefault("KIWI_MODEL_PATH", ".kiwi/model"));
 		QuestionMorphology morphology = new QuestionMorphology(kiwi);
-		guard = new SubQuestionGuard(morphology, new OriginalQuestionSplitter(morphology));
+		guard = new SubQuestionGuard(morphology, new OriginalQuestionSplitter(morphology),
+				englishPolicy(List.of("esim", "usim", "wi", "fi")));
+	}
+
+	private static SubQuestionEnglishPolicy englishPolicy(List<String> faqWords) {
+		var repository = mock(FaqRepository.class);
+		when(repository.findActiveEnglishWords(null)).thenReturn(faqWords.stream().<FaqRepository.EnglishWord>map(value -> new FaqRepository.EnglishWord() {
+			public Long getFaqId() { return 1L; }
+			public String getWord() { return value; }
+		}).toList());
+		var prompts = new SubQuestionPromptService(new ClassPathResource("prompts/sub-question-system.txt"),
+				new ClassPathResource("prompts/sub-question-user.txt"));
+		var policy = new SubQuestionEnglishPolicy(repository, prompts);
+		policy.initialize();
+		return policy;
 	}
 
 	@AfterAll
@@ -45,7 +62,7 @@ class SubQuestionGuardTest {
 		MorphologyException failure = new MorphologyException(new Exception("Kiwi 분석 실패"));
 		when(failing.analyze(any())).thenThrow(failure);
 		when(failing.words(any())).thenThrow(failure);
-		var failingGuard = new SubQuestionGuard(failing, new OriginalQuestionSplitter(failing));
+		var failingGuard = new SubQuestionGuard(failing, new OriginalQuestionSplitter(failing), mock(SubQuestionEnglishPolicy.class));
 
 		Result result = failingGuard.check("유심 재발급이랑 비용 알려줘", List.of(), List.of("유심 재발급 방법", "유심 재발급 비용"));
 
@@ -154,7 +171,7 @@ class SubQuestionGuardTest {
 	void blocksPromptLeak() {
 		Result listed = guard.check("문자 안 보내지고 전화도 안 걸려요", List.of(),
 				List.of("문자 안 보내지고 전화도 안 걸려요 되는지 여부와 방법은 무엇인가요"));
-		Result latin = guard.check("전화는 오는데 문자가 안 와요", List.of(), List.of("전화가 오는데 문자가 안 와요 why"));
+		Result latin = guard.check("전화는 오는데 문자가 안 와요", List.of(), List.of("전화가 오는데 문자가 안 와요 FAQ"));
 
 		assertThat(listed.reasons()).containsExactly(Reason.PROMPT_LEAK);
 		assertThat(listed.searchQueries()).containsExactly("문자 안 보내지고 전화도 안 걸려요");

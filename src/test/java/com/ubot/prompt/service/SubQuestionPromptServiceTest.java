@@ -77,6 +77,27 @@ class SubQuestionPromptServiceTest {
     }
 
     @Test
+    @DisplayName("영문 유출 표지는 실제 프롬프트에서 읽고 입력 자리표시자는 제외한다")
+    void extractsEnglishWordsWithoutInputPlaceholders() {
+        assertThat(service.englishWords()).contains("faq", "json", "sub", "questions")
+                .doesNotContain("question", "history", "esim");
+        var customized = new SubQuestionPromptService(
+                new ByteArrayResource("CustomMarker FAQ".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayResource("Conversation {{history}} Question {{question}}".getBytes(StandardCharsets.UTF_8)));
+        assertThat(customized.englishWords()).containsExactlyInAnyOrder("custommarker", "faq", "conversation", "question");
+    }
+
+    @Test
+    @DisplayName("치환하지 않는 시스템 프롬프트의 같은 표기는 유출 표지에서 지우지 않는다")
+    void preservesLiteralPlaceholderNamesInSystemPrompt() {
+        var customized = new SubQuestionPromptService(
+                new ByteArrayResource("{{question}} {{history}} FAQ".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayResource("{{question}} {{history}}".getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(customized.englishWords()).containsExactlyInAnyOrder("question", "history", "faq");
+    }
+
+    @Test
     @DisplayName("사용자 템플릿에 자리표시자가 빠지면 준비되지 않은 프롬프트로 실패한다")
     void rejectsTemplateWithoutPlaceholder() {
         var broken = new SubQuestionPromptService(
