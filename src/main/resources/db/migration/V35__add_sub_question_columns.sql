@@ -1,6 +1,7 @@
 -- 질문 분리·멀티턴을 위해 질문 로그와 미답변 질문을 하위 질문 단위로 저장합니다.
 -- 하위 질문은 판정 LLM이 나누거나 맥락을 넣어 다시 쓴 질문(턴당 최대 3개)입니다.
--- 판정을 거치지 않은 질문은 원문을 하위 질문 1개(sub_question_index = 0)로 저장하므로 기존 행과 구조가 같습니다.
+-- 판정을 거치지 않은 질문은 원문을 하위 질문 1개(sub_question_index = 1)로 저장하므로 기존 행과 구조가 같습니다.
+-- 순번은 프롬프트의 하위 질문 번호와 같은 1, 2, 3이며, 기존 행은 1이 됩니다.
 
 -- question_log 한 행은 하위 질문 하나입니다. user_question은 화면에 보여 줄 원문으로 같은 턴의 모든 행에 같은 값이 들어가고,
 -- sub_question은 검색·랭킹에 쓴 검색어(판정 LLM이 다시 쓴 것)입니다. 기존 행은 sub_question이 NULL이며 읽을 때 user_question으로 대신합니다.
@@ -11,7 +12,7 @@ ALTER TABLE question_log
     ADD COLUMN attempt_id         BIGINT REFERENCES answer_attempts_history (attempt_id) ON DELETE SET NULL,
     ADD COLUMN sub_question       TEXT,
     ADD COLUMN user_text          TEXT,
-    ADD COLUMN sub_question_index SMALLINT NOT NULL DEFAULT 0 CHECK (sub_question_index BETWEEN 0 AND 2);
+    ADD COLUMN sub_question_index SMALLINT NOT NULL DEFAULT 1 CHECK (sub_question_index BETWEEN 1 AND 3);
 
 -- 시도 로그를 지울 때 SET NULL 대상을 찾는 데 씁니다. 없으면 삭제 배치마다 question_log 전체를 읽습니다.
 CREATE INDEX idx_question_log_attempt_id ON question_log (attempt_id);
@@ -29,7 +30,7 @@ ALTER TABLE unanswered_questions RENAME COLUMN question TO sub_question;
 
 ALTER TABLE unanswered_questions
     ADD COLUMN user_text          TEXT,
-    ADD COLUMN sub_question_index SMALLINT NOT NULL DEFAULT 0 CHECK (sub_question_index BETWEEN 0 AND 2),
+    ADD COLUMN sub_question_index SMALLINT NOT NULL DEFAULT 1 CHECK (sub_question_index BETWEEN 1 AND 3),
     DROP CONSTRAINT unanswered_questions_attempt_id_key,
     ADD CONSTRAINT uq_unanswered_questions_attempt_sub_question UNIQUE (attempt_id, sub_question_index);
 
