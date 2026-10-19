@@ -48,9 +48,18 @@ public class ChatContextCollector {
 		// 같은 FAQ가 여러 하위 질문에서 걸려도 핸들러에는 한 번만 넘깁니다. 처음 나온 순서(하위 질문 순서, 그 안의 유사도 순서)를 유지합니다.
 		Map<Long, FaqSearchResponseDto> distinct = new LinkedHashMap<>();
 		subQuestions.forEach(subQuestion -> subQuestion.faqs().forEach(faq -> distinct.putIfAbsent(faq.faqId(), faq)));
+		return collectBySubQuestion(context, subQuestions, List.copyOf(distinct.values()));
+	}
 
+	/**
+	 * 공통 FAQ 목록(commonFaqs)을 호출한 쪽이 만들어 넘길 때입니다. commonFaqs에는 같은 FAQ가 한 번씩만 들어 있어야 하고,
+	 * 하위 질문마다 답변 문장을 다르게 고른 FAQ는 그 문장들을 합친 것이어야 합니다.
+	 * 그래야 공통 목록을 쓰는 프롬프트·출력 검사가 하위 질문별 묶음과 같은 근거를 봅니다.
+	 */
+	public AnswerMaterials collectBySubQuestion(
+			ChatContext context, List<SubQuestionFaqs> subQuestions, List<FaqSearchResponseDto> commonFaqs) {
 		// 유사도 순서를 유지한 채 intent별로 묶습니다. 같은 intent가 여러 번 걸려도 핸들러는 한 번만 실행됩니다.
-		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = distinct.values().stream()
+		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = commonFaqs.stream()
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
 
 		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question());

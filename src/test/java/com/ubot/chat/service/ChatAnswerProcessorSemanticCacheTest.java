@@ -206,7 +206,7 @@ class ChatAnswerProcessorSemanticCacheTest {
     }
 
     private void prepareLlm() {
-        when(collector.collectBySubQuestion(any(), anyList())).thenAnswer(invocation -> {
+        when(collector.collectBySubQuestion(any(), anyList(), anyList())).thenAnswer(invocation -> {
             List<SubQuestionFaqs> subQuestions = invocation.getArgument(1);
             return AnswerMaterials.builder(QUESTION)
                     .addFaqs(subQuestions.stream().flatMap(subQuestion -> subQuestion.faqs().stream()).toList())

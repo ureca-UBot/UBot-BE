@@ -63,7 +63,7 @@ class ChatAnswerProcessorResearchTest {
         AnswerAttemptsHistory research = researchAttempt(Intent.STORE_DATA);
         FaqSearchResponseDto faq = faq(0.9, Intent.STORE_DATA);
         when(faqVectorService.getSimilarListByIntent("유심 재발급", Intent.STORE_DATA, 3)).thenReturn(List.of(faq));
-        when(chatContextCollector.collectBySubQuestion(any(), any())).thenReturn(AnswerMaterials.builder("유심 재발급").build());
+        when(chatContextCollector.collectBySubQuestion(any(), any(), any())).thenReturn(AnswerMaterials.builder("유심 재발급").build());
         when(aiService.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false));
 
         ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED);
@@ -79,7 +79,7 @@ class ChatAnswerProcessorResearchTest {
         AnswerAttemptsHistory regular = regularAttempt();
         FaqSearchResponseDto faq = faq(0.9, Intent.GENERAL);
         when(faqVectorService.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq));
-        when(chatContextCollector.collectBySubQuestion(any(), any())).thenReturn(AnswerMaterials.builder("유심 재발급").build());
+        when(chatContextCollector.collectBySubQuestion(any(), any(), any())).thenReturn(AnswerMaterials.builder("유심 재발급").build());
         when(aiService.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false));
 
         processor.generateAnswer(regular, null, NOT_CANCELLED);

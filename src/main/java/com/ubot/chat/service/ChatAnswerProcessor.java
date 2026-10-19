@@ -197,8 +197,10 @@ public class ChatAnswerProcessor {
 		// 검색된 FAQ의 intent별로 답변 자료를 모은 뒤 LLM을 한 번 호출합니다. 근거를 못 찾은 하위 질문은 그 부분만 답할 수 없다고 안내합니다.
 		// 이전 대화는 이번 질문이 이전 대화를 써야 할 때만 넘깁니다(이전 답변의 틀린 내용이 옮겨 가는 것을 줄입니다).
 		AnswerProgress.report(Phase.COLLECTING_CONTEXT);
+		// 공통 FAQ 목록은 같은 FAQ를 한 번만 넣되, 하위 질문마다 고른 답변 문장을 합칩니다(하위 질문별 묶음과 근거를 맞춥니다).
 		AnswerMaterials materials = chatContextCollector.collectBySubQuestion(
-				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), promptSearched)
+				new ChatContext(attempt.getUserId(), attempt.getQuestion(), location), promptSearched,
+				CommonFaqMerger.merge(searched, promptSearched))
 				.withHistory(plan.historyForAnswer());
 		AiAnswer answer = aiService.generateAnswer(materials);
 		checkCancellation.run();

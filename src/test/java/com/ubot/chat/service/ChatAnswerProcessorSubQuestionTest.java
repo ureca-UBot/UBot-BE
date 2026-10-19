@@ -102,6 +102,33 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
+	@DisplayName("같은 FAQ에서 하위 질문마다 다른 답변 문장을 고르면 공통 목록에는 합쳐 넣고 하위 질문별 묶음은 그대로 둔다")
+	void mergesSentencesOfSameFaqIntoCommonList() {
+		// 원문 조각이 없어 프롬프트가 공통 목록을 쓰는 경우입니다.
+		when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
+				new SubQuestionPlan.SubQuestion("5G 프리미어 데이터 제공량", null),
+				new SubQuestionPlan.SubQuestion("5G 프리미어 월정액", null)),
+				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
+		var plan = new FaqSearchResponseDto(10L, "5G 프리미어 요금제", "월정액은 85,000원입니다. 데이터는 무제한입니다.",
+				0.9, Intent.GENERAL);
+		when(vector.getSimilarList("5G 프리미어 데이터 제공량", 3)).thenReturn(List.of(plan));
+		when(vector.getSimilarList("5G 프리미어 월정액", 3)).thenReturn(List.of(plan));
+		doReturn(List.of(new FaqSentenceFilterService.MatchedFaq(plan, "데이터는 무제한입니다.")))
+				.doReturn(List.of(new FaqSentenceFilterService.MatchedFaq(plan, "월정액은 85,000원입니다.")))
+				.when(sentenceFilter).filter(any(), eq(List.of(plan)));
+
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+
+		AnswerMaterials materials = captureMaterials();
+		assertThat(materials.faqs()).singleElement().extracting(FaqSearchResponseDto::answer)
+				.isEqualTo("월정액은 85,000원입니다.\n데이터는 무제한입니다.");
+		assertThat(materials.subQuestions()).extracting(subQuestion -> subQuestion.faqs().getFirst().answer())
+				.containsExactly("데이터는 무제한입니다.", "월정액은 85,000원입니다.");
+		// 응답·질문 로그에는 원본 FAQ를 남깁니다.
+		assertThat(result.subQuestions()).allSatisfy(subQuestion -> assertThat(subQuestion.faqs()).containsExactly(plan));
+	}
+
+	@Test
 	@DisplayName("답변 LLM이 ABSTAIN이면 FAQ를 찾은 하위 질문은 모두 LLM_ABSTAIN으로, 근거 없던 하위 질문은 원래 사유로 기록한다")
 	void recordsLlmAbstainForEveryAnsweredSubQuestion() {
 		plan("유심 재발급", "유심 재발급 비용", "해외 로밍 요금");

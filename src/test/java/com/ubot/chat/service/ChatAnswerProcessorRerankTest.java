@@ -65,7 +65,7 @@ class ChatAnswerProcessorRerankTest {
         // Reranker 상위 3개(6, 5, 4번)를 먼저 잘랐다면 4번 하나만 남았을 것입니다.
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(4L, 3L, 2L);
         ArgumentCaptor<List<SubQuestionFaqs>> passed = ArgumentCaptor.captor();
-        verify(chatContextCollector).collectBySubQuestion(any(), passed.capture());
+        verify(chatContextCollector).collectBySubQuestion(any(), passed.capture(), any());
         assertThat(passed.getValue().getFirst().faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(4L, 3L, 2L);
         verify(sentenceFilter).filter(ChatTestFixtures.QUERY_VECTOR,
                 List.of(dense.get(3), dense.get(2), dense.get(1)));
@@ -131,7 +131,7 @@ class ChatAnswerProcessorRerankTest {
     }
 
     private void answerWith(String answer) {
-        lenient().when(chatContextCollector.collectBySubQuestion(any(), any()))
+        lenient().when(chatContextCollector.collectBySubQuestion(any(), any(), any()))
                 .thenReturn(AnswerMaterials.builder("유심 재발급").build());
         lenient().when(aiService.generateAnswer(any())).thenReturn(new AiAnswer(answer, null, false));
     }
