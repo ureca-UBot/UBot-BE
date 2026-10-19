@@ -12,15 +12,21 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.repository.ConversationTurnRepository;
 import com.ubot.faq.enums.Intent;
+import com.ubot.llm.client.LlmClient;
+import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
+import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.SubQuestionPromptService;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,7 +70,7 @@ class SubQuestionPlannerTest {
 		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", "월 89,000원입니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"5G 프리미엄 요금제 데이터 제공량\"]}"));
 		when(detector.isMultiTurn("그럼 데이터는?", history, List.of("5G 프리미엄 요금제 데이터 제공량"), judgeRoute))
 				.thenReturn(true);
@@ -82,7 +88,7 @@ class SubQuestionPlannerTest {
 		var history = List.of(new ConversationTurn("유심 재발급 방법", "매장에서 가능합니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"해외 로밍 신청 방법\", \"로밍 요금\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "해외 로밍 신청이랑 요금 알려줘"));
@@ -100,7 +106,7 @@ class SubQuestionPlannerTest {
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(router.route("해외 로밍은 어떻게 신청하나요?", true)).thenReturn(none);
 		when(prompts.createPrompt("해외 로밍은 어떻게 신청하나요?", history)).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto("{\"sub_questions\": [\"해외 로밍 신청 방법\"]}"));
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto("{\"sub_questions\": [\"해외 로밍 신청 방법\"]}"));
 		AnswerAttemptsHistory attempt = attempt(10L, 7L, "해외 로밍은 어떻게 신청하나요?");
 
 		SubQuestionPlan first = planner(true).plan(attempt);
@@ -124,7 +130,7 @@ class SubQuestionPlannerTest {
 		var history = List.of(new ConversationTurn("매장 예약 방법", "앱에서 예약할 수 있습니다."));
 		when(turns.findPreviousTurns(10L, 3)).thenReturn(history);
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"제주도 연동 매장 예약 가능吗?\"]}"));
 		when(guard.check("제주도 연동 매장 예약 가능해요?", history, List.of("제주도 연동 매장 예약 가능吗?")))
 				.thenReturn(result(List.of("제주도 연동 매장 예약 가능?"), false,
@@ -146,7 +152,7 @@ class SubQuestionPlannerTest {
 	@DisplayName("대화에 속하지 않은 질문은 이전 대화 없이 판정한다")
 	void judgesWithoutHistoryOutsideConversation() {
 		when(prompts.createPrompt("유심 재발급", List.of())).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"유심 재발급\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, null, "유심 재발급"));
@@ -159,7 +165,7 @@ class SubQuestionPlannerTest {
 	@DisplayName("질문이 4개 이상이어도 그대로 돌려주고 너무 많다고 표시한다")
 	void marksTooManySubQuestions() {
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"a\", \"b\", \"c\", \"d\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(attempt(10L, null, "a b c d"));
@@ -174,8 +180,8 @@ class SubQuestionPlannerTest {
 	void fallsBackToOriginalOnFailure(String failure) {
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		switch (failure) {
-			case "timeout" -> when(llm.generateAnswer(request)).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
-			case "invalid" -> when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto("정리할 수 없습니다."));
+			case "timeout" -> when(llm.generateJudgment(request)).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
+			case "invalid" -> when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto("정리할 수 없습니다."));
 			default -> when(turns.findPreviousTurns(anyLong(), anyInt())).thenThrow(new QueryTimeoutException("db"));
 		}
 
@@ -206,7 +212,7 @@ class SubQuestionPlannerTest {
 		var history = List.of(new ConversationTurn("5G 프리미엄 요금제", "월 89,000원입니다."));
 		when(turns.findPreviousTurns(5L, 3)).thenReturn(history);
 		when(prompts.createPrompt("그럼 데이터는?", history)).thenReturn(request);
-		when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(
+		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto(
 				"{\"sub_questions\": [\"5G 프리미엄 요금제 데이터 제공량\"]}"));
 
 		SubQuestionPlan plan = planner(true).plan(research(5L, 7L, "그럼 데이터는?"));
@@ -230,6 +236,45 @@ class SubQuestionPlannerTest {
 		assertThat(plan.searchFirst()).isTrue();
 		assertThat(plan.searchQueries()).containsExactly("유심 재발급 방법");
 		verifyNoInteractions(llm);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {true, false})
+	@DisplayName("선판정과 원문 검색 후 판정 모두 답변 생성 단계를 앞당기지 않는다")
+	void keepsPhasesMovingForwardAcrossJudgment(boolean judgeInitially) {
+		var client = mock(LlmClient.class);
+		var realLlm = new LlmService(client, 1);
+		var realPlanner = new SubQuestionPlanner(true, turns, prompts, realLlm, guard, router, detector);
+		var attempt = attempt(10L, null, "로밍 신청과 요금 알려줘");
+		var judgmentRequest = new LlmRequestDto(List.of(
+				new LlmMessageRequestDto(LlmMessageRole.USER, "하위 질문을 정리하세요.")));
+		var answerRequest = new LlmRequestDto(List.of(
+				new LlmMessageRequestDto(LlmMessageRole.USER, "자료를 바탕으로 답변하세요.")));
+		when(prompts.createPrompt(attempt.getQuestion(), List.of())).thenReturn(judgmentRequest);
+		when(client.generateAnswer(judgmentRequest)).thenReturn(new LlmResponseDto(
+				"{\"sub_questions\": [\"로밍 신청 방법\", \"로밍 요금\"]}"));
+		when(client.generateAnswer(answerRequest)).thenReturn(new LlmResponseDto("로밍 신청과 요금 안내입니다."));
+		if (!judgeInitially) {
+			when(router.route(any(), anyBoolean())).thenReturn(QuestionRouter.Route.none());
+		}
+		var phases = new ArrayList<Phase>();
+
+		LlmResponseDto answer = AnswerProgress.observe(phases::add, () -> {
+			AnswerProgress.report(Phase.SEARCHING);
+			SubQuestionPlan plan = realPlanner.plan(attempt);
+			if (plan.searchFirst()) {
+				plan = realPlanner.judge(attempt, plan);
+			}
+			assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM);
+			assertThat(plan.searchQueries()).containsExactly("로밍 신청 방법", "로밍 요금");
+			assertThat(phases).containsExactly(Phase.SEARCHING);
+			AnswerProgress.report(Phase.COLLECTING_CONTEXT);
+			return realLlm.generateAnswer(answerRequest);
+		});
+
+		assertThat(answer.answer()).isEqualTo("로밍 신청과 요금 안내입니다.");
+		assertThat(phases).containsExactly(Phase.SEARCHING, Phase.COLLECTING_CONTEXT,
+				Phase.WAITING_FOR_MODEL, Phase.GENERATING);
 	}
 
 	private AnswerAttemptsHistory attempt(Long id, Long conversationId, String question) {

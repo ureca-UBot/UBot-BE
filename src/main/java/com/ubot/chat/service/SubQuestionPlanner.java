@@ -91,7 +91,7 @@ public class SubQuestionPlanner {
 		String question = attempt.getQuestion();
 		long startedAt = System.nanoTime();
 		try {
-			LlmResponseDto response = llmService.generateAnswer(subQuestionPromptService.createPrompt(question, history));
+			LlmResponseDto response = llmService.generateJudgment(subQuestionPromptService.createPrompt(question, history));
 			List<String> rawQueries = SubQuestionFormat.parse(response.answer());
 			SubQuestionGuard.Result guarded = subQuestionGuard.check(question, history, rawQueries);
 			List<SubQuestionPlan.SubQuestion> items = guarded.items().stream()
