@@ -26,7 +26,7 @@ class SubQuestionEnglishPolicy {
 	private final Map<String, Integer> faqCountByWord = new HashMap<>();
 	private volatile Set<String> faqWords = Set.of();
 
-	/** 서버의 변경 알림 구독이 연결될 때 초기화하고, 재연결 때는 놓친 변경분을 다시 맞춥니다. */
+	/** 서버 기동 시 초기화하고, 변경 알림 구독이 (다시) 연결될 때는 그사이 놓친 변경분을 다시 맞춥니다. */
 	public synchronized void initialize() {
 		try {
 			List<EnglishWord> registeredWords = faqRepository.findActiveEnglishWords(null);

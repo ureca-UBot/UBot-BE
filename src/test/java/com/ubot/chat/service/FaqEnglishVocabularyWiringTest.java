@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
@@ -45,7 +46,10 @@ class FaqEnglishVocabularyWiringTest {
 			context.register(TransactionConfig.class, SubQuestionEnglishPolicy.class, FaqEnglishVocabularyEvents.class);
 			context.refresh();
 			var policy = context.getBean(SubQuestionEnglishPolicy.class);
-			await(() -> !policy.requiresSource("eSIM"));
+			// 목록은 기동 시 바로 읽고, 구독은 별도 스레드에서 연결되므로 구독될 때까지 기다린 뒤 알림을 보냅니다.
+			assertThat(policy.requiresSource("eSIM")).isFalse();
+			var container = context.getBean(RedisMessageListenerContainer.class);
+			await(container::isListening);
 			assertThat(policy.requiresSource("FAQ")).isTrue();
 			var transactions = new TransactionTemplate(context.getBean(TestTransactionManager.class));
 			var change = new FaqChangedEvent(Set.of(2L));
@@ -68,7 +72,8 @@ class FaqEnglishVocabularyWiringTest {
 
 			transactions.executeWithoutResult(status -> context.publishEvent(change));
 			await(() -> policy.requiresSource("FAQ"));
-			verify(repository, times(1)).findActiveEnglishWords(null);
+			// 기동 시 한 번, 첫 구독 연결 때 한 번 전체 목록을 읽습니다.
+			verify(repository, times(2)).findActiveEnglishWords(null);
 			verify(repository, times(2)).findActiveEnglishWords(2L);
 		}
 	}
