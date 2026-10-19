@@ -8,6 +8,7 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
 
@@ -42,6 +43,18 @@ public class UnansweredQuestionService {
             Long bestFaqId,
             Double bestSimilarity
     ) {
+        createUnansweredQuestion(attemptId, question, reason, bestFaqId, bestSimilarity, UnansweredSource.RETRIEVAL);
+    }
+
+    @Transactional
+    public void createUnansweredQuestion(
+            Long attemptId,
+            String question,
+            UnansweredReason reason,
+            Long bestFaqId,
+            Double bestSimilarity,
+            UnansweredSource source
+    ) {
         if (unansweredQuestionRepository.existsByAttemptId(attemptId)) {
             return;
         }
@@ -72,7 +85,8 @@ public class UnansweredQuestionService {
                 profileId,
                 reason,
                 bestFaqId,
-                bestSimilarity
+                bestSimilarity,
+                source
         );
 
         unansweredQuestionVectorRepository.updateGroupCentroid(
