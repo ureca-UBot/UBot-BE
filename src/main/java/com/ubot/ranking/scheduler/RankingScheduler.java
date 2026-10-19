@@ -1,15 +1,18 @@
 package com.ubot.ranking.scheduler;
 
+import com.ubot.global.config.AppRole;
 import com.ubot.ranking.service.RankingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
 
 @Component
+@ConditionalOnExpression(AppRole.RUNS_SCHEDULERS)
 @RequiredArgsConstructor
 @Slf4j
 public class RankingScheduler {

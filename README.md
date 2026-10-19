@@ -11,7 +11,7 @@
 
 - **FAQ와 맞는 질문에만 답합니다.** 질문과 가장 비슷한 FAQ 3건을 찾고, 유사도가 기준(0.75) 이상인 것만 씁니다. 기준을 넘는 FAQ가 없으면 LLM을 부르지 않고 "정확한 답변을 찾지 못했습니다"라고 답합니다.
 - **FAQ의 종류에 맞는 자료로 답합니다.** FAQ에는 처리 의도(intent)가 붙어 있습니다. 일반 FAQ는 원문을 근거로 넘기고, 매장 FAQ가 걸리면 근처 매장을 조회해 답하며, 사용자 정보 FAQ가 걸리면 로그인한 사용자의 정보를 참고 자료로 넘깁니다.
-- **근거를 밝힙니다.** 답변에는 어떤 FAQ를 썼는지(`evidence_ids`)와 답변 상태가 함께 들어 있습니다. 자료에 값이 없으면 답을 보류하고, 질문이 모호하면 되묻습니다.
+- **근거를 밝힙니다.** 답변에는 어떤 FAQ를 썼는지(`evidence_ids`)와 답변 상태가 함께 들어 있습니다. 자료에 값이 없으면 그 부분은 답할 수 없다고 밝히고, 자료에 없는 내용을 추측해 채우지 않습니다.
 - **못 답한 질문이 FAQ를 키웁니다.** 답하지 못한 질문은 비슷한 것끼리 묶여 관리자에게 보이고, 관리자는 묶음에서 바로 FAQ를 등록할 수 있습니다.
 
 타임아웃과 재시도까지 포함한 상세 흐름은 [architecture.md](docs/architecture.md#챗봇-질문-처리-흐름)에 있습니다.
@@ -105,3 +105,4 @@ Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 �
 | AWS 테스트 인프라(Terraform) | [infra/terraform/README.md](infra/terraform/README.md) |
 | 브랜치·PR·커밋 규칙 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 유사도 기준 실험 결과 (보고서는 0.73을 1차 채택, 코드 기본값은 0.75) | [FAQ_Threshold_테스트_보고서.md](docs/FAQ_Threshold_테스트_보고서.md) |
+| FAQ 검색 방식(HNSW·전체 비교), Q와 Q+A 벡터 비교, 답변 테스트 결과 | [FAQ_검색_테스트_보고서.md](docs/FAQ_검색_테스트_보고서.md) |

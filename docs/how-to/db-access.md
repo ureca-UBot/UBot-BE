@@ -52,8 +52,9 @@ ORDER BY extname;
 |---|---|
 | `users` | 회원. `role`은 `USER` 또는 `ADMIN`, `deleted_at`이 있으면 탈퇴 |
 | `refresh_tokens` | 사용자당 refresh token 1개 |
-| `faq_category`, `faq` | FAQ와 카테고리. `faq.intent`에 처리 의도. 벡터는 `faq_embeddings`에 있음 |
-| `embedding_profiles`, `faq_embeddings` | 임베딩 서버별 Profile과, Profile별 FAQ 질문 임베딩(1024차원) |
+| `faq_category`, `faq` | FAQ와 카테고리. `faq.intent`에 처리 의도, `faq.cacheable`에 캐시 허용 여부 저장 |
+| `faq_question_variants` | FAQ의 원본 질문과 유사 질문. `origin_faq_id`로 FAQ를 참조하며, 사용하지 않는 표현은 삭제 |
+| `embedding_profiles`, `faq_embeddings` | 임베딩 서버별 Profile과 variant별 `QUESTION`·`QUESTION_ANSWER` 임베딩(1024차원). `faq_question_variant_id`로 표현을 참조 |
 | `old_faq` | FAQ 수정 전 버전 (`faq_id`, `version`) |
 | `answer_attempts_history` | 채팅 답변 시도 1회당 1행. `status`(`PENDING`/`SUCCESS`/`FAIL`), `error_code`, `idempotency_key` |
 | `question_log` | 성공한 질문과 생성 답변(`llm_question` 컬럼) |
@@ -97,7 +98,7 @@ LIMIT 20;
 
 ## 로컬에서 관리자 계정 만들기
 
-`tools/reset-local-db.ps1`로 DB를 초기화했다면 기본 `ADMIN` 계정이 함께 만들어집니다([로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)). 아래는 직접 가입한 계정을 관리자로 바꾸는 방법입니다.
+`tools/faq-db/reset-local-db.ps1`로 DB를 초기화했다면 기본 `ADMIN` 계정이 함께 만들어집니다([로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)). 아래는 직접 가입한 계정을 관리자로 바꾸는 방법입니다.
 
 `/admin/**` API는 `ADMIN` 역할이 필요하지만, 회원가입 API는 항상 `USER`로 계정을 만들고 역할을 바꾸는 API도 없습니다. 로컬 개발 DB에서는 회원가입한 계정의 역할을 직접 바꿉니다.
 

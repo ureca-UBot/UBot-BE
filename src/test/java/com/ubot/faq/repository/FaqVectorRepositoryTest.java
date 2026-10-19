@@ -12,10 +12,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.pgvector.PGvector;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.enums.Intent;
 
 @SpringBootTest
@@ -29,6 +31,9 @@ class FaqVectorRepositoryTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private Long categoryId;
     private Long profileId;
@@ -81,23 +86,26 @@ class FaqVectorRepositoryTest {
                 "2026-01-01 00:00:00"
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 profileId,
+                FaqVectorType.QUESTION,
                 1,
                 vectorOf(0)
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 2L,
                 profileId,
+                FaqVectorType.QUESTION,
                 1,
                 vectorOf(1)
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 3L,
                 profileId,
+                FaqVectorType.QUESTION,
                 1,
                 vectorOf(0)
         );
@@ -110,6 +118,7 @@ class FaqVectorRepositoryTest {
                 repository.getSimilarList(
                         vectorOf(0),
                         profileId,
+                        FaqVectorType.QUESTION,
                         10
                 );
 
@@ -122,11 +131,46 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
+    @DisplayName("같은 FAQ의 variant가 상위 점수를 차지해도 FAQ별 한 건을 고른 뒤 topK를 적용한다")
+    void getSimilarList_selectsBestVariantPerFaqBeforeTopK() {
+        repository.saveVectorForVariant(1L, profileId, FaqVectorType.QUESTION, 1, vectorOf(1));
+        insertVariant(11L, 1L, "유심을 다시 발급받고 싶어요");
+        insertVariant(12L, 1L, "유심 재발급 방법");
+        repository.saveVectorForVariant(11L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+        repository.saveVectorForVariant(12L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+
+        List<FaqSearchResponseDto> results = repository.getSimilarList(
+                vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
+
+        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
+        assertThat(results.getFirst().variantId()).isEqualTo(11L);
+        assertThat(results.getFirst().question()).isEqualTo("유심 재발급");
+        assertThat(results.getFirst().variantQuestion()).isEqualTo("유심을 다시 발급받고 싶어요");
+    }
+
+    @Test
+    @DisplayName("삭제된 variant의 벡터도 함께 삭제되어 검색에 사용되지 않는다")
+    void getSimilarList_ignoresDeletedVariant() {
+        insertVariant(11L, 1L, "삭제된 표현");
+        repository.saveVectorForVariant(11L, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+        jdbcTemplate.update("DELETE FROM faq_question_variants WHERE id = ?", 11L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM faq_embeddings WHERE faq_question_variant_id = ?",
+                Integer.class, 11L)).isZero();
+
+        List<FaqSearchResponseDto> results = repository.getSimilarList(
+                vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
+
+        assertThat(results.getFirst().variantId()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("다른 임베딩 프로필의 벡터는 검색하지 않는다")
     void getSimilarList_doesNotUseAnotherProfile() {
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 otherProfileId,
+                FaqVectorType.QUESTION,
                 1,
                 vectorOf(5)
         );
@@ -135,6 +179,7 @@ class FaqVectorRepositoryTest {
                 repository.getSimilarList(
                         vectorOf(0),
                         profileId,
+                        FaqVectorType.QUESTION,
                         10
                 );
 
@@ -149,16 +194,17 @@ class FaqVectorRepositoryTest {
         jdbcTemplate.update(
                 """
                 DELETE FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                 """,
                 1L,
                 profileId
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 otherProfileId,
+                FaqVectorType.QUESTION,
                 1,
                 vectorOf(0)
         );
@@ -167,6 +213,7 @@ class FaqVectorRepositoryTest {
                 repository.getSimilarList(
                         vectorOf(0),
                         profileId,
+                        FaqVectorType.QUESTION,
                         10
                 );
 
@@ -191,6 +238,7 @@ class FaqVectorRepositoryTest {
                 repository.getSimilarList(
                         vectorOf(0),
                         profileId,
+                        FaqVectorType.QUESTION,
                         10
                 );
 
@@ -210,9 +258,10 @@ class FaqVectorRepositoryTest {
                 """
         );
 
-        repository.saveVectorForFaq(
+        repository.saveVectorForVariant(
                 1L,
                 profileId,
+                FaqVectorType.QUESTION,
                 2,
                 vectorOf(2)
         );
@@ -221,7 +270,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT faq_version
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = 'QUESTION'
                 """,
@@ -236,7 +285,7 @@ class FaqVectorRepositoryTest {
     @Test
     @DisplayName("질문이 바뀌지 않으면 벡터는 유지하고 FAQ 버전만 갱신한다")
     void updateVectorVersionForFaq_updatesOnlyVersion() {
-        repository.updateVectorVersionForFaq(
+        repository.updateVectorVersionForVariant(
                 1L,
                 profileId,
                 2
@@ -246,7 +295,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT faq_version
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = 'QUESTION'
                 """,
@@ -259,7 +308,7 @@ class FaqVectorRepositoryTest {
                 """
                 SELECT vector
                 FROM faq_embeddings
-                WHERE faq_id = ?
+                WHERE faq_question_variant_id = ?
                   AND profile_id = ?
                   AND vector_type = 'QUESTION'
                 """,
@@ -288,6 +337,7 @@ class FaqVectorRepositoryTest {
                 repository.getSimilarListByIntent(
                         vectorOf(0),
                         profileId,
+                        FaqVectorType.QUESTION,
                         Intent.STORE_DATA,
                         10
                 );
@@ -299,6 +349,181 @@ class FaqVectorRepositoryTest {
         assertThat(results)
                 .extracting(FaqSearchResponseDto::intent)
                 .containsOnly(Intent.STORE_DATA);
+    }
+
+    @Test
+    @DisplayName("같은 FAQ와 프로필에 질문 벡터와 질문+답변 벡터를 각각 저장한다")
+    void saveVectorForFaq_keepsOneVectorPerType() {
+        repository.saveVectorForVariant(
+                1L,
+                profileId,
+                FaqVectorType.QUESTION_ANSWER,
+                1,
+                vectorOf(3)
+        );
+
+        List<String> savedTypes = jdbcTemplate.queryForList(
+                """
+                SELECT vector_type
+                FROM faq_embeddings
+                WHERE faq_question_variant_id = ?
+                  AND profile_id = ?
+                ORDER BY vector_type
+                """,
+                String.class,
+                1L,
+                profileId
+        );
+
+        assertThat(savedTypes)
+                .containsExactly("QUESTION", "QUESTION_ANSWER");
+
+        assertThat(storedVector(1L, FaqVectorType.QUESTION))
+                .startsWith("[1,0");
+
+        assertThat(storedVector(1L, FaqVectorType.QUESTION_ANSWER))
+                .startsWith("[0,0,0,1");
+    }
+
+    @Test
+    @DisplayName("저장소 검색은 요청한 벡터 유형만 사용하고 다른 유형으로 대체하지 않는다")
+    void getSimilarList_usesOnlyRequestedVectorType() {
+        // 기존 질문 벡터는 유지한 채 FAQ 2에만 질문+답변 벡터를 추가한다.
+        repository.saveVectorForVariant(
+                2L,
+                profileId,
+                FaqVectorType.QUESTION_ANSWER,
+                1,
+                vectorOf(0)
+        );
+
+        assertThat(
+                repository.getSimilarList(
+                        vectorOf(0),
+                        profileId,
+                        FaqVectorType.QUESTION,
+                        10
+                )
+        )
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(1L, 2L);
+
+        assertThat(
+                repository.getSimilarList(
+                        vectorOf(0),
+                        profileId,
+                        FaqVectorType.QUESTION_ANSWER,
+                        10
+                )
+        )
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(2L);
+    }
+
+    @Test
+    @DisplayName("벡터 버전 갱신은 현재 variant의 QUESTION 유형에만 적용한다")
+    void updateVectorVersionForVariant_updatesQuestionOnly() {
+        repository.saveVectorForVariant(
+                1L,
+                profileId,
+                FaqVectorType.QUESTION_ANSWER,
+                1,
+                vectorOf(3)
+        );
+
+        repository.updateVectorVersionForVariant(
+                1L,
+                profileId,
+                2
+        );
+
+        assertThat(
+                repository.hasCurrentVector(
+                        1L,
+                        profileId,
+                        FaqVectorType.QUESTION,
+                        2
+                )
+        ).isTrue();
+
+        assertThat(
+                repository.hasCurrentVector(
+                        1L,
+                        profileId,
+                        FaqVectorType.QUESTION_ANSWER,
+                        2
+                )
+        ).isFalse();
+
+        assertThat(
+                repository.hasCurrentVector(
+                        1L,
+                        profileId,
+                        FaqVectorType.QUESTION_ANSWER,
+                        1
+                )
+        ).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 유형의 벡터가 더 가까이 많이 있어도 지정한 유형의 상위 K개를 모두 돌려준다")
+    void getSimilarList_returnsExactTopKWhenOtherVectorTypeIsCloser() {
+        // FAQ 100건의 질문 벡터는 검색 벡터와 거의 같고, 질문+답변 벡터는 그보다 멀다.
+        // 벡터 인덱스는 가까운 후보를 먼저 고른 뒤 유형 조건을 적용하므로, 인덱스를 타면 질문+답변 벡터가 후보에 들지 못한다.
+        for (int offset = 0; offset < 100; offset++) {
+            long faqId = 101L + offset;
+
+            insertFaq(
+                    faqId,
+                    "질문 " + faqId,
+                    "답변 " + faqId,
+                    null
+            );
+
+            repository.saveVectorForVariant(
+                    faqId,
+                    profileId,
+                    FaqVectorType.QUESTION,
+                    1,
+                    vectorNear(10 + offset, 0.01f)
+            );
+
+            repository.saveVectorForVariant(
+                    faqId,
+                    profileId,
+                    FaqVectorType.QUESTION_ANSWER,
+                    1,
+                    vectorNear(10 + offset, 0.5f + 0.01f * offset)
+            );
+        }
+
+        // 테스트 DB는 행이 적어 그냥 두면 플래너가 벡터 인덱스를 고르지 않는다. 운영 DB처럼 인덱스로 정렬하려는 상태에서 확인한다.
+        List<FaqSearchResponseDto> results =
+                transactionTemplate.execute(status -> {
+                    jdbcTemplate.execute("SET LOCAL enable_seqscan = off");
+                    jdbcTemplate.execute("SET LOCAL enable_sort = off");
+
+                    return repository.getSimilarList(
+                            vectorOf(0),
+                            profileId,
+                            FaqVectorType.QUESTION_ANSWER,
+                            3
+                    );
+                });
+
+        assertThat(results)
+                .extracting(FaqSearchResponseDto::faqId)
+                .containsExactly(101L, 102L, 103L);
+    }
+
+    @Test
+    @DisplayName("검색 결과는 캐시 승인 여부를 반환하고 미승인 FAQ도 순위에 포함한다")
+    void searchReturnsCacheMetadataWithoutFilteringOutCompetitors() {
+        jdbcTemplate.update("UPDATE faq SET cacheable = true WHERE id = 2");
+        List<FaqSearchResponseDto> results = repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 3);
+        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
+        assertThat(results.getFirst().cacheable()).isFalse();
+        assertThat(results.get(1).cacheable()).isTrue();
     }
 
     private Long getOrCreateProfile(
@@ -374,6 +599,54 @@ class FaqVectorRepositoryTest {
                 answer,
                 deletedAt
         );
+        jdbcTemplate.update(
+                """
+                INSERT INTO faq_question_variants (id, origin_faq_id, question)
+                VALUES (?, ?, ?)
+                """,
+                id, id, question
+        );
+    }
+
+    private void insertVariant(Long id, Long faqId, String question) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO faq_question_variants (id, origin_faq_id, question)
+                VALUES (?, ?, ?)
+                """,
+                id, faqId, question
+        );
+    }
+
+    private String storedVector(
+            Long faqId,
+            FaqVectorType vectorType
+    ) {
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT vector::text
+                FROM faq_embeddings
+                WHERE faq_question_variant_id = ?
+                  AND profile_id = ?
+                  AND vector_type = ?
+                """,
+                String.class,
+                faqId,
+                profileId,
+                vectorType.name()
+        );
+    }
+
+    /** 0번 축 방향에서 index번 축으로 distance만큼 벗어난 벡터입니다. distance가 클수록 vectorOf(0)에서 멀어집니다. */
+    private PGvector vectorNear(
+            int index,
+            float distance
+    ) {
+        float[] values = new float[1024];
+        values[0] = 1.0f;
+        values[index] = distance;
+
+        return new PGvector(values);
     }
 
     private PGvector vectorOf(int index) {

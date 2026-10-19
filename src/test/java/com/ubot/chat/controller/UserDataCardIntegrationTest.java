@@ -6,19 +6,22 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ubot.PgvectorTestConfiguration;
+import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
+import com.ubot.chat.job.stream.ChatJobStream;
+import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
+import com.ubot.faq.service.FaqSearchMockSupport;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -44,25 +47,28 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
  * 질문 요청부터 화면이 받는 최종 JSON까지 가입 정보 카드(userData)가 실리는지 확인합니다.
  * 실제 인증 필터·Controller·ChatService·UserIntentHandler·UserDataSummarizer·AiService·UserDataTools·JPA·임시 PostgreSQL을 쓰고,
- * FAQ 검색과 외부 LLM 통신만 mock입니다. 도구 호출은 LLM mock이 요청에 실린 실제 도구 콜백을 실행해 흉내 냅니다.
+ * FAQ 검색·문장 필터와 외부 LLM 통신만 mock입니다. 도구 호출은 LLM mock이 요청에 실린 실제 도구 콜백을 실행해 흉내 냅니다.
+ * 질문은 202로 접수되고, 테스트가 Worker를 직접 돌린 뒤 작업 상태 조회(GET /chat/jobs/{jobId}) 응답에서 카드를 확인합니다.
  */
 // 사용자 정보 섹션을 넣을 {{context}} 자리가 있어야 하므로 테스트용이 아닌 실제 프롬프트 파일을 씁니다.
 @SpringBootTest(properties = {
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75"})
-@Import({PgvectorTestConfiguration.class, UserDataCardIntegrationTest.FixedClockConfiguration.class})
+@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class, UserDataCardIntegrationTest.FixedClockConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class UserDataCardIntegrationTest {
@@ -83,6 +89,8 @@ class UserDataCardIntegrationTest {
 	}
 
 	@Autowired MockMvc mvc;
+	@Autowired ChatJobWorker worker;
+	@Autowired StringRedisTemplate redis;
 	@Autowired JwtUtil jwt;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired UserRepository users;
@@ -92,13 +100,21 @@ class UserDataCardIntegrationTest {
 	@Autowired UnansweredQuestionRepository unansweredQuestions;
 	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@MockitoBean FaqVectorService vector;
+	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
 
 	String userA;
 	String userB;
+	ChatJobTestFlow flow;
 
 	@BeforeEach
 	void setUp() {
+		FaqSearchMockSupport.bridgeSearch(vector);
+		FaqSearchMockSupport.passAnswers(sentenceFilter);
+		redis.delete(ChatJobStream.STREAM_KEY);
+		redis.delete(redis.keys("chat:jobs:result:*"));
+		redis.delete(redis.keys("chat:jobs:published:*"));
+		flow = new ChatJobTestFlow(mvc, worker);
 		unansweredQuestions.deleteAllInBatch();
 		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -253,8 +269,9 @@ class UserDataCardIntegrationTest {
 				"insert into faq_category(name) values (?) returning id", Long.class, UUID.randomUUID().toString());
 		Long faqId = jdbc.queryForObject("insert into faq(category_id,question,answer) values (?, ?, ?) returning id",
 				Long.class, category, "가입 정보 조회", "가입 정보 안내");
-		when(vector.getSimilarList(anyString(), anyInt()))
-				.thenReturn(List.of(new FaqSearchResponseDto(faqId, "가입 정보 조회", "가입 정보 안내", 0.9, intent)));
+		List<FaqSearchResponseDto> faqs = List.of(new FaqSearchResponseDto(faqId, "가입 정보 조회", "가입 정보 안내", 0.9, intent));
+		when(vector.getSimilarList(anyString(), anyInt())).thenReturn(faqs);
+		when(vector.getSimilarListByIntent(anyString(), any(Intent.class), anyInt())).thenReturn(faqs);
 	}
 
 	private String bearer(String email) {
@@ -266,13 +283,14 @@ class UserDataCardIntegrationTest {
 				.content("{\"question\":\"" + question + "\"}"));
 	}
 
+	/** 질문을 접수하고 Worker를 돌린 뒤, 접수한 회원·세션으로 작업 상태를 조회합니다. 화면이 받는 최종 응답입니다. */
 	private ResultActions complete(MockHttpServletRequestBuilder builder) throws Exception {
-		var pending = mvc.perform(builder).andExpect(request().asyncStarted()).andReturn();
-		pending.getAsyncResult(10_000);
-		return mvc.perform(asyncDispatch(pending))
+		MvcResult submitted = flow.submit(builder);
+		worker.processAvailableJobs();
+		return mvc.perform(flow.statusOf(submitted))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.success").value(true))
-				.andExpect(jsonPath("$.data.status").value("SUCCESS"));
+				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
 	}
 
 	/** 카드에는 마스킹된 번호만 실리고, 원본 번호·SIM 식별자·이메일은 응답 어디에도 없어야 합니다. */

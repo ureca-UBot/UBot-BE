@@ -2,6 +2,8 @@ package com.ubot.faq.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,14 +21,18 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.entity.Faq;
-import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.entity.FaqQuestionVariant;
+import com.ubot.faq.enums.FaqVectorType;
+import com.ubot.faq.repository.FaqQuestionVariantRepository;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 @DisplayName("FAQ 임베딩 백필 서비스 테스트")
 class FaqEmbeddingBackfillServiceTest {
 
-    private final FaqRepository faqRepository =
-            mock(FaqRepository.class);
+    private static final Long PROFILE_ID = 10L;
+
+    private final FaqQuestionVariantRepository variantRepository =
+            mock(FaqQuestionVariantRepository.class);
 
     private final FaqVectorRepository faqVectorRepository =
             mock(FaqVectorRepository.class);
@@ -39,62 +45,40 @@ class FaqEmbeddingBackfillServiceTest {
 
     private final FaqEmbeddingBackfillService service =
             new FaqEmbeddingBackfillService(
-                    faqRepository,
+                    variantRepository,
                     faqVectorRepository,
                     embeddingService,
                     embeddingProfileService
             );
 
     @Test
-    @DisplayName("현재 프로필 벡터가 없는 FAQ만 임베딩해서 저장한다")
+    @DisplayName("현재 프로필에 질문 벡터가 없는 variant만 임베딩해서 저장한다")
     void backfillCurrentProfile_embedsOnlyMissingFaqs() {
-        Long profileId = 10L;
-
         Faq existing = faq(
                 1L,
                 "이미 벡터가 있는 질문",
+                "이미 벡터가 있는 답변",
                 1
         );
 
         Faq missing = faq(
                 2L,
                 "벡터가 없는 질문",
+                "벡터가 없는 답변",
                 3
         );
 
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
+        givenActiveFaqs(existing, missing);
+        givenCurrentVector(existing, FaqVectorType.QUESTION, true);
+        givenCurrentVector(missing, FaqVectorType.QUESTION, false);
 
-        when(faqRepository.findAllByDeletedAtIsNull(any(Pageable.class)))
-                .thenReturn(
-                        new PageImpl<>(
-                                List.of(existing, missing)
-                        )
-                );
-
-        when(
-                faqVectorRepository.hasCurrentVector(
-                        1L,
-                        profileId,
-                        1
-                )
-        ).thenReturn(true);
-
-        when(
-                faqVectorRepository.hasCurrentVector(
-                        2L,
-                        profileId,
-                        3
-                )
-        ).thenReturn(false);
-
-        PGvector vector = vector();
+        PGvector questionVector = vector(0);
 
         when(
                 embeddingService.embedText(
                         "벡터가 없는 질문"
                 )
-        ).thenReturn(vector);
+        ).thenReturn(questionVector);
 
         int updated =
                 service.backfillCurrentProfile();
@@ -107,48 +91,65 @@ class FaqEmbeddingBackfillServiceTest {
                         "이미 벡터가 있는 질문"
                 );
 
-        verify(embeddingService)
-                .embedText(
-                        "벡터가 없는 질문"
+        verify(faqVectorRepository)
+                .saveVectorForVariant(
+                        2L,
+                        PROFILE_ID,
+                        FaqVectorType.QUESTION,
+                        3,
+                        questionVector
                 );
 
-        verify(faqVectorRepository)
-                .saveVectorForFaq(
-                        2L,
-                        profileId,
-                        3,
-                        vector
-                );
+        verify(faqVectorRepository, never()).hasCurrentVector(
+                anyLong(), anyLong(), eq(FaqVectorType.QUESTION_ANSWER), anyInt());
     }
 
     @Test
-    @DisplayName("현재 프로필의 모든 FAQ 벡터가 있으면 임베딩하지 않는다")
-    void backfillCurrentProfile_skipsWhenEverythingExists() {
-        Long profileId = 10L;
-
+    @DisplayName("질문 벡터가 이미 있으면 질문+답변 벡터가 없어도 건너뛴다")
+    void backfillCurrentProfile_skipsExistingQuestionVector() {
         Faq faq = faq(
                 1L,
                 "질문",
+                "답변",
                 2
         );
 
-        when(embeddingProfileService.getCurrentProfileId())
-                .thenReturn(profileId);
+        givenActiveFaqs(faq);
+        givenCurrentVector(faq, FaqVectorType.QUESTION, true);
 
-        when(faqRepository.findAllByDeletedAtIsNull(any(Pageable.class)))
-                .thenReturn(
-                        new PageImpl<>(
-                                List.of(faq)
-                        )
-                );
+        int updated =
+                service.backfillCurrentProfile();
 
-        when(
-                faqVectorRepository.hasCurrentVector(
-                        1L,
-                        profileId,
-                        2
-                )
-        ).thenReturn(true);
+        assertThat(updated)
+                .isZero();
+
+        verify(embeddingService, never())
+                .embedText("질문");
+
+        verify(
+                faqVectorRepository,
+                never()
+        ).saveVectorForVariant(
+                anyLong(),
+                anyLong(),
+                eq(FaqVectorType.QUESTION),
+                anyInt(),
+                any(PGvector.class)
+        );
+    }
+
+    @Test
+    @DisplayName("현재 프로필에 질문 벡터가 있으면 임베딩하지 않는다")
+    void backfillCurrentProfile_skipsWhenEverythingExists() {
+        Faq faq = faq(
+                1L,
+                "질문",
+                "답변",
+                2
+        );
+
+        givenActiveFaqs(faq);
+        givenCurrentVector(faq, FaqVectorType.QUESTION, true);
 
         int updated =
                 service.backfillCurrentProfile();
@@ -164,7 +165,8 @@ class FaqEmbeddingBackfillServiceTest {
         verify(
                 faqVectorRepository,
                 never()
-        ).saveVectorForFaq(
+        ).saveVectorForVariant(
+                any(),
                 any(),
                 any(),
                 any(),
@@ -172,21 +174,56 @@ class FaqEmbeddingBackfillServiceTest {
         );
     }
 
+    private void givenActiveFaqs(Faq... faqs) {
+        when(embeddingProfileService.getCurrentProfileId())
+                .thenReturn(PROFILE_ID);
+
+        when(variantRepository.findAllActive(any(Pageable.class)))
+                .thenReturn(
+                        new PageImpl<>(
+                                java.util.Arrays.stream(faqs)
+                                        .map(faq -> FaqQuestionVariant.builder()
+                                                .id(faq.getId())
+                                                .originFaq(faq)
+                                                .question(faq.getQuestion())
+                                                .build())
+                                        .toList()
+                        )
+                );
+    }
+
+    private void givenCurrentVector(
+            Faq faq,
+            FaqVectorType vectorType,
+            boolean exists
+    ) {
+        when(
+                faqVectorRepository.hasCurrentVector(
+                        faq.getId(),
+                        PROFILE_ID,
+                        vectorType,
+                        faq.getVersion()
+                )
+        ).thenReturn(exists);
+    }
+
     private Faq faq(
             Long id,
             String question,
+            String answer,
             int version
     ) {
         return Faq.builder()
                 .id(id)
                 .question(question)
+                .answer(answer)
                 .version(version)
                 .build();
     }
 
-    private PGvector vector() {
+    private PGvector vector(int index) {
         float[] values = new float[1024];
-        values[0] = 1.0f;
+        values[index] = 1.0f;
 
         return new PGvector(values);
     }

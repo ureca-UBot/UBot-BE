@@ -11,10 +11,12 @@ import com.ubot.faq.dto.request.FaqUpdateRequestDto;
 import com.ubot.faq.dto.response.FaqResponseDto;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.entity.FaqCategory;
+import com.ubot.faq.entity.FaqQuestionVariant;
 import com.ubot.faq.entity.OldFaq;
 import com.ubot.faq.repository.FaqCategoryRepository;
 import com.ubot.faq.repository.OldFaqRepository;
 import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.repository.FaqQuestionVariantRepository;
 import com.ubot.user.entity.User;
 import com.ubot.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +29,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -36,12 +43,11 @@ public class FaqService {
 
 	private final FaqRepository faqRepository;
 	private final FaqVectorService faqVectorService;
+	private final FaqQuestionVariantRepository faqQuestionVariantRepository;
 	private final FaqCategoryRepository faqCategoryRepository;
 	private final OldFaqRepository oldFaqRepository;
 	private final UserRepository userRepository;
 
-
-	//	Todo: 중복되는 FAQ가 존재하는지를 확인하는 내용이 필요해보이는데, 어떻게 할지는 미정
 	@Transactional
 	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
 
@@ -54,60 +60,61 @@ public class FaqService {
 				.question(requestDto.question())
 				.answer(requestDto.answer())
 				.intent(requestDto.intent())
+				.cacheable(requestDto.cacheable())
 				.createdAt(LocalDateTime.now())
 				.updatedAt(LocalDateTime.now())
 				.build();
 
 		Faq savedFaq = faqRepository.save(faq);
 
-		faqVectorService.saveVectorForFaq(
-		        savedFaq.getId(),
-		        savedFaq.getVersion(),
-		        requestDto.question()
-		);
+		List<String> similarQuestions = uniqueSimilarQuestions(savedFaq.getQuestion(), requestDto.similarQuestions());
+		List<String> questions = new ArrayList<>();
+		questions.add(savedFaq.getQuestion());
+		questions.addAll(similarQuestions);
+		for (String question : questions) {
+			createVariant(savedFaq, question);
+		}
 		log.info("FAQ를 생성했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
 
-		return FaqResponseDto.from(savedFaq);
+		return FaqResponseDto.from(savedFaq, similarQuestions);
 	}
 
 	public FaqResponseDto getActiveFaq(Long faqId){
-		return FaqResponseDto.from(faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND)));
+		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+		return toResponse(faq);
 	}
 
 	public PageResponseDto<FaqResponseDto> getActiveFaqList(int page, int size, String keyword, Long categoryId){
 		String normalizedKeyword = StringUtils.hasText(keyword) ? keyword : "";
 
-		Page<FaqResponseDto> faqPage = faqRepository.
+		Page<Faq> faqPage = faqRepository.
 				findAllActives(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
-				)), normalizedKeyword, categoryId)
-				.map(FaqResponseDto::from);
+				)), normalizedKeyword, categoryId);
 
 
-		return PageResponseDto.from(faqPage);
+		return toPageResponse(faqPage);
 	}
 
 	public PageResponseDto<FaqResponseDto> getDeletedFaqList(int page, int size){
-		Page<FaqResponseDto> faqPage = faqRepository.
+		Page<Faq> faqPage = faqRepository.
 				findAllDeletedFaq(PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("deletedAt"),
 						Sort.Order.desc("id")
-				)))
-				.map(FaqResponseDto::from);
+				)));
 
-		return PageResponseDto.from(faqPage);
+		return toPageResponse(faqPage);
 	}
 
 	public PageResponseDto<FaqResponseDto> getActiveFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
-		Page<FaqResponseDto> faqPage = faqRepository.
+		Page<Faq> faqPage = faqRepository.
 				findAllByFaqCategoryIdAndDeletedAtIsNull(faqCategoryId, PageRequest.of(page, size, Sort.by(
 						Sort.Order.desc("createdAt"),
 						Sort.Order.desc("id")
-				)))
-				.map(FaqResponseDto::from);
+				)));
 
-		return PageResponseDto.from(faqPage);
+		return toPageResponse(faqPage);
 	}
 
 	@Transactional
@@ -123,30 +130,99 @@ public class FaqService {
 
 		boolean questionChanged =
 		        !faq.getQuestion().equals(requestDto.question());
-
 		faq.update(
 		        category,
 		        requestDto.question(),
 		        requestDto.answer(),
-		        requestDto.intent()
+		        requestDto.intent(),
+		        requestDto.cacheable()
 		);
 
 		Faq savedFaq = faqRepository.save(faq);
 
+		List<FaqQuestionVariant> existing = new ArrayList<>(
+				faqQuestionVariantRepository.findByOriginFaqIdOrderByIdAsc(savedFaq.getId()));
 		if (questionChanged) {
-		    faqVectorService.saveVectorForFaq(
-		            savedFaq.getId(),
-		            savedFaq.getVersion(),
-		            savedFaq.getQuestion()
-		    );
-		} else {
-		    faqVectorService.updateVectorVersionForFaq(
-		            savedFaq.getId(),
-		            savedFaq.getVersion()
-		    );
+			for (FaqQuestionVariant variant : existing) {
+				deleteVariant(variant);
+			}
+			existing.clear();
+		}
+
+		List<String> questions = new ArrayList<>();
+		List<String> similarQuestions = uniqueSimilarQuestions(savedFaq.getQuestion(), requestDto.similarQuestions());
+		questions.add(savedFaq.getQuestion());
+		questions.addAll(similarQuestions);
+		for (String question : questions) {
+			FaqQuestionVariant kept = null;
+			for (FaqQuestionVariant variant : existing) {
+				if (variant.getQuestion().equals(question)) {
+					kept = variant;
+					break;
+				}
+			}
+			if (kept == null) {
+				createVariant(savedFaq, question);
+			} else {
+				existing.remove(kept);
+				faqVectorService.updateQuestionVectorVersionForVariant(
+						kept.getId(), savedFaq.getVersion());
+			}
+		}
+		for (FaqQuestionVariant removed : existing) {
+			deleteVariant(removed);
 		}
 		log.info("FAQ를 수정했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
-		return FaqResponseDto.from(savedFaq);
+		return FaqResponseDto.from(savedFaq, similarQuestions);
+	}
+
+	private List<String> uniqueSimilarQuestions(String originalQuestion, List<String> requestedQuestions) {
+		Set<String> seen = new HashSet<>();
+		seen.add(normalizeQuestion(originalQuestion));
+		return requestedQuestions.stream()
+				.filter(question -> seen.add(normalizeQuestion(question)))
+				.toList();
+	}
+
+	private String normalizeQuestion(String question) {
+		return question.strip().replaceAll("\\s+", " ");
+	}
+
+	private void createVariant(Faq faq, String question) {
+		FaqQuestionVariant variant = faqQuestionVariantRepository.save(
+				FaqQuestionVariant.builder().originFaq(faq).question(question).build());
+		faqVectorService.saveQuestionVectorForVariant(variant.getId(), faq.getVersion(), question);
+	}
+
+	private void deleteVariant(FaqQuestionVariant variant) {
+		faqQuestionVariantRepository.delete(variant);
+	}
+
+	private PageResponseDto<FaqResponseDto> toPageResponse(Page<Faq> faqPage) {
+		Map<Long, List<String>> questionsByFaqId = new HashMap<>();
+		if (!faqPage.isEmpty()) {
+			List<Long> faqIds = faqPage.getContent().stream().map(Faq::getId).toList();
+			for (FaqQuestionVariant variant : faqQuestionVariantRepository
+					.findByOriginFaqIdsOrderByFaqIdAndId(faqIds)) {
+				questionsByFaqId.computeIfAbsent(variant.getOriginFaq().getId(), ignored -> new ArrayList<>())
+						.add(variant.getQuestion());
+			}
+		}
+
+		return PageResponseDto.from(faqPage.map(faq -> {
+			List<String> similarQuestions = new ArrayList<>(
+					questionsByFaqId.getOrDefault(faq.getId(), List.of()));
+			similarQuestions.removeIf(question -> question.equals(faq.getQuestion()));
+			return FaqResponseDto.from(faq, similarQuestions);
+		}));
+	}
+
+	private FaqResponseDto toResponse(Faq faq) {
+		List<String> similarQuestions = new ArrayList<>(faqQuestionVariantRepository
+				.findByOriginFaqIdOrderByIdAsc(faq.getId())
+				.stream().map(FaqQuestionVariant::getQuestion).toList());
+		similarQuestions.removeIf(question -> question.equals(faq.getQuestion()));
+		return FaqResponseDto.from(faq, similarQuestions);
 	}
 
 	@Transactional
@@ -162,7 +238,11 @@ public class FaqService {
 		List<Faq> faqs = faqRepository.findDeletedFaqByFaqIds(requestDto.faqIds());
 		for(Faq faq : faqs){
 			faq.restore();
+			if (!faqQuestionVariantRepository.existsByOriginFaqIdAndQuestion(faq.getId(), faq.getQuestion())) {
+				createVariant(faq, faq.getQuestion());
+			}
 		}
 		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
 	}
 }
+

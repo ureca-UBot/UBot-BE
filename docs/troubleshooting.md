@@ -47,7 +47,7 @@ docker compose down -v
 
 두 번째 명령은 `-f`가 없어서 공통 파일(`docker-compose.yml`)의 볼륨만 지웁니다. DB가 비었으므로 애플리케이션을 다시 시작한 뒤 [관리자 계정과 FAQ](how-to/local-data.md)를 다시 준비합니다.
 
-PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
+PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
 
 ## DecodingException: Illegal base64 character
 
@@ -238,14 +238,14 @@ docker compose -f docker-compose.yml -f docker-compose.vllm.yml logs --tail=100 
 
 벡터는 임베딩 서버·모델·버전의 조합(Embedding Profile)별로 따로 저장되고, 검색은 지금 Profile의 벡터만 씁니다. 설정을 바꾸면 새 Profile이 되는데 거기에는 아직 벡터가 없습니다. 기존 벡터는 지워지지 않고 남아 있습니다.
 
-시드 스크립트(`tools/reset-local-db.ps1`, `tools/reset-faq-data.ps1`)로 FAQ를 넣은 직후에도 `AI_MODE=vllm`이면 같은 증상이 납니다. 스크립트는 벡터를 Ollama Profile로만 넣습니다.
+시드 스크립트로 FAQ를 넣은 직후에도 같은 증상이 납니다. 스크립트는 FAQ와 질문 표현만 적재하며 벡터는 넣지 않습니다. 검색은 `QUESTION` 벡터를 사용하므로 Ollama와 vLLM 어느 쪽이든 검색 전에 백필해야 합니다.
 
 **해결**
 
 관리자 계정으로 백필을 실행해 지금 Profile의 벡터를 채웁니다([백필](how-to/llm-module.md#백필)).
 
 ```powershell
-.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>
+.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>
 ```
 
 이전 설정으로 되돌리면 전에 만든 벡터를 다시 쓰므로 백필 없이도 검색됩니다.
@@ -279,7 +279,7 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 
 ## 채팅 요청이 실패함
 
-`POST /chat/questions`가 실패하면 응답의 `code`로 원인을 구분합니다. 코드별 의미와 HTTP 상태는 [오류 코드 Reference](reference/error-codes.md#채팅)에 있고, 아래는 코드별로 확인할 곳입니다. 실패 이력은 [`answer_attempts_history`](how-to/db-access.md#주요-테이블)에서도 볼 수 있습니다.
+채팅이 실패하면 접수 응답(`POST /chat/questions`)의 `code`나 상태 조회(`GET /chat/jobs/{jobId}`)의 `data.errorCode`로 원인을 구분합니다. 코드별 의미와 HTTP 상태는 [오류 코드 Reference](reference/error-codes.md#채팅)에 있고, 아래는 코드별로 확인할 곳입니다. 실패 이력은 [`answer_attempts_history`](how-to/db-access.md#주요-테이블)에서도 볼 수 있습니다.
 
 | code | 확인할 것 |
 |---|---|
@@ -292,14 +292,16 @@ $env:RUN_INTENT_ANALYSIS = 'true'; .\gradlew.bat test --tests 'com.ubot.embeddin
 | `EM-002` | 임베딩 서버가 1024차원이 아닌 벡터를 돌려주는지(다른 모델이 설정됐는지) |
 | `CHAT-010`, `CHAT-008` | PostgreSQL 상태, 애플리케이션 로그 |
 | `CHAT-012` | `faq`에 삭제되지 않은 FAQ가 있는지 ([FAQ 준비](how-to/local-data.md#2-faq-등록)). FAQ가 있는데도 나오면 지금 Embedding Profile에 벡터가 있는지 ([AI_MODE를 바꾼 뒤](#ai_mode를-바꾼-뒤-검색-결과가-없음)) |
-| `CHAT-013` | `CHAT_CONFIDENCE_THRESHOLD`. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
+| `CHAT-013` | FAQ 질문 벡터 유사도 기준 `CHAT_CONFIDENCE_THRESHOLD` 또는 답변 문장 유사도 기준 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과하지 못함. `CHAT-012`·`CHAT-013`으로 끝난 질문은 `unanswered_questions`에 저장됩니다 |
 | `CHAT-014` | `prompts/faq-*.txt`, `prompt.faq.*-location` |
 | `LLM-002` | `.env`의 `OLLAMA_CHAT_MODEL`. `AI_MODE=vllm`이면 `LLM_MODEL` |
 | `LLM-003` | Ollama의 모델 목록에 채팅 모델이 있는지. 없으면 `ollama-init`으로 받습니다([Ollama 모델 준비](#ollama-모델이-준비되지-않음)). `AI_MODE=vllm`이면 [vLLM 서버 준비](#vllm-서버가-준비되지-않음) |
-| `LLM-004`, `CHAT-016` | `LLM_READ_TIMEOUT`, `CHAT_RESPONSE_TIMEOUT_MILLIS`, 모델 크기·GPU 사용 여부 |
+| `LLM-004` | `LLM_READ_TIMEOUT`, 모델 크기·GPU 사용 여부 |
+| `CHAT-016` | `ai-worker`가 떠 있는지(`APP_ROLE`이 `worker` 또는 `all`인 프로세스), Worker 로그(`ChatJobWorker`), `backend` 로그의 "답변 작업 메시지를 발행하지 못했습니다"와 Worker 로그의 "발행되지 않은 답변 작업을 다시 발행했습니다", Redis 연결, 대기 작업 수(`chat_jobs`의 `QUEUED`), 처리 대기 메시지(`XPENDING chat:jobs chat-workers`), `CHAT_WORKER_CONCURRENCY`, `CHAT_WORKER_MAX_QUEUE_WAIT`, `CHAT_WORKER_EXECUTION_TIMEOUT`, `chat_worker_timeouts_total` |
+| `CHAT-015` | 애플리케이션 로그. Worker 로그에 "전달 횟수(3번)를 다 쓴 답변 작업을 실패로 끝냈습니다"가 있으면 그 질문을 처리하다 Worker가 반복해서 죽은 것이므로 `ai-worker`의 종료 원인(`docker inspect`의 `OOMKilled`, 재시작 횟수)을 확인합니다. "메시지 없이 오래 실행 중으로 남은 답변 작업을 실패로 끝냈습니다"면 Redis 재시작(데이터 유실)이나 Worker가 오래 없었는지 확인합니다 |
 | `LLM-005` | 모델 설정, 애플리케이션 로그 |
 
-FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_embeddings`에 벡터가 없어 검색에 나오지 않습니다. [백필](how-to/llm-module.md#백필)을 실행하면 벡터가 없는 FAQ만 임베딩합니다.
+FAQ를 SQL로 `faq`에만 직접 넣었다면 `faq_question_variants`에 질문 표현이 없어 검색에 나오지 않습니다. 먼저 원본 질문의 variant를 만들어야 합니다. 그 뒤 [백필](how-to/llm-module.md#백필)을 실행하면 누락된 variant 벡터를 채웁니다. 관리자 API로 FAQ를 등록하면 variant와 벡터가 함께 생성됩니다.
 
 채팅 응답의 `answer`에는 답변 문장만 들어갑니다. 2026-10-12 이전에 저장된 대화 기록은 JSON 문자열 그대로일 수 있습니다. 모델 출력 JSON을 읽을 수 없으면 `LLM-005`로 실패합니다([LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리)).
 

@@ -38,6 +38,9 @@ public class OldFaq {
 	@Column(name = "intent")
 	private Intent intent;
 
+	@Column(name = "cacheable")
+	private boolean cacheable;
+
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "created_by")
 	private User createdBy;
@@ -57,6 +60,7 @@ public class OldFaq {
 				.question(faq.getQuestion())
 				.answer(faq.getAnswer())
 				.intent(faq.getIntent())
+				.cacheable(faq.isCacheable())
 				.createdBy(faq.getAdmin())
 				.updatedBy(updateAdmin)
 				.updatedAt(faq.getUpdatedAt())

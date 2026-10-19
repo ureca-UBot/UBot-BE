@@ -6,6 +6,7 @@ import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.chat.util.PersonalInfoMasker;
 import com.ubot.common.ErrorCode;
 import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.repository.ConversationRepository;
@@ -18,6 +19,7 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.guest.entity.GuestChatSettings;
 import com.ubot.guest.repository.GuestChatSettingsRepository;
 import com.ubot.llm.service.LlmService;
+import com.ubot.ranking.enums.RegionSido;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -32,6 +34,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import lombok.extern.slf4j.Slf4j;
 
@@ -75,8 +79,8 @@ public class ChatAttemptsService {
 		this.llmModel = llmService.getModelName();
 		this.embeddingModel = embeddingService.getModelName();
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
-		// 기록 저장 트랜잭션만 열고, 모델 호출 중에는 DB 연결이나 행 잠금을 유지하지 않습니다.
-		this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		// 시도 생성은 작업 접수와 같은 트랜잭션에 참여함
+		this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
 	}
 
 	public AnswerAttemptsHistory createAnswerAttempt(Long userId, String question) {
@@ -84,7 +88,7 @@ public class ChatAttemptsService {
 	}
 
 	public AnswerAttemptsHistory createAnswerAttempt(Long userId, Long conversationId, String question) {
-		String input = question.strip();
+		String input = PersonalInfoMasker.mask(question.strip());
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createIdempotencyKey(userId, input, createdAt);
 		return transactionTemplate
@@ -93,7 +97,7 @@ public class ChatAttemptsService {
 	}
 
 	public AnswerAttemptsHistory createGuestAnswerAttempt(Long conversationId, String question) {
-		String input = question.strip();
+		String input = PersonalInfoMasker.mask(question.strip());
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createGuestIdempotencyKey(conversationId, input, createdAt);
 		return transactionTemplate.execute(transactionStatus -> {
@@ -173,7 +177,7 @@ public class ChatAttemptsService {
 				throw new ChatException(errorCode);
 			});
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-					userId, latestAttempt.getConversationId(), latestAttempt.getQuestion(),
+					userId, latestAttempt.getConversationId(), PersonalInfoMasker.mask(latestAttempt.getQuestion()),
 					latestAttempt.getAttemptCount() + 1, idempotencyKey,
 					LocalDateTime.now().truncatedTo(ChronoUnit.MICROS), llmModel, embeddingModel));
 		});
@@ -193,70 +197,51 @@ public class ChatAttemptsService {
 		conversation.touch();
 	}
 
-	public AnswerAttemptsHistory saveAnswerSuccess(
-			AnswerAttemptsHistory attempt,
+	// 작업 완료와 함께 커밋되도록 호출자 트랜잭션 안에서만 부름. 이미 끝난 시도면 기록 없이 빈 값
+	@Transactional(propagation = Propagation.MANDATORY)
+	public Optional<Long> recordSuccess(
+			AnswerAttemptsHistory lockedAttempt,
 			String answer,
 			List<FaqSearchResponseDto> sources,
-			String userIp) {
-		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
-			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
-					.findAttemptForLock(attempt.getId()).orElseThrow();
-			if (!"PENDING".equals(currentAttempt.getStatus())) {
-				return currentAttempt;
-			}
+			RegionSido region) {
+		if (!"PENDING".equals(lockedAttempt.getStatus())) {
+			return Optional.empty();
+		}
+		QuestionLog questionLog = questionLogService.saveAndFlush(
+				lockedAttempt.getUserId(),
+				lockedAttempt.getConversationId(),
+				lockedAttempt.getQuestion(),
+				answer,
+				region);
 
-			QuestionLog questionLog = questionLogService.saveAndFlush(
-					currentAttempt.getUserId(),
-					currentAttempt.getConversationId(),
-					currentAttempt.getQuestion(),
-					answer,
-					userIp);
-
-			List<FaqLog> faqLogs = new ArrayList<>();
-			LocalDateTime now = LocalDateTime.now();
-			for (int index = 0; index < sources.size(); index++) {
-				FaqSearchResponseDto source = sources.get(index);
-				faqLogs.add(FaqLog.builder()
-						.questionLogId(questionLog.getId())
-						.faq(faqRepository.getReferenceById(source.faqId()))
-						.rank(index + 1)
-						.similarity(source.similarityScore())
-						.createdAt(now)
-						.build());
-			}
-			faqLogRepository.saveAll(faqLogs);
-			currentAttempt.succeed();
-			return currentAttempt;
-		});
-		log.info("답변 성공 이력을 저장했습니다: 시도ID={}, 상태={}, 참고FAQ수={}",
-				attempt.getId(), savedAttempt.getStatus(), sources.size());
-		return savedAttempt;
+		List<FaqLog> faqLogs = new ArrayList<>();
+		LocalDateTime now = LocalDateTime.now();
+		for (int index = 0; index < sources.size(); index++) {
+			FaqSearchResponseDto source = sources.get(index);
+			faqLogs.add(FaqLog.builder()
+					.questionLogId(questionLog.getId())
+					.faq(faqRepository.getReferenceById(source.faqId()))
+					.rank(index + 1)
+					.similarity(source.similarityScore())
+					.createdAt(now)
+					.build());
+		}
+		faqLogRepository.saveAll(faqLogs);
+		lockedAttempt.succeed();
+		log.info("답변 성공 이력을 기록했습니다: 시도ID={}, 참고FAQ수={}", lockedAttempt.getId(), sources.size());
+		return Optional.of(questionLog.getId());
 	}
 
-	public AnswerAttemptsHistory saveAnswerFailure(AnswerAttemptsHistory attempt, ErrorCode errorCode) {
-		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
-			AnswerAttemptsHistory currentAttempt = answerAttemptsHistoryRepository
-					.findAttemptForLock(attempt.getId()).orElseThrow();
-			if (!"PENDING".equals(currentAttempt.getStatus())) {
-				return currentAttempt;
-			}
-			currentAttempt.fail(errorCode);
-			return currentAttempt;
-		});
-		log.info("답변 실패 이력을 저장했습니다: 시도ID={}, 상태={}, 오류코드={}, 오류메시지={}",
-				attempt.getId(), savedAttempt.getStatus(), errorCode.getCode(), errorCode.getMessage());
-		return savedAttempt;
-	}
-
-	public AnswerAttemptsHistory saveAnswerTimeout(AnswerAttemptsHistory attempt) {
-		// 트랜잭션 커밋이 끝난 기록으로 재시도 응답을 구성합니다.
-		AnswerAttemptsHistory savedAttempt = transactionTemplate.execute(transactionStatus -> {
-			answerAttemptsHistoryRepository.updatePendingAttemptToFail(
-					attempt.getId(), ChatErrorCode.RESPONSE_TIMEOUT, ChatErrorCode.RESPONSE_TIMEOUT.getMessage());
-			return answerAttemptsHistoryRepository.findById(attempt.getId()).orElseThrow();
-		});
-		log.warn("답변 생성 시간을 초과했습니다: 시도ID={}, 상태={}", attempt.getId(), savedAttempt.getStatus());
-		return savedAttempt;
+	// recordSuccess와 같이 호출자 트랜잭션 안에서만 부름
+	@Transactional(propagation = Propagation.MANDATORY)
+	public boolean recordFailure(AnswerAttemptsHistory lockedAttempt, ErrorCode errorCode) {
+		if (!"PENDING".equals(lockedAttempt.getStatus())) {
+			return false;
+		}
+		lockedAttempt.fail(errorCode);
+		log.info("답변 실패 이력을 기록했습니다: 시도ID={}, 오류코드={}, 오류메시지={}",
+				lockedAttempt.getId(), errorCode.getCode(), errorCode.getMessage());
+		return true;
 	}
 
 	/** 재시도가 불가능한 사유를 반환하고, 가능하면 빈 결과를 반환합니다. */

@@ -93,6 +93,15 @@ class OpenAiCompatibleLlmClientHttpTest {
 	}
 
 	@Test
+	void repeatedToolRequestsStopEvenWhenModelIgnoresToolLimitErrors() {
+		for (int index = 0; index < 10; index++) server.respond(toolCall("findNearbyStores", "{}"));
+		assertThatThrownBy(() -> client.generateAnswer(storeQuestion(new StoreSearchRecorder())))
+				.isInstanceOfSatisfying(LlmException.class,
+						error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+		assertThat(server.requests()).hasSize(9);
+	}
+
+	@Test
 	void sendsResponseSchemaAsJsonSchemaResponseFormatInKeyOrder() {
 		server.respond(completion("\"{\\\"answer\\\":\\\"답변\\\",\\\"evidence_ids\\\":[],\\\"status\\\":\\\"ANSWER\\\"}\"", "stop"));
 

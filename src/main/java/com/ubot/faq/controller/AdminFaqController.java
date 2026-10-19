@@ -11,16 +11,22 @@ import com.ubot.faq.dto.response.OldFaqResponseDto;
 import com.ubot.faq.service.FaqCategoryService;
 import com.ubot.faq.service.FaqLogService;
 import com.ubot.faq.service.FaqService;
+import com.ubot.faq.service.FaqSimilarQuestionService;
 import com.ubot.faq.service.OldFaqService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import com.ubot.faq.service.FaqEmbeddingBackfillService;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/admin")
@@ -32,6 +38,13 @@ public class AdminFaqController {
 	private final FaqLogService faqLogService;
 	private final OldFaqService oldFaqService;
 	private final FaqEmbeddingBackfillService faqEmbeddingBackfillService;
+	private final FaqSimilarQuestionService faqSimilarQuestionService;
+
+	@PostMapping(value = "/faqs/question-variants/generate", consumes = MediaType.TEXT_PLAIN_VALUE)
+	public ApiResponse<List<String>> generateSimilarQuestions(
+			@NotBlank @Size(max = 1000) @RequestBody String question) {
+		return ApiResponse.success(faqSimilarQuestionService.generate(question));
+	}
 
 //	FaqService 관련 컨트롤러들
 

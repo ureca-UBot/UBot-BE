@@ -8,6 +8,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.time.LocalDateTime;
@@ -37,8 +38,7 @@ class ChatAnswerProcessorResearchTest {
     private static final Runnable NOT_CANCELLED = () -> {
     };
 
-    @Mock
-    FaqVectorService faqVectorService;
+    FaqVectorService faqVectorService = ChatTestFixtures.vectorService();
     @Mock
     AiService aiService;
     @Mock
@@ -51,7 +51,8 @@ class ChatAnswerProcessorResearchTest {
     @BeforeEach
     void setUp() {
         processor = new ChatAnswerProcessor(
-                faqVectorService, aiService, unansweredQuestionService, chatContextCollector);
+                FaqRetrievalService.denseOnly(faqVectorService), aiService, unansweredQuestionService, chatContextCollector,
+                ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
     }

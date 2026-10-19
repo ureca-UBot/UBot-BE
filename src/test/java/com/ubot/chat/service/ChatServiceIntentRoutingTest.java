@@ -20,19 +20,21 @@ import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.billing.dto.response.BillingRecordResponseDto;
 import com.ubot.billing.enums.PaymentStatus;
-import com.ubot.chat.dto.response.ChatResponseDto;
 import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
+import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
+import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
+import com.ubot.ranking.enums.RegionSido;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,11 +43,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 @DisplayName("채팅 intent 분기 연결 테스트")
 class ChatServiceIntentRoutingTest {
-	private final FaqVectorService vector = mock(FaqVectorService.class);
+	private final FaqVectorService vector = ChatTestFixtures.vectorService();
 	private final AiService ai = mock(AiService.class);
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
+	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
 	private final NearbyStoreSearcher nearbyStoreSearcher = mock(NearbyStoreSearcher.class);
-	private final Deque<Runnable> jobs = new ArrayDeque<>();
 	private final AnswerAttemptsHistory attempt = AnswerAttemptsHistory.builder()
 			.id(1L).userId(1L).question("근처 매장 알려줘").idempotencyKey("a".repeat(64))
 			.attemptCount(1).status("PENDING").build();
@@ -58,36 +60,40 @@ class ChatServiceIntentRoutingTest {
 			.attemptCount(1).status("PENDING").build();
 	private final Location myLocation = new Location(37.5, 127.0);
 	private final StoreMapResult myLocationStores = new StoreMapResult(myLocation, null, 3.0, List.of());
+	private ChatJobTestHarness harness;
 	private ChatService service;
 
 	@BeforeEach
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
-				vector, ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher));
-		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
-				new ChatAnswerExecutor(processor, attempts, jobs::add));
+				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
+				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.disabledCache(),
+				ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
-		when(attempts.createAnswerAttempt(1L, "근처 매장 알려줘")).thenReturn(attempt);
+		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);
+		service = new ChatService(attempts, mock(ForbiddenWordFilterService.class),
+				harness.submissionService, ipRegionResolver);
+		when(attempts.createAnswerAttempt(1L, null, "근처 매장 알려줘")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("근처 매장 알려줘", 3)).thenReturn(sources);
 		when(nearbyStoreSearcher.search(myLocation, null)).thenReturn(myLocationStores);
 		when(nearbyStoreSearcher.format(myLocationStores)).thenReturn("반경 3km 안에 매장이 없습니다.");
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", null, false));
 		when(attempts.createGuestAnswerAttempt(7L, "근처 매장 알려줘")).thenReturn(guestAttempt);
-		when(attempts.saveAnswerSuccess(any(), any(), any(), any())).thenAnswer(call -> {
+		when(ipRegionResolver.resolve("127.0.0.1")).thenReturn(Optional.of(RegionSido.SEOUL));
+		when(attempts.recordSuccess(any(), any(), any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
 			saved.succeed();
-			return saved;
+			return harness.logAnswer(call.getArgument(1));
 		});
 	}
 
 	@Test
 	@DisplayName("위치 없이 물으면 threshold를 넘은 FAQ의 intent별로 자료를 모으고 매장 조회 도구를 붙인다")
 	void collectsMaterialsByIntentWithStoreTool() {
-		service.createChat(1L, "근처 매장 알려줘", "127.0.0.1");
-		jobs.poll().run();
+		service.createChat(1L, null, "근처 매장 알려줘", null, "127.0.0.1");
+		harness.runQueuedJobs();
 
 		AnswerMaterials materials = captureMaterials();
 		assertThat(materials.question()).isEqualTo("근처 매장 알려줘");
@@ -96,14 +102,15 @@ class ChatServiceIntentRoutingTest {
 		assertThat(materials.storeMap()).isNull();
 		verifyNoInteractions(nearbyStoreSearcher);
 		// faq_log는 intent와 관계없이 threshold를 넘은 검색 결과 전체로 남깁니다.
-		verify(attempts).saveAnswerSuccess(attempt, "답변", sources.subList(0, 2), "127.0.0.1");
+		// 지역은 접수 때 IP로 정한 값임
+		verify(attempts).recordSuccess(attempt, "답변", sources.subList(0, 2), RegionSido.SEOUL);
 	}
 
 	@Test
 	@DisplayName("내 위치 기준 재요청이면 도구 없이 좌표로 바로 조회한 매장을 자료에 담는다")
 	void searchesStoresDirectlyWithMyLocation() {
-		service.createChat(1L, "근처 매장 알려줘", myLocation, null);
-		jobs.poll().run();
+		service.createChat(1L, null, "근처 매장 알려줘", myLocation, null);
+		harness.runQueuedJobs();
 
 		AnswerMaterials materials = captureMaterials();
 		assertThat(materials.tools()).isEmpty();
@@ -117,21 +124,21 @@ class ChatServiceIntentRoutingTest {
 	@DisplayName("비회원도 내 위치 기준 재요청이면 바로 조회한 매장을 자료에 담는다")
 	void guestSearchesStoresDirectlyWithMyLocation() {
 		service.createGuestChat(7L, "근처 매장 알려줘", myLocation, null);
-		jobs.poll().run();
+		harness.runQueuedJobs();
 
 		AnswerMaterials materials = captureMaterials();
 		assertThat(materials.tools()).isEmpty();
 		assertThat(materials.storeMap()).isSameAs(myLocationStores);
-		verify(attempts).saveAnswerSuccess(eq(guestAttempt), eq("답변"), any(), isNull());
+		verify(attempts).recordSuccess(eq(guestAttempt), eq("답변"), any(), isNull());
 	}
 
 	@Test
-	@DisplayName("조회한 매장 지도 정보를 성공 응답의 store에 담는다")
+	@DisplayName("조회한 매장 지도 정보를 성공 결과의 store에 담는다")
 	void returnsStoreMapInResponse() {
 		var storeMap = new StoreMapResult(new Location(37.5, 127.0), "강남역", 3.0, List.of());
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", storeMap, false));
 
-		ChatResponseDto response = completeChat();
+		ChatJobStatusResponseDto response = completeChat();
 
 		assertThat(response.answer()).isEqualTo("답변");
 		assertThat(response.store()).isEqualTo(new ChatStoreDto(false, storeMap));
@@ -142,7 +149,7 @@ class ChatServiceIntentRoutingTest {
 	void returnsLocationRequiredInResponse() {
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("위치를 알려 주세요.", null, true));
 
-		ChatResponseDto response = completeChat();
+		ChatJobStatusResponseDto response = completeChat();
 
 		assertThat(response.store()).isEqualTo(new ChatStoreDto(true, null));
 	}
@@ -150,7 +157,7 @@ class ChatServiceIntentRoutingTest {
 	@Test
 	@DisplayName("매장을 조회하지 않은 답변에는 store를 담지 않는다")
 	void omitsStoreWhenNoStoreResult() {
-		ChatResponseDto response = completeChat();
+		ChatJobStatusResponseDto response = completeChat();
 
 		assertThat(response.answer()).isEqualTo("답변");
 		assertThat(response.store()).isNull();
@@ -158,30 +165,30 @@ class ChatServiceIntentRoutingTest {
 	}
 
 	@Test
-	@DisplayName("답변에 쓰인 가입 정보 카드를 성공 응답의 userData에 담는다")
+	@DisplayName("답변에 쓰인 가입 정보 카드를 성공 결과의 userData에 담는다")
 	void returnsUserDataCardsInResponse() {
 		var userData = new UserDataCards(List.of(), List.of(), List.of(UserDataCards.BillingCard.of("010-****-5678",
 				new BillingRecordResponseDto(1L, YearMonth.of(2026, 10), 75000, 3000, 0, 0, 0, 78000,
 						LocalDate.of(2026, 10, 25), PaymentStatus.UNPAID, 0, null, null))));
-		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", null, false, userData));
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", null, false, null, userData));
 
-		ChatResponseDto response = completeChat();
+		ChatJobStatusResponseDto response = completeChat();
 
-		assertThat(response.userData()).isSameAs(userData);
+		assertThat(response.userData()).isEqualTo(userData);
 		assertThat(response.store()).isNull();
 	}
 
-	private ChatResponseDto completeChat() {
-		var task = service.createChat(1L, "근처 매장 알려줘", null);
-		jobs.poll().run();
-		return task.result().join();
+	private ChatJobStatusResponseDto completeChat() {
+		var submission = service.createChat(1L, null, "근처 매장 알려줘", null, null);
+		harness.runQueuedJobs();
+		return harness.memberStatus(submission, 1L);
 	}
 
 	@Test
 	@DisplayName("재시도는 위치 없이 도구 경로로 처리한다")
 	void retryHasNoLocation() {
 		service.retryChat(1L, attempt.getIdempotencyKey(), null);
-		jobs.poll().run();
+		harness.runQueuedJobs();
 
 		assertThat(captureMaterials().tools()).containsExactly(AiTool.STORE_SEARCH);
 		verifyNoInteractions(nearbyStoreSearcher);

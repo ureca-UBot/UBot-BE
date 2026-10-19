@@ -31,8 +31,7 @@ public interface StoreReservationRepository
 			@Param("storeId") Long storeId,
 			@Param("status") ReservationStatus status,
 			@Param("from") LocalDateTime from,
-			@Param("to") LocalDateTime to
-	);
+			@Param("to") LocalDateTime to);
 
 	boolean existsByStore_StoreIdAndVisitAtAndStatus(Long storeId, LocalDateTime visitAt, ReservationStatus status);
 
@@ -43,12 +42,28 @@ public interface StoreReservationRepository
 	@EntityGraph(attributePaths = "store")
 	List<StoreReservation> findAllByUserIdOrderByVisitAtDesc(Long userId);
 
+	/**
+	 * 방문 리마인더 대상(from 초과, to 이하)
+	 * 알림에 매장 이름을 쓰므로 store를 함께 가져옴
+	 */
+	@EntityGraph(attributePaths = "store")
+	@Query("""
+			select r from StoreReservation r
+			where r.status = :status
+			  and r.visitAt > :from
+			  and r.visitAt <= :to
+			order by r.visitAt asc, r.reservationId asc
+			""")
+	List<StoreReservation> findReminderTargets(
+			@Param("status") ReservationStatus status,
+			@Param("from") LocalDateTime from,
+			@Param("to") LocalDateTime to);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select r from StoreReservation r where r.reservationId = :reservationId and r.userId = :userId")
 	Optional<StoreReservation> findByReservationIdAndUserIdForUpdate(
 			@Param("reservationId") Long reservationId,
-			@Param("userId") Long userId
-	);
+			@Param("userId") Long userId);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select r from StoreReservation r where r.reservationId = :reservationId")

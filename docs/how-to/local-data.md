@@ -1,10 +1,8 @@
 # 로컬 테스트 데이터 준비하기
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
-
 마이그레이션은 매장 임시 데이터(`V5`)만 넣습니다. 관리자 계정과 FAQ는 비어 있으므로, 채팅 답변까지 확인하려면 데이터를 준비해야 합니다. 방법은 두 가지입니다.
 
-- [기본 데이터로 한 번에 채우기](#기본-데이터로-한-번에-채우기): 저장소의 기본 FAQ 1,000건과 기본 계정을 스크립트로 넣습니다. 로컬 DB를 새로 만들어도 될 때 씁니다.
+- [기본 데이터로 한 번에 채우기](#기본-데이터로-한-번에-채우기): 저장소의 FAQ CSV와 기본 계정을 스크립트로 넣습니다. 로컬 DB를 새로 만들어도 될 때 씁니다.
 - 직접 준비하기(1~2단계): 지금 DB를 유지한 채 계정을 만들고 관리자 API로 FAQ를 등록합니다.
 
 어느 쪽이든 [채팅 모델](#3-채팅-모델)은 따로 준비합니다.
@@ -13,21 +11,20 @@
 
 ## 기본 데이터로 한 번에 채우기
 
-기본 FAQ는 `src/main/resources/seed/baseline-faqs.csv`에 있습니다(1,000건, 카테고리 17개). 이 파일과 기본 계정을 DB에 넣는 스크립트가 두 개 있습니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../src/main/resources/seed/README.md)에 있습니다.
+기본 FAQ는 `tools/faq-db/seed/baseline-faqs.csv`와 `baseline-faq-variants.csv`에 있습니다. 시드에는 FAQ별 질문 표현 5개가 포함되며 벡터는 없습니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../tools/faq-db/seed/README.md)에 있습니다.
 
 | 스크립트 | 하는 일 |
 |---|---|
-| `.\tools\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 FAQ 카테고리·FAQ를 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
-| `.\tools\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력, FAQ 참고 로그, FAQ 벡터만 지우고 CSV 기준으로 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
+| `.\tools\faq-db\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 CSV의 카테고리·FAQ·질문 표현을 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
+| `.\tools\faq-db\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 기존 벡터를 지우고 CSV 기준으로 FAQ와 질문 표현을 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
 
-두 스크립트는 PostgreSQL만 다루므로 `AI_MODE`와 관계없이 실행할 수 있습니다.
+두 초기화 스크립트는 PostgreSQL만 다루므로 `AI_MODE`와 관계없이 실행할 수 있습니다.
 
-스크립트는 CSV에 들어 있는 벡터를 `faq_embeddings`에 Ollama Profile(`bge-m3:567m`, 버전 1)로 넣습니다.
+스크립트는 벡터를 만들거나 `faq_embeddings`에 넣지 않습니다.
 
-- **`AI_MODE=ollama`(기본)면 바로 검색됩니다.** 애플리케이션을 다시 시작하기만 하면 됩니다. 임베딩 요청도 하지 않습니다.
-- **`AI_MODE=vllm`이면 임베딩 백필을 한 번 실행합니다.** vLLM Profile에는 벡터가 없어서, 백필 전에는 FAQ가 1,000건 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝납니다. 애플리케이션을 다시 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\backfill-embeddings.ps1 -Email <관리자 이메일>`을 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
-- 백필은 지금 임베딩 서버로 FAQ를 다시 임베딩합니다. FAQ 1,024건으로 쟀을 때 vLLM(RTX 3060) 약 24초가 걸렸습니다.
-- `OLLAMA_EMBEDDING_MODEL`을 `bge-m3:567m`이 아닌 값으로 바꿨다면 Ollama에서도 백필이 필요합니다. CSV의 벡터를 만든 모델과 다른 Profile이 되기 때문입니다.
+- **시드에는 벡터가 없습니다.** 애플리케이션은 `QUESTION` 벡터로 검색하므로 시드 적재 뒤 FAQ 벡터를 백필해야 합니다. 시드 실행 중에는 임베딩 요청을 하지 않습니다.
+- **임베딩 백필을 한 번 실행합니다.** 백필 전에는 FAQ가 있어도 채팅이 `CHAT-012`(검색 결과 없음)로 끝납니다. 애플리케이션을 시작한 뒤 기본 `ADMIN` 계정으로 `.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>`을 실행합니다. 자세한 내용은 [백필](llm-module.md#백필)에 있습니다.
+- 백필은 현재 Profile에 없는 variant 벡터를 임베딩합니다. 필요한 호출 수는 활성 variant 수와 비어 있는 벡터 유형에 따라 달라집니다.
 
 이 방법을 썼다면 아래 1~2단계는 건너뛰고 [3. 채팅 모델](#3-채팅-모델)로 갑니다.
 
@@ -41,9 +38,9 @@
 
 ## 2. FAQ 등록
 
-FAQ는 SQL로 직접 넣지 말고 관리자 API로 등록합니다. API가 질문 임베딩을 `faq_embeddings`에 함께 저장합니다. SQL로 `faq`에만 넣은 행은 벡터가 없어 채팅 검색에 쓰이지 않습니다. 이런 행은 [임베딩 백필](llm-module.md#백필)로 벡터를 채울 수 있습니다.
+FAQ는 SQL로 직접 넣지 말고 관리자 API로 등록합니다. API가 원본 질문과 유사 질문을 `faq_question_variants`에 저장하고, 각 표현의 질문 벡터와 질문+답변 벡터를 `faq_embeddings`에 저장합니다. SQL로 `faq`에만 넣은 행은 variant가 없어 검색되지 않으며, 백필만으로 variant를 만들 수 없습니다.
 
-몇 건만 필요하면 Swagger UI(`/swagger-ui.html`)에서 `POST /admin/faq-categories`로 카테고리를 만든 뒤 `POST /admin/faqs`로 등록하면 됩니다.
+몇 건만 필요하면 Swagger UI(`/swagger-ui.html`)에서 `POST /admin/faq-categories`로 카테고리를 만든 뒤 `POST /admin/faqs`로 등록하면 됩니다. 요청에는 `cacheable`(불리언)과 `similarQuestions`(문자열 배열, 최대 10개)를 포함합니다. 유사 질문이 없으면 빈 배열을 보냅니다.
 
 ### CSV로 한 번에 등록하기
 
@@ -157,6 +154,8 @@ for ($i = 0; $i -lt $rows.Count; $i++) {
         question   = $row.question
         answer     = $row.answer
         intent     = $intent
+        cacheable  = $false
+        similarQuestions = @()
     }
     if ($result.success) {
         $succeeded++
@@ -195,7 +194,7 @@ powershell -ExecutionPolicy Bypass -File .\load-faqs.ps1 -CsvPath .\faqs.csv -Em
 
 ## 4. 확인
 
-1. 로그인해서 받은 access token으로 `POST /chat/questions`에 등록한 FAQ와 비슷한 질문을 보냅니다.
-2. 실패하면 `code`를 보고 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 따릅니다. 유사도가 기준(`CHAT_CONFIDENCE_THRESHOLD`, 기본 0.75)에 못 미치면 `CHAT-013`이고, 그 질문은 `unanswered_questions`에 저장됩니다([db-access.md](db-access.md#주요-테이블)).
+1. 로그인해서 받은 access token으로 `POST /chat/questions`에 등록한 FAQ와 비슷한 질문을 보냅니다. 응답의 `jobId`로 `GET /chat/jobs/{jobId}`를 호출하면 `status`가 `SUCCEEDED`가 된 뒤 답변이 나옵니다.
+2. `status`가 `FAILED`면 `errorCode`를 보고 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 따릅니다. FAQ 질문 유사도(`CHAT_CONFIDENCE_THRESHOLD`, 기본 0.75) 또는 답변 문장 유사도(`FAQ_SENTENCE_SIMILARITY_THRESHOLD`, 기본 0.7)에 못 미치면 `CHAT-013`이고, 그 질문은 `unanswered_questions`에 저장됩니다([db-access.md](db-access.md#주요-테이블)).
 
 금지어 필터를 확인하려면 관리자 API `POST /admin/forbidden-words`로 금지어를 등록한 뒤 그 단어가 들어간 질문을 보냅니다(`FW-003`).

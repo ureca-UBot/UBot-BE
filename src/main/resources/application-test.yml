@@ -28,6 +28,10 @@ kakao:
     api-key: test-key
 
 app:
+  chat:
+    worker:
+      # Tests run queued jobs explicitly with ChatJobWorker.processAvailableJobs().
+      polling-enabled: false
   jwt:
     # Base64 encoded 32-byte key used only by the disposable test profile.
     secret: MDEyMzQ1Njc4OUFCQ0RFRjAxMjM0NTY3ODlBQkNERUY=

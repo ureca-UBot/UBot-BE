@@ -8,8 +8,9 @@ import org.springframework.stereotype.Service;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
-import com.ubot.faq.entity.Faq;
-import com.ubot.faq.repository.FaqRepository;
+import com.ubot.faq.entity.FaqQuestionVariant;
+import com.ubot.faq.enums.FaqVectorType;
+import com.ubot.faq.repository.FaqQuestionVariantRepository;
 import com.ubot.faq.repository.FaqVectorRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,7 @@ public class FaqEmbeddingBackfillService {
 
     private static final int BATCH_SIZE = 100;
 
-    private final FaqRepository faqRepository;
+    private final FaqQuestionVariantRepository faqQuestionVariantRepository;
     private final FaqVectorRepository faqVectorRepository;
     private final EmbeddingService embeddingService;
     private final EmbeddingProfileService embeddingProfileService;
@@ -34,10 +35,10 @@ public class FaqEmbeddingBackfillService {
         int pageNumber = 0;
         int updatedCount = 0;
 
-        Page<Faq> page;
+        Page<FaqQuestionVariant> page;
 
         do {
-            page = faqRepository.findAllByDeletedAtIsNull(
+            page = faqQuestionVariantRepository.findAllActive(
                     PageRequest.of(
                             pageNumber,
                             BATCH_SIZE,
@@ -45,37 +46,20 @@ public class FaqEmbeddingBackfillService {
                     )
             );
 
-            for (Faq faq : page.getContent()) {
-                if (
-                        faqVectorRepository.hasCurrentVector(
-                                faq.getId(),
-                                profileId,
-                                faq.getVersion()
-                        )
-                ) {
+            for (FaqQuestionVariant variant : page.getContent()) {
+                if (faqVectorRepository.hasCurrentVector(
+                        variant.getId(), profileId, FaqVectorType.QUESTION,
+                        variant.getOriginFaq().getVersion())) {
                     continue;
                 }
 
-                PGvector vector =
-                        embeddingService.embedText(
-                                faq.getQuestion()
-                        );
-
-                faqVectorRepository.saveVectorForFaq(
-                        faq.getId(),
-                        profileId,
-                        faq.getVersion(),
-                        vector
-                );
-
+                PGvector vector = embeddingService.embedText(variant.getQuestion());
+                faqVectorRepository.saveVectorForVariant(
+                        variant.getId(), profileId, FaqVectorType.QUESTION,
+                        variant.getOriginFaq().getVersion(), vector);
                 updatedCount++;
-
-                log.info(
-                        "FAQ embedding backfill: faqId={}, version={}, profileId={}",
-                        faq.getId(),
-                        faq.getVersion(),
-                        profileId
-                );
+                log.info("FAQ embedding backfill: variantId={}, version={}, profileId={}, vectorType={}",
+                        variant.getId(), variant.getOriginFaq().getVersion(), profileId, FaqVectorType.QUESTION);
             }
 
             pageNumber++;

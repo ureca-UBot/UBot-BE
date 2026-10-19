@@ -11,8 +11,9 @@
 | 경우 | `data` |
 |---|---|
 | `G-001` (요청 DTO `@Valid` 검증 실패) | 필드별 오류 메시지 객체. 필드마다 첫 메시지 하나 |
-| 답변 생성 중 실패한 채팅 요청: `CHAT-008`~`CHAT-010`, `CHAT-012`~`CHAT-016`, `EM-*`, `LLM-*` | 시도 정보 `ChatResponseDto` (`answer`, `status: "FAIL"`, `idempotencyKey`, `attemptCount`, `retryable`). [채팅 흐름](../architecture.md#챗봇-질문-처리-흐름) 참고 |
-| 그 외 | `null`. 채팅 API라도 시도 기록을 만들기 전에 거절되는 `FW-003`, `CHAT-011`과 재시도 거절 사유 `CHAT-003`~`CHAT-007`은 `null` |
+| 그 외 | `null`. 채팅 API의 접수 거절(`FW-003`, `CHAT-011`, `CHAT-017`, 재시도·재검색 거절 사유)도 `null` |
+
+답변 생성 중 실패(`CHAT-008`, `CHAT-010`, `CHAT-012`~`CHAT-016`, `EM-*`, `LLM-*`)는 오류 응답으로 오지 않습니다. 질문 접수는 `202`로 끝나고, 상태 조회(`GET /chat/jobs/{jobId}`)가 `200`과 함께 `data.status: "FAILED"`, `errorCode`, `errorMessage`, `retryable`을 돌려줍니다([프론트엔드 연동](../how-to/frontend-integration.md)).
 
 ## 알아 둘 현재 동작
 
@@ -22,7 +23,8 @@
   - 지원하지 않는 HTTP 메서드, 지원하지 않는 Content-Type
   - 위치 검색(`/locations/search`)의 카카오 API 호출 실패 (예: `KAKAO_REST_API_KEY`가 비어 있을 때). 길찾기는 카카오 호출이 실패하면 `DIRECTIONS-002`·`DIRECTIONS-003`으로 응답합니다
 - 쿼리·경로 파라미터 타입 오류와 `@Validated` 제약 위반은 `G-002`, 본문 JSON을 읽을 수 없으면 `G-003`입니다.
-- 정의만 있고 현재 코드에서 던지지 않는 코드: `G-004`, `CHAT-002`. 채팅 질문 길이 오류는 `CHAT-001`보다 DTO 검증(`G-001`)이 먼저 걸립니다.
+- `G-004`는 `APP_ROLE=worker` 프로세스가 `/actuator`가 아닌 요청을 받았을 때만 반환합니다. Nginx는 `backend`로만 보내므로 정상 배포에서는 클라이언트가 받지 않습니다.
+- 정의만 있고 현재 코드에서 던지지 않는 코드: `CHAT-002`. 채팅 질문 길이 오류는 `CHAT-001`보다 DTO 검증(`G-001`)이 먼저 걸립니다.
 
 ## 공통
 
@@ -54,10 +56,13 @@
 | `JWT-005` | 401 | `DELETED_USER_TOKEN` | 삭제된 유저의 토큰입니다. |
 | `JWT-006` | 409 | `DUPLICATED_CREATE_REFRESH_TOKEN` | 이미 RefreshToken이 생성되었습니다. |
 | `JWT-007` | 401 | `EXPIRED_ACCESS_TOKEN` | 해당 AccessToken은 만료된 토큰입니다. |
+| `JWT-008` | 401 | `REFRESH_TOKEN_REUSED` | 이미 사용된 RefreshToken입니다. 다시 로그인해주세요. |
+| `JWT-009` | 401 | `REVOKED_ACCESS_TOKEN` | 로그아웃된 AccessToken입니다. 다시 로그인해주세요. |
 
 
-- `JWT-007`이 오면 `/auth/refresh`로 재발급합니다. 재발급 요청이 `JWT-001`·`JWT-002`·`JWT-003`·`JWT-005`로 거절되면 다시 로그인해야 합니다. 흐름은 [프론트 연동 가이드](../how-to/frontend-integration.md#인증) 참고.
+- `JWT-007`이 오면 `/auth/refresh`로 재발급합니다. 재발급 요청이 `JWT-001`·`JWT-002`·`JWT-003`·`JWT-005`·`JWT-008`로 거절되면 다시 로그인해야 합니다. 흐름은 [프론트 연동 가이드](../how-to/frontend-integration.md#인증) 참고.
 - `JWT-004`: 서명·형식이 잘못된 access token. 재발급으로 해결되지 않습니다.
+- `JWT-009`: 로그아웃했거나 refresh token 재사용이 감지된 뒤의 access token. 만료 전이어도 거부합니다. 재발급으로 해결되지 않으므로 다시 로그인해야 합니다.
 
 ## 사용자
 
@@ -76,6 +81,7 @@
 | `USER-011` | 400 | `INVALID_GENDER_FORMAT` | 성별 입력이 올바르지 않습니다. |
 | `USER-012` | 400 | `INVALID_RESIDENCE_FORMAT` | 사는 지역 입력이 올바르지 않습니다. |
 | `USER-013` | 400 | `INVALID_USER_UPDATE_REQUEST` | 수정할 항목이 없습니다. |
+| `USER-014` | 429 | `LOGIN_TEMPORARILY_LOCKED` | 로그인 실패가 반복되어 잠시 로그인할 수 없습니다. 잠시 후 다시 시도해주세요. |
 
 
 - `USER-001`: 토큰은 유효하지만 사용자가 탈퇴(`deleted_at`)했거나 없을 때 인증 필터에서도 발생합니다.
@@ -138,11 +144,16 @@
 | `CHAT-017` | 429 | `GUEST_QUESTION_LIMIT_REACHED` | 비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요. |
 | `CHAT-018` | 409 | `RESEARCH_NOT_ALLOWED` | 다른 의도로 다시 검색할 수 없는 질문입니다. |
 | `CHAT-019` | 409 | `ALREADY_RESEARCHED` | 이미 해당 의도로 재검색한 질문입니다. |
+| `CHAT-020` | 404 | `JOB_NOT_FOUND` | 답변 작업을 찾을 수 없습니다. |
 
 
 - `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다. 의도 재검색으로 만들어진 답변 시도는 재시도할 수 없어 `CHAT-007`을 반환합니다.
 - `CHAT-006`의 메시지는 `CHAT_MAX_ATTEMPTS` 설정과 관계없이 "최대 3회"로 고정되어 있습니다.
-- `CHAT-016`은 `CHAT_RESPONSE_TIMEOUT_MILLIS`(기본 180초) 초과입니다. 재시도할 수 있습니다.
+- `CHAT-008`은 답변을 만든 뒤 기록을 저장하지 못한 경우입니다(DB 오류, 저장할 수 없는 값). 상태 조회의 `errorCode`로 옵니다.
+- `CHAT-009`는 더 이상 만들지 않습니다. 이전 버전에서 저장된 시도 기록에만 남아 있을 수 있습니다.
+- `CHAT-015`는 답변 생성 중 예상하지 못한 오류입니다. Worker가 같은 작업을 실행하다 `CHAT_WORKER_MAX_DELIVERIES`(기본 3)번 죽은 경우와, 메시지를 잃은 채 실행이 시작된 지 `CHAT_WORKER_RECLAIM_IDLE`의 두 배(기본 10분)가 지나도록 끝나지 않은 경우도 여기에 해당합니다. 재시도할 수 있습니다.
+- `CHAT-016`은 접수 뒤 `CHAT_WORKER_MAX_QUEUE_WAIT`(기본 10분) 안에 Worker가 작업을 시작하지 못한 경우입니다. 발행이 빠진 작업은 Worker가 다시 발행하므로, Redis가 대기 한도 내내 내려가 있었거나 Worker가 없을 때 주로 생깁니다. 재시도할 수 있습니다.
+- `CHAT-020`은 상태 조회(`GET /chat/jobs/{jobId}`)에서 작업이 없거나 본인의 작업이 아닐 때입니다. 둘을 구분하지 않습니다.
 - `CHAT-017`은 비로그인 게스트가 한 세션에서 `guest_chat_settings.max_question_count`(기본 5)를 모두 쓴 뒤에 반환합니다. 정상 답변을 받은 질문과 FAQ를 찾지 못한 질문(`CHAT-012`·`CHAT-013`)만 횟수에 포함하고, 시스템 오류로 실패한 질문과 같은 질문의 재시도, 의도 재검색은 포함하지 않습니다. 횟수를 다 쓴 뒤에도 이미 한 질문의 재시도는 `CHAT_MAX_ATTEMPTS` 안에서 가능합니다. 최대 횟수는 관리자가 `PATCH /admin/guest-chat-settings`로 바꿀 수 있습니다. 이때 `data`는 `null`입니다.
 - `CHAT-012`·`CHAT-013`으로 끝난 질문은 미응답 질문으로 저장됩니다([architecture.md](../architecture.md#미응답-질문-저장-105)). 다만 의도 재검색 요청이 같은 사유로 실패한 경우는 사용자가 의도를 직접 골라 요청한 것이므로 저장하지 않습니다.
 - `CHAT-018`·`CHAT-019`는 의도 재검색 요청(`/chat/questions/research`)의 거절 사유입니다. 답변이 성공하지 않았거나 이미 재검색으로 만들어진 답변은 `CHAT-018`, 같은 질문을 같은 의도로 이미 재검색했다면 `CHAT-019`를 반환합니다. 재검색할 원본 질문을 찾을 수 없으면 `CHAT-003`을 반환합니다. 재검색은 로그인한 회원만 사용할 수 있으며, 비로그인 요청은 인증 단계에서 `401`로 거절됩니다.

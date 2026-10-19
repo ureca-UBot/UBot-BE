@@ -10,7 +10,7 @@
 com.ubot
 ├── auth           인증 (JWT 발급·검증, refresh token, Security 설정)
 ├── user           사용자 엔티티·저장소·서비스, 내 정보 조회·수정 (/auth/me)
-├── chat           질문 처리 진입점 (컨트롤러 → ChatService), 답변 생성 실행·처리 (ChatAnswerExecutor → ChatAnswerProcessor), 답변 시도 기록·재시도
+├── chat           질문 접수 (컨트롤러 → ChatService → chat.job), 답변 Worker (ChatJobWorker → ChatJobProcessor → ChatAnswerProcessor), 답변 시도 기록·재시도
 ├── ai             FAQ 프롬프트 구성과 LLM 호출 연결 (AiService)
 ├── prompt         질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
 ├── llm            LLM 요청 검증·Ollama 호출·오류 변환
@@ -21,13 +21,13 @@ com.ubot
 ├── location       카카오 로컬 API 연동 (주소·좌표 검색)
 ├── store          매장 조회 (목록·상세·근처·지도·클러스터, PostGIS), 관리자 매장 관리
 ├── direction      매장 길찾기 (카카오 도보·대중교통, 카카오모빌리티 자동차)
-├── global         공통 설정 (채팅 답변 생성용 가상 스레드 Executor)
+├── global         공통 설정 (프로세스 역할 APP_ROLE: api·worker·all)
 └── common         공통 응답·에러코드·전역 예외 처리, OpenAPI 설정
 ```
 
 | 종류 | 위치 |
 |---|---|
-| DB 마이그레이션 | `src/main/resources/db/migration/V1`~`V15` |
+| DB 마이그레이션 | `src/main/resources/db/migration/V1`~`V33` |
 | 매장 조회 SQL | `src/main/resources/sql/store/*.sql` |
 | FAQ 프롬프트 | `src/main/resources/prompts/faq-system.txt`, `faq-user.txt` |
 | DB 이미지 | `infra/postgres/Dockerfile` |
@@ -45,7 +45,7 @@ com.ubot
 | 인증 | `POST /auth/signup`, `/auth/login`, `/auth/refresh` | 불필요 |
 | 인증 | `POST /auth/logout` | JWT |
 | 내 정보 | `GET`, `PATCH /auth/me` | JWT |
-| 챗봇 | `POST /chat/questions`, `POST /chat/questions/retries` (`Idempotency-Key` 헤더) | JWT 또는 게스트 세션(`JSESSIONID`) |
+| 챗봇 | `POST /chat/questions`, `POST /chat/questions/retries` (`Idempotency-Key` 헤더) → `202`와 `jobId`, `GET /chat/jobs/{jobId}` (상태·답변 조회) | JWT 또는 게스트 세션(`JSESSIONID`) |
 | 매장 | `GET /stores`, `/stores/{storeId}`, `/stores/nearby`, `/stores/map`, `/stores/map/clusters`, `/stores/regions/sidos`, `/stores/regions/sigungus` | 불필요 |
 | 길찾기 | `GET /stores/{storeId}/directions?mode=WALK\|CAR\|TRANSIT`, `POST /stores/{storeId}/directions/transit-detail` | 불필요 |
 | 위치 | `GET /locations/search?query=` | 불필요 |
@@ -63,71 +63,95 @@ com.ubot
 - 인증 없이 호출할 수 있는 경로는 `/auth/login`, `/auth/signup`, `/auth/refresh`, `/stores/**`, `/locations/**`, `/actuator/health`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`)입니다. `/admin/**`은 `ADMIN` 역할이 필요하고, 나머지는 모두 JWT가 필요합니다.
 - `JwtAuthenticationFilter`가 `Authorization: Bearer <token>`을 검증한 뒤, 토큰의 사용자 ID로 **매 요청마다 DB에서 탈퇴하지 않은 사용자를 조회**합니다. 권한은 토큰의 `role` claim이 아니라 DB의 `users.role`에서 가져옵니다.
 - 인증이 필요 없는 경로라도 잘못되거나 만료된 Bearer 토큰을 보내면 필터에서 오류 응답이 나갑니다.
-- 채팅 응답은 비동기(`DeferredResult`)로 완료되므로, `/chat/` 경로의 내부 `ASYNC` 재디스패치는 인증 검사 없이 허용합니다.
+- `GET /chat/jobs/*`는 게스트도 호출하므로 인증 없이 허용합니다. 본인 작업인지는 `ChatJobQueryService`가 회원은 JWT의 사용자, 게스트는 세션의 대화로 확인하고, 아니면 없는 작업과 같은 `CHAT-020`으로 거절합니다.
 - `POST /chat/questions`, `POST /chat/questions/retries`는 JWT 없이도 호출할 수 있습니다. Bearer 토큰이 있으면 회원으로, 없으면 게스트로 처리합니다. 게스트는 `HttpSession`(`JSESSIONID`, 30분)에 연결된 `conversations` 행으로 식별하고, 시도와 질문 로그를 `user_id = null`, `conversation_id`로 저장합니다. 한 세션의 질문 수는 `guest_chat_settings.max_question_count`까지이며 넘으면 `CHAT-017`입니다.
 - `POST /chat/questions/research`는 회원 전용이라 `permitAll`에 넣지 않았습니다. 비로그인 요청은 인증 단계에서 `401`로 거절됩니다.
 - 게스트가 로그인한 뒤 같은 세션으로 처음 채팅을 요청하면, 세션에 연결된 게스트 Conversation을 회원에게 승계합니다. `conversations`의 `type`을 `MEMBER`로 바꾸고 `user_id`를 채우며, 그 Conversation의 `answer_attempts_history`·`question_log`에도 `user_id`를 채운 뒤 게스트 세션을 종료합니다. 이미 회원에게 연결된 Conversation은 다시 승계하지 않습니다.
 - Spring Security 인증은 `STATELESS`로 유지합니다. `HttpSession`은 인증 상태가 아니라 게스트 Conversation 식별에만 씁니다.
 - 게스트 질문은 실시간 검색어 랭킹 집계에서 제외합니다(`ranking_eligible = false`). 승계된 과거 게스트 질문도 그대로 제외하고, 로그인 이후 생성된 질문부터 집계합니다.
 - Access token 서명 키는 `JWT_SECRET`(Base64, 32바이트 이상)이며 기동 시점에 디코딩합니다. 값이 올바르지 않으면 애플리케이션이 뜨지 않습니다.
-- Refresh token은 사용자당 1개(`refresh_tokens.user_id` UNIQUE)입니다. 로그인과 재발급 때마다 새 값으로 교체하므로, 다른 기기에서 로그인하면 이전 refresh token은 쓸 수 없습니다. 로그아웃은 refresh token을 삭제합니다.
+- Refresh token은 사용자당 1개(`refresh_tokens.user_id` UNIQUE)입니다. 로그인과 재발급 때마다 새 값으로 교체하므로, 다른 기기에서 로그인하면 이전 refresh token은 쓸 수 없습니다. 로그아웃은 refresh token을 삭제합니다. DB에는 refresh token의 SHA-256 해시만 저장하고, 교체 직전 해시(`previous_token`)로 재사용을 감지합니다. 로그인 실패 횟수는 Redis(`login:fail:*`, 15분 TTL)에 둡니다.
+- 로그아웃하거나 refresh token 재사용이 감지되면 Redis(`auth:access-revoked-before:<사용자ID>`, access token 유효 시간만큼 TTL)에 그 시각을 남기고, 그 전에 발급된 access token은 만료 전이어도 `JWT-009`로 거부합니다. Redis에 연결할 수 없으면 로그인 실패 제한과 이 차단은 경고 로그만 남기고 통과시킵니다.
+- 보안 기능을 우회하지 않으려면 다음을 지킵니다.
+    - Refresh token은 `RefreshTokenService.issue()`·`rotate()`로만 발급합니다. `RefreshTokenRepository`에 직접 저장하면 원문이 저장되고 재발급이 실패합니다. 소셜 로그인·사용자 전환처럼 새로 토큰을 주는 기능도 같은 메서드를 씁니다.
+    - `JwtAuthenticationFilter`의 토큰 검사 생략 경로와 `SecurityConfig`의 `permitAll`에는 사용자 정보를 쓰지 않는 공개 조회 경로만 넣습니다. 생략 경로에서는 로그아웃 차단도 확인하지 않습니다.
+    - `CORS_ALLOWED_ORIGINS`에는 정확한 origin만 적습니다. `*`가 있으면 애플리케이션이 뜨지 않습니다.
 - 회원가입은 항상 `USER` 역할로 생성합니다. `ADMIN` 계정을 만드는 API는 없습니다([db-access.md](how-to/db-access.md#로컬에서-관리자-계정-만들기)).
 - 비밀번호는 BCrypt로 저장합니다.
 
 ## 챗봇 질문 처리 흐름
 
+질문 접수와 답변 생성은 다른 프로세스에서 일어납니다. API(`APP_ROLE=api`)는 답변 시도와 작업(`chat_jobs`)을 DB에 만들고, 커밋한 뒤 Redis Streams(`chat:jobs`)에 작업 메시지를 발행하고 바로 `202`로 응답합니다. Worker(`APP_ROLE=worker`)가 메시지를 읽어 답변을 만듭니다. 작업 상태와 결과의 원본은 PostgreSQL이고, Redis Streams는 전달만 합니다. 로컬 기본값 `all`은 한 프로세스에서 둘 다 합니다.
+
 ```text
-POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~4000자)
+[API]  POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~4000자)
   → ChatService.createChat (게스트는 createGuestChat)
       → ForbiddenWordFilterService : 활성 금지어 포함 시 FW-003 (시도 기록을 남기지 않음)
-      → ChatAttemptsService        : answer_attempts_history에 PENDING 행 저장, 멱등키 발급
-      → ChatAnswerExecutor         : chatExecutor(가상 스레드)에 답변 생성 작업 제출 (컨트롤러는 DeferredResult로 응답 보류)
-          → ChatAnswerProcessor.generateAnswer (가상 스레드에서 실행, 답변 또는 실패 코드를 돌려줌)
-              → FaqVectorService.getSimilarList(question, CHAT_TOP_K)
-                  → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성 (기본은 Ollama /api/embed)
-                  → FaqVectorRepository : 삭제되지 않은 FAQ 대상 pgvector 코사인 유사도 검색
-              → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
-              → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
-                 → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
-              → ChatContextCollector : 남은 FAQ의 intent별로 답변 자료 수집
-              → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 AI_MODE로 선택)
-          → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS를 한 트랜잭션으로 저장
-          → 실패: 시도 FAIL과 오류 코드 저장, 재시도 가능 여부와 함께 오류 응답
-  → CHAT_RESPONSE_TIMEOUT_MILLIS 초과 시 시도를 FAIL(CHAT-016)로 저장하고 작업을 취소
-```
+      → ChatSubmissionService      : 한 트랜잭션으로 answer_attempts_history(PENDING, 멱등키 발급)와 chat_jobs(QUEUED) 저장
+                                     커밋 뒤 XADD chat:jobs { jobId, 내 위치 좌표, 접속 IP로 정한 지역 } (IP는 저장하지 않음)
+                                     발행하면 chat:jobs:published:{jobId} 표시를 남김
+  → 202 { jobId, status: QUEUED, conversationId, idempotencyKey, attemptCount }
 
-요청을 받는 일, 비동기로 실행하는 일, 답변을 만드는 일은 클래스가 나뉘어 있습니다(#140).
+[Worker] ChatJobWorker (빈 슬롯이 있을 때만, 최대 CHAT_WORKER_CONCURRENCY개)
+  → XREADGROUP chat-workers (수동 ACK)
+  → 작업이 이미 끝났거나 QUEUED → RUNNING 조건부 갱신에 실패하면 실행하지 않고 ACK (중복 메시지 방어)
+  → ChatJobProcessor → ChatAnswerProcessor.generateAnswer (DB 트랜잭션 없이 실행)
+      → FaqRetrievalService → FaqVectorService : 질문 임베딩 → FAQ 질문 표현 검색
+          → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성
+          → FaqVectorRepository : 삭제되지 않은 FAQ의 질문 표현(variant) 대상 pgvector 코사인 유사도 검색
+                                  QUESTION 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환 (HNSW 인덱스 미사용)
+      → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
+      → 캐시 승인 시 공식 FAQ 답변 반환
+      → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
+      → CHAT_CONFIDENCE_THRESHOLD로 질문 벡터 유사도 검사
+         → 통과한 FAQ 없음 → CHAT-013 (INSUFFICIENT_FAQ)
+      → 통과한 후보 중 TOP-K개 답변 문장을 임베딩해 사용자 질문과 비교
+         → FAQ_SENTENCE_SIMILARITY_THRESHOLD를 통과한 문장 없음 → CHAT-013 (INSUFFICIENT_FAQ)
+      → ChatContextCollector : 통과한 답변 문장과 FAQ의 intent별로 답변 자료 수집
+      → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 AI_MODE로 선택)
+  → ChatJobCompletionService : 한 트랜잭션으로 작업·시도 행을 잠그고, 선점한 실행(started_at)이 맞는지 확인한 뒤
+      → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS, 작업 SUCCEEDED + result_payload(질문 로그 ID·매장 데이터)
+      → 실패: 시도 FAIL과 오류 코드, 작업 FAILED
+  → 성공이면 Redis chat:jobs:result:{jobId}에 { 질문 로그 ID, 매장 정보 } 저장 (CHAT_WORKER_RESULT_TTL)
+  → 커밋 뒤에만 XACK
+
+[API]  GET /chat/jobs/{jobId} → QUEUED · RUNNING · SUCCEEDED(answer, store) · FAILED(errorCode, retryable)
+```
 
 | 클래스 | 맡은 일 |
 |---|---|
-| `ChatService` | 회원·게스트의 질문과 재시도 요청을 받습니다. 입력값과 금지어를 검증하고, 답변 시도를 만든 뒤 실행을 요청합니다. |
-| `ChatAnswerExecutor` | 답변 생성 작업을 `chatExecutor`에 제출하고, 작업 결과를 시도 기록에 저장해 응답을 확정합니다(성공이면 답변, 실패면 오류 코드). 제한 시간을 넘으면 시도를 실패로 저장하고 작업을 취소하도록 `ChatAnswerTask`를 구성하며, 작업을 시작하지 못하면 `CHAT-009`로 실패 처리합니다. |
-| `ChatAnswerProcessor` | 답변을 계산합니다. FAQ 검색, 유사도 판정, 미응답 질문 저장, intent별 답변 자료 수집, AI 호출을 차례로 수행하고 답변 또는 실패 코드를 돌려줍니다. 시도 기록은 저장하지 않습니다. |
-| `ChatAttemptsService` | 답변 시도를 만들고 재시도 조건을 검사하며, 시도 상태와 질문·FAQ 로그를 DB에 저장합니다. |
-| `ChatAnswerTask` | 요청 하나의 답변 결과입니다. 답변 저장과 타임아웃 중 먼저 확정된 결과 하나만 남깁니다. |
+| `ChatController` | 질문·재시도·재검색을 접수해 `202`로 응답하고, `GET /chat/jobs/{jobId}`로 상태를 돌려줍니다. |
+| `ChatService` | 입력값과 금지어를 검증하고, Worker에 넘길 좌표와 접속 지역을 담아 접수를 요청합니다. |
+| `ChatSubmissionService` | 답변 시도와 작업을 한 트랜잭션으로 만들고, 커밋한 뒤 작업 메시지를 발행합니다. 시도 생성의 검증(게스트 질문 수, 재시도 횟수)에서 거절되면 둘 다 남지 않고 발행도 하지 않습니다. |
+| `ChatJobStream` | Redis Streams `chat:jobs`(그룹 `chat-workers`)의 그룹 생성·발행·읽기·ACK를 맡습니다. |
+| `ChatJobResultStore` | 끝난 작업의 화면용 결과(질문 로그 ID, 매장 정보)를 Redis에 만료 시간과 함께 둡니다. |
+| `ChatJobWorker` | 빈 슬롯이 있을 때만 메시지를 읽어 조건부로 선점·실행하고, 커밋 뒤 ACK합니다. 대기 한도를 넘긴 작업을 정리합니다. |
+| `ChatJobProcessor` | 기존 `ChatAnswerProcessor`로 답변을 계산하고 예외를 시도에 기록할 오류 코드로 바꿉니다. 저장하지 않습니다. |
+| `ChatAnswerProcessor` | 답변을 계산합니다. FAQ 검색, 유사도 판정, 미응답 질문 저장, intent별 답변 자료 수집, AI 호출을 차례로 수행합니다. |
+| `ChatJobCompletionService` | 작업 상태, 시도 상태, 질문·FAQ 로그를 한 트랜잭션으로 저장합니다. 선점한 실행이 아닌 기록(started_at 불일치)은 거절합니다. |
+| `ChatJobQueryService` | 본인 작업만 조회합니다. DB에 저장한 정확한 질문 로그 ID와 매장 데이터를 읽고, 재시도 가능 여부는 최신 시도까지 확인합니다. |
+| `ChatAttemptsService` | 답변 시도를 만들고 재시도 조건을 검사하며, 호출자 트랜잭션 안에서 시도 상태와 질문·FAQ 로그를 기록합니다. |
+
+작업 상태는 `QUEUED → RUNNING → SUCCEEDED/FAILED`이고, 끝난 작업은 다시 바뀌지 않습니다. 시도 하나에 작업은 하나이며, 사용자 재시도는 새 시도와 새 작업으로 남습니다. Redis Streams의 같은 메시지가 여러 번 전달돼도(at-least-once) 작업 결과는 한 번만 기록됩니다.
 
 `ChatAnswerProcessor`는 기준을 넘은 FAQ를 `ChatContextCollector`에 넘겨 intent(`GENERAL`, `STORE_DATA`, `USER_DATA`)별 답변 자료를 받습니다(#114). `GENERAL`은 FAQ 원문, `STORE_DATA`는 LLM이 호출할 매장 조회 도구(내 위치 기준으로 다시 요청하면 서버가 바로 조회한 근처 매장), `USER_DATA`는 로그인 사용자의 정보가 자료가 됩니다.
 
-같은 흐름을 답변 확정과 타임아웃이 경쟁하는 부분까지 포함해 그리면 아래와 같습니다.
-
-![채팅 질문 처리 흐름: 답변 확정과 타임아웃이 경쟁하는 부분까지](images/chat-flow.svg)
-
-성공 응답의 `data`는 `ChatResponseDto`입니다.
+상태 조회 응답의 `data`는 `ChatJobStatusResponseDto`입니다.
 
 | 필드 | 의미 |
 |---|---|
-| `answer` | 성공 시 모델이 생성한 문자열, 실패 시 안내 문구 |
-| `status` | `SUCCESS` 또는 `FAIL` |
-| `idempotencyKey` | 같은 질문의 재시도에 쓰는 64자리 16진수 키 |
-| `attemptCount` | 최초 요청을 포함한 몇 번째 시도인지 |
-| `retryable` | 지금 재시도할 수 있는지. 프론트가 재시도 버튼 활성화 여부를 판단하는 안내값이며, 실제 재시도 요청은 서버가 다시 검증합니다(#82) |
+| `jobId`, `status` | 작업 ID와 상태(`QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`) |
+| `answer`, `store` | `SUCCEEDED`일 때 답변 문장과 매장 화면용 정보(매장 질문만) |
+| `errorCode`, `errorMessage` | `FAILED`일 때 시도에 기록된 오류 |
+| `retryable` | 지금 재시도할 수 있는지. 처리 중이면 `false`이고, 실패면 기존 재시도 정책으로 정합니다. 실제 재시도 요청은 서버가 다시 검증합니다(#82) |
+| `idempotencyKey`, `attemptCount` | 재시도·재검색에 쓰는 64자리 16진수 키와 최초 요청을 포함한 시도 순번 |
 
-회의 결정에 따라 SSE 스트리밍 없이 완성된 답변을 JSON 응답 하나로 반환합니다(#82 리뷰). 답변 생성 중 실패하면 HTTP 상태와 `code`는 오류별로 다르지만 `data`에는 같은 형식의 `ChatResponseDto`가 들어 있습니다. 코드별 의미는 [오류 코드 Reference](reference/error-codes.md#채팅), 프론트 연동 방법은 [프론트엔드 연동 가이드](how-to/frontend-integration.md#채팅)를 참고하세요.
+SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82 리뷰). 답변의 성공·실패와 관계없이 상태 조회는 `200`이고, 실패 원인은 `data.errorCode`로 구분합니다. 코드별 의미는 [오류 코드 Reference](reference/error-codes.md#채팅), 프론트 연동 방법은 [프론트엔드 연동 가이드](how-to/frontend-integration.md#채팅)를 참고하세요.
 
 ### 재시도
 
 - `POST /chat/questions/retries`에 `Idempotency-Key` 헤더로 앞에서 받은 키를 보냅니다. 본문은 없습니다.
-- 본인의 가장 최근 시도가 `FAIL`이고 시도 횟수가 `CHAT_MAX_ATTEMPTS`(기본 3) 미만일 때만 새 시도를 만듭니다. 질문은 기존 기록에서 가져옵니다.
+- 본인의 가장 최근 시도가 `FAIL`이고 시도 횟수가 `CHAT_MAX_ATTEMPTS`(기본 3) 미만일 때만 새 시도와 새 작업을 만들고 `202`로 응답합니다. 질문은 기존 기록에서 가져옵니다.
 - 같은 키로 동시에 재시도하면 최초 시도 행을 잠가 순서대로 처리합니다. `PENDING`이면 `CHAT-004`, 이미 성공했으면 `CHAT-005`, 횟수를 다 썼으면 `CHAT-006`이며, 이때 `data`는 `null`입니다.
 
 ![채팅 재시도 흐름](images/chat-retry-flow.svg)
@@ -147,7 +171,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 ### 미응답 질문 저장 (#105)
 
-`CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
+`CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에, LLM이 답변 상태를 `ABSTAIN`(자료로 답할 수 없음)으로 낸 질문은 답변을 보낸 뒤 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.
@@ -157,6 +181,7 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 묶음과 소속은 Profile과 무관하게 하나이고, 질문 벡터와 중심 벡터만 Profile별로 `unanswered_question_embeddings`, `unanswered_group_embeddings`에 둡니다. 다른 Profile로 만든 중심과는 비교하지 않으므로, 임베딩 서버를 바꾼 직후에는 기존 묶음을 찾지 못합니다. [백필](how-to/llm-module.md#백필)을 실행하면 기존 질문의 벡터와 묶음 중심이 새 Profile로 채워집니다. 예전 벡터 컬럼(`question_vector`, `centroid`)은 `V25`에서 지웠습니다.
 
 - 기준 미달(`INSUFFICIENT_FAQ`)이면 가장 가까웠던 FAQ와 그 유사도를 함께 남깁니다.
+- LLM이 답할 수 없다고 판단한 질문(`LLM_ABSTAIN`)은 LLM에 넘긴 1위 FAQ와 그 유사도를 남깁니다. 사용자에게는 LLM 답변이 그대로 나가고 채팅은 성공으로 기록됩니다. `PARTIAL`(일부만 답함), `OUT_OF_SCOPE`(상담 범위 밖), `CONFLICT`는 저장하지 않습니다.
 - 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
 - 저장에 실패해도 경고 로그만 남기고 채팅 응답(`CHAT-012`·`CHAT-013`)은 그대로 나갑니다.
 - 재시도도 새 답변 시도이므로, 같은 질문을 재시도해 또 실패하면 한 건씩 더 쌓여 묶음의 질문 수가 늘어납니다.
@@ -166,11 +191,26 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 ### 동시성·트랜잭션 원칙
 
-- 시도 기록 저장은 `ChatAttemptsService`의 `REQUIRES_NEW` 트랜잭션으로만 짧게 수행합니다. `ChatAnswerProcessor`는 FAQ 검색용 임베딩과 LLM 호출 중에 DB 연결이나 행 잠금을 잡지 않습니다.
-- 예외: 미응답 질문 저장(`UnansweredQuestionService`)은 한 트랜잭션 안에서 질문을 다시 임베딩하므로, 그 임베딩 서버 호출 동안 DB 연결을 사용합니다.
-- `ChatAnswerTask`는 lock으로 "저장 커밋 → 응답 확정"을 한 단위로 묶어, 답변 저장과 타임아웃이 겹쳐도 둘 중 먼저 확정된 결과 하나만 응답합니다.
-- 결과 저장은 시도 행을 잠근 뒤 아직 `PENDING`일 때만 상태를 바꿉니다. 타임아웃이 먼저 `FAIL`로 바꾸면 늦게 도착한 답변은 저장하지 않습니다.
-- `chatExecutor`는 동시 처리 수 제한이 없는 가상 스레드 Executor입니다(`global/config/AsyncConfig`). 종료 시 최대 150초까지 작업 완료를 기다립니다. 작업 제출은 `ChatAnswerExecutor`만 합니다.
+- 접수(시도 + 작업), 선점, 완료 기록은 각각 짧은 트랜잭션입니다. `ChatAnswerProcessor`는 FAQ 검색용 임베딩과 LLM 호출 중에 DB 연결이나 행 잠금을 잡지 않습니다.
+- 예외: 미응답 질문 저장(`UnansweredQuestionService`)은 한 트랜잭션 안에서 질문을 다시 임베딩하므로, 그 임베딩 서버 호출 동안 DB 연결을 사용합니다. Worker 동시 실행 수가 이 부하의 상한입니다.
+- 선점은 `QUEUED`일 때만 `RUNNING`으로 바꾸는 조건부 갱신이라, 같은 작업의 메시지가 여러 번 와도 한 실행만 답변을 만듭니다. 이미 끝난 작업의 메시지는 LLM을 부르지 않고 ACK만 합니다.
+- Worker는 빈 슬롯이 있을 때만 메시지를 읽습니다. 메시지가 없으면 슬롯을 반환한 뒤 쉬므로 concurrency=1에서도 복구가 실행됩니다.
+- 완료 기록은 작업 행을 잠그고 `RUNNING`이면서 선점할 때의 `started_at`이 같을 때만 저장합니다. 결과가 DB 제약에 걸려 저장할 수 없으면(예: 그새 지운 FAQ) LLM을 다시 부르지 않고 `CHAT-008`로 실패 처리합니다.
+- ACK는 DB 커밋 뒤에만 보냅니다. DB 연결 장애처럼 기록하지 못한 메시지는 ACK하지 않아 그룹의 처리 대기 목록(PEL)에 남고, 아래 넘겨받기로 다시 실행됩니다.
+- 접수 시 좌표·지역도 `chat_jobs.request_context`에 저장합니다. 커밋 뒤 발행에 실패하면 30초 뒤부터 DB의 요청 정보로 재발행합니다. 복구 발행은 Lua로 메시지와 발행 표시를 함께 저장합니다. 예약만 남는 구간이 없으며, 대기 작업은 ID 기반 페이지를 넘겨 확인합니다. 대기 한도(기본 10분)는 선점 SQL에서도 검사합니다.
+- Worker가 종료될 때는 새 메시지를 읽지 않고, 실행 중인 작업은 `CHAT_WORKER_SHUTDOWN_WAIT`(기본 20초)까지 기다려 저장합니다. 그 안에 끝나지 않은 작업은 `QUEUED`로 돌려놓고 메시지를 다시 발행한 뒤 원래 메시지를 ACK합니다.
+- Worker가 강제로 죽으면(OOM, `docker kill`) 그 Worker가 받은 메시지는 ACK되지 않은 채 처리 대기 목록에 남고 작업은 `RUNNING`으로 남습니다. 정리 작업이 두 단계로 넘겨받습니다. 빈 슬롯 수만큼만 넘겨받고, 여러 Worker가 같은 메시지를 넘겨받으려 해도 `XCLAIM`이 한 곳에만 줍니다.
+  - heartbeat 단계: `CHAT_WORKER_HEARTBEAT_TIMEOUT`(기본 1분) 넘게 ACK되지 않은 메시지를 `XPENDING`으로 찾고, 메시지 내용(`XRANGE`)으로 작업을 확인합니다. 작업이 실행 중이 아니거나(대기·종료) 마지막 DB heartbeat가 기준보다 오래된 메시지만 넘겨받습니다. heartbeat가 살아 있는 실행의 메시지는 건드리지 않으므로 오래 걸리는 정상 실행의 전달 횟수가 늘지 않습니다.
+  - 안전망 단계: `CHAT_WORKER_RECLAIM_IDLE`(기본 5분) 넘게 ACK되지 않은 메시지는 작업 상태를 보지 않고 넘겨받기를 시도합니다. 메시지 내용을 읽지 못한 경우 등을 위한 단계입니다.
+  - 작업이 이미 끝났으면(결과를 커밋한 뒤 ACK 전에 죽음) 다시 실행하지 않고 ACK만 합니다.
+  - 작업이 `RUNNING`이면 마지막 DB heartbeat가 heartbeat 기준(기본 1분)보다 오래됐을 때만 새 `started_at`으로 넘겨받습니다. 정상 실행은 이 기준의 3분의 1(최대 15초)마다 heartbeat를 갱신합니다. 이전 실행은 결과 저장과 heartbeat 갱신 모두 거절됩니다.
+  - 이전 실행이 살아 있다가 늦게 끝나도 `started_at`이 달라 결과를 기록하지 못하고, 그 메시지도 ACK하지 않습니다(같은 메시지를 넘겨받은 Worker가 ACK). DB가 느려 heartbeat를 기준 시간 넘게 갱신하지 못하면 살아 있는 실행도 넘겨받아 LLM을 한 번 더 부를 수 있습니다.
+- 시간 초과로 실행을 끊어도 모델 서버로 나간 호출은 늦게 반환될 수 있습니다. `LlmService`가 동시 호출 수를 `LLM_MAX_CONCURRENT`(기본 Worker 동시 실행 수)로 제한하고, 끊긴 호출이 반환될 때까지 허가를 쥐고 있게 해서 모델 서버에 걸리는 호출이 상한을 넘지 않게 합니다. Worker 슬롯은 먼저 돌려주므로 모델이 멈춰도 Worker 전체가 멈추지는 않습니다.
+- 메시지는 최대 `CHAT_WORKER_MAX_DELIVERIES`(기본 3)번 전달합니다. 다 쓴 메시지는 실행할 때마다 Worker를 죽이는 작업으로 보고 다시 실행하지 않고 `CHAT-015`로 끝냅니다.
+- 메시지도 없이 마지막 heartbeat가 `CHAT_WORKER_RECLAIM_IDLE`의 두 배(기본 10분) 동안 없는 작업은 `CHAT-015`로 종료합니다. 살아 있는 실행은 작업 전체 제한 `CHAT_WORKER_EXECUTION_TIMEOUT`(기본 180초)을 적용해 `CHAT-016`으로 종료하고 취소를 요청합니다. 늦게 반환한 결과는 저장하지 않습니다.
+- 정리 작업은 모든 메시지가 ACK된 앞부분을 `XTRIM MINID`로 지웁니다. 처리 대기 중인 가장 오래된 메시지(없으면 마지막으로 전달한 메시지)보다 앞만 지우므로, ACK되지 않은 메시지와 아직 전달하지 않은 메시지는 남습니다.
+- 정리 작업의 단계(대기 한도, 다시 발행, 넘겨받기, 메시지를 잃은 작업, 스트림 정리)는 따로 실행되어, Redis 장애로 한 단계가 실패해도 DB만 쓰는 단계는 진행합니다.
+- 남은 한계: 강제 종료로 다시 실행한 답변은 LLM을 한 번 더 부릅니다(최소 한 번 처리). 배포마다 새 Worker 이름(컨테이너 ID)이 그룹에 consumer로 쌓입니다. 처리 대기 메시지가 없는 이전 consumer는 동작에 영향이 없지만 `XINFO CONSUMERS chat:jobs chat-workers`에 남습니다.
 
 ### 현재 상태와 남은 작업
 
@@ -183,13 +223,13 @@ POST /chat/questions  { "question": "..." }   (JWT 또는 게스트 세션, 1~40
 
 **팀 결정이 필요한 것** (PR·이슈에 논의 기록 없음)
 
-- **임계값**: 기본값은 `0.75`(`CHAT_CONFIDENCE_THRESHOLD`)입니다. [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)(#86)는 `0.73`을 채택했지만, 기본값과 `.env.example`을 바꿀지는 논의된 기록이 없습니다.
-- **프론트 배포 환경 연결**: GitHub Pages에 배포된 UBot-FE는 CORS 미설정, HTTPS 미적용, `/api` 접두사 불일치 때문에 백엔드를 호출할 수 없습니다. 선택지는 [프론트엔드 연동 가이드](how-to/frontend-integration.md#배포-환경-미해결)에 있습니다.
+- **임계값**: 질문 벡터 검색 후보에는 `CHAT_CONFIDENCE_THRESHOLD`(기본 `0.75`), 통과한 FAQ의 답변 문장에는 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`(기본 `0.7`)를 적용합니다.
+- **프론트 배포 환경 연결**: GitHub Pages에 배포된 UBot-FE는 HTTPS 미적용 때문에 백엔드를 호출할 수 없습니다. CORS는 `CORS_ALLOWED_ORIGINS`로 허용할 origin을 지정할 수 있습니다. 선택지는 [프론트엔드 연동 가이드](how-to/frontend-integration.md#배포-환경-미해결)에 있습니다.
 
 ## FAQ 관리 흐름
 
-- **생성**: FAQ를 저장한 뒤 질문을 임베딩해 지금 Embedding Profile의 벡터로 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
-- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 질문이 바뀌었으면 다시 임베딩하고, 바뀌지 않았으면 기존 벡터의 `faq_version`만 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
+- **생성**: FAQ와 원본·유사 질문 variant를 저장한 뒤 각 variant의 질문 벡터(`QUESTION`)를 지금 Embedding Profile로 만들어 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
+- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 원본 질문이 바뀌면 기존 variant를 종료하고 새 variant의 질문을 임베딩합니다. 원본 질문이 같으면 추가·제거된 유사 질문만 생성·종료하고, 유지되는 variant는 질문 벡터의 `faq_version`을 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
 - **삭제·복구**: `deleted_at`으로 soft delete합니다. 삭제된 FAQ는 벡터 검색에서 제외되고, `/admin/faqs/restore`로 복구할 수 있습니다.
 - 벡터는 JPA 엔티티에 매핑하지 않고 `FaqVectorRepository`(JdbcTemplate)로만 읽고 씁니다.
 - 생성·수정 시 임베딩 HTTP 호출이 `@Transactional` 안에서 일어나므로, 임베딩 서버 응답을 기다리는 동안 DB 연결을 사용합니다.
@@ -219,7 +259,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 ## 테스트 구성
 
 - `UbotBeApplicationTests`: 테스트 전용 DB 연결, Flyway로 만든 `vector`·`postgis` extension 버전, pgvector 스키마(1024·HNSW·cosine), Ollama 없는 벡터 저장·검색
-- 도메인 테스트: `auth`·`user`(통합), `chat`(컨트롤러·서비스·취소·금지어·LLM 연결 통합·오류 코드 컨버터), `ai`, `prompt`, `llm`, `embedding`, `faq`(서비스·벡터 저장소), `forbiddenword`(단위·통합·E2E), `unanswered`(서비스, 채팅 연결), `store`(컨트롤러·보안·서비스·저장소), `direction`, `location`
+- 도메인 테스트: `auth`·`user`(통합), `chat`(컨트롤러·서비스·금지어·LLM 연결 통합·작업 대기열 DB 통합·Worker·오류 코드 컨버터), `ai`, `prompt`, `llm`, `embedding`, `faq`(서비스·벡터 저장소), `forbiddenword`(단위·통합·E2E), `unanswered`(서비스, 채팅 연결), `store`(컨트롤러·보안·서비스·저장소), `direction`, `location`
 - LLM 관련 테스트는 모의 모델과 로컬 HTTP 서버로 호출 흐름·요청 검증·오류 처리를 확인합니다. 실제 Ollama 모델의 답변 품질을 검증하지는 않습니다.
 - 테스트 프로필에서는 Ollama 자동 구성을 끄고 결정적인 테스트용 임베딩 구현을 사용합니다. 실제 BGE-M3 품질이나 Ollama 연결은 검증하지 않습니다.
 - 예외: `embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, `localhost:11435`의 실제 Ollama를 호출합니다. 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되므로 평소의 `gradlew test`와 GitHub Actions에서는 건너뜁니다. 결과는 [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)에 정리되어 있습니다.
