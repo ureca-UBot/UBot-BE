@@ -72,6 +72,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
 		"prompt.faq.system-location=classpath:prompts/test-faq-system.txt",
 		"prompt.faq.user-location=classpath:prompts/test-faq-user.txt",
+		// LLM 호출 횟수를 검증하므로 판정 LLM은 끕니다. 판정은 SubQuestionChatIntegrationTest에서 확인합니다.
+		"CHAT_SUB_QUESTION_ENABLED=false",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=3"})

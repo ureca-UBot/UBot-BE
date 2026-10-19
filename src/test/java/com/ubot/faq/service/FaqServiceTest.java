@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +22,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.ubot.common.PageResponseDto;
 import com.ubot.faq.dto.request.FaqCreateRequestDto;
@@ -63,6 +66,8 @@ class FaqServiceTest {
     private final UserRepository userRepository =
             mock(UserRepository.class);
 
+    private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+
     private final FaqService service =
             new FaqService(
                     faqRepository,
@@ -70,7 +75,8 @@ class FaqServiceTest {
                     variantRepository,
                     categoryRepository,
                     oldFaqRepository,
-                    userRepository
+                    userRepository,
+                    eventPublisher
             );
 
     @Test
@@ -100,7 +106,7 @@ class FaqServiceTest {
                 );
 
         when(faqRepository.save(any(Faq.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+                .thenAnswer(invocation -> persisted(invocation.getArgument(0)));
 
         when(variantRepository.save(any(FaqQuestionVariant.class)))
                 .thenAnswer(invocation -> FaqQuestionVariant.builder()
@@ -130,6 +136,7 @@ class FaqServiceTest {
 
         verify(faqRepository, times(1))
                 .save(any(Faq.class));
+        verify(eventPublisher).publishEvent(new FaqChangedEvent(Set.of(100L)));
     }
 
     @Test
@@ -138,7 +145,7 @@ class FaqServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(2L))
                 .thenReturn(Optional.of(category(2L, "요금제")));
-        when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> persisted(invocation.getArgument(0)));
         AtomicLong nextId = new AtomicLong(100L);
         when(variantRepository.save(any(FaqQuestionVariant.class))).thenAnswer(invocation -> {
             FaqQuestionVariant value = invocation.getArgument(0);
@@ -515,6 +522,7 @@ class FaqServiceTest {
 
         assertThat(faq.getDeletedAt())
                 .isNotNull();
+        verify(eventPublisher).publishEvent(new FaqChangedEvent(Set.of(10L)));
     }
 
     @Test
@@ -566,6 +574,7 @@ class FaqServiceTest {
         assertThat(variantCaptor.getValue().getQuestion()).isEqualTo(deletedFaq.getQuestion());
         verify(vectorService).saveQuestionVectorForVariant(
                 100L, deletedFaq.getVersion(), deletedFaq.getQuestion());
+        verify(eventPublisher).publishEvent(new FaqChangedEvent(Set.of(10L)));
     }
 
     @Test
@@ -663,7 +672,7 @@ class FaqServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
         when(categoryRepository.findByIdAndDeletedAtIsNull(2L))
                 .thenReturn(Optional.of(category(2L, "카테고리")));
-        when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(faqRepository.save(any(Faq.class))).thenAnswer(invocation -> persisted(invocation.getArgument(0)));
         AtomicLong nextId = new AtomicLong(100L);
         when(variantRepository.save(any(FaqQuestionVariant.class))).thenAnswer(invocation -> {
             FaqQuestionVariant value = invocation.getArgument(0);
@@ -716,6 +725,11 @@ class FaqServiceTest {
         FaqResponseDto result = service.getActiveFaq(10L);
 
         assertThat(result.similarQuestions()).containsExactly("유사 질문");
+    }
+
+    private Faq persisted(Faq faq) {
+        ReflectionTestUtils.setField(faq, "id", 100L);
+        return faq;
     }
 
     private FaqQuestionVariant variant(Long id, Faq faq, String question) {

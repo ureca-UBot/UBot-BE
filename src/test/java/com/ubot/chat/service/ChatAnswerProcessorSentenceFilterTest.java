@@ -88,7 +88,7 @@ class ChatAnswerProcessorSentenceFilterTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(ai);
-        verify(unanswered).createUnansweredQuestion(100L, QUESTION,
+        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION,
                 com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.8);
     }
 
@@ -129,7 +129,8 @@ class ChatAnswerProcessorSentenceFilterTest {
         FaqCacheProperties properties = new FaqCacheProperties();
         properties.setEnabled(cacheEnabled);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai, unanswered,
-                ChatTestFixtures.collector(), new FaqSemanticCacheService(properties), sentenceFilter);
+                ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(properties),
+                sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 2);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;
