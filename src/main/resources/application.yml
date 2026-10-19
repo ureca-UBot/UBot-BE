@@ -102,7 +102,9 @@ faq:
       # 요청이 몰리거나 Reranker가 연속으로 실패할 때 호출을 건너뛰는 보호 장치
       max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
       failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
-      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
+      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}  
+  variant:
+    sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
 
 kiwi:
   # 하위 질문 가드가 쓰는 형태소 분석기 모델 디렉터리. Gradle downloadKiwi 작업이 .kiwi/model에 받고, Docker 이미지는 KIWI_MODEL_PATH로 지정합니다.
