@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -214,6 +215,7 @@ class UserDataAnswerEvaluation {
         List<String> enabledTools = List.of();
         String answer = null;
         UserDataCards userData = null;
+        String status = null;
         String error = null;
         try {
             AnswerMaterials materials = collector.collect(new ChatContext(userId, question.text(), null), List.of(USER_DATA_FAQ));
@@ -221,12 +223,13 @@ class UserDataAnswerEvaluation {
             AiAnswer aiAnswer = aiService.generateAnswer(materials);
             answer = aiAnswer == null ? null : aiAnswer.answer();
             userData = aiAnswer == null ? null : aiAnswer.userData();
+            status = aiAnswer == null ? null : aiAnswer.status();
         } catch (RuntimeException exception) {
             error = exception.getClass().getSimpleName() + ": " + exception.getMessage();
         }
         long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
         List<ToolCall> questionCalls = List.copyOf(calls);
-        return new Result(question, enabledTools, questionCalls, answer, userData, error, elapsedMillis,
+        return new Result(question, enabledTools, questionCalls, answer, userData, status, error, elapsedMillis,
                 judge(question, enabledTools, questionCalls, error));
     }
 
@@ -379,6 +382,15 @@ class UserDataAnswerEvaluation {
                 .append(group.stream().filter(Result::matched).count())
                 .append(" | ").append(group.size()).append(" |\n"));
 
+        // status는 판정에 넣지 않습니다. 실제 서비스에서 ABSTAIN은 미응답 질문으로 쌓이므로 기대 처리별로 나눠 봅니다.
+        md.append("\n## 기대 처리별 status\n\n| 기대 처리 | status 분포 |\n|---|---|\n");
+        byExpected.forEach((expected, group) -> md.append("| ").append(expected).append(" | ")
+                .append(group.stream()
+                        .collect(Collectors.groupingBy(Result::statusLabel, TreeMap::new, Collectors.counting()))
+                        .entrySet().stream().map(entry -> entry.getKey() + " " + entry.getValue())
+                        .collect(Collectors.joining(", ")))
+                .append(" |\n"));
+
         md.append("\n## 불일치 목록\n\n");
         List<Result> mismatched = results.stream().filter(result -> MISMATCHED.equals(result.verdict())).toList();
         if (mismatched.isEmpty()) {
@@ -451,6 +463,7 @@ class UserDataAnswerEvaluation {
                 call.returned().lines().forEach(line -> md.append("    ").append(line).append('\n'));
                 md.append("    ```\n");
             }
+            md.append("- status: ").append(result.statusLabel()).append('\n');
             md.append("- 화면 카드: ").append(cardLabel(result.userData())).append('\n');
             md.append("- 소요 시간: ").append(result.elapsedMillis()).append("ms\n");
             if (result.error() != null) {
@@ -467,7 +480,7 @@ class UserDataAnswerEvaluation {
     private String csv(List<Result> results) {
         StringBuilder csv = new StringBuilder();
         csv.append(csvRow(List.of("번호", "질문", "사용자", "기대 처리", "기대 도구", "켜진 도구",
-                "실제 도구 호출", "판정", "답변", "화면 카드", "소요ms", "오류")));
+                "실제 도구 호출", "판정", "status", "답변", "화면 카드", "소요ms", "오류")));
         for (Result result : results) {
             Question question = result.question();
             csv.append(csvRow(List.of(question.number(), question.text(), userLabel(question), question.expected(),
@@ -475,6 +488,7 @@ class UserDataAnswerEvaluation {
                     result.calls().stream().map(call -> call.name() + "(" + call.arguments() + ")")
                             .collect(Collectors.joining(" ; ")),
                     result.verdict(),
+                    result.statusLabel(),
                     result.answer() == null ? "" : result.answer(),
                     cardLabel(result.userData()),
                     String.valueOf(result.elapsedMillis()),
@@ -617,10 +631,14 @@ class UserDataAnswerEvaluation {
 
     /** verdict는 MATCHED, MISMATCHED 중 하나입니다. */
     private record Result(Question question, List<String> enabledTools, List<ToolCall> calls, String answer,
-            UserDataCards userData, String error, long elapsedMillis, String verdict) {
+            UserDataCards userData, String status, String error, long elapsedMillis, String verdict) {
 
         boolean matched() {
             return MATCHED.equals(verdict);
+        }
+
+        String statusLabel() {
+            return status == null || status.isBlank() ? "(없음)" : status;
         }
     }
 }
