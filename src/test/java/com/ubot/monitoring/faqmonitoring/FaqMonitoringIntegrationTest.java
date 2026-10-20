@@ -148,7 +148,7 @@ class FaqMonitoringIntegrationTest {
 			faqLog(questionId, competingFaqId, 2, 0.77);
 		}
 
-		var items = monitoringService.getFaqImprovements().items();
+		var items = monitoringService.getFaqImprovements(null, 0, Integer.MAX_VALUE).items();
 		var qualityItem = items.stream().filter(item -> item.faqId().equals(qualityFaqId)).findFirst().orElseThrow();
 		var unusedItem = items.stream().filter(item -> item.faqId().equals(unusedFaqId)).findFirst().orElseThrow();
 		var oldOnlyItem = items.stream().filter(item -> item.faqId().equals(oldOnlyFaqId)).findFirst().orElseThrow();

@@ -89,16 +89,6 @@ public class FaqMonitoringService {
 	}
 
 	@Transactional(readOnly = true)
-	public FaqImprovementResponse getFaqImprovements() {
-		return getFaqImprovements(0, Integer.MAX_VALUE);
-	}
-
-	@Transactional(readOnly = true)
-	public FaqImprovementResponse getFaqImprovements(int page, int size) {
-		return getFaqImprovements(null, page, size);
-	}
-
-	@Transactional(readOnly = true)
 	public FaqImprovementResponse getFaqImprovements(List<FaqImprovementType> types, int page, int size) {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
