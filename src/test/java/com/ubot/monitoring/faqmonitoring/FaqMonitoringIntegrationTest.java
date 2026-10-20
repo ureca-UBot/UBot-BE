@@ -2,6 +2,9 @@ package com.ubot.monitoring.faqmonitoring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.common.GlobalException;
@@ -14,21 +17,27 @@ import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringDetailQueryRepo
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringRankingQueryRepository;
 import com.ubot.monitoring.faqmonitoring.service.FaqMonitoringService;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest(properties = {
 		"faq-monitoring.improvement.minimum-top-k-samples=20",
-		"faq-monitoring.improvement.minimum-top1-samples=20"
+		"faq-monitoring.improvement.minimum-top1-samples=20",
+		"faq-monitoring.improvement.low-gap-threshold=0.03"
 })
+@AutoConfigureMockMvc(addFilters = false)
 @Import(PgvectorTestConfiguration.class)
 @ActiveProfiles("test")
 @Transactional
@@ -36,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 class FaqMonitoringIntegrationTest {
 
 	@Autowired private JdbcTemplate jdbcTemplate;
+	@Autowired private MockMvc mockMvc;
 	@Autowired private FaqMonitoringRankingQueryRepository rankingRepository;
 	@Autowired private FaqMonitoringDetailQueryRepository detailRepository;
 	@Autowired private FaqMonitoringService monitoringService;
@@ -127,23 +137,118 @@ class FaqMonitoringIntegrationTest {
 		long qualityFaqId = faq(categoryId, "품질 개선 FAQ", Intent.GENERAL, 2, now.minusDays(10));
 		long competingFaqId = faq(categoryId, "경쟁 FAQ", Intent.GENERAL, 1, now.minusDays(10));
 		long unusedFaqId = faq(categoryId, "미사용 FAQ", Intent.STORE_DATA, 1, now.minusDays(8));
+		long oldOnlyFaqId = faq(categoryId, "과거 버전만 사용된 FAQ", Intent.STORE_DATA, 2, now.minusDays(10));
 		long previousVersionQuestionId = question(now.minusDays(11));
 		faqLog(previousVersionQuestionId, qualityFaqId, 1, 0.99);
 		faqLog(previousVersionQuestionId, competingFaqId, 2, 0.90);
+		faqLog(question(now.minusDays(11)), oldOnlyFaqId, 1, 0.95);
 		for (int index = 0; index < 20; index++) {
 			long questionId = question(now.minusHours(index + 1));
 			faqLog(questionId, qualityFaqId, 1, 0.79);
 			faqLog(questionId, competingFaqId, 2, 0.77);
 		}
 
-		var items = monitoringService.getFaqImprovements().items();
+		var items = monitoringService.getFaqImprovements(null, 0, Integer.MAX_VALUE).items();
 		var qualityItem = items.stream().filter(item -> item.faqId().equals(qualityFaqId)).findFirst().orElseThrow();
 		var unusedItem = items.stream().filter(item -> item.faqId().equals(unusedFaqId)).findFirst().orElseThrow();
+		var oldOnlyItem = items.stream().filter(item -> item.faqId().equals(oldOnlyFaqId)).findFirst().orElseThrow();
 
 		assertThat(qualityItem.improvementTypes())
 				.contains(FaqImprovementType.LOW_RAG_QUALITY, FaqImprovementType.DUPLICATE_SUSPECTED);
 		assertThat(qualityItem.topKCount()).isEqualTo(20);
 		assertThat(unusedItem.improvementTypes()).containsExactly(FaqImprovementType.LOW_USAGE);
+		assertThat(oldOnlyItem.improvementTypes()).containsExactly(FaqImprovementType.LOW_USAGE);
+		assertThat(oldOnlyItem.topKCount()).isZero();
+	}
+
+	@Test
+	@DisplayName("개선 유형은 모두 포함해야 하며 필터링된 목록을 페이지 단위로 반환한다")
+	void filtersAndPaginatesImprovementFaqs() throws Exception {
+		LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+		long categoryId = category();
+		long bothFaqId = faq(categoryId, "품질 저하 및 중복 의심 FAQ", Intent.GENERAL, 1, now.minusDays(1));
+		long qualityOnlyFaqId = faq(categoryId, "품질 저하 FAQ", Intent.GENERAL, 1, now.minusDays(1));
+		long firstUnusedFaqId = faq(categoryId, "미사용 FAQ 1", Intent.STORE_DATA, 1, now.minusDays(8));
+		long secondUnusedFaqId = faq(categoryId, "미사용 FAQ 2", Intent.STORE_DATA, 1, now.minusDays(8));
+		for (int index = 0; index < 20; index++) {
+			long questionId = question(now.minusMinutes(1));
+			faqLog(questionId, bothFaqId, 1, 0.79);
+			faqLog(questionId, qualityOnlyFaqId, 2, 0.77);
+		}
+
+		var filtered = monitoringService.getFaqImprovements(
+				List.of(FaqImprovementType.LOW_RAG_QUALITY, FaqImprovementType.DUPLICATE_SUSPECTED), 0, 10);
+		assertThat(filtered.totalElements()).isEqualTo(1);
+		assertThat(filtered.items()).singleElement().satisfies(item -> assertThat(item.faqId()).isEqualTo(bothFaqId));
+
+		var firstPage = monitoringService.getFaqImprovements(List.of(FaqImprovementType.LOW_USAGE), 0, 1);
+		var secondPage = monitoringService.getFaqImprovements(List.of(FaqImprovementType.LOW_USAGE), 1, 1);
+		var emptyPage = monitoringService.getFaqImprovements(List.of(FaqImprovementType.LOW_USAGE), 2, 1);
+		assertThat(firstPage.totalElements()).isEqualTo(2);
+		assertThat(firstPage.totalPages()).isEqualTo(2);
+		assertThat(firstPage.first()).isTrue();
+		assertThat(firstPage.last()).isFalse();
+		assertThat(firstPage.items().getFirst().faqId()).isEqualTo(firstUnusedFaqId);
+		assertThat(secondPage.items().getFirst().faqId()).isEqualTo(secondUnusedFaqId);
+		assertThat(secondPage.last()).isTrue();
+		assertThat(emptyPage.items()).isEmpty();
+		assertThat(emptyPage.totalElements()).isEqualTo(2);
+
+		mockMvc.perform(get("/admin/faq-monitoring/improvements")
+					.param("types", "LOW_RAG_QUALITY", "DUPLICATE_SUSPECTED")
+					.param("page", "0")
+					.param("size", "10"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.totalElements").value(1))
+				.andExpect(jsonPath("$.data.items[0].question").value("품질 저하 및 중복 의심 FAQ"));
+	}
+
+	@Test
+	@DisplayName("중복 후보는 현재 버전의 1위·2위 유사도 차이와 후보별 횟수로 조회한다")
+	void findsDuplicateCandidatesAndCounts() throws Exception {
+		LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+		long categoryId = category();
+		long targetFaqId = faq(categoryId, "대상 FAQ", Intent.GENERAL, 1, now.minusDays(1));
+		long firstCandidateId = faq(categoryId, "첫 후보 FAQ", Intent.GENERAL, 2, now.minusHours(1));
+		long secondCandidateId = faq(categoryId, "둘째 후보 FAQ", Intent.GENERAL, 1, now.minusDays(3));
+		long oldCandidateId = faq(categoryId, "이전 버전 후보 FAQ", Intent.GENERAL, 2, now.minusMinutes(5));
+		for (int index = 0; index < 2; index++) {
+			long pairedQuestionId = question(now.minusMinutes(10 - index));
+			faqLog(pairedQuestionId, targetFaqId, 1, 0.90);
+			faqLog(pairedQuestionId, firstCandidateId, 2, 0.88);
+			long reversedQuestionId = question(now.minusMinutes(3 - index));
+			faqLog(reversedQuestionId, firstCandidateId, 1, 0.95);
+			faqLog(reversedQuestionId, targetFaqId, 2, 0.94);
+		}
+		long secondCandidateQuestionId = question(now.minusMinutes(8));
+		faqLog(secondCandidateQuestionId, targetFaqId, 1, 0.91);
+		faqLog(secondCandidateQuestionId, secondCandidateId, 2, 0.90);
+		long wideGapQuestionId = question(now.minusMinutes(7));
+		faqLog(wideGapQuestionId, targetFaqId, 1, 0.90);
+		faqLog(wideGapQuestionId, secondCandidateId, 2, 0.86);
+		long oldCandidateQuestionId = question(now.minusMinutes(10));
+		faqLog(oldCandidateQuestionId, targetFaqId, 1, 0.90);
+		faqLog(oldCandidateQuestionId, oldCandidateId, 2, 0.89);
+		long oldTargetQuestionId = question(now.minusDays(2));
+		faqLog(oldTargetQuestionId, targetFaqId, 1, 0.90);
+		faqLog(oldTargetQuestionId, secondCandidateId, 2, 0.89);
+
+		var candidates = monitoringService.getDuplicateCandidates(targetFaqId);
+		assertThat(candidates).hasSize(2);
+		assertThat(candidates.get(0).faqId()).isEqualTo(firstCandidateId);
+		assertThat(candidates.get(0).pairCount()).isEqualTo(2);
+		assertThat(candidates.get(0).top1Count()).isEqualTo(2);
+		assertThat(candidates.get(1).faqId()).isEqualTo(secondCandidateId);
+		assertThat(candidates.get(1).pairCount()).isEqualTo(1);
+		assertThat(candidates.get(1).top1Count()).isZero();
+		assertThat(monitoringService.getDuplicateCandidates(secondCandidateId)).isEmpty();
+
+		mockMvc.perform(get("/admin/faq-monitoring/improvements/{faqId}/duplicates", targetFaqId))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(2))
+				.andExpect(jsonPath("$.data[0].question").value("첫 후보 FAQ"))
+				.andExpect(jsonPath("$.data[0].top1Count").value(2))
+				.andExpect(jsonPath("$.data[0].pairCount").value(2));
 	}
 
 	@Test
