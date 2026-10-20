@@ -24,8 +24,18 @@ public class UnansweredQuestion {
 	@Column(name = "group_id")
 	private Long groupId;
 
-	@Column(name = "question")
-	private String question;
+	// 실패한 하위 질문의 검색어(판정 LLM이 다시 쓴 것)입니다. 중복 판정·묶음(임베딩)·묶음 대표 질문에 쓰고 관리자 화면에도 함께 보여 줍니다.
+	// 질문을 나누지 않았으면 사용자가 입력한 원문과 같습니다.
+	@Column(name = "sub_question")
+	private String subQuestion;
+
+	// 관리자 화면에 검색어와 함께 보여 줄 원문 조각입니다. 원문을 자를 근거가 없었으면 원문 전체입니다.
+	@Column(name = "user_text")
+	private String userText;
+
+	@Column(name = "sub_question_index")
+	@Builder.Default
+	private int subQuestionIndex = 1;
 
 	@Enumerated(EnumType.STRING)
 	@Column(name = "reason")

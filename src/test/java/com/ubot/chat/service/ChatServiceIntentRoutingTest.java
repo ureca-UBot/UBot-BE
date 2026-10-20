@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
@@ -62,7 +63,7 @@ class ChatServiceIntentRoutingTest {
 	void setUp() {
 		ChatAnswerProcessor processor = new ChatAnswerProcessor(
 				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class),
-				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.disabledCache(),
+				ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(),
 				ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
@@ -98,7 +99,8 @@ class ChatServiceIntentRoutingTest {
 		verifyNoInteractions(nearbyStoreSearcher);
 		// faq_log는 intent와 관계없이 threshold를 넘은 검색 결과 전체로 남깁니다.
 		// 지역은 접수 때 IP로 정한 값임
-		verify(attempts).recordSuccess(attempt, "답변", sources.subList(0, 2), RegionSido.SEOUL);
+		verify(attempts).recordSuccess(attempt, "답변",
+				List.of(new SubQuestionFaqs("근처 매장 알려줘", sources.subList(0, 2), "근처 매장 알려줘")), RegionSido.SEOUL);
 	}
 
 	@Test

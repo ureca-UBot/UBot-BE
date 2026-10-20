@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.progress.AnswerProgress;
+import com.ubot.ai.progress.AnswerProgress.Phase;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -57,6 +59,19 @@ class LlmServiceTest {
     }
 
     @Test
+    void judgmentDoesNotReportAnswerProgress() {
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문 분리")));
+        var response = new LlmResponseDto("{\"sub_questions\":[\"질문\"]}");
+        when(llmClient.generateAnswer(request)).thenReturn(response);
+        var phases = new ArrayList<Phase>();
+
+        assertThat(AnswerProgress.observe(phases::add, () -> llmService.generateJudgment(request)))
+                .isSameAs(response);
+
+        assertThat(phases).isEmpty();
+    }
+
+    @Test
     void getModelNameReturnsModelNameOfSelectedClient() {
         when(llmClient.getModelName()).thenReturn("ubot-chat");
 
@@ -87,6 +102,15 @@ class LlmServiceTest {
     @MethodSource("invalidRequests")
     void rejectsInvalidMessagesBeforeCallingModel(LlmRequestDto request) {
         assertThatThrownBy(() -> llmService.generateAnswer(request))
+                .isInstanceOfSatisfying(LlmException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_REQUEST_INVALID));
+        verifyNoInteractions(llmClient);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidRequests")
+    void rejectsInvalidJudgmentBeforeCallingModel(LlmRequestDto request) {
+        assertThatThrownBy(() -> llmService.generateJudgment(request))
                 .isInstanceOfSatisfying(LlmException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_REQUEST_INVALID));
         verifyNoInteractions(llmClient);
@@ -203,7 +227,7 @@ class LlmServiceTest {
     }
 
     @Test
-    void reportsWaitingUntilModelPermitIsAcquired() throws Exception {
+    void answerWaitsForJudgmentToReleaseSharedModelPermit() throws Exception {
         var limited = new LlmService(llmClient, 1);
         var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
         var firstStarted = new CountDownLatch(1);
@@ -218,7 +242,7 @@ class LlmServiceTest {
             }
             return new LlmResponseDto("답변");
         });
-        var first = CompletableFuture.supplyAsync(() -> limited.generateAnswer(request));
+        var first = CompletableFuture.supplyAsync(() -> limited.generateJudgment(request));
         try {
             assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
             var second = CompletableFuture.supplyAsync(() -> com.ubot.ai.progress.AnswerProgress.observe(phase -> {

@@ -55,7 +55,7 @@ public class UnansweredEmbeddingBackfillService {
 
 				PGvector vector =
 						embeddingService.embedText(
-								question.getQuestion()
+								question.getSubQuestion()
 						);
 
 				vectorRepository.saveQuestionEmbedding(
