@@ -90,7 +90,7 @@ class ChatJobWorkerTest {
 		var running = new AtomicInteger();
 		var maxRunning = new AtomicInteger();
 		var finished = new AtomicInteger();
-		when(processor.process(any(), any(), any())).thenAnswer(call -> {
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
 			maxRunning.accumulateAndGet(running.incrementAndGet(), Math::max);
 			try {
 				release.await(10, TimeUnit.SECONDS);
@@ -145,7 +145,7 @@ class ChatJobWorkerTest {
 	void progressStorageFailureDoesNotFailAnswer() {
 		queueJobs(1);
 		when(queue.updatePhase(anyLong(), any(), any())).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("진행 저장 실패"));
-		when(processor.process(any(), any(), any())).thenAnswer(call -> {
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
 			com.ubot.ai.progress.AnswerProgress.report(com.ubot.ai.progress.AnswerProgress.Phase.SEARCHING);
 			return answered();
 		});
@@ -160,7 +160,7 @@ class ChatJobWorkerTest {
 		queueJobs(1);
 		LocalDateTime expiredStart = LocalDateTime.now().minusMinutes(10);
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.of(expiredStart));
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 		worker.processAvailableJobs();
 		verify(completion).complete(1L, expiredStart,
@@ -173,8 +173,8 @@ class ChatJobWorkerTest {
 	void acksOnlyAfterCompletionIsRecorded() {
 		ReceivedChatJob message = queueJobs(1).getFirst();
 		var store = ChatStoreDto.of(true, null);
-		ChatJobOutcome outcome = new ChatJobOutcome("답변", List.of(), store, null);
-		when(processor.process(any(), any(), any())).thenReturn(outcome);
+		ChatJobOutcome outcome = new ChatJobOutcome("답변", List.of(), store, null, List.of());
+		when(processor.process(any(), any(), any(), any())).thenReturn(outcome);
 		when(completion.complete(1L, STARTED_AT, outcome, RegionSido.SEOUL)).thenReturn(new Completion(true, 10L));
 		worker = worker(1, Duration.ofSeconds(20));
 
@@ -190,7 +190,7 @@ class ChatJobWorkerTest {
 	@DisplayName("결과 기록이 실패하면 ACK하지 않아 메시지가 처리 대기로 남는다")
 	void failedCompletionIsNotAcked() {
 		queueJobs(1);
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		when(completion.complete(anyLong(), any(), any(), any()))
 				.thenThrow(new DataAccessResourceFailureException("db down"));
 		worker = worker(1, Duration.ofSeconds(20));
@@ -205,7 +205,7 @@ class ChatJobWorkerTest {
 	void permanentStorageFailureIsRecordedInsteadOfRetried() {
 		ReceivedChatJob message = queueJobs(1).getFirst();
 		ChatJobOutcome answer = answered();
-		when(processor.process(any(), any(), any())).thenReturn(answer);
+		when(processor.process(any(), any(), any(), any())).thenReturn(answer);
 		when(completion.complete(1L, STARTED_AT, answer, RegionSido.SEOUL))
 				.thenThrow(new DataIntegrityViolationException("fk"));
 		when(completion.complete(1L, STARTED_AT, ChatJobOutcome.failed(ChatErrorCode.STORAGE_UNAVAILABLE), RegionSido.SEOUL))
@@ -225,7 +225,7 @@ class ChatJobWorkerTest {
 		ReceivedChatJob first = queueJobs(2).getFirst();
 		var entered = new CountDownLatch(1);
 		var release = new CountDownLatch(1);
-		when(processor.process(any(), any(), any())).thenAnswer(call -> {
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
 			entered.countDown();
 			release.await(10, TimeUnit.SECONDS);
 			return answered();
@@ -251,7 +251,7 @@ class ChatJobWorkerTest {
 		ReceivedChatJob message = queueJobs(1).getFirst();
 		var entered = new CountDownLatch(1);
 		when(queue.release(1L, STARTED_AT)).thenReturn(1);
-		when(processor.process(any(), any(), any())).thenAnswer(call -> {
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
 			entered.countDown();
 			try {
 				Thread.sleep(10_000);
@@ -278,7 +278,7 @@ class ChatJobWorkerTest {
 	@DisplayName("다른 실행이 넘겨받아 결과를 기록하지 못한 실행은 메시지를 ACK하지 않는다")
 	void unrecordedCompletionIsNotAcked() {
 		queueJobs(1);
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		when(completion.complete(anyLong(), any(), any(), any())).thenReturn(new Completion(false, null));
 		worker = worker(1, Duration.ofSeconds(20));
 
@@ -296,13 +296,13 @@ class ChatJobWorkerTest {
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
 		LocalDateTime takenAt = STARTED_AT.plusMinutes(10);
 		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(takenAt));
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 
 		worker.recover();
 
 		verify(stream, timeout(2_000)).ack(message.messageId());
-		verify(processor).process(any(), any(), any());
+		verify(processor).process(any(), any(), any(), any());
 		verify(completion).complete(eq(1L), eq(takenAt), any(), eq(RegionSido.SEOUL));
 		var now = ArgumentCaptor.forClass(LocalDateTime.class);
 		var startedBefore = ArgumentCaptor.forClass(LocalDateTime.class);
@@ -322,7 +322,7 @@ class ChatJobWorkerTest {
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
 		LocalDateTime takenAt = STARTED_AT.plusMinutes(2);
 		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(takenAt));
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 
 		worker.recover();
@@ -411,7 +411,7 @@ class ChatJobWorkerTest {
 	@DisplayName("빈 슬롯 수만큼만 메시지를 넘겨받고, 나머지는 처리 대기로 남긴다")
 	void reclaimsOnlyAsManyAsFreeSlots() {
 		staleJobs(3, 1);
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(2, Duration.ofSeconds(20));
 
 		worker.recover();
@@ -557,7 +557,7 @@ class ChatJobWorkerTest {
 			read.countDown();
 			return List.of();
 		});
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(1));
 		worker.start();
 		assertThat(read.await(2, TimeUnit.SECONDS)).isTrue();
@@ -572,7 +572,7 @@ class ChatJobWorkerTest {
 		queueJobs(2);
 		CountDownLatch release = new CountDownLatch(1);
 		CountDownLatch returned = new CountDownLatch(1);
-		when(processor.process(any(), any(), any())).thenAnswer(call -> {
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory attempt = call.getArgument(0);
 			if (attempt.getId() == 1L) {
 				while (release.getCount() > 0) {
@@ -606,7 +606,7 @@ class ChatJobWorkerTest {
 	void liveExecutionRenewsLease() throws Exception {
 		queueJobs(1);
 		CountDownLatch release = new CountDownLatch(1);
-		when(processor.process(any(), any(), any())).thenAnswer(call -> { release.await(); return answered(); });
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> { release.await(); return answered(); });
 		when(queue.heartbeat(anyLong(), any(), any())).thenReturn(1);
 		var properties = new ChatWorkerProperties(1, true, Duration.ofMillis(10), "test-worker",
 				Duration.ofMinutes(10), Duration.ofSeconds(30), Duration.ofMillis(90), 3,
@@ -635,7 +635,7 @@ class ChatJobWorkerTest {
 	@Test
 	void cacheWriteFailureStillAcknowledgesCommittedResult() {
 		queueJobs(1);
-		when(processor.process(any(), any(), any())).thenReturn(answered());
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		when(completion.complete(anyLong(), any(), any(), any())).thenReturn(new Completion(true, 10L));
 		org.mockito.Mockito.doThrow(new DataAccessResourceFailureException("redis down"))
 				.when(results).save(anyLong(), any(), any());
@@ -712,7 +712,7 @@ class ChatJobWorkerTest {
 	}
 
 	private static ChatJobOutcome answered() {
-		return new ChatJobOutcome("답변", List.of(), null, null);
+		return new ChatJobOutcome("답변", List.of(), null, null, List.of());
 	}
 
 	private static void waitUntil(java.util.function.BooleanSupplier condition) throws InterruptedException {

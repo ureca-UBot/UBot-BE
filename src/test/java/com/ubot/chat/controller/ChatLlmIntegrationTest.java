@@ -686,7 +686,7 @@ class ChatLlmIntegrationTest {
 				"테스트 주소", "02-000-0000", "09:00-18:00", 37.51, 127.01, 0.5);
 		var map = new com.ubot.ai.dto.StoreMapResult(new com.ubot.ai.dto.Location(37.5, 127.0), null, 3, List.of(nearby));
 		var store = new com.ubot.chat.dto.response.ChatStoreDto(true, map);
-		completion.complete(id, started, new com.ubot.chat.service.ChatJobOutcome("지도 답변", List.of(), store, null), null);
+		completion.complete(id, started, new com.ubot.chat.service.ChatJobOutcome("지도 답변", List.of(), store, null, List.of()), null);
 		assertThat(jdbc.queryForObject("select request_context from chat_jobs where job_id = ?", String.class, id)).isNull();
 
 		// Worker의 Redis 저장 전에도 성공 커밋만으로 지도와 위치 요청을 읽을 수 있어야 함
@@ -733,7 +733,7 @@ class ChatLlmIntegrationTest {
 				.response().jobId();
 		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
 		new org.springframework.transaction.support.TransactionTemplate(transactions).executeWithoutResult(status -> {
-			completion.complete(id, started, new com.ubot.chat.service.ChatJobOutcome("답변", List.of(), null, null), context.region());
+			completion.complete(id, started, new com.ubot.chat.service.ChatJobOutcome("답변", List.of(), null, null, List.of()), context.region());
 			jobs.flush();
 			assertThat(jdbc.queryForObject("select request_context from chat_jobs where job_id = ?", String.class, id)).isNull();
 			status.setRollbackOnly();
@@ -807,8 +807,8 @@ class ChatLlmIntegrationTest {
 		LocalDateTime start = LocalDateTime.now().minusSeconds(1).truncatedTo(ChronoUnit.MICROS);
 		jobQueue.claim(firstId, start);
 		jobQueue.claim(secondId, start);
-		completion.complete(firstId, start, new com.ubot.chat.service.ChatJobOutcome("첫 좌표 답변", List.of(), null, null), null);
-		completion.complete(secondId, start, new com.ubot.chat.service.ChatJobOutcome("다른 좌표 답변", List.of(), null, null), null);
+		completion.complete(firstId, start, new com.ubot.chat.service.ChatJobOutcome("첫 좌표 답변", List.of(), null, null, List.of()), null);
+		completion.complete(secondId, start, new com.ubot.chat.service.ChatJobOutcome("다른 좌표 답변", List.of(), null, null, List.of()), null);
 		// 첫 작업 저장 중 두 번째 로그가 생긴 경쟁 상황의 시간 범위 재현
 		jdbc.update("update chat_jobs set finished_at = ? where job_id = ?", LocalDateTime.now().plusSeconds(1), firstId);
 		assertThat(query.getStatus(firstId, null, java.util.Optional.of(conversation)).answer()).isEqualTo("첫 좌표 답변");
@@ -854,11 +854,11 @@ class ChatLlmIntegrationTest {
 		jobQueue.claim(id, old);
 		LocalDateTime current = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		jobQueue.takeOver(id, current, current.minusMinutes(5)).orElseThrow();
-		assertThat(completion.complete(id, old, new com.ubot.chat.service.ChatJobOutcome("늦은 답변", List.of(), null, null), null).recorded()).isFalse();
+		assertThat(completion.complete(id, old, new com.ubot.chat.service.ChatJobOutcome("늦은 답변", List.of(), null, null, List.of()), null).recorded()).isFalse();
 		assertThat(completion.complete(id, old, com.ubot.chat.service.ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT), null).recorded()).isFalse();
 		assertThat(questions.count()).isZero();
 		assertThat(jobs.findById(id).orElseThrow().getRequestContext()).isEqualTo(context);
-		assertThat(completion.complete(id, current, new com.ubot.chat.service.ChatJobOutcome("현재 답변", List.of(), null, null), null).recorded()).isTrue();
+		assertThat(completion.complete(id, current, new com.ubot.chat.service.ChatJobOutcome("현재 답변", List.of(), null, null, List.of()), null).recorded()).isTrue();
 		assertThat(jobs.findById(id).orElseThrow().getRequestContext()).isNull();
 		assertThat(query.getStatus(id, null, java.util.Optional.of(conversation)).answer()).isEqualTo("현재 답변");
 	}

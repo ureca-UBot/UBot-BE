@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +37,8 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.service.UserService;
@@ -51,7 +53,7 @@ class ChatAnswerProcessorUserDataTest {
     private final UserService users = mock(UserService.class);
     private final NearbyStoreSearcher stores = mock(NearbyStoreSearcher.class);
     private final AiService ai = mock(AiService.class);
-    private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
+    private final List<UnansweredCandidate> unanswered = new ArrayList<>();
 
     @ParameterizedTest
     @ValueSource(strings = {"내 이름이 뭐야?", "내 가입일이 언제야?"})
@@ -62,7 +64,7 @@ class ChatAnswerProcessorUserDataTest {
         existingUser();
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("회원 정보 답변", null, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().answer()).isEqualTo("회원 정보 답변");
@@ -75,7 +77,8 @@ class ChatAnswerProcessorUserDataTest {
             assertThat(section.content()).doesNotContain(userFaq.answer());
         });
         verify(users).getActiveUser(1L);
-        verifyNoInteractions(sentenceFilter, stores, unanswered);
+        verifyNoInteractions(sentenceFilter, stores);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -89,13 +92,13 @@ class ChatAnswerProcessorUserDataTest {
         when(sentenceFilter.filter(QUERY_VECTOR, List.of(generalFaq))).thenReturn(List.of());
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("회원 정보 답변", null, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { }, unanswered);
 
         assertThat(result.faqs()).containsExactly(userFaq);
         assertThat(capturedMaterials().faqs()).isEmpty();
         verify(sentenceFilter).filter(QUERY_VECTOR, List.of(generalFaq));
         verify(users).getActiveUser(1L);
-        verifyNoInteractions(unanswered);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -111,7 +114,7 @@ class ChatAnswerProcessorUserDataTest {
                 .thenReturn(List.of(new MatchedFaq(first, "첫 통과 문장."), new MatchedFaq(last, "마지막 통과 문장.")));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("혼합 답변", null, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { }, unanswered);
 
         assertThat(result.faqs()).containsExactly(first, userFaq, last);
         AnswerMaterials materials = capturedMaterials();
@@ -130,12 +133,12 @@ class ChatAnswerProcessorUserDataTest {
         FaqSearchResponseDto userFaq = faq(1001L, Intent.USER_DATA, 0.74);
         search(question, List.of(userFaq));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(question, 1L), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(users, stores, sentenceFilter, ai);
-        verify(unanswered).createUnansweredQuestion(100L, 1, question, question,
-                UnansweredReason.INSUFFICIENT_FAQ, 1001L, 0.74);
+        assertThat(unanswered).contains(new UnansweredCandidate(
+				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 1001L, 0.74, UnansweredSource.RETRIEVAL));
     }
 
     @Test
@@ -146,15 +149,15 @@ class ChatAnswerProcessorUserDataTest {
         search(question, List.of(userFaq));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("사용자 정보를 확인할 수 없습니다.", null, false, "ABSTAIN"));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(question, null), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(question, null), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
         assertThat(capturedMaterials().sections()).singleElement()
                 .satisfies(section -> assertThat(section.content()).isEqualTo("사용자 정보를 찾을 수 없습니다."));
         verifyNoInteractions(users, stores, sentenceFilter);
-        verify(unanswered).createUnansweredQuestion(100L, 1, question, question,
-                UnansweredReason.LLM_ABSTAIN, 1001L, 1.0);
+        assertThat(unanswered).contains(new UnansweredCandidate(
+				1, question, question, UnansweredReason.LLM_ABSTAIN, 1001L, 1.0, UnansweredSource.RETRIEVAL));
     }
 
     private void search(String question, List<FaqSearchResponseDto> candidates) {
@@ -173,7 +176,7 @@ class ChatAnswerProcessorUserDataTest {
         ChatContextCollector collector = new ChatContextCollector(List.of(
                 new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
-                retrieval, ai, unanswered, collector, ChatTestFixtures.originalSubQuestions(),
+                retrieval, ai, collector, ChatTestFixtures.originalSubQuestions(),
                 ChatTestFixtures.disabledCache(), sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);

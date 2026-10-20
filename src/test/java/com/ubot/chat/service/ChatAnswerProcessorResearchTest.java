@@ -10,8 +10,9 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,10 +22,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -41,8 +41,7 @@ class ChatAnswerProcessorResearchTest {
     FaqVectorService faqVectorService = ChatTestFixtures.vectorService();
     @Mock
     AiService aiService;
-    @Mock
-    UnansweredQuestionService unansweredQuestionService;
+    private final List<UnansweredCandidate> unanswered = new ArrayList<>();
     @Mock
     ChatContextCollector chatContextCollector;
 
@@ -51,7 +50,7 @@ class ChatAnswerProcessorResearchTest {
     @BeforeEach
     void setUp() {
         processor = new ChatAnswerProcessor(
-                FaqRetrievalService.denseOnly(faqVectorService), aiService, unansweredQuestionService, chatContextCollector,
+                FaqRetrievalService.denseOnly(faqVectorService), aiService, chatContextCollector,
                 ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
@@ -66,7 +65,7 @@ class ChatAnswerProcessorResearchTest {
         when(chatContextCollector.collectBySubQuestion(any(), any(), any())).thenReturn(AnswerMaterials.builder("유심 재발급").build());
         when(aiService.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false));
 
-        ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED, unanswered);
 
         assertThat(result.isFailed()).isFalse();
         assertThat(result.faqs()).containsExactly(faq);
@@ -82,7 +81,7 @@ class ChatAnswerProcessorResearchTest {
         when(chatContextCollector.collectBySubQuestion(any(), any(), any())).thenReturn(AnswerMaterials.builder("유심 재발급").build());
         when(aiService.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false));
 
-        processor.generateAnswer(regular, null, NOT_CANCELLED);
+        processor.generateAnswer(regular, null, NOT_CANCELLED, unanswered);
 
         verify(faqVectorService, never()).getSimilarListByIntent(anyString(), any(), anyInt());
     }
@@ -94,10 +93,11 @@ class ChatAnswerProcessorResearchTest {
         when(faqVectorService.getSimilarListByIntent(anyString(), eq(Intent.USER_DATA), anyInt()))
                 .thenReturn(List.of());
 
-        ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
-        verifyNoInteractions(unansweredQuestionService, aiService);
+        verifyNoInteractions(aiService);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -107,11 +107,10 @@ class ChatAnswerProcessorResearchTest {
         when(faqVectorService.getSimilarListByIntent(anyString(), eq(Intent.STORE_DATA), anyInt()))
                 .thenReturn(List.of(faq(0.5, Intent.STORE_DATA)));
 
-        ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
-        verify(unansweredQuestionService, never())
-                .createUnansweredQuestion(anyLong(), anyInt(), anyString(), anyString(), any(), any(), any());
+        assertThat(unanswered).isEmpty();
         verifyNoInteractions(aiService);
     }
 
@@ -122,11 +121,13 @@ class ChatAnswerProcessorResearchTest {
         when(faqVectorService.getSimilarList(anyString(), anyInt()))
                 .thenReturn(List.of(faq(0.5, Intent.GENERAL)));
 
-        ChatAnswerResult result = processor.generateAnswer(regular, null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(regular, null, NOT_CANCELLED, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
-        verify(unansweredQuestionService).createUnansweredQuestion(
-                eq(regular.getId()), eq(1), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.5));
+        assertThat(unanswered)
+                .extracting(UnansweredCandidate::subQuestionIndex, UnansweredCandidate::subQuestion,
+                        UnansweredCandidate::bestFaqId, UnansweredCandidate::bestSimilarity)
+                .containsExactly(tuple(1, "유심 재발급", 1L, 0.5));
     }
 
     private AnswerAttemptsHistory regularAttempt() {

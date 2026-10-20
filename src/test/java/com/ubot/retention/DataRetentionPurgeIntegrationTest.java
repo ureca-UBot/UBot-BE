@@ -154,6 +154,21 @@ class DataRetentionPurgeIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("재시도를 다 쓴 대기열 작업만 마지막 실패 7일 뒤 지워진다")
+	void purgesOnlyExhaustedOutboxEvents() {
+		Long exhausted = createOutboxEvent(5, now.minusDays(8));
+		Long recentlyExhausted = createOutboxEvent(5, now.minusDays(1));
+		Long retrying = createOutboxEvent(2, now.minusDays(8));
+
+		purge();
+
+		assertThat(exists("outbox_events", "id", exhausted)).isFalse();
+		assertThat(exists("outbox_events", "id", recentlyExhausted)).isTrue();
+		assertThat(exists("outbox_events", "id", retrying)).isTrue();
+		jdbcTemplate.update("DELETE FROM outbox_events WHERE id IN (?, ?)", recentlyExhausted, retrying);
+	}
+
+	@Test
 	@DisplayName("방문일이 3개월 지난 예약은 상태와 관계없이 알림과 함께 지워지고 앞으로의 예약은 남는다")
 	void purgesReservationsByVisitDate() {
 		Long userId = createUser(null);
@@ -256,6 +271,14 @@ class DataRetentionPurgeIntegrationTest {
 				       AND user_id IS NULL AND conversation_id IS NULL
 				FROM question_log WHERE id = ?
 				""", Boolean.class, questionLogId));
+	}
+
+	private Long createOutboxEvent(int retryCount, LocalDateTime nextAttemptAt) {
+		return jdbcTemplate.queryForObject("""
+				INSERT INTO outbox_events (event_type, dedup_key, payload, retry_count, next_attempt_at)
+				VALUES ('UNANSWERED_QUESTION', ?, '{}'::jsonb, ?, ?)
+				RETURNING id
+				""", Long.class, "retention-" + UUID.randomUUID(), retryCount, nextAttemptAt);
 	}
 
 	private boolean exists(String table, String column, Long id) {

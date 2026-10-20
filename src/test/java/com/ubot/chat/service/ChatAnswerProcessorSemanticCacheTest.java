@@ -198,7 +198,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         retrievalProperties.getRerank().setEnabled(rerankEnabled);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, topK),
-                ai, unanswered, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties),
+                ai, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties),
                 ChatTestFixtures.passthroughSentenceFilter());
         ReflectionTestUtils.setField(processor, "topK", topK);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);

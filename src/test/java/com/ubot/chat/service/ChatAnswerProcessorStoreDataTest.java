@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -34,7 +35,8 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.enums.UnansweredSource;
 
 @DisplayName("매장 조회 FAQ의 문장 필터 분리")
 class ChatAnswerProcessorStoreDataTest {
@@ -46,7 +48,7 @@ class ChatAnswerProcessorStoreDataTest {
     private final FaqSentenceFilterService sentenceFilter = mock(FaqSentenceFilterService.class);
     private final NearbyStoreSearcher stores = mock(NearbyStoreSearcher.class);
     private final AiService ai = mock(AiService.class);
-    private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
+    private final List<UnansweredCandidate> unanswered = new ArrayList<>();
 
     @Test
     @DisplayName("위치가 없으면 안내 문장을 비교하지 않고 매장 검색 도구를 제공한다")
@@ -55,7 +57,7 @@ class ChatAnswerProcessorStoreDataTest {
         search(List.of(storeFaq));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("매장 안내", null, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.faqs()).containsExactly(storeFaq);
@@ -65,7 +67,8 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(materials.faqs()).isEmpty();
         assertThat(materials.sections()).isEmpty();
         assertThat(materials.storeMap()).isNull();
-        verifyNoInteractions(sentenceFilter, stores, unanswered);
+        verifyNoInteractions(sentenceFilter, stores);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -81,7 +84,7 @@ class ChatAnswerProcessorStoreDataTest {
         when(stores.format(map)).thenReturn("테스트 매장: 현재 위치에서 0.2km");
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("매장 안내", map, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.faqs()).containsExactly(storeFaq);
@@ -93,7 +96,8 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(materials.faqs()).isEmpty();
         assertThat(materials.tools()).isEmpty();
         verify(stores).search(LOCATION, null);
-        verifyNoInteractions(sentenceFilter, unanswered);
+        verifyNoInteractions(sentenceFilter);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -105,7 +109,7 @@ class ChatAnswerProcessorStoreDataTest {
         when(stores.format(map)).thenReturn("반경 3km 안에 매장이 없습니다.");
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("주변 매장이 없습니다.", map, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         AnswerMaterials materials = capturedMaterials();
@@ -113,7 +117,8 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(materials.storeMap().stores()).isEmpty();
         assertThat(materials.sections()).extracting(ContextSection::content)
                 .containsExactly("반경 3km 안에 매장이 없습니다.");
-        verifyNoInteractions(sentenceFilter, unanswered);
+        verifyNoInteractions(sentenceFilter);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -124,7 +129,7 @@ class ChatAnswerProcessorStoreDataTest {
         when(ai.generateAnswer(any()))
                 .thenReturn(new AiAnswer("매장 정보를 조회하지 못했습니다.", null, false, "ABSTAIN"));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
@@ -132,7 +137,8 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(materials.storeMap()).isNull();
         assertThat(materials.sections()).singleElement().satisfies(section ->
                 assertThat(section.content()).contains("매장 정보를 조회하지 못했습니다.", "매장 이름이나 주소를 추측하지 말고"));
-        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 0.9);
+        assertThat(unanswered).contains(new UnansweredCandidate(
+                1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 0.9, UnansweredSource.RETRIEVAL));
         verifyNoInteractions(sentenceFilter);
     }
 
@@ -141,11 +147,12 @@ class ChatAnswerProcessorStoreDataTest {
     void lowQuestionSimilarityDoesNotTriggerStoreLookup() {
         search(List.of(faq(10L, Intent.STORE_DATA, 0.74)));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(stores, sentenceFilter, ai);
-        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74);
+        assertThat(unanswered).contains(new UnansweredCandidate(
+                1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74, UnansweredSource.RETRIEVAL));
     }
 
     @Test
@@ -159,7 +166,7 @@ class ChatAnswerProcessorStoreDataTest {
         when(stores.format(map)).thenReturn("주변 매장이 없습니다.");
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("주변 매장이 없습니다.", map, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), LOCATION, () -> { }, unanswered);
 
         assertThat(result.faqs()).containsExactlyElementsOf(candidates);
         assertThat(capturedMaterials().sections()).hasSize(1);
@@ -176,13 +183,14 @@ class ChatAnswerProcessorStoreDataTest {
         when(sentenceFilter.filter(QUERY_VECTOR, List.of(generalFaq))).thenReturn(List.of());
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("매장 안내", null, false));
 
-        ChatAnswerResult result = processor().generateAnswer(attempt(), null, () -> { });
+        ChatAnswerResult result = processor().generateAnswer(attempt(), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.faqs()).containsExactly(storeFaq);
         assertThat(capturedMaterials().tools()).containsExactly(AiTool.STORE_SEARCH);
         verify(sentenceFilter).filter(QUERY_VECTOR, List.of(generalFaq));
-        verifyNoInteractions(stores, unanswered);
+        verifyNoInteractions(stores);
+        assertThat(unanswered).isEmpty();
     }
 
     private void search(List<FaqSearchResponseDto> candidates) {
@@ -193,7 +201,7 @@ class ChatAnswerProcessorStoreDataTest {
     }
 
     private ChatAnswerProcessor processor() {
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai, unanswered,
+        ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai,
                 ChatTestFixtures.collector(stores), ChatTestFixtures.originalSubQuestions(),
                 ChatTestFixtures.disabledCache(), sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 3);

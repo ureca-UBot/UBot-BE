@@ -28,6 +28,7 @@ import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.job.worker.ChatWorkerProperties;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
@@ -61,6 +62,7 @@ final class ChatJobTestHarness {
 	final List<ChatJobMessage> published = new ArrayList<>();
 	final List<String> acked = new ArrayList<>();
 	final ChatSubmissionService submissionService;
+	final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
 	final ChatJobCompletionService completionService;
 	final ChatJobQueryService queryService;
 	final ChatJobWorker worker;
@@ -83,7 +85,7 @@ final class ChatJobTestHarness {
 		stubStream();
 		submissionService = new ChatSubmissionService(jobRepository, stream, transactionManager);
 		completionService = new ChatJobCompletionService(
-				jobRepository, attemptRepository, attemptsService, transactionManager);
+				jobRepository, attemptRepository, attemptsService, unanswered, transactionManager);
 		queryService = new ChatJobQueryService(
 				jobRepository, attemptRepository, questionLogRepository, attemptsService, resultStore);
 		worker = new ChatJobWorker(stream, resultStore, queueRepository, jobRepository, completionService,

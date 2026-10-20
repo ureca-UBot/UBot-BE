@@ -2,14 +2,13 @@ package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -32,7 +31,8 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.pgvector.PGvector;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.enums.UnansweredSource;
 
 @DisplayName("채팅 FAQ 질문 벡터와 답변 문장 필터")
 class ChatAnswerProcessorSentenceFilterTest {
@@ -43,7 +43,7 @@ class ChatAnswerProcessorSentenceFilterTest {
     private final FaqRetrievalService retrieval = mock(FaqRetrievalService.class);
     private final FaqSentenceFilterService sentenceFilter = mock(FaqSentenceFilterService.class);
     private final AiService ai = mock(AiService.class);
-    private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
+    private final List<UnansweredCandidate> unanswered = new ArrayList<>();
 
     @Test
     @DisplayName("캐시 실패 후 상위 k개만 문장 필터에 보내고 LLM에는 원본 질문과 통과 문장만 전달한다")
@@ -60,7 +60,7 @@ class ChatAnswerProcessorSentenceFilterTest {
                 .thenReturn(List.of(new MatchedFaq(second, "통과 문장.")));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("LLM 답변", null, false));
 
-        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).containsExactly(second);
@@ -84,12 +84,12 @@ class ChatAnswerProcessorSentenceFilterTest {
                 .thenReturn(new RetrievalOutcome(List.of(first), first, false, null));
         when(sentenceFilter.filter(QUERY_VECTOR, List.of(first))).thenReturn(List.of());
 
-        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(ai);
-        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION,
-                com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.8);
+        assertThat(unanswered).contains(new UnansweredCandidate(
+				1, QUESTION, QUESTION, com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.8, UnansweredSource.RETRIEVAL));
     }
 
     @Test
@@ -99,7 +99,7 @@ class ChatAnswerProcessorSentenceFilterTest {
         when(retrieval.searchCandidates(QUESTION, null, 2, 2))
                 .thenReturn(new DenseFaqCandidates(List.of(official, faq(2L, 0.6, false)), 5, QUERY_VECTOR));
 
-        ChatAnswerResult result = processor(true).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(true).generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         assertThat(result.answer().answer()).isEqualTo(official.answer());
         assertThat(result.faqs()).containsExactly(official);
@@ -119,7 +119,7 @@ class ChatAnswerProcessorSentenceFilterTest {
                 .thenReturn(List.of(new MatchedFaq(passing, "통과 문장.")));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("LLM 답변", null, false));
 
-        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(false).generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         assertThat(result.faqs()).containsExactly(passing);
         verify(sentenceFilter).filter(QUERY_VECTOR, List.of(passing));
@@ -128,7 +128,7 @@ class ChatAnswerProcessorSentenceFilterTest {
     private ChatAnswerProcessor processor(boolean cacheEnabled) {
         FaqCacheProperties properties = new FaqCacheProperties();
         properties.setEnabled(cacheEnabled);
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai, unanswered,
+        ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai,
                 ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(properties),
                 sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 2);

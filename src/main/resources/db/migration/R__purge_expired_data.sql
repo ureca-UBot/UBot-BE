@@ -98,6 +98,9 @@ BEGIN
     CALL purge_in_batches('unanswered_question_groups', 'id',
             format($c$status IN ('APPROVED', 'REJECTED') AND updated_at < %L$c$, log_cutoff), batch_size);
 
+    CALL purge_in_batches('outbox_events', 'id',
+            format('retry_count >= 5 AND next_attempt_at < %L', now_at - INTERVAL '7 days'), batch_size);
+
     -- 6. 방문일이 3개월 지난 예약 (알림 CASCADE)
     --    예약을 COMPLETED·NO_SHOW로 바꾸는 기능이 없어 지난 예약도 RESERVED로 남으므로 상태와 관계없이 방문일로 판단합니다.
     CALL purge_in_batches('store_reservations', 'reservation_id',
