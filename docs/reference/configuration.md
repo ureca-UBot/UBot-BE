@@ -82,9 +82,11 @@ src/main/resources/
 | `VLLM_ENABLE_THINKING` | Docker Compose: vLLM 답변 생성 서버의 thinking 모드 기본값 | `false` | Spring에서 읽지 않음 |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
-| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 검색된 **각** FAQ를 LLM에 전달할지 정하는 유사도 기준. 미만인 FAQ는 제외하고, 남은 FAQ가 없으면 LLM을 호출하지 않음 | `0.75` | `0.75` |
-| `FAQ_SEARCH_VECTOR_TYPE` | `FaqVectorService`, CD: FAQ 검색에 쓰는 벡터 유형. `QUESTION`(질문만) 또는 `QUESTION_ANSWER`(질문+답변). 바꾸기 전에 그 유형의 벡터를 백필해야 함([FAQ 벡터 유형](../how-to/llm-module.md#faq-벡터-유형)) | `QUESTION` | 키가 없으면 `QUESTION`. 빈 값이나 다른 값이면 기동 실패 |
-| `FAQ_RERANK_ENABLED` | `FaqRetrievalService`: 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로만 정함([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
+| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 캐시 실패 후 하위 질문마다 FAQ 질문 벡터 검색 후보의 코사인 유사도 기준. 통과한 후보만 답변 문장 검사에 사용하고, 남은 FAQ가 없으면 그 하위 질문은 근거 없음으로 처리 | `0.75` | `0.75` |
+| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | `FaqSentenceFilterService`: 질문 유사도 기준을 통과한 FAQ에서 하위 질문의 검색어와 각 답변 문장의 코사인 유사도 기준. 통과한 문장만 답변 LLM에 전달 | `0.7` | `0.7` |
+| `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 판정 LLM으로 질문을 정리할지 여부. 켜면 질문 분리·멀티턴 표지가 있는 질문, 또는 원문 검색이 기준에 못 미친 질문만 판정 LLM이 이전 대화(최대 3턴)를 참고해 하위 질문(최대 3개)별 검색어를 만듦(LLM 호출이 한 번 늘어남). 검색어는 검색에만 쓰고, 답변 LLM에는 원문과 원문 조각, 멀티턴이면 이전 대화를 넘김. 끄면 원문 하나로 검색하고 이전 대화도 넘기지 않음 | `true` | 키가 없으면 `true` |
+| `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 판정할 표지가 없는 질문을 원문으로 먼저 검색할 때, 이전 대화가 있으면 이 값 이상이어야 판정 없이 끝냄(이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`). 기본값은 유사도 기준과 같고 튜닝용으로 따로 둠. `CHAT_CONFIDENCE_THRESHOLD`보다 낮으면 그 값을 씀 | `0.75` | 키가 없으면 `0.75` |
+| `FAQ_RERANK_ENABLED` | 캐시 실패 후 질문 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로 정하고, 정렬 뒤 답변 문장을 임베딩해 비교([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
 | `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |
 | `FAQ_RERANK_MODEL` | `FaqRetrievalConfig`: Reranker 서버에 요청할 모델 이름. Compose의 `RERANKER_SERVED_MODEL_NAME`과 같아야 함 | `ubot-reranker` | 키가 없으면 `ubot-reranker` |
 | `FAQ_RERANK_BASE_URL` | `FaqRetrievalConfig`: Reranker 서버 주소. 이 주소의 `/v1/rerank`를 호출 | `http://localhost:8002` | 키가 없으면 `http://localhost:8002` |
@@ -140,7 +142,7 @@ Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11
 
 `LLM_MODEL`과 `LLM_SERVED_MODEL_NAME`, `EMBEDDING_MODEL`과 `EMBEDDING_SERVED_MODEL_NAME`은 각각 같은 값이어야 합니다. 앞의 것은 백엔드가 요청에 넣는 이름이고 뒤의 것은 vLLM이 내보이는 이름입니다. 불러올 실제 모델을 바꿀 때는 이 이름을 그대로 두고 `LLM_HF_MODEL`, `EMBEDDING_HF_MODEL`만 바꿉니다. 다만 임베딩 모델을 바꾸면 이름이 같아도 벡터가 달라지므로 `EMBEDDING_PROFILE_VERSION`을 올리고 백필합니다([Embedding Profile](../how-to/llm-module.md#embedding-profile)).
 
-`CHAT_CONFIDENCE_THRESHOLD`의 기본값 `0.75`는 threshold 보고서의 채택값 `0.73`과 다릅니다. 배경은 [architecture.md](../architecture.md#현재-상태와-남은-작업)를 참고하세요. 보고서 값을 쓰려면 `.env`에서 `CHAT_CONFIDENCE_THRESHOLD=0.73`으로 지정합니다.
+현재 채팅 경로는 `CHAT_CONFIDENCE_THRESHOLD`로 FAQ 질문 후보를 먼저 거르고, `FAQ_SENTENCE_SIMILARITY_THRESHOLD`로 그 FAQ의 답변 문장을 판단합니다.
 
 
 `CHAT_MAX_ATTEMPTS`를 바꿔도 한도 초과 오류(`CHAT-006`)의 안내 문구는 "최대 3회"로 고정되어 있습니다.
@@ -232,7 +234,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V32` | `faq`, `old_faq`에 `cacheable` 추가, `faq_question_variants` 생성 및 기존 질문 이관, `faq_embeddings`의 연결 키를 FAQ ID에서 variant ID로 변경 |
 | `V33` | `chat_jobs`에 요청 정보(`request_context`)·성공 결과(`result_payload`) JSONB, `heartbeat_at`, `updated_at`, 복구용 인덱스와 처리 단계(`phase`)·단계 갱신 시각(`phase_updated_at`)·마감(`deadline_at`) 추가. 기존 작업의 단계·마감은 NULL 유지. 요청 좌표·지역은 작업 종료와 같은 트랜잭션에서 삭제 |
 
-표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/reset-local-db.ps1`이 기본 계정과 번호가 붙은 시드 CSV 전체의 FAQ·질문 표현·`QUESTION_ANSWER` 벡터를 넣습니다([안내](../how-to/reset-local-db.md)).
+표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/reset-local-db.ps1`이 기본 계정과 시드 CSV의 FAQ·질문 표현을 넣습니다. 벡터는 별도로 백필합니다([안내](../how-to/reset-local-db.md)).
 
 FAQ 벡터는 `faq_embeddings`에 variant ID와 Profile ID별로 저장합니다. `V15`까지 쓰던 엔티티의 벡터 컬럼은 `V25`에서 지웠습니다.
 

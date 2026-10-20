@@ -47,7 +47,9 @@ public class UnansweredOutboxWorker {
                         lockedId[0] = pending.id();
                         unansweredQuestionService.createUnansweredQuestion(
                                 pending.attemptId(),
-                                pending.question(),
+                                pending.subQuestionIndex(),
+                                pending.subQuestion(),
+                                pending.userText(),
                                 pending.reason(),
                                 pending.bestFaqId(),
                                 pending.bestSimilarity()

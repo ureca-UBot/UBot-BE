@@ -136,7 +136,7 @@ public class FaqVectorRepository {
                     updated_at = CURRENT_TIMESTAMP
                 WHERE faq_question_variant_id = ?
                   AND profile_id = ?
-                  AND vector_type IN ('QUESTION', 'QUESTION_ANSWER')
+                  AND vector_type = 'QUESTION'
                 """,
                 faqVersion,
                 variantId,

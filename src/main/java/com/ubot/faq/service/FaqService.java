@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -47,6 +48,7 @@ public class FaqService {
 	private final FaqCategoryRepository faqCategoryRepository;
 	private final OldFaqRepository oldFaqRepository;
 	private final UserRepository userRepository;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@Transactional
 	public FaqResponseDto createFaq(FaqCreateRequestDto requestDto, Long adminId){
@@ -75,6 +77,7 @@ public class FaqService {
 			createVariant(savedFaq, question);
 		}
 		log.info("FAQ를 생성했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
+		eventPublisher.publishEvent(new FaqChangedEvent(Set.of(savedFaq.getId())));
 
 		return FaqResponseDto.from(savedFaq, similarQuestions);
 	}
@@ -130,9 +133,6 @@ public class FaqService {
 
 		boolean questionChanged =
 		        !faq.getQuestion().equals(requestDto.question());
-		boolean answerChanged =
-		        !faq.getAnswer().equals(requestDto.answer());
-
 		faq.update(
 		        category,
 		        requestDto.question(),
@@ -168,14 +168,15 @@ public class FaqService {
 				createVariant(savedFaq, question);
 			} else {
 				existing.remove(kept);
-				faqVectorService.updateVectorsForVariant(
-						kept.getId(), savedFaq.getVersion(), question, savedFaq.getAnswer(), answerChanged);
+				faqVectorService.updateQuestionVectorVersionForVariant(
+						kept.getId(), savedFaq.getVersion());
 			}
 		}
 		for (FaqQuestionVariant removed : existing) {
 			deleteVariant(removed);
 		}
 		log.info("FAQ를 수정했습니다: FAQID={}, 관리자ID={}, 카테고리ID={}", savedFaq.getId(), adminId, category.getId());
+		eventPublisher.publishEvent(new FaqChangedEvent(Set.of(savedFaq.getId())));
 		return FaqResponseDto.from(savedFaq, similarQuestions);
 	}
 
@@ -194,7 +195,7 @@ public class FaqService {
 	private void createVariant(Faq faq, String question) {
 		FaqQuestionVariant variant = faqQuestionVariantRepository.save(
 				FaqQuestionVariant.builder().originFaq(faq).question(question).build());
-		faqVectorService.saveVectorsForVariant(variant.getId(), faq.getVersion(), question, faq.getAnswer());
+		faqVectorService.saveQuestionVectorForVariant(variant.getId(), faq.getVersion(), question);
 	}
 
 	private void deleteVariant(FaqQuestionVariant variant) {
@@ -233,6 +234,7 @@ public class FaqService {
 		Faq faq = faqRepository.findActiveById(faqId).orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
 
 		faq.delete();
+		eventPublisher.publishEvent(new FaqChangedEvent(Set.of(faqId)));
 		log.info("FAQ를 삭제했습니다: FAQID={}", faqId);
 	}
 
@@ -246,6 +248,11 @@ public class FaqService {
 			}
 		}
 		log.info("FAQ를 복구했습니다: 요청건수={}, 복구건수={}", requestDto.faqIds().size(), faqs.size());
+		if (!faqs.isEmpty()) {
+			Set<Long> restoredIds = new HashSet<>();
+			faqs.forEach(faq -> restoredIds.add(faq.getId()));
+			eventPublisher.publishEvent(new FaqChangedEvent(restoredIds));
+		}
 	}
 }
 

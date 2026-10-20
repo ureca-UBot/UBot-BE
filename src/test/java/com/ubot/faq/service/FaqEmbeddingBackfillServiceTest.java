@@ -52,7 +52,7 @@ class FaqEmbeddingBackfillServiceTest {
             );
 
     @Test
-    @DisplayName("현재 프로필 벡터가 없는 FAQ만 유형별로 임베딩해서 저장한다")
+    @DisplayName("현재 프로필에 질문 벡터가 없는 variant만 임베딩해서 저장한다")
     void backfillCurrentProfile_embedsOnlyMissingFaqs() {
         Faq existing = faq(
                 1L,
@@ -70,12 +70,9 @@ class FaqEmbeddingBackfillServiceTest {
 
         givenActiveFaqs(existing, missing);
         givenCurrentVector(existing, FaqVectorType.QUESTION, true);
-        givenCurrentVector(existing, FaqVectorType.QUESTION_ANSWER, true);
         givenCurrentVector(missing, FaqVectorType.QUESTION, false);
-        givenCurrentVector(missing, FaqVectorType.QUESTION_ANSWER, false);
 
         PGvector questionVector = vector(0);
-        PGvector questionAnswerVector = vector(1);
 
         when(
                 embeddingService.embedText(
@@ -83,17 +80,11 @@ class FaqEmbeddingBackfillServiceTest {
                 )
         ).thenReturn(questionVector);
 
-        when(
-                embeddingService.embedText(
-                        "질문: 벡터가 없는 질문\n답변: 벡터가 없는 답변"
-                )
-        ).thenReturn(questionAnswerVector);
-
         int updated =
                 service.backfillCurrentProfile();
 
         assertThat(updated)
-                .isEqualTo(2);
+                .isEqualTo(1);
 
         verify(embeddingService, never())
                 .embedText(
@@ -109,19 +100,13 @@ class FaqEmbeddingBackfillServiceTest {
                         questionVector
                 );
 
-        verify(faqVectorRepository)
-                .saveVectorForVariant(
-                        2L,
-                        PROFILE_ID,
-                        FaqVectorType.QUESTION_ANSWER,
-                        3,
-                        questionAnswerVector
-                );
+        verify(faqVectorRepository, never()).hasCurrentVector(
+                anyLong(), anyLong(), eq(FaqVectorType.QUESTION_ANSWER), anyInt());
     }
 
     @Test
-    @DisplayName("질문 벡터가 이미 있어도 질문+답변 벡터가 없으면 그 유형만 만든다")
-    void backfillCurrentProfile_fillsQuestionAnswerWhenQuestionExists() {
+    @DisplayName("질문 벡터가 이미 있으면 질문+답변 벡터가 없어도 건너뛴다")
+    void backfillCurrentProfile_skipsExistingQuestionVector() {
         Faq faq = faq(
                 1L,
                 "질문",
@@ -131,33 +116,15 @@ class FaqEmbeddingBackfillServiceTest {
 
         givenActiveFaqs(faq);
         givenCurrentVector(faq, FaqVectorType.QUESTION, true);
-        givenCurrentVector(faq, FaqVectorType.QUESTION_ANSWER, false);
-
-        PGvector questionAnswerVector = vector(1);
-
-        when(
-                embeddingService.embedText(
-                        "질문: 질문\n답변: 답변"
-                )
-        ).thenReturn(questionAnswerVector);
 
         int updated =
                 service.backfillCurrentProfile();
 
         assertThat(updated)
-                .isEqualTo(1);
+                .isZero();
 
         verify(embeddingService, never())
                 .embedText("질문");
-
-        verify(faqVectorRepository)
-                .saveVectorForVariant(
-                        1L,
-                        PROFILE_ID,
-                        FaqVectorType.QUESTION_ANSWER,
-                        2,
-                        questionAnswerVector
-                );
 
         verify(
                 faqVectorRepository,
@@ -172,7 +139,7 @@ class FaqEmbeddingBackfillServiceTest {
     }
 
     @Test
-    @DisplayName("현재 프로필에 두 유형의 벡터가 모두 있으면 임베딩하지 않는다")
+    @DisplayName("현재 프로필에 질문 벡터가 있으면 임베딩하지 않는다")
     void backfillCurrentProfile_skipsWhenEverythingExists() {
         Faq faq = faq(
                 1L,
@@ -183,7 +150,6 @@ class FaqEmbeddingBackfillServiceTest {
 
         givenActiveFaqs(faq);
         givenCurrentVector(faq, FaqVectorType.QUESTION, true);
-        givenCurrentVector(faq, FaqVectorType.QUESTION_ANSWER, true);
 
         int updated =
                 service.backfillCurrentProfile();

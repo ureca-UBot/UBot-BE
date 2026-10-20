@@ -3,7 +3,6 @@ package com.ubot.faq.service;
 import java.util.List;
 import java.util.Objects;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
@@ -24,40 +23,21 @@ public class FaqVectorService {
     private final EmbeddingProfileService embeddingProfileService;
     private final FaqVectorRepository faqVectorRepository;
 
-    // 검색할 FAQ 벡터 유형입니다. 사용자 질문은 유형과 관계없이 질문만 임베딩합니다.
-    private final FaqVectorType searchVectorType;
-
     public FaqVectorService(
             EmbeddingService embeddingService,
             EmbeddingProfileService embeddingProfileService,
-            FaqVectorRepository faqVectorRepository,
-            @Value("${FAQ_SEARCH_VECTOR_TYPE:QUESTION}") FaqVectorType searchVectorType
+            FaqVectorRepository faqVectorRepository
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.faqVectorRepository = faqVectorRepository;
-        // 값을 비워 두면 null로 들어옵니다. 검색할 때가 아니라 시작할 때 알 수 있게 여기서 막습니다.
-        this.searchVectorType = Objects.requireNonNull(
-                searchVectorType,
-                "FAQ_SEARCH_VECTOR_TYPE은 QUESTION 또는 QUESTION_ANSWER여야 합니다."
-        );
-
-        log.info("FAQ 검색에 쓸 벡터 유형을 정했습니다: 유형={}", this.searchVectorType);
     }
 
     public List<FaqSearchResponseDto> getSimilarList(
             String userQuestion,
             int topK
     ) {
-        PGvector queryVector = embeddingService.embedText(userQuestion);
-        Long profileId = embeddingProfileService.getCurrentProfileId();
-
-        return faqVectorRepository.getSimilarList(
-                queryVector,
-                profileId,
-                searchVectorType,
-                topK
-        );
+        return searchWithVector(userQuestion, null, topK).faqs();
     }
 
     public List<FaqSearchResponseDto> getSimilarListByIntent(
@@ -66,72 +46,57 @@ public class FaqVectorService {
             int topK
     ) {
         Objects.requireNonNull(intent, "intent는 필수입니다.");
+        return searchWithVector(userQuestion, intent, topK).faqs();
+    }
 
+    /** FAQ 검색 결과와 그 검색에 사용한 사용자 질문 벡터를 함께 돌려줍니다. */
+    public SearchResult searchWithVector(String userQuestion, Intent intent, int topK) {
         PGvector queryVector = embeddingService.embedText(userQuestion);
         Long profileId = embeddingProfileService.getCurrentProfileId();
-
-        return faqVectorRepository.getSimilarListByIntent(
-                queryVector,
-                profileId,
-                searchVectorType,
-                intent,
-                topK
-        );
+        List<FaqSearchResponseDto> faqs = intent == null
+                ? faqVectorRepository.getSimilarList(
+                        queryVector, profileId, FaqVectorType.QUESTION, topK)
+                : faqVectorRepository.getSimilarListByIntent(
+                        queryVector, profileId, FaqVectorType.QUESTION, intent, topK);
+        return new SearchResult(faqs, queryVector);
     }
 
-    /** 새 variant의 벡터를 유형마다 하나씩 만들어 저장합니다. */
-    public void saveVectorsForVariant(
+    public record SearchResult(List<FaqSearchResponseDto> faqs, PGvector queryVector) {
+    }
+
+    /** 새 variant의 질문 벡터를 저장합니다. */
+    public void saveQuestionVectorForVariant(
             Long variantId,
             Integer faqVersion,
-            String question,
-            String answer
+            String question
     ) {
-        for (FaqVectorType vectorType : FaqVectorType.values()) {
-            saveVector(
-                    variantId,
-                    faqVersion,
-                    vectorType,
-                    question,
-                    answer
-            );
-        }
+        saveVector(variantId, faqVersion, question);
     }
 
-    /** 유지되는 variant는 답변 변경 시 질문·답변 벡터만 다시 만들고, 두 유형 모두 FAQ 버전을 갱신합니다. */
-    public void updateVectorsForVariant(
+    /** 유지되는 variant는 질문이 같으므로 질문 벡터의 FAQ 버전만 갱신합니다. */
+    public void updateQuestionVectorVersionForVariant(
             Long variantId,
-            Integer faqVersion,
-            String question,
-            String answer,
-            boolean answerChanged
+            Integer faqVersion
     ) {
         Long profileId = embeddingProfileService.getCurrentProfileId();
         faqVectorRepository.updateVectorVersionForVariant(
                 variantId, profileId, faqVersion);
-
-        if (answerChanged) {
-            saveVector(variantId, faqVersion, FaqVectorType.QUESTION_ANSWER, question, answer);
-        }
     }
 
     private void saveVector(
             Long variantId,
             Integer faqVersion,
-            FaqVectorType vectorType,
-            String question,
-            String answer
+            String question
     ) {
         long startedAt = System.nanoTime();
 
-        PGvector vector = embeddingService.embedText(
-                vectorType.toEmbeddingText(question, answer)
-        );
+        PGvector vector = embeddingService.embedText(question);
         Long profileId = embeddingProfileService.getCurrentProfileId();
 
         faqVectorRepository.saveVectorForVariant(
                 variantId,
                 profileId,
-                vectorType,
+                FaqVectorType.QUESTION,
                 faqVersion,
                 vector
         );
@@ -141,7 +106,7 @@ public class FaqVectorService {
                 variantId,
                 faqVersion,
                 profileId,
-                vectorType,
+                FaqVectorType.QUESTION,
                 elapsedMillis(startedAt)
         );
     }

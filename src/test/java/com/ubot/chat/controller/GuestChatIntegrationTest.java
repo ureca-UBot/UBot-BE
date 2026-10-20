@@ -17,6 +17,8 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
 import com.ubot.faq.service.FaqVectorService;
+import com.ubot.faq.service.FaqSearchMockSupport;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.guest.session.GuestSessionState;
 import com.ubot.llm.client.LlmClient;
 import com.ubot.llm.dto.response.LlmResponseDto;
@@ -70,6 +72,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
 		"prompt.faq.system-location=classpath:prompts/test-faq-system.txt",
 		"prompt.faq.user-location=classpath:prompts/test-faq-user.txt",
+		// LLM 호출 횟수를 검증하므로 판정 LLM은 끕니다. 판정은 SubQuestionChatIntegrationTest에서 확인합니다.
+		"CHAT_SUB_QUESTION_ENABLED=false",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=3"})
@@ -95,6 +99,7 @@ class GuestChatIntegrationTest {
 	@Autowired StringRedisTemplate redis;
 	@Autowired ChatJobWorker worker;
 	@MockitoBean FaqVectorService vector;
+	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
 
 	User user;
@@ -104,6 +109,8 @@ class GuestChatIntegrationTest {
 
 	@BeforeEach
 	void setup() {
+		FaqSearchMockSupport.bridgeSearch(vector);
+		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:result:*"));
 		redis.delete(redis.keys("chat:jobs:published:*"));

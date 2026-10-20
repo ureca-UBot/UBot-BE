@@ -19,16 +19,14 @@ import com.ubot.faq.service.FaqVectorService;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 채팅 답변에 쓸 FAQ 후보를 찾습니다. 벡터 검색을 하고, 설정으로 켰을 때만 후보를 Reranker로 다시 정렬합니다.
+ * 채팅 답변에 쓸 FAQ 후보를 질문 벡터로 찾고, 설정에 따라 Reranker로 다시 정렬합니다.
  *
  * <ul>
- *   <li>Reranker 끔(기본값): 벡터 검색 상위 finalK개. 기존 동작과 같습니다.</li>
- *   <li>Reranker 켬: 벡터 검색 상위 candidateK개를 Reranker 점수 순으로 다시 정렬합니다.</li>
- *   <li>Reranker 켬, 호출 실패: 이미 받아 둔 벡터 검색 상위 finalK개. 검색을 다시 하지 않습니다.</li>
- *   <li>Reranker 켬, 요청이 몰리거나 연속 실패 중: 호출하지 않고 위와 같이 벡터 검색 결과로 답합니다.</li>
+ *   <li>Reranker를 끄면 벡터 검색 순서를 사용합니다.</li>
+ *   <li>Reranker를 켜면 후보를 다시 정렬하고, 실패 시 설정에 따라 벡터 검색 순서로 돌아갑니다.</li>
  * </ul>
  *
- * 유사도 기준(CHAT_CONFIDENCE_THRESHOLD)은 호출한 쪽이 코사인 유사도에 적용합니다. Reranker 점수는 순서를 정하는 데만 씁니다.
+ * 채팅 답변 경로는 캐시 실패 후 정렬된 후보 FAQ의 답변 문장을 비교합니다.
  */
 @Slf4j
 @Service
@@ -83,9 +81,9 @@ public class FaqRetrievalService {
         if (rerank.isEnabled()) {
             candidateK = Math.max(candidateK, rerank.getCandidateK());
         }
-        // DB·임베딩 오류는 여기서 잡지 않습니다. Reranker 실패로 감추지 않고 기존 검색 실패 처리로 넘깁니다.
-        List<FaqSearchResponseDto> dense = search(userQuestion, intent, candidateK);
-        return new DenseFaqCandidates(dense, elapsedMillis(startedAt));
+        // DB·임베딩 오류는 호출한 쪽의 검색 실패 처리로 넘깁니다.
+        FaqVectorService.SearchResult dense = faqVectorService.searchWithVector(userQuestion, intent, candidateK);
+        return new DenseFaqCandidates(dense.faqs(), elapsedMillis(startedAt), dense.queryVector());
     }
 
     /**
@@ -135,12 +133,6 @@ public class FaqRetrievalService {
                 dense.size(), finalK, denseMillis, elapsedMillis(rerankStartedAt), describe(reranked));
 
         return RetrievalOutcome.reranked(reranked.stream().map(RerankedFaq::faq).toList(), dense.get(0));
-    }
-
-    private List<FaqSearchResponseDto> search(String userQuestion, Intent intent, int size) {
-        return intent == null
-                ? faqVectorService.getSimilarList(userQuestion, size)
-                : faqVectorService.getSimilarListByIntent(userQuestion, intent, size);
     }
 
     /** 질문 원문은 남기지 않고 FAQ ID, 점수, 순위 변화만 남깁니다. */

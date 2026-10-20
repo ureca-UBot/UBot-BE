@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 지금 Embedding Profile에서 검색에 쓰는 유형의 활성 variant 벡터를 확인하고, 모자라면 임시 백엔드로 백필합니다.
+# 지금 Embedding Profile에서 활성 variant의 QUESTION 벡터를 확인하고, 모자라면 임시 백엔드로 백필합니다.
 # 정하는 값: BACKFILL_AFTER_SWITCH
-# 쓰는 값: COMPOSE, EMBEDDING_ENGINE, EMBEDDING_PROFILE_VERSION, FAQ_SEARCH_VECTOR_TYPE
+# 쓰는 값: COMPOSE, EMBEDDING_ENGINE, EMBEDDING_PROFILE_VERSION
 
 
 run_psql() {
@@ -174,7 +174,6 @@ SQL
   covered_count="$(
     run_psql \
       -v profile_id="${profile_id}" \
-      -v vector_type="${FAQ_SEARCH_VECTOR_TYPE}" \
       <<'SQL' || true
 SELECT COUNT(*)
 FROM faq_question_variants v
@@ -184,7 +183,7 @@ WHERE f.deleted_at IS NULL
     SELECT 1 FROM faq_embeddings fe
     WHERE fe.faq_question_variant_id = v.id
       AND fe.profile_id = :'profile_id'
-      AND fe.vector_type = :'vector_type'
+      AND fe.vector_type = 'QUESTION'
       AND fe.faq_version = f.version
   );
 SQL
@@ -195,10 +194,10 @@ SQL
     return 2
   fi
 
-  echo "Current FAQ variant embeddings (${FAQ_SEARCH_VECTOR_TYPE}): ${covered_count}/${active_count}"
+  echo "Current FAQ variant embeddings (QUESTION): ${covered_count}/${active_count}"
 
   if [ "${covered_count}" -ne "${active_count}" ]; then
-    echo "FAQ variants missing ${FAQ_SEARCH_VECTOR_TYPE} embeddings: $((active_count - covered_count))"
+    echo "FAQ variants missing QUESTION embeddings: $((active_count - covered_count))"
     return 1
   fi
 

@@ -69,26 +69,29 @@ class UnansweredOutboxWorkerTest {
         given(embeddingService.embedText(anyString())).willReturn(vector());
         Long attemptId = attempt("유심 교체 비용 알려줘");
 
-        service.enqueueUnansweredQuestion(attemptId, "유심 교체 비용 알려줘", UnansweredReason.LLM_ABSTAIN, null, 0.8);
+        service.enqueueUnansweredQuestion(attemptId, 1, "유심 교체 비용 알려줘", "유심 교체 비용 알려줘", UnansweredReason.LLM_ABSTAIN, null, 0.8);
         assertThat(count("unanswered_questions")).isZero();
 
         worker.processPending();
 
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT reason FROM unanswered_questions WHERE attempt_id = ?", String.class, attemptId))
-                .isEqualTo("LLM_ABSTAIN");
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT reason, sub_question_index, sub_question FROM unanswered_questions WHERE attempt_id = ?", attemptId))
+                .containsEntry("reason", "LLM_ABSTAIN")
+                .containsEntry("sub_question_index", 1)
+                .containsEntry("sub_question", "유심 교체 비용 알려줘");
         assertThat(count("unanswered_question_outbox")).isZero();
     }
 
     @Test
-    @DisplayName("같은 시도를 두 번 넣어도 한 번만 저장된다")
-    void ignoresDuplicateAttempt() {
-        Long attemptId = attempt("로밍 요금 알려줘");
+    @DisplayName("같은 하위 질문을 두 번 넣어도 한 번만 들어가고, 다른 하위 질문은 따로 들어간다")
+    void ignoresDuplicateSubQuestion() {
+        Long attemptId = attempt("로밍 요금이랑 해지 위약금 알려줘");
 
-        service.enqueueUnansweredQuestion(attemptId, "로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null);
-        service.enqueueUnansweredQuestion(attemptId, "로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null);
+        service.enqueueUnansweredQuestion(attemptId, 1, "로밍 요금", "로밍 요금", UnansweredReason.NO_FAQ, null, null);
+        service.enqueueUnansweredQuestion(attemptId, 1, "로밍 요금", "로밍 요금", UnansweredReason.NO_FAQ, null, null);
+        service.enqueueUnansweredQuestion(attemptId, 2, "해지 위약금", "해지 위약금", UnansweredReason.NO_FAQ, null, null);
 
-        assertThat(count("unanswered_question_outbox")).isEqualTo(1);
+        assertThat(count("unanswered_question_outbox")).isEqualTo(2);
     }
 
     @Test
@@ -97,7 +100,7 @@ class UnansweredOutboxWorkerTest {
         given(embeddingService.embedText(anyString())).willThrow(new RuntimeException("embedding down"));
         Long attemptId = attempt("eSIM 개통 방법");
 
-        service.enqueueUnansweredQuestion(attemptId, "eSIM 개통 방법", UnansweredReason.NO_FAQ, null, null);
+        service.enqueueUnansweredQuestion(attemptId, 1, "eSIM 개통 방법", "eSIM 개통 방법", UnansweredReason.NO_FAQ, null, null);
         worker.processPending();
 
         assertThat(jdbcTemplate.queryForObject(
@@ -110,7 +113,7 @@ class UnansweredOutboxWorkerTest {
     @DisplayName("재시도 횟수를 다 쓴 질문은 더 처리하지 않는다")
     void skipsExhaustedQuestion() {
         Long attemptId = attempt("해지 위약금");
-        service.enqueueUnansweredQuestion(attemptId, "해지 위약금", UnansweredReason.NO_FAQ, null, null);
+        service.enqueueUnansweredQuestion(attemptId, 1, "해지 위약금", "해지 위약금", UnansweredReason.NO_FAQ, null, null);
         jdbcTemplate.update("UPDATE unanswered_question_outbox SET retry_count = ?", UnansweredOutboxWorker.MAX_RETRIES);
 
         worker.processPending();

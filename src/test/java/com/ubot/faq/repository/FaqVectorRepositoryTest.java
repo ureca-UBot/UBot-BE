@@ -386,9 +386,9 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
-    @DisplayName("검색은 지정한 유형의 벡터만 쓰고, 그 유형의 벡터가 없는 FAQ는 다른 유형으로 대체하지 않는다")
+    @DisplayName("저장소 검색은 요청한 벡터 유형만 사용하고 다른 유형으로 대체하지 않는다")
     void getSimilarList_usesOnlyRequestedVectorType() {
-        // FAQ 2에만 질문+답변 벡터가 있고, 그 벡터는 검색 벡터와 같다.
+        // 기존 질문 벡터는 유지한 채 FAQ 2에만 질문+답변 벡터를 추가한다.
         repository.saveVectorForVariant(
                 2L,
                 profileId,
@@ -421,8 +421,8 @@ class FaqVectorRepositoryTest {
     }
 
     @Test
-    @DisplayName("벡터 버전 갱신은 현재 variant의 두 유형에 적용한다")
-    void updateVectorVersionForVariant_updatesBothTypes() {
+    @DisplayName("벡터 버전 갱신은 현재 variant의 QUESTION 유형에만 적용한다")
+    void updateVectorVersionForVariant_updatesQuestionOnly() {
         repository.saveVectorForVariant(
                 1L,
                 profileId,
@@ -453,7 +453,7 @@ class FaqVectorRepositoryTest {
                         FaqVectorType.QUESTION_ANSWER,
                         2
                 )
-        ).isTrue();
+        ).isFalse();
 
         assertThat(
                 repository.hasCurrentVector(
@@ -462,7 +462,7 @@ class FaqVectorRepositoryTest {
                         FaqVectorType.QUESTION_ANSWER,
                         1
                 )
-        ).isFalse();
+        ).isTrue();
     }
 
     @Test

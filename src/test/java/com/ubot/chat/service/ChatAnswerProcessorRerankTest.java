@@ -2,6 +2,7 @@ package com.ubot.chat.service;
 
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -10,6 +11,7 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqRetrievalProperties;
 import com.ubot.faq.retrieval.FaqRetrievalService;
+import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.retrieval.rerank.FaqRerankService;
 import com.ubot.faq.retrieval.rerank.RerankException;
 import com.ubot.faq.retrieval.rerank.RerankerClient;
@@ -39,14 +41,14 @@ class ChatAnswerProcessorRerankTest {
     private static final Runnable NOT_CANCELLED = () -> {
     };
 
-    @Mock
-    FaqVectorService faqVectorService;
+    FaqVectorService faqVectorService = ChatTestFixtures.vectorService();
     @Mock
     AiService aiService;
     @Mock
     UnansweredQuestionService unansweredQuestionService;
     @Mock
     ChatContextCollector chatContextCollector;
+    private final FaqSentenceFilterService sentenceFilter = ChatTestFixtures.passthroughSentenceFilter();
 
     @Test
     @DisplayName("다시 정렬한 후보 전체에 코사인 기준을 적용한 뒤 최대 3개로 줄인다")
@@ -62,9 +64,11 @@ class ChatAnswerProcessorRerankTest {
 
         // Reranker 상위 3개(6, 5, 4번)를 먼저 잘랐다면 4번 하나만 남았을 것입니다.
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(4L, 3L, 2L);
-        ArgumentCaptor<List<FaqSearchResponseDto>> passed = ArgumentCaptor.captor();
-        verify(chatContextCollector).collect(any(), passed.capture());
-        assertThat(passed.getValue()).extracting(FaqSearchResponseDto::faqId).containsExactly(4L, 3L, 2L);
+        ArgumentCaptor<List<SubQuestionFaqs>> passed = ArgumentCaptor.captor();
+        verify(chatContextCollector).collectBySubQuestion(any(), passed.capture(), any());
+        assertThat(passed.getValue().getFirst().faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(4L, 3L, 2L);
+        verify(sentenceFilter).filter(ChatTestFixtures.QUERY_VECTOR,
+                List.of(dense.get(3), dense.get(2), dense.get(1)));
     }
 
     @Test
@@ -77,8 +81,9 @@ class ChatAnswerProcessorRerankTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         // 미응답 질문에는 Reranker 1위(2번)가 아니라 벡터 검색 1위(1번)를 남깁니다.
-        verify(unansweredQuestionService).enqueueUnansweredQuestion(eq(100L), eq("유심 재발급"), any(), eq(1L), eq(0.70));
+        verify(unansweredQuestionService).enqueueUnansweredQuestion(eq(100L), eq(1), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.70));
         verifyNoInteractions(aiService);
+        verifyNoInteractions(sentenceFilter);
     }
 
     @Test
@@ -118,14 +123,15 @@ class ChatAnswerProcessorRerankTest {
         properties.getRerank().setEnabled(true);
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(faqVectorService, new FaqRerankService(rerankerClient), properties, 3),
-                aiService, unansweredQuestionService, chatContextCollector, ChatTestFixtures.disabledCache());
+                aiService, unansweredQuestionService, chatContextCollector, ChatTestFixtures.originalSubQuestions(),
+                ChatTestFixtures.disabledCache(), sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;
     }
 
     private void answerWith(String answer) {
-        lenient().when(chatContextCollector.collect(any(), any()))
+        lenient().when(chatContextCollector.collectBySubQuestion(any(), any(), any()))
                 .thenReturn(AnswerMaterials.builder("유심 재발급").build());
         lenient().when(aiService.generateAnswer(any())).thenReturn(new AiAnswer(answer, null, false));
     }

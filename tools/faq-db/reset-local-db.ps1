@@ -13,10 +13,9 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
-# Finish every file and vector check before removing the PostgreSQL volume.
+# Validate both CSV files before removing the PostgreSQL volume.
 $seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
-$parts = [int[]] $seedSummary.parts
-$renderedSql = New-FaqSeedSql -TemplatePath $sqlPath -Parts $parts
+$renderedSql = New-FaqSeedSql -TemplatePath $sqlPath
 
 $containerId = (& docker compose ps --all --quiet postgres).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the PostgreSQL container.' }
@@ -51,7 +50,7 @@ Invoke-Checked {
 } 'Flyway migration failed.'
 
 try {
-    Copy-FaqSeedCsv -SeedPath $seedPath -ContainerId $containerId -Parts $parts
+    Copy-FaqSeedCsv -SeedPath $seedPath -ContainerId $containerId
     Invoke-Checked { docker cp $renderedSql "${containerId}:/tmp/seed-baseline.sql" } 'Could not copy seed SQL.'
     Invoke-Checked {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
@@ -59,7 +58,7 @@ try {
     } 'Baseline seed import failed.'
 } finally {
     if ($containerId) {
-        Remove-FaqSeedContainerFiles -ContainerId $containerId -Parts $parts -SqlName 'seed-baseline.sql'
+        Remove-FaqSeedContainerFiles -ContainerId $containerId -SqlName 'seed-baseline.sql'
     }
     Remove-Item -LiteralPath $renderedSql -Force -ErrorAction SilentlyContinue
 }
@@ -71,13 +70,10 @@ SELECT
   (SELECT count(*) FROM faq_category),
   (SELECT count(*) FROM faq),
   (SELECT count(*) FROM faq_question_variants),
-  (SELECT count(*) FROM faq_embeddings WHERE vector_type = 'QUESTION_ANSWER'),
-  (SELECT count(*) FROM faq_embeddings WHERE vector_type <> 'QUESTION_ANSWER'),
-  (SELECT min(vector_dims(vector)) FROM faq_embeddings),
-  (SELECT max(vector_dims(vector)) FROM faq_embeddings);
+  (SELECT count(*) FROM faq_embeddings);
 '@).Trim()
-$expected = "2|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.variantCount)|$($seedSummary.variantCount)|0|1024|1024"
+$expected = "2|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.variantCount)|0"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "Baseline seed verification failed: $verification"
 }
-Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs, $($seedSummary.variantCount) variants and QUESTION_ANSWER vectors."
+Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs and $($seedSummary.variantCount) variants. No vectors were inserted."

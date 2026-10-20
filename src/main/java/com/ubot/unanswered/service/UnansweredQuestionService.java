@@ -40,27 +40,42 @@ public class UnansweredQuestionService {
 
     public void enqueueUnansweredQuestion(
             Long attemptId,
-            String question,
+            int subQuestionIndex,
+            String subQuestion,
+            String userText,
             UnansweredReason reason,
             Long bestFaqId,
             Double bestSimilarity
     ) {
-        unansweredOutboxRepository.enqueue(attemptId, question, reason, bestFaqId, bestSimilarity);
+        unansweredOutboxRepository.enqueue(attemptId, subQuestionIndex, subQuestion, userText, reason, bestFaqId,
+                bestSimilarity);
     }
 
+    /**
+     * 실패한 하위 질문 하나를 미답변으로 저장하고 가까운 묶음에 넣습니다.
+     * subQuestion은 검색에 쓴 검색어로 중복 판정·묶음(임베딩)·묶음 대표 질문에 쓰고, userText는 관리자 화면에 함께 보여 줄 원문 조각입니다.
+     * 질문을 나누지 않았으면 subQuestion과 userText에 원문을, subQuestionIndex에 1을 넘깁니다.
+     */
     @Transactional
     public void createUnansweredQuestion(
             Long attemptId,
-            String question,
+            int subQuestionIndex,
+            String subQuestion,
+            String userText,
             UnansweredReason reason,
             Long bestFaqId,
             Double bestSimilarity
     ) {
-        if (unansweredQuestionRepository.existsByAttemptId(attemptId)) {
+        // 같은 시도의 같은 하위 질문은 한 번만 저장합니다.
+        if (unansweredQuestionRepository.existsByAttemptIdAndSubQuestionIndex(attemptId, subQuestionIndex)) {
+            return;
+        }
+        // 재시도가 다시 실패해도 같은 질문이 묶음 건수를 부풀리지 않게 합니다.
+        if (unansweredQuestionRepository.existsInSameQuestion(attemptId, subQuestion)) {
             return;
         }
 
-        PGvector vector = embeddingService.embedText(question);
+        PGvector vector = embeddingService.embedText(subQuestion);
         Long profileId = embeddingProfileService.getCurrentProfileId();
 
         Long groupId = unansweredQuestionVectorRepository
@@ -70,8 +85,9 @@ public class UnansweredQuestionService {
                         groupThreshold
                 )
                 .orElseGet(
+                        // 대표 질문은 목록에 한 문장만 보이므로 맥락이 채워진 검색어를 씁니다.
                         () -> unansweredQuestionVectorRepository.saveGroup(
-                                question,
+                                subQuestion,
                                 vector,
                                 profileId,
                                 bestFaqId
@@ -80,8 +96,10 @@ public class UnansweredQuestionService {
 
         unansweredQuestionVectorRepository.saveQuestion(
                 attemptId,
+                subQuestionIndex,
                 groupId,
-                question,
+                subQuestion,
+                userText,
                 vector,
                 profileId,
                 reason,

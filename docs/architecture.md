@@ -96,14 +96,18 @@ com.ubot
   → XREADGROUP chat-workers (수동 ACK)
   → 작업이 이미 끝났거나 QUEUED → RUNNING 조건부 갱신에 실패하면 실행하지 않고 ACK (중복 메시지 방어)
   → ChatJobProcessor → ChatAnswerProcessor.generateAnswer (DB 트랜잭션 없이 실행)
-      → FaqRetrievalService → FaqVectorService : 질문 임베딩 → FAQ 질문 표현 검색 (선택적으로 Reranker)
+      → FaqRetrievalService → FaqVectorService : 질문 임베딩 → FAQ 질문 표현 검색
           → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성
           → FaqVectorRepository : 삭제되지 않은 FAQ의 질문 표현(variant) 대상 pgvector 코사인 유사도 검색
-                                  FAQ_SEARCH_VECTOR_TYPE 유형의 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환 (HNSW 인덱스 미사용)
+                                  QUESTION 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환 (HNSW 인덱스 미사용)
       → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
-      → 각 결과를 CHAT_CONFIDENCE_THRESHOLD와 비교해 미만은 제외
-         → 남은 결과 없음 → 미응답 질문 저장 → CHAT-013 (INSUFFICIENT_FAQ), LLM 호출 안 함
-      → ChatContextCollector : 남은 FAQ의 intent별로 답변 자료 수집
+      → 캐시 승인 시 공식 FAQ 답변 반환
+      → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
+      → CHAT_CONFIDENCE_THRESHOLD로 질문 벡터 유사도 검사
+         → 통과한 FAQ 없음 → CHAT-013 (INSUFFICIENT_FAQ)
+      → 통과한 후보 중 TOP-K개 답변 문장을 임베딩해 사용자 질문과 비교
+         → FAQ_SENTENCE_SIMILARITY_THRESHOLD를 통과한 문장 없음 → CHAT-013 (INSUFFICIENT_FAQ)
+      → ChatContextCollector : 통과한 답변 문장과 FAQ의 intent별로 답변 자료 수집
       → AiService → PromptService → LlmService → LlmClient (모은 자료 전달, 구현체는 AI_MODE로 선택)
   → ChatJobCompletionService : 한 트랜잭션으로 작업·시도 행을 잠그고, 선점한 실행(started_at)이 맞는지 확인한 뒤
       → 성공: question_log, faq_log(순위·유사도), 시도 SUCCESS, 작업 SUCCEEDED + result_payload(질문 로그 ID·매장 데이터)
@@ -169,7 +173,7 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 `CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에, LLM이 답변 상태를 `ABSTAIN`(자료로 답할 수 없음)으로 낸 질문은 답변을 보낸 뒤 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
-채팅 처리 중에는 `unanswered_question_outbox`에 한 행만 넣고(같은 `attempt_id`는 한 번만) 바로 응답을 이어 갑니다. 임베딩과 묶기는 `UnansweredOutboxWorker`가 `UNANSWERED_OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 처리합니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘려 다음 주기에 다시 시도하며, 5번 실패한 행은 더 처리하지 않습니다.
+채팅 처리 중에는 `unanswered_question_outbox`에 하위 질문마다 한 행씩 넣고(같은 `attempt_id`·`sub_question_index`는 한 번만) 바로 응답을 이어 갑니다. 임베딩과 묶기는 `UnansweredOutboxWorker`가 `UNANSWERED_OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 처리합니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘려 다음 주기에 다시 시도하며, 5번 실패한 행은 더 처리하지 않습니다.
 
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.
@@ -221,13 +225,13 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 **팀 결정이 필요한 것** (PR·이슈에 논의 기록 없음)
 
-- **임계값**: 기본값은 `0.75`(`CHAT_CONFIDENCE_THRESHOLD`)입니다. [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)(#86)는 `0.73`을 채택했지만, 기본값과 `.env.example`을 바꿀지는 논의된 기록이 없습니다.
+- **임계값**: 질문 벡터 검색 후보에는 `CHAT_CONFIDENCE_THRESHOLD`(기본 `0.75`), 통과한 FAQ의 답변 문장에는 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`(기본 `0.7`)를 적용합니다.
 - **프론트 배포 환경 연결**: GitHub Pages에 배포된 UBot-FE는 HTTPS 미적용 때문에 백엔드를 호출할 수 없습니다. CORS는 `CORS_ALLOWED_ORIGINS`로 허용할 origin을 지정할 수 있습니다. 선택지는 [프론트엔드 연동 가이드](how-to/frontend-integration.md#배포-환경-미해결)에 있습니다.
 
 ## FAQ 관리 흐름
 
-- **생성**: FAQ와 원본·유사 질문 variant를 저장한 뒤 각 variant의 질문 벡터(`QUESTION`)와 질문+답변 벡터(`QUESTION_ANSWER`)를 지금 Embedding Profile로 만들어 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
-- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 원본 질문이 바뀌면 기존 variant를 종료하고 새 variant를 만들어 두 유형을 임베딩합니다. 원본 질문이 같으면 추가·제거된 유사 질문만 생성·종료하고, 유지되는 variant는 답변 변경 시 `QUESTION_ANSWER`만 다시 임베딩합니다. 유지되는 벡터의 `faq_version`은 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
+- **생성**: FAQ와 원본·유사 질문 variant를 저장한 뒤 각 variant의 질문 벡터(`QUESTION`)를 지금 Embedding Profile로 만들어 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
+- **수정**: 현재 FAQ를 `old_faq`에 복사하고 `version`을 1 올립니다. 이력에는 벡터를 남기지 않습니다. 원본 질문이 바뀌면 기존 variant를 종료하고 새 variant의 질문을 임베딩합니다. 원본 질문이 같으면 추가·제거된 유사 질문만 생성·종료하고, 유지되는 variant는 질문 벡터의 `faq_version`을 새 버전으로 맞춥니다. 다른 Profile의 벡터는 건드리지 않으므로, 그 Profile로 돌아가면 [백필](how-to/llm-module.md#백필)이 다시 만듭니다.
 - **삭제·복구**: `deleted_at`으로 soft delete합니다. 삭제된 FAQ는 벡터 검색에서 제외되고, `/admin/faqs/restore`로 복구할 수 있습니다.
 - 벡터는 JPA 엔티티에 매핑하지 않고 `FaqVectorRepository`(JdbcTemplate)로만 읽고 씁니다.
 - 생성·수정 시 임베딩 HTTP 호출이 `@Transactional` 안에서 일어나므로, 임베딩 서버 응답을 기다리는 동안 DB 연결을 사용합니다.
