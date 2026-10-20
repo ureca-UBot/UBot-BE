@@ -112,6 +112,7 @@ src/main/resources/
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM을 포함한 전체 실행 제한. 초과 시 CHAT-016, 취소 요청 및 늦은 결과 폐기 | `180s` | `180s` |
 | `CHAT_WORKER_SHUTDOWN_WAIT` | Worker 종료 시 실행 중인 작업을 기다리는 시간. 넘기면 대기열에 돌려놓고 다시 발행. 컨테이너 종료 유예 시간(`stop_grace_period`, ECS `stopTimeout`)보다 짧아야 함 | `20s` | `20s` |
 | `DB_POOL_MAX_SIZE` | HikariCP(`spring.datasource.hikari.maximum-pool-size`): 프로세스 하나의 DB 연결 수. API와 Worker를 합쳐 PostgreSQL `max_connections`보다 작아야 함 | `10` | `10` |
+| `SCHEDULER_POOL_SIZE` | `spring.task.scheduling.pool.size`: `@Scheduled` 작업을 동시에 실행할 스레드 수. 1이면 한 작업(보관 기간 삭제 재시도, LLM 호출 등)이 끝날 때까지 다른 예약 작업(Outbox 처리 등)이 기다림. 같은 작업은 겹쳐 실행되지 않음 | `4` | `4` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OUTBOX_POLL_DELAY_MS` | `OutboxWorker`: 공용 대기열(`outbox_events`) 작업을 꺼내 처리하는 주기(밀리초, 이전 처리가 끝난 뒤부터) | `2000` | `2000` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |

@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -50,7 +51,8 @@ import com.ubot.faq.retrieval.rerank.FaqRerankService;
 import com.ubot.faq.retrieval.rerank.RerankerClient;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.exception.UserErrorCode;
@@ -70,7 +72,7 @@ class ChatAnswerProcessorIntentValidationTest {
     private final UserService users = mock(UserService.class);
     private final NearbyStoreSearcher stores = mock(NearbyStoreSearcher.class);
     private final AiService ai = mock(AiService.class);
-    private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
+    private final List<UnansweredCandidate> unanswered = new ArrayList<>();
 
     @ParameterizedTest(name = "캐시={0}, 리랭커={1}, 위치={2}, 일반 문장 통과={3}")
     @CsvSource({
@@ -107,7 +109,7 @@ class ChatAnswerProcessorIntentValidationTest {
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("수집 자료 기반 답변", null, false));
 
         ChatAnswerResult result = processor(cacheEnabled, rerankEnabled)
-                .generateAnswer(attempt(null), hasLocation ? LOCATION : null, () -> { });
+                .generateAnswer(attempt(null), hasLocation ? LOCATION : null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         List<FaqSearchResponseDto> expectedOrder = rerankEnabled ? List.of(store, user, general) : candidates;
@@ -138,7 +140,7 @@ class ChatAnswerProcessorIntentValidationTest {
         } else {
             verifyNoInteractions(reranker);
         }
-        verifyNoInteractions(unanswered);
+        assertThat(unanswered).isEmpty();
     }
 
     @ParameterizedTest
@@ -153,7 +155,7 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("실제 조회 경로 답변", null, false));
 
-        ChatAnswerResult result = processor(true, false).generateAnswer(attempt(null), null, () -> { });
+        ChatAnswerResult result = processor(true, false).generateAnswer(attempt(null), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().answer()).isEqualTo("실제 조회 경로 답변");
@@ -167,7 +169,8 @@ class ChatAnswerProcessorIntentValidationTest {
             assertThat(materials.tools()).containsExactly(AiTool.STORE_SEARCH);
             verifyNoInteractions(users);
         }
-        verifyNoInteractions(embeddings, stores, reranker, unanswered);
+        verifyNoInteractions(embeddings, stores, reranker);
+        assertThat(unanswered).isEmpty();
     }
 
     @ParameterizedTest
@@ -182,7 +185,7 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("추가 확인이 필요합니다.", null, false, "ABSTAIN"));
 
-        ChatAnswerResult result = processor(true, false).generateAnswer(attempt(intent), null, () -> { });
+        ChatAnswerResult result = processor(true, false).generateAnswer(attempt(intent), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
@@ -195,7 +198,8 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         verify(vectors).searchWithVector(QUESTION, intent, 3);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(embeddings, stores, reranker, unanswered);
+        verifyNoInteractions(embeddings, stores, reranker);
+        assertThat(unanswered).isEmpty();
     }
 
     @Test
@@ -207,13 +211,14 @@ class ChatAnswerProcessorIntentValidationTest {
         when(users.getActiveUser(1L)).thenThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("사용자 정보를 찾을 수 없습니다.", null, false, "ABSTAIN"));
 
-        ChatAnswerResult result = processor(false, false).generateAnswer(attempt(null), null, () -> { });
+        ChatAnswerResult result = processor(false, false).generateAnswer(attempt(null), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
         assertThat(capturedMaterials().sections()).extracting(ContextSection::content)
                 .containsExactly("사용자 정보를 찾을 수 없습니다.");
-        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 1.0);
+        assertThat(unanswered).contains(new UnansweredCandidate(
+                1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 1.0, UnansweredSource.RETRIEVAL));
         verifyNoInteractions(embeddings, stores, reranker);
     }
 
@@ -247,7 +252,7 @@ class ChatAnswerProcessorIntentValidationTest {
         existingUser();
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("조회 자료와 일반 안내 답변", null, false));
 
-        ChatAnswerResult result = processor(true, false, planner).generateAnswer(attempt, null, () -> { });
+        ChatAnswerResult result = processor(true, false, planner).generateAnswer(attempt, null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.subQuestions()).containsExactly(
@@ -269,11 +274,11 @@ class ChatAnswerProcessorIntentValidationTest {
         verifyNoMoreInteractions(vectors);
         verifyNoInteractions(stores, reranker);
         if (generalPasses) {
-            verifyNoInteractions(unanswered);
+            assertThat(unanswered).isEmpty();
         } else {
-            verify(unanswered).createUnansweredQuestion(100L, 1, generalQuestion, generalQuestion,
-                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore());
-            verifyNoMoreInteractions(unanswered);
+            assertThat(unanswered).contains(new UnansweredCandidate(1, generalQuestion, generalQuestion,
+                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore(), UnansweredSource.RETRIEVAL));
+            assertThat(unanswered).hasSize(1);
         }
     }
 
@@ -290,7 +295,7 @@ class ChatAnswerProcessorIntentValidationTest {
                 new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3),
-                ai, unanswered, collector, planner, new FaqSemanticCacheService(cacheProperties),
+                ai, collector, planner, new FaqSemanticCacheService(cacheProperties),
                 new FaqSentenceFilterService(embeddings, 0.6));
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
