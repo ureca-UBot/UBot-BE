@@ -26,7 +26,9 @@ import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.enums.UnansweredSource;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,7 +42,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 	private final FaqVectorService vector = ChatTestFixtures.vectorService();
 	private final AiService ai = mock(AiService.class);
-	private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
+	private final List<UnansweredCandidate> unanswered = new ArrayList<>();
 	private final SubQuestionPlanner planner = mock(SubQuestionPlanner.class);
 	private final FaqSentenceFilterService sentenceFilter = ChatTestFixtures.passthroughSentenceFilter();
 	private final AnswerAttemptsHistory attempt = AnswerAttemptsHistory.builder()
@@ -49,7 +51,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 	@BeforeEach
 	void setUp() {
-		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
+		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.
@@ -66,7 +68,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("유심 재발급 방법", 3)).thenReturn(List.of(howTo, cost));
 		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(cost));
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).containsExactly(
@@ -77,7 +79,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(materials.question()).isEqualTo("유심 재발급이랑 해외 로밍 요금 알려줘");
 		assertThat(materials.faqs()).containsExactly(howTo, cost);
 		assertThat(materials.subQuestions()).isEqualTo(result.subQuestions());
-		verifyNoInteractions(unanswered);
+		assertThat(unanswered).isEmpty();
 	}
 
 	@Test
@@ -89,14 +91,14 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(reissue));
 		when(vector.getSimilarList("해외 로밍 요금", 3)).thenReturn(List.of(roaming));
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::isAnswered).containsExactly(true, false);
 		assertThat(captureMaterials().subQuestions().get(1).faqs()).isEmpty();
-		verify(unanswered).createUnansweredQuestion(
-				100L, 2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
-		verify(unanswered, never()).createUnansweredQuestion(any(), eq(1), anyString(), anyString(), any(), any(), any());
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
+		assertThat(unanswered).noneMatch(candidate -> candidate.subQuestionIndex() == 1);
 	}
 
 	@Test
@@ -115,7 +117,7 @@ class ChatAnswerProcessorSubQuestionTest {
 				.doReturn(List.of(new FaqSentenceFilterService.MatchedFaq(plan, "월정액은 85,000원입니다.")))
 				.when(sentenceFilter).filter(any(), eq(List.of(plan)));
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		AnswerMaterials materials = captureMaterials();
 		assertThat(materials.faqs()).singleElement().extracting(FaqSearchResponseDto::answer)
@@ -135,16 +137,16 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("해외 로밍 요금", 3)).thenReturn(List.of(faq(9L, 0.5)));
 		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변할 수 없습니다.", null, false, "ABSTAIN"));
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
-		verify(unanswered).createUnansweredQuestion(
-				100L, 1, "유심 재발급", "유심 재발급", UnansweredReason.LLM_ABSTAIN, 1L, 0.9);
-		verify(unanswered).createUnansweredQuestion(
-				100L, 2, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85);
-		verify(unanswered).createUnansweredQuestion(
-				100L, 3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
-		verify(unanswered, times(3)).createUnansweredQuestion(any(), anyInt(), anyString(), anyString(), any(), any(), any());
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				1, "유심 재발급", "유심 재발급", UnansweredReason.LLM_ABSTAIN, 1L, 0.9, UnansweredSource.RETRIEVAL));
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				2, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85, UnansweredSource.RETRIEVAL));
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
+		assertThat(unanswered).hasSize(3);
 	}
 
 	@Test
@@ -154,12 +156,13 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of());
 		when(vector.getSimilarList("해외 로밍 요금", 3)).thenReturn(List.of(faq(9L, 0.5)));
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
-		verify(unanswered).createUnansweredQuestion(100L, 1, "유심 재발급", "유심 재발급", UnansweredReason.NO_FAQ, null, null);
-		verify(unanswered).createUnansweredQuestion(
-				100L, 2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5);
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				1, "유심 재발급", "유심 재발급", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
 		verifyNoInteractions(ai);
 	}
 
@@ -173,12 +176,12 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9)));
 		when(vector.getSimilarList("해외 로밍 요금", 3)).thenReturn(List.of());
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::userText).containsOnlyNulls();
-		verify(unanswered).createUnansweredQuestion(
-				100L, 2, "해외 로밍 요금", "유심 재발급이랑 해외 로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null);
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				2, "해외 로밍 요금", "유심 재발급이랑 해외 로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
 	}
 
 	@Test
@@ -187,7 +190,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		plan("유심 재발급", "해외 로밍 요금");
 		when(vector.getSimilarList(anyString(), anyInt())).thenReturn(List.of());
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
 	}
@@ -197,10 +200,11 @@ class ChatAnswerProcessorSubQuestionTest {
 	void rejectsTooManySubQuestions() {
 		plan("a", "b", "c", "d");
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.TOO_MANY_SUB_QUESTIONS);
-		verifyNoInteractions(vector, unanswered, ai);
+		verifyNoInteractions(vector, ai);
+		assertThat(unanswered).isEmpty();
 	}
 
 	@Test
@@ -209,7 +213,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		plan("a", "b", "c");
 		when(vector.getSimilarList(anyString(), anyInt())).thenReturn(List.of(faq(1L, 0.9)));
 
-		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.subQuestions()).hasSize(3);
 	}
@@ -224,11 +228,11 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarListByIntent("강남역 매장", Intent.STORE_DATA, 3)).thenReturn(List.of(faq(1L, 0.9)));
 		when(vector.getSimilarListByIntent("해외 로밍 요금", Intent.STORE_DATA, 3)).thenReturn(List.of());
 
-		ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(research, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
 		verify(vector, never()).getSimilarList(anyString(), anyInt());
-		verifyNoInteractions(unanswered);
+		assertThat(unanswered).isEmpty();
 	}
 
 	@Test
@@ -241,7 +245,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		var roaming = faq(29L, 0.99);
 		when(vector.getSimilarList("해외 로밍은 어떻게 신청하나요?", 3)).thenReturn(List.of(roaming));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.subQuestions()).containsExactly(
 				new SubQuestionFaqs("해외 로밍은 어떻게 신청하나요?", List.of(roaming), "해외 로밍은 어떻게 신청하나요?"));
@@ -266,7 +270,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("로밍 신청 방법은 무엇인가요?", 3)).thenReturn(List.of(apply));
 		when(vector.getSimilarList("해외 문자 수신은 무료인가요?", 3)).thenReturn(List.of(sms));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::searchQuery, SubQuestionFaqs::userText)
 				.containsExactly(
@@ -292,12 +296,12 @@ class ChatAnswerProcessorSubQuestionTest {
 		// 0.77은 유사도 기준(0.75)은 넘지만, 이 검색이 넘지 못한 이전 대화 기준(0.80)에는 못 미칩니다.
 		when(vector.getSimilarList(question, 3)).thenReturn(List.of(faq(147L, 0.77)));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verify(vector, times(1)).getSimilarList(question, 3);
-		verify(unanswered).createUnansweredQuestion(
-				303L, 1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77);
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77, UnansweredSource.RETRIEVAL));
 		verifyNoInteractions(ai);
 	}
 
@@ -318,7 +322,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("해지 안 되나요?", 3)).thenReturn(List.of(cancel));
 		when(vector.getSimilarList("해지 위약금은 얼마인가요?", 3)).thenReturn(List.of(penalty));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::isAnswered).containsExactly(true, true);
 		verify(vector).getSimilarList("해지 안 되나요?", 3);
@@ -343,12 +347,12 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList("로밍 신청 방법은 무엇인가요?", 3)).thenReturn(List.of(apply));
 		when(vector.getSimilarList("해외 문자 수신은 무료인가요?", 3)).thenReturn(List.of(sms));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		verify(planner).judge(plain, first, plain.getQuestion());
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::faqs)
 				.containsExactly(List.of(apply), List.of(sms));
-		verifyNoInteractions(unanswered);
+		assertThat(unanswered).isEmpty();
 	}
 
 	@Test
@@ -365,13 +369,13 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList(question, 3)).thenReturn(List.of(broad));
 		doReturn(List.of()).when(sentenceFilter).filter(any(), eq(List.of(broad)));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verify(vector, times(1)).getSimilarList(question, 3);
 		verify(sentenceFilter, times(1)).filter(any(), any());
-		verify(unanswered).createUnansweredQuestion(
-				307L, 1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.9);
+		assertThat(unanswered).contains(new UnansweredCandidate(
+				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.9, UnansweredSource.RETRIEVAL));
 		verifyNoInteractions(ai);
 	}
 
@@ -387,7 +391,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		var cancel = faq(147L, 0.77);
 		when(vector.getSimilarList(question, 3)).thenReturn(List.of(cancel));
 
-		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED);
+		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.subQuestions()).containsExactly(new SubQuestionFaqs(question, List.of(cancel), question));
 		verify(planner, never()).judge(any(), any(), any());
@@ -409,7 +413,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		when(vector.getSimilarList(question, 3)).thenReturn(List.of(faq(147L, 0.77)));
 		when(vector.getSimilarList("로밍 신청 취소는 어떻게 하나요?", 3)).thenReturn(List.of(faq(199L, 0.88)));
 
-		processor.generateAnswer(plain, null, NOT_CANCELLED);
+		processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		verify(planner).judge(plain, first, plain.getQuestion());
 		// 멀티턴이라 답변 자료에 이전 대화가 들어갑니다.
@@ -425,7 +429,7 @@ class ChatAnswerProcessorSubQuestionTest {
 				SubQuestionPlan.Source.LLM, history, false, null, false));
 		when(vector.getSimilarList("해외 로밍 신청 방법", 3)).thenReturn(List.of(faq(29L, 0.9)));
 
-		processor.generateAnswer(attempt, null, NOT_CANCELLED);
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(captureMaterials().history()).isEmpty();
 	}

@@ -36,7 +36,6 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.unanswered.service.UnansweredQuestionService;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
@@ -144,7 +143,7 @@ class ChatServiceTest {
 		attemptsService = new ChatAttemptsService(
 				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, embeddingService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
-		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, attemptsService, processor, tx);

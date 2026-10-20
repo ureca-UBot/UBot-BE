@@ -16,7 +16,6 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.unanswered.service.UnansweredQuestionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +37,7 @@ class ChatServiceResearchTest {
     private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
     private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
-    private final ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+    private final ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
     private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, processor);
     private final ChatService service = new ChatService(attempts, ChatTestFixtures.inputGuard(filter), harness.submissionService,
             ipRegionResolver);

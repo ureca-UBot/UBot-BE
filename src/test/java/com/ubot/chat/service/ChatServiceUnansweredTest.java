@@ -2,7 +2,6 @@ package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -12,7 +11,6 @@ import static org.mockito.Mockito.when;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
-import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -21,7 +19,8 @@ import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.enums.UnansweredSource;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,7 +40,6 @@ class ChatServiceUnansweredTest {
 	private final AiService ai = mock(AiService.class);
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
-	private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
 	private final AnswerAttemptsHistory attempt = AnswerAttemptsHistory.builder()
 			.id(1L).userId(1L).question("질문").idempotencyKey("a".repeat(64))
 			.attemptCount(1).status("PENDING").build();
@@ -50,7 +48,7 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, unanswered, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
@@ -72,7 +70,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered).createUnansweredQuestion(1L, 1, "질문", "질문", UnansweredReason.NO_FAQ, null, null);
+		verify(harness.unanswered).enqueueUnansweredQuestion(1L, candidate(UnansweredReason.NO_FAQ, null, null));
 	}
 
 	@Test
@@ -85,20 +83,20 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered).createUnansweredQuestion(1L, 1, "질문", "질문", UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6);
+		verify(harness.unanswered).enqueueUnansweredQuestion(1L, candidate(UnansweredReason.INSUFFICIENT_FAQ, 7L, 0.6));
 	}
 
 	@Test
-	@DisplayName("미응답 저장이 실패해도 채팅 실패 기록은 그대로 남긴다")
-	void keepsChatFailureWhenRecordFails() {
+	@DisplayName("미응답 대기열 등록이 실패하면 작업을 확정하지 않고 다시 처리할 수 있게 남긴다")
+	void leavesJobUnfinishedWhenEnqueueFails() {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
-		doThrow(new RuntimeException("embedding down")).when(unanswered).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any(), any());
+		doThrow(new RuntimeException("db down")).when(harness.unanswered).enqueueUnansweredQuestion(any(), any());
 
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(attempts).recordFailure(attempt, ChatErrorCode.NO_FAQ);
-		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.FAILED);
+		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.RUNNING);
+		assertThat(harness.acked).isEmpty();
 	}
 
 	@Test
@@ -116,7 +114,7 @@ class ChatServiceUnansweredTest {
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
 
-		verify(unanswered, never()).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any(), any());
+		verify(harness.unanswered, never()).enqueueUnansweredQuestion(any(), any());
 		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
 	}
 
@@ -125,7 +123,7 @@ class ChatServiceUnansweredTest {
 	void recordsLlmAbstain() {
 		answerWithStatus("ABSTAIN");
 
-		verify(unanswered).createUnansweredQuestion(1L, 1, "질문", "질문", UnansweredReason.LLM_ABSTAIN, 1L, 0.9);
+		verify(harness.unanswered).enqueueUnansweredQuestion(1L, candidate(UnansweredReason.LLM_ABSTAIN, 1L, 0.9));
 		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
 	}
 
@@ -135,7 +133,7 @@ class ChatServiceUnansweredTest {
 	void doesNotRecordOtherStatuses(String status) {
 		answerWithStatus(status);
 
-		verify(unanswered, never()).createUnansweredQuestion(any(), anyInt(), any(), any(), any(), any(), any());
+		verify(harness.unanswered, never()).enqueueUnansweredQuestion(any(), any());
 	}
 
 	private void answerWithStatus(String status) {
@@ -153,5 +151,9 @@ class ChatServiceUnansweredTest {
 
 		service.createChat(1L, null, "질문", null, null);
 		harness.runQueuedJobs();
+	}
+
+	private static UnansweredCandidate candidate(UnansweredReason reason, Long bestFaqId, Double bestSimilarity) {
+		return new UnansweredCandidate(1, "질문", "질문", reason, bestFaqId, bestSimilarity, UnansweredSource.RETRIEVAL);
 	}
 }

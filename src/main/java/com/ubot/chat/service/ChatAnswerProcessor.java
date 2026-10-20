@@ -23,11 +23,14 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.enums.UnansweredSource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -57,7 +60,6 @@ public class ChatAnswerProcessor {
 
 	private final FaqRetrievalService faqRetrievalService;
 	private final AiService aiService;
-	private final UnansweredQuestionService unansweredQuestionService;
 	private final ChatContextCollector chatContextCollector;
 	private final SubQuestionPlanner subQuestionPlanner;
 	private final FaqSemanticCacheService faqSemanticCacheService;
@@ -67,7 +69,6 @@ public class ChatAnswerProcessor {
 	public ChatAnswerProcessor(
 			FaqRetrievalService faqRetrievalService,
 			AiService aiService,
-			UnansweredQuestionService unansweredQuestionService,
 			ChatContextCollector chatContextCollector,
 			SubQuestionPlanner subQuestionPlanner,
 			FaqSemanticCacheService faqSemanticCacheService,
@@ -75,7 +76,6 @@ public class ChatAnswerProcessor {
 			ChatInputGuardService chatInputGuardService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
-		this.unansweredQuestionService = unansweredQuestionService;
 		this.chatContextCollector = chatContextCollector;
 		this.subQuestionPlanner = subQuestionPlanner;
 		this.faqSemanticCacheService = faqSemanticCacheService;
@@ -85,6 +85,11 @@ public class ChatAnswerProcessor {
 
 	/** checkCancellation은 단계 사이마다 호출하며, 취소되었으면 예외를 던집니다. */
 	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
+		return generateAnswer(attempt, location, checkCancellation, new ArrayList<>());
+	}
+
+	ChatAnswerResult generateAnswer(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation,
+			List<UnansweredCandidate> unansweredCandidates) {
 		long startedAt = System.nanoTime();
 		checkCancellation.run();
 		// 시도 원문은 보존하고 정리본만 질문 정리·검색·답변 생성에 전달합니다.
@@ -187,7 +192,7 @@ public class ChatAnswerProcessor {
 			promptSearched.add(new SubQuestionFaqs(searchQuery, result.promptFaqs(), userText));
 		}
 
-		unanswered.forEach(subQuestion -> createUnansweredQuestion(attempt, subQuestion));
+		unanswered.forEach(subQuestion -> collectUnanswered(attempt, subQuestion, unansweredCandidates));
 		if (searched.stream().noneMatch(SubQuestionFaqs::isAnswered)) {
 			// 모든 하위 질문이 검색 결과조차 없을 때만 NO_FAQ이고, 하나라도 후보가 있었으면 기준 미달입니다.
 			boolean noResultsAtAll = unanswered.stream().allMatch(subQuestion -> subQuestion.reason() == UnansweredReason.NO_FAQ);
@@ -218,8 +223,9 @@ public class ChatAnswerProcessor {
 			for (int index = 0; index < searched.size(); index++) {
 				SubQuestionFaqs subQuestion = searched.get(index);
 				if (subQuestion.isAnswered()) {
-					createUnansweredQuestion(attempt, new UnansweredSubQuestion(index + 1, subQuestion.searchQuery(),
-							subQuestion.userText(), UnansweredReason.LLM_ABSTAIN, subQuestion.faqs().getFirst()));
+					collectUnanswered(attempt, new UnansweredSubQuestion(index + 1, subQuestion.searchQuery(),
+							subQuestion.userText(), UnansweredReason.LLM_ABSTAIN, subQuestion.faqs().getFirst()),
+							unansweredCandidates);
 				}
 			}
 		}
@@ -227,8 +233,9 @@ public class ChatAnswerProcessor {
 	}
 
 	/**
-	 * 검색 결과 하나에 유사도 기준과 답변 문장 검사를 차례로 적용합니다.
-	 * 둘 중 한 단계라도 통과한 FAQ가 없으면 faqs가 비고, 그 사유와 벡터 검색 1위 FAQ를 담습니다.
+	 * 질문 유사도를 통과한 GENERAL FAQ에만 답변 문장 검사를 적용합니다.
+	 * USER_DATA와 STORE_DATA는 실제 조회 자료를 수집하도록 유지합니다.
+	 * 남은 FAQ가 없으면 그 사유와 벡터 검색 1위 FAQ를 담습니다.
 	 */
 	private GatedFaqs gate(AnswerAttemptsHistory attempt, int subQuestionIndex, SearchedCandidates candidates,
 			double minimumSimilarity, Runnable checkCancellation) {
@@ -257,22 +264,35 @@ public class ChatAnswerProcessor {
 					attempt.getId(), subQuestionIndex, highestSimilarity(results), minimumSimilarity);
 			return GatedFaqs.failed(UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 		}
-		// 질문 유사도 기준을 넘은 FAQ에서 이 검색어와 비슷한 답변 문장만 고릅니다.
+		List<FaqSearchResponseDto> sentenceCandidates = filteredResults.stream()
+				.filter(faq -> faq.intent() == Intent.GENERAL)
+				.toList();
 		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 하위질문순번={}, 문장검사대상FAQ수={}",
-				attempt.getId(), subQuestionIndex, filteredResults.size());
-		List<MatchedFaq> matched = faqSentenceFilterService.filter(candidates.queryVector(), filteredResults);
+				attempt.getId(), subQuestionIndex, sentenceCandidates.size());
+		List<MatchedFaq> matched = sentenceCandidates.isEmpty() ? List.of()
+				: faqSentenceFilterService.filter(candidates.queryVector(), sentenceCandidates);
 		checkCancellation.run();
 		log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 하위질문순번={}, 통과FAQ수={}, 통과FAQ ID={}",
 				attempt.getId(), subQuestionIndex, matched.size(), matched.stream().map(item -> item.faq().faqId()).toList());
-		if (matched.isEmpty()) {
-			log.info("유사도 기준을 통과한 FAQ 답변 문장이 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
+		Map<Long, String> matchedAnswers = matched.stream()
+				.collect(Collectors.toMap(item -> item.faq().faqId(), MatchedFaq::answerSentences));
+		List<FaqSearchResponseDto> originalFaqs = new ArrayList<>();
+		List<FaqSearchResponseDto> promptFaqs = new ArrayList<>();
+		for (FaqSearchResponseDto faq : filteredResults) {
+			boolean generalFaq = faq.intent() == Intent.GENERAL;
+			String answer = generalFaq ? matchedAnswers.get(faq.faqId()) : faq.answer();
+			if (generalFaq && answer == null) {
+				continue;
+			}
+			originalFaqs.add(faq);
+			promptFaqs.add(new FaqSearchResponseDto(faq.faqId(), faq.question(), answer,
+					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable()));
+		}
+		if (originalFaqs.isEmpty()) {
+			log.info("답변 근거로 사용할 FAQ가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
 			return GatedFaqs.failed(UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 		}
-		return new GatedFaqs(matched.stream().map(MatchedFaq::faq).toList(), matched.stream().map(item -> {
-			FaqSearchResponseDto faq = item.faq();
-			return new FaqSearchResponseDto(faq.faqId(), faq.question(), item.answerSentences(),
-					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable());
-		}).toList(), null, null);
+		return new GatedFaqs(originalFaqs, promptFaqs, null, null);
 	}
 
 	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
@@ -289,25 +309,22 @@ public class ChatAnswerProcessor {
 		return (System.nanoTime() - startedAt) / 1_000_000;
 	}
 
-	private void createUnansweredQuestion(AnswerAttemptsHistory attempt, UnansweredSubQuestion subQuestion) {
+	private void collectUnanswered(AnswerAttemptsHistory attempt, UnansweredSubQuestion subQuestion,
+			List<UnansweredCandidate> unansweredCandidates) {
 		// 재검색은 사용자가 의도를 직접 고른 결과라서, FAQ 부족 신호(미응답 질문)로 쌓지 않습니다.
 		if (attempt.isResearch()) {
 			return;
 		}
 		FaqSearchResponseDto bestResult = subQuestion.bestResult();
-		try {
-			unansweredQuestionService.createUnansweredQuestion(
-					attempt.getId(),
-					subQuestion.index(),
-					subQuestion.searchQuery(),
-					// 원문을 자를 근거가 없었으면 관리자 화면에는 원문 전체를 보여 줍니다.
-					subQuestion.userText() == null ? attempt.getQuestion() : subQuestion.userText(),
-					subQuestion.reason(),
-					bestResult == null ? null : bestResult.faqId(),
-					bestResult == null ? null : bestResult.similarityScore());
-		} catch (RuntimeException exception) {
-			log.warn("미응답 질문 저장에 실패했습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestion.index(), exception);
-		}
+		unansweredCandidates.add(new UnansweredCandidate(
+				subQuestion.index(),
+				subQuestion.searchQuery(),
+				// 원문을 자를 근거가 없었으면 관리자 화면에는 원문 전체를 보여 줍니다.
+				subQuestion.userText() == null ? attempt.getQuestion() : subQuestion.userText(),
+				subQuestion.reason(),
+				bestResult == null ? null : bestResult.faqId(),
+				bestResult == null ? null : bestResult.similarityScore(),
+				UnansweredSource.RETRIEVAL));
 	}
 
 	private Double highestSimilarity(List<FaqSearchResponseDto> results) {

@@ -28,7 +28,6 @@ import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ranking.enums.RegionSido;
-import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +60,7 @@ class ChatServiceIntentRoutingTest {
 
 	@BeforeEach
 	void setUp() {
-		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);

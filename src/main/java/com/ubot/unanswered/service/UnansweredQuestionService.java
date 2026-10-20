@@ -1,5 +1,8 @@
 package com.ubot.unanswered.service;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -7,7 +10,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.outbox.OutboxEventRepository;
+import com.ubot.outbox.OutboxEventType;
+import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
 
@@ -18,6 +25,7 @@ public class UnansweredQuestionService {
     private final EmbeddingProfileService embeddingProfileService;
     private final UnansweredQuestionRepository unansweredQuestionRepository;
     private final UnansweredQuestionVectorRepository unansweredQuestionVectorRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final double groupThreshold;
 
     public UnansweredQuestionService(
@@ -25,13 +33,29 @@ public class UnansweredQuestionService {
             EmbeddingProfileService embeddingProfileService,
             UnansweredQuestionRepository unansweredQuestionRepository,
             UnansweredQuestionVectorRepository unansweredQuestionVectorRepository,
+            OutboxEventRepository outboxEventRepository,
             @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.unansweredQuestionRepository = unansweredQuestionRepository;
         this.unansweredQuestionVectorRepository = unansweredQuestionVectorRepository;
+        this.outboxEventRepository = outboxEventRepository;
         this.groupThreshold = groupThreshold;
+    }
+
+    public void enqueueUnansweredQuestion(Long attemptId, UnansweredCandidate candidate) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("attemptId", attemptId);
+        payload.put("subQuestionIndex", candidate.subQuestionIndex());
+        payload.put("subQuestion", candidate.subQuestion());
+        payload.put("userText", candidate.userText());
+        payload.put("reason", candidate.reason().name());
+        payload.put("bestFaqId", candidate.bestFaqId());
+        payload.put("bestSimilarity", candidate.bestSimilarity());
+        payload.put("source", candidate.source().name());
+        outboxEventRepository.enqueue(OutboxEventType.UNANSWERED_QUESTION,
+                attemptId + ":" + candidate.subQuestionIndex(), payload);
     }
 
     /**
@@ -48,6 +72,21 @@ public class UnansweredQuestionService {
             UnansweredReason reason,
             Long bestFaqId,
             Double bestSimilarity
+    ) {
+        createUnansweredQuestion(attemptId, subQuestionIndex, subQuestion, userText, reason, bestFaqId, bestSimilarity,
+                UnansweredSource.RETRIEVAL);
+    }
+
+    @Transactional
+    public void createUnansweredQuestion(
+            Long attemptId,
+            int subQuestionIndex,
+            String subQuestion,
+            String userText,
+            UnansweredReason reason,
+            Long bestFaqId,
+            Double bestSimilarity,
+            UnansweredSource source
     ) {
         // 같은 시도의 같은 하위 질문은 한 번만 저장합니다.
         if (unansweredQuestionRepository.existsByAttemptIdAndSubQuestionIndex(attemptId, subQuestionIndex)) {
@@ -87,7 +126,8 @@ public class UnansweredQuestionService {
                 profileId,
                 reason,
                 bestFaqId,
-                bestSimilarity
+                bestSimilarity,
+                source
         );
 
         unansweredQuestionVectorRepository.updateGroupCentroid(

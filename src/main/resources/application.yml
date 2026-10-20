@@ -14,6 +14,11 @@ spring:
       # 프로세스별 DB 연결 수. API·Worker 합이 max_connections보다 작아야 함
       maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
 
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULER_POOL_SIZE:4}
+
 management:
   endpoints:
     web:
@@ -66,20 +71,21 @@ app:
     refresh-token-expiration-days: ${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:14}
 
 ranking:
-  window-minutes: ${RANKING_WINDOW_MINUTES:60}
+  window-minutes: ${RANKING_WINDOW_MINUTES:20}
   size: ${RANKING_SIZE:5}
-  refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:5}
-  min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:20}
-  baseline-period-days: ${BASELINE_PERIOD_DAYS:7}
-  baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:20}
-  trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:20}
+  refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:1}
+  min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:10}
+  baseline-period-days: ${BASELINE_PERIOD_DAYS:2}
+  baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:10}
+  trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
 faq-monitoring:
   improvement:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
     low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.30}
-    unused-days: ${FAQ_IMPROVEMENT_UNUSED_DAYS:7}
+    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.05}
+    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:10080}
     minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:20}
     minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
 
@@ -102,7 +108,7 @@ faq:
       # 요청이 몰리거나 Reranker가 연속으로 실패할 때 호출을 건너뛰는 보호 장치
       max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
       failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
-      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}  
+      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
   variant:
     sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
 
