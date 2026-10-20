@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -218,6 +219,38 @@ class AuthIntegrationTest {
                         .header("Authorization", "Bearer invalid-token"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("JWT-004"));
+    }
+
+    @Test
+    @DisplayName("상담사 로그인·재발급·내 정보 조회를 지원하고 관리자 권한은 부여하지 않는다")
+    void counselorRoleRoundTripAndDatabaseRoleRefresh() throws Exception {
+        signUpAndLogin();
+        jdbcTemplate.update("UPDATE users SET role='COUNSELOR' WHERE email=?", EMAIL);
+        MvcResult login = mockMvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(loginRequest(EMAIL, PASSWORD)))
+                .andExpect(status().isOk()).andReturn();
+        String token = responseToken(login, "accessToken");
+        mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("COUNSELOR"));
+        mockMvc.perform(get("/admin/faqs").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshRequest(responseToken(login, "refreshToken"))))
+                .andExpect(status().isOk());
+        // 기존 JWT claim보다 현재 DB 역할이 우선되어야 신규 상담 권한을 즉시 회수할 수 있습니다.
+        jdbcTemplate.update("UPDATE users SET role='USER' WHERE email=?", EMAIL);
+        mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("USER"));
+    }
+
+    @Test
+    @DisplayName("회원가입에 상담사 역할을 끼워 보내도 USER로 생성한다")
+    void signupCannotChooseCounselorRole() throws Exception {
+        String request = signupRequest(EMAIL).replace("\"name\":", "\"role\":\"COUNSELOR\", \"name\":");
+        mockMvc.perform(post("/auth/signup").contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject("SELECT role FROM users WHERE email=?", String.class, EMAIL))
+                .isEqualTo("USER");
     }
 
     private String signUpAndLogin() throws Exception {
