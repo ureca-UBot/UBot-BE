@@ -108,8 +108,8 @@ def main():
                round(max(extract(epoch FROM u.created_at - j.finished_at) * 1000))
         FROM unanswered_questions u JOIN chat_jobs j ON j.attempt_id = u.attempt_id
         WHERE j.created_at >= {window}""")[0]
-    has_outbox = psql(args.container, args.db, "SELECT to_regclass('unanswered_question_outbox') IS NOT NULL")[0][0] == 't'
-    pending = psql(args.container, args.db, 'SELECT count(*), count(*) FILTER (WHERE retry_count >= 5) FROM unanswered_question_outbox')[0] \
+    has_outbox = psql(args.container, args.db, "SELECT to_regclass('outbox_events') IS NOT NULL")[0][0] == 't'
+    pending = psql(args.container, args.db, "SELECT count(*), count(*) FILTER (WHERE retry_count >= 5) FROM outbox_events WHERE event_type = 'UNANSWERED_QUESTION'")[0] \
         if has_outbox else None
 
     print(f'\n== {args.label} ({len(client)}회)')

@@ -1,5 +1,8 @@
 package com.ubot.unanswered.service;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -7,8 +10,9 @@ import org.springframework.transaction.annotation.Transactional;
 import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.outbox.OutboxEventRepository;
+import com.ubot.outbox.OutboxEventType;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.repository.UnansweredOutboxRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
 
@@ -19,7 +23,7 @@ public class UnansweredQuestionService {
     private final EmbeddingProfileService embeddingProfileService;
     private final UnansweredQuestionRepository unansweredQuestionRepository;
     private final UnansweredQuestionVectorRepository unansweredQuestionVectorRepository;
-    private final UnansweredOutboxRepository unansweredOutboxRepository;
+    private final OutboxEventRepository outboxEventRepository;
     private final double groupThreshold;
 
     public UnansweredQuestionService(
@@ -27,14 +31,14 @@ public class UnansweredQuestionService {
             EmbeddingProfileService embeddingProfileService,
             UnansweredQuestionRepository unansweredQuestionRepository,
             UnansweredQuestionVectorRepository unansweredQuestionVectorRepository,
-            UnansweredOutboxRepository unansweredOutboxRepository,
+            OutboxEventRepository outboxEventRepository,
             @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.unansweredQuestionRepository = unansweredQuestionRepository;
         this.unansweredQuestionVectorRepository = unansweredQuestionVectorRepository;
-        this.unansweredOutboxRepository = unansweredOutboxRepository;
+        this.outboxEventRepository = outboxEventRepository;
         this.groupThreshold = groupThreshold;
     }
 
@@ -47,8 +51,15 @@ public class UnansweredQuestionService {
             Long bestFaqId,
             Double bestSimilarity
     ) {
-        unansweredOutboxRepository.enqueue(attemptId, subQuestionIndex, subQuestion, userText, reason, bestFaqId,
-                bestSimilarity);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("attemptId", attemptId);
+        payload.put("subQuestionIndex", subQuestionIndex);
+        payload.put("subQuestion", subQuestion);
+        payload.put("userText", userText);
+        payload.put("reason", reason.name());
+        payload.put("bestFaqId", bestFaqId);
+        payload.put("bestSimilarity", bestSimilarity);
+        outboxEventRepository.enqueue(OutboxEventType.UNANSWERED_QUESTION, attemptId + ":" + subQuestionIndex, payload);
     }
 
     /**

@@ -16,18 +16,30 @@
 
 ## 2. 결정
 
-답변 처리 중에는 `unanswered_question_outbox`에 한 행만 넣고 바로 답변을 이어 갑니다. 임베딩과 묶기는 `UnansweredOutboxWorker`가 따로 처리합니다.
+답변 처리 중에는 공용 대기열 `outbox_events`에 `UNANSWERED_QUESTION` 작업 한 행만 넣고 바로 답변을 이어 갑니다. 임베딩과 묶기는 `OutboxWorker`가 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘겨 따로 처리합니다.
 
 ```text
-검색 실패 → 대기열에 INSERT(수 ms) → 답변 작업 종료
+검색 실패 → outbox_events에 INSERT(수 ms) → 답변 작업 종료
                       ↓ 2초마다
-           UnansweredOutboxWorker → 미응답 저장 → 대기열 행 삭제
+           OutboxWorker → event_type별 처리기 → 미응답 저장 → 대기열 행 삭제
 ```
+
+대기열은 여러 비동기 작업이 같이 쓰는 공용 테이블입니다. 다음 작업으로 FAQ 등록 후 자동 재검증을 같은 대기열에 붙일 예정이라, 처음부터 공용으로 만들었습니다.
+
+```text
+outbox_events
+  event_type   작업 종류 (지금은 UNANSWERED_QUESTION, CHECK로 허용 값 관리)
+  dedup_key    중복 방지 키 (작업 종류 + 업무 키, 유니크)
+  payload      작업에 필요한 값 (JSONB)
+  retry_count  실패 횟수
+```
+
+새 작업을 붙일 때는 `OutboxEventType`에 값을 하나 더하고, 마이그레이션으로 `event_type` CHECK를 넓히고, `OutboxEventHandler` 구현을 하나 추가합니다.
 
 | 항목 | 값 | 이유 |
 |---|---|---|
-| 대기열 단위 | 하위 질문 1개 = 1행, (`attempt_id`, `sub_question_index`) 유니크 | 질문 분리(#228) 후 하위 질문마다 따로 저장하므로 |
-| 처리 주기 | `UNANSWERED_OUTBOX_POLL_DELAY_MS=2000` | 관리자가 나중에 보는 데이터라 몇 초 지연은 문제없음. 실측 평균 1.1초 |
+| 대기열 단위 | 하위 질문 1개 = 1행, `dedup_key`=`UNANSWERED_QUESTION:{attempt_id}:{sub_question_index}` | 질문 분리(#228) 후 하위 질문마다 따로 저장하므로. 같은 하위 질문이 두 번 들어와도 한 번만 처리 |
+| 처리 주기 | `OUTBOX_POLL_DELAY_MS=2000` | 관리자가 나중에 보는 데이터라 몇 초 지연은 문제없음. 실측 평균 1.1초 |
 | 동시 처리 | `FOR UPDATE SKIP LOCKED` | Worker 서버가 여러 대여도 한 행은 한 서버만 처리 |
 | 실패 처리 | 행을 남기고 `retry_count + 1`, 5회 실패하면 더 처리하지 않음 | 일시 장애는 다음 주기에 복구, 계속 실패하는 행이 대기열을 막지 않게 |
 | 실행 위치 | Worker 역할(`APP_ROLE`=`worker`·`all`) 서버 | 답변 Worker와 같은 서버에서 처리 |
@@ -39,7 +51,15 @@
 | 동기 저장 유지 | 답변 시간에 임베딩 시간이 더해지고, 실패하면 질문이 사라짐 |
 | `@Async`로 별도 스레드에서 저장 | 서버가 재시작되면 메모리의 작업이 사라짐. 실패 재시도 기록이 남지 않음 |
 | Redis Stream 등 메시지 큐 | 미응답은 PostgreSQL에 저장하므로 DB 트랜잭션과 묶을 수 있는 DB 테이블이 더 단순함. 운영할 구성 요소도 늘지 않음 |
-| 여러 작업이 함께 쓰는 공용 Outbox(`event_type` + JSON payload) | 지금 비동기로 돌릴 작업이 미응답 저장 하나뿐임. 전용 테이블이어야 FK·CHECK·하위 질문 유니크 제약을 DB가 직접 검사할 수 있음. 두 번째 작업이 생기면 그때 공용으로 바꿀지 다시 판단 |
+| 작업마다 전용 Outbox 테이블 | 처음에는 `unanswered_question_outbox` 전용 테이블로 만들었음. FAQ 자동 재검증이 두 번째 비동기 작업으로 정해져서, 테이블·Worker·재시도 로직을 작업마다 새로 만들지 않도록 공용으로 바꿈 |
+
+### 공용으로 바꾸면서 생긴 비용
+
+| 잃은 것 | 대신 하는 일 |
+|---|---|
+| `attempt_id` FK, `reason` CHECK 같은 DB 검사 | payload는 JSON이라 DB가 검사하지 못함. 처리기가 값을 읽어 기존 저장 로직(`createUnansweredQuestion`)으로 넘기므로, 잘못된 값은 거기서 실패하고 재시도 횟수만 늘어남 |
+| 답변 기록이 지워지면 대기열 행도 같이 지우는 CASCADE | 보관 기간 삭제로 답변 기록이 먼저 지워지면, 해당 행은 저장할 때 FK 오류로 5번 실패한 뒤 멈춤. 처리 주기가 2초라 실제로 일어날 가능성은 거의 없음 |
+| 컬럼만 보고 내용 확인 | 운영 중에는 `payload->>'attemptId'` 같은 JSON 조회로 확인 |
 
 ## 4. 테스트 방법
 
@@ -126,6 +146,8 @@
 
 ## 5. 결과 (2026-10-20, 로컬 PC, Ollama GPU)
 
+아래 수치는 공용 테이블로 바꾸기 전(전용 `unanswered_question_outbox`)에 측정했습니다. 답변 경로에서 하는 일은 두 구조 모두 "대기열에 INSERT 한 번"으로 같아서 결과가 달라지지 않을 것으로 보지만, 공용 구조로 다시 재지는 않았습니다.
+
 | 지표 | develop (동기 저장) | Outbox | 차이 |
 |---|---|---|---|
 | 서버 작업 시간 FAIL (중앙값) | 729ms (32건) | 640ms (32건) | **−89ms (−12%)** |
@@ -154,4 +176,5 @@
 
 - 베타 테스트 때 운영 지표로 대기열 행 수, 재시도 소진 행 수, 저장 지연을 봅니다.
 - 동시 요청(예: 5·10명 동시) 조건에서 다시 측정합니다.
+- FAQ 등록 후 자동 재검증을 같은 대기열의 두 번째 작업으로 붙입니다(다음 이슈).
 - 출력 가드에서 넘기는 미응답(#233 `source=OUTPUT_GUARD`)도 같은 대기열을 쓰게 할지 정합니다.

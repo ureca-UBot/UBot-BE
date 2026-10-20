@@ -1,4 +1,4 @@
-package com.ubot.unanswered.service;
+package com.ubot.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -21,18 +21,19 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.service.UnansweredQuestionService;
 
-@SpringBootTest(properties = "UNANSWERED_OUTBOX_POLL_DELAY_MS=3600000")
+@SpringBootTest(properties = "OUTBOX_POLL_DELAY_MS=3600000")
 @Import(PgvectorTestConfiguration.class)
 @ActiveProfiles("test")
-@DisplayName("미응답 질문 대기열 처리 통합 테스트")
-class UnansweredOutboxWorkerTest {
+@DisplayName("공용 대기열(미응답 질문) 처리 통합 테스트")
+class OutboxWorkerTest {
 
     @Autowired
     private UnansweredQuestionService service;
 
     @Autowired
-    private UnansweredOutboxWorker worker;
+    private OutboxWorker worker;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -47,7 +48,7 @@ class UnansweredOutboxWorkerTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM unanswered_question_outbox");
+        jdbcTemplate.update("DELETE FROM outbox_events");
         jdbcTemplate.update("DELETE FROM unanswered_questions");
         jdbcTemplate.update("DELETE FROM unanswered_question_groups");
         jdbcTemplate.update("""
@@ -71,6 +72,10 @@ class UnansweredOutboxWorkerTest {
 
         service.enqueueUnansweredQuestion(attemptId, 1, "유심 교체 비용 알려줘", "유심 교체 비용 알려줘", UnansweredReason.LLM_ABSTAIN, null, 0.8);
         assertThat(count("unanswered_questions")).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT event_type FROM outbox_events WHERE payload->>'attemptId' = ?", String.class,
+                String.valueOf(attemptId)))
+                .isEqualTo("UNANSWERED_QUESTION");
 
         worker.processPending();
 
@@ -79,7 +84,7 @@ class UnansweredOutboxWorkerTest {
                 .containsEntry("reason", "LLM_ABSTAIN")
                 .containsEntry("sub_question_index", 1)
                 .containsEntry("sub_question", "유심 교체 비용 알려줘");
-        assertThat(count("unanswered_question_outbox")).isZero();
+        assertThat(count("outbox_events")).isZero();
     }
 
     @Test
@@ -91,7 +96,7 @@ class UnansweredOutboxWorkerTest {
         service.enqueueUnansweredQuestion(attemptId, 1, "로밍 요금", "로밍 요금", UnansweredReason.NO_FAQ, null, null);
         service.enqueueUnansweredQuestion(attemptId, 2, "해지 위약금", "해지 위약금", UnansweredReason.NO_FAQ, null, null);
 
-        assertThat(count("unanswered_question_outbox")).isEqualTo(2);
+        assertThat(count("outbox_events")).isEqualTo(2);
     }
 
     @Test
@@ -104,7 +109,7 @@ class UnansweredOutboxWorkerTest {
         worker.processPending();
 
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT retry_count FROM unanswered_question_outbox WHERE attempt_id = ?", Integer.class, attemptId))
+                "SELECT retry_count FROM outbox_events WHERE payload->>'attemptId' = ?", Integer.class, String.valueOf(attemptId)))
                 .isEqualTo(1);
         assertThat(count("unanswered_questions")).isZero();
     }
@@ -114,11 +119,11 @@ class UnansweredOutboxWorkerTest {
     void skipsExhaustedQuestion() {
         Long attemptId = attempt("해지 위약금");
         service.enqueueUnansweredQuestion(attemptId, 1, "해지 위약금", "해지 위약금", UnansweredReason.NO_FAQ, null, null);
-        jdbcTemplate.update("UPDATE unanswered_question_outbox SET retry_count = ?", UnansweredOutboxWorker.MAX_RETRIES);
+        jdbcTemplate.update("UPDATE outbox_events SET retry_count = ?", OutboxWorker.MAX_RETRIES);
 
         worker.processPending();
 
-        assertThat(count("unanswered_question_outbox")).isEqualTo(1);
+        assertThat(count("outbox_events")).isEqualTo(1);
         assertThat(count("unanswered_questions")).isZero();
     }
 
