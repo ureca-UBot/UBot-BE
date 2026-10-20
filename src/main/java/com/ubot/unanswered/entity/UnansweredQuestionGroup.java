@@ -43,6 +43,12 @@ public class UnansweredQuestionGroup {
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
 
+	@Column(name = "topic_name")
+	private String topicName;
+
+	@Column(name = "suggested_category_id")
+	private Long suggestedCategoryId;
+
 	public void updateStatus(UnansweredGroupStatus status){
 		this.status = status;
 		this.updatedAt = LocalDateTime.now();
