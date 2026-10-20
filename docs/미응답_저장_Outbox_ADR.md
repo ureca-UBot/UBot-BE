@@ -16,10 +16,10 @@
 
 ## 2. 결정
 
-답변 처리 중에는 공용 대기열 `outbox_events`에 `UNANSWERED_QUESTION` 작업 한 행만 넣고 바로 답변을 이어 갑니다. 임베딩과 묶기는 `OutboxWorker`가 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘겨 따로 처리합니다.
+답변 처리 중에는 미응답 질문을 목록으로 모아 두기만 하고, 작업 결과를 확정하는 트랜잭션(`ChatJobCompletionService.complete()`) 안에서 공용 대기열 `outbox_events`에 `UNANSWERED_QUESTION` 작업으로 넣습니다. 임베딩과 묶기는 `OutboxWorker`가 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘겨 따로 처리합니다.
 
 ```text
-검색 실패 → outbox_events에 INSERT(수 ms) → 답변 작업 종료
+검색 실패 → 미응답 목록에 추가 → 결과 확정 트랜잭션(시도 상태 + 질문 로그 + outbox_events INSERT) → 답변 작업 종료
                       ↓ 2초마다
            OutboxWorker → event_type별 처리기 → 미응답 저장 → 대기열 행 삭제
 ```
@@ -41,7 +41,9 @@ outbox_events
 | 대기열 단위 | 하위 질문 1개 = 1행, `dedup_key`=`UNANSWERED_QUESTION:{attempt_id}:{sub_question_index}` | 질문 분리(#228) 후 하위 질문마다 따로 저장하므로. 같은 하위 질문이 두 번 들어와도 한 번만 처리 |
 | 처리 주기 | `OUTBOX_POLL_DELAY_MS=2000` | 관리자가 나중에 보는 데이터라 몇 초 지연은 문제없음. 실측 평균 1.1초 |
 | 동시 처리 | `FOR UPDATE SKIP LOCKED` | Worker 서버가 여러 대여도 한 행은 한 서버만 처리 |
-| 실패 처리 | 행을 남기고 `retry_count + 1`, 5회 실패하면 더 처리하지 않음 | 일시 장애는 다음 주기에 복구, 계속 실패하는 행이 대기열을 막지 않게 |
+| 등록 시점 | 결과 확정 트랜잭션 안 | 결과가 기록된 시도만 대기열에 들어가고, 등록이 실패하면 결과 확정도 취소되어 질문이 빠지지 않음 |
+| 실패 처리 | 행을 남기고 `retry_count + 1`, `next_attempt_at`을 10·20·40·80초 뒤로 미룸. 5회 실패하면 error 로그를 남기고 더 처리하지 않음 | 일시 장애(약 2분 반)를 버티고, 계속 실패하는 행이 대기열을 막지 않게 |
+| 재시도 소진 행 | 보관 기간 삭제 작업(`R__purge_expired_data.sql`)이 마지막 실패 7일 뒤 삭제 | 원인을 확인할 시간을 두되 무기한 쌓이지 않게 |
 | 실행 위치 | Worker 역할(`APP_ROLE`=`worker`·`all`) 서버 | 답변 Worker와 같은 서버에서 처리 |
 
 ## 3. 검토한 대안
@@ -60,6 +62,14 @@ outbox_events
 | `attempt_id` FK, `reason` CHECK 같은 DB 검사 | payload는 JSON이라 DB가 검사하지 못함. 처리기가 값을 읽어 기존 저장 로직(`createUnansweredQuestion`)으로 넘기므로, 잘못된 값은 거기서 실패하고 재시도 횟수만 늘어남 |
 | 답변 기록이 지워지면 대기열 행도 같이 지우는 CASCADE | 보관 기간 삭제로 답변 기록이 먼저 지워지면, 해당 행은 저장할 때 FK 오류로 5번 실패한 뒤 멈춤. 처리 주기가 2초라 실제로 일어날 가능성은 거의 없음 |
 | 컬럼만 보고 내용 확인 | 운영 중에는 `payload->>'attemptId'` 같은 JSON 조회로 확인 |
+
+### 리뷰 반영 (#239)
+
+| 지적 | 처음 구현 | 바꾼 점 |
+|---|---|---|
+| 재시도 소진 행이 무기한 남음 | 지우는 곳이 없음 | 소진 시 error 로그, 7일 뒤 보관 기간 삭제 작업이 지움 |
+| 일시 장애에도 약 10초 만에 재시도 소진 | 2초 주기마다 바로 재시도 | `next_attempt_at`으로 10초부터 두 배씩 늘려 약 2분 반에 걸쳐 재시도 |
+| 채팅 상태 확정과 Outbox 등록이 원자적이지 않음 | 답변 처리 중(`ChatAnswerProcessor`)에 따로 INSERT | 미응답을 결과(`ChatJobOutcome.unanswered`)에 담아 `complete()` 트랜잭션 안에서 INSERT. 취소·소유권을 잃은 실행은 대기열에 넣지 않음. 답변 생성 실패·시간 초과여도 그때까지 찾은 미응답은 함께 넣음 |
 
 ## 4. 테스트 방법
 
@@ -146,7 +156,7 @@ outbox_events
 
 ## 5. 결과 (2026-10-20, 로컬 PC, Ollama GPU)
 
-아래 수치는 공용 테이블로 바꾸기 전(전용 `unanswered_question_outbox`)에 측정했습니다. 답변 경로에서 하는 일은 두 구조 모두 "대기열에 INSERT 한 번"으로 같아서 결과가 달라지지 않을 것으로 보지만, 공용 구조로 다시 재지는 않았습니다.
+아래 수치는 공용 테이블로 바꾸고 리뷰를 반영하기 전(전용 `unanswered_question_outbox`, 답변 처리 중 INSERT)에 측정했습니다. 지금 구조도 답변 경로에서 하는 일은 "대기열에 INSERT 한 번"이고 위치만 결과 확정 트랜잭션 안으로 옮겼으므로 결과가 크게 달라지지 않을 것으로 보지만, 다시 재지는 않았습니다.
 
 | 지표 | develop (동기 저장) | Outbox | 차이 |
 |---|---|---|---|

@@ -12,6 +12,7 @@ import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.outbox.OutboxEventRepository;
 import com.ubot.outbox.OutboxEventType;
+import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
@@ -43,24 +44,18 @@ public class UnansweredQuestionService {
         this.groupThreshold = groupThreshold;
     }
 
-    public void enqueueUnansweredQuestion(
-            Long attemptId,
-            int subQuestionIndex,
-            String subQuestion,
-            String userText,
-            UnansweredReason reason,
-            Long bestFaqId,
-            Double bestSimilarity
-    ) {
+    public void enqueueUnansweredQuestion(Long attemptId, UnansweredCandidate candidate) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("attemptId", attemptId);
-        payload.put("subQuestionIndex", subQuestionIndex);
-        payload.put("subQuestion", subQuestion);
-        payload.put("userText", userText);
-        payload.put("reason", reason.name());
-        payload.put("bestFaqId", bestFaqId);
-        payload.put("bestSimilarity", bestSimilarity);
-        outboxEventRepository.enqueue(OutboxEventType.UNANSWERED_QUESTION, attemptId + ":" + subQuestionIndex, payload);
+        payload.put("subQuestionIndex", candidate.subQuestionIndex());
+        payload.put("subQuestion", candidate.subQuestion());
+        payload.put("userText", candidate.userText());
+        payload.put("reason", candidate.reason().name());
+        payload.put("bestFaqId", candidate.bestFaqId());
+        payload.put("bestSimilarity", candidate.bestSimilarity());
+        payload.put("source", candidate.source().name());
+        outboxEventRepository.enqueue(OutboxEventType.UNANSWERED_QUESTION,
+                attemptId + ":" + candidate.subQuestionIndex(), payload);
     }
 
     /**

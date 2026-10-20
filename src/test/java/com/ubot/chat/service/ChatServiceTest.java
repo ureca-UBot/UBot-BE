@@ -134,7 +134,7 @@ class ChatServiceTest {
 				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, embeddingService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
-				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(),
+				FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(),
 				ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);

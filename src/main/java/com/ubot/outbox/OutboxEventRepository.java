@@ -36,6 +36,7 @@ public class OutboxEventRepository {
                 SELECT id, event_type, payload
                 FROM outbox_events
                 WHERE retry_count < ?
+                  AND next_attempt_at <= LOCALTIMESTAMP
                 ORDER BY id
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
@@ -53,8 +54,19 @@ public class OutboxEventRepository {
         jdbcTemplate.update("DELETE FROM outbox_events WHERE id = ?", id);
     }
 
-    public void increaseRetryCount(long id) {
-        jdbcTemplate.update("UPDATE outbox_events SET retry_count = retry_count + 1 WHERE id = ?", id);
+    public int increaseRetryCount(long id, long baseDelaySeconds) {
+        return jdbcTemplate.queryForObject(
+                """
+                UPDATE outbox_events
+                SET retry_count = retry_count + 1,
+                    next_attempt_at = LOCALTIMESTAMP + make_interval(secs => ? * power(2, retry_count))
+                WHERE id = ?
+                RETURNING retry_count
+                """,
+                Integer.class,
+                baseDelaySeconds,
+                id
+        );
     }
 
     public record OutboxEvent(long id, OutboxEventType type, JsonNode payload) {

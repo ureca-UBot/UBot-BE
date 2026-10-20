@@ -173,7 +173,7 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 `CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에, LLM이 답변 상태를 `ABSTAIN`(자료로 답할 수 없음)으로 낸 질문은 답변을 보낸 뒤 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
-채팅 처리 중에는 공용 대기열 `outbox_events`에 하위 질문마다 `UNANSWERED_QUESTION` 작업을 한 행씩 넣고(`dedup_key`로 같은 `attempt_id`·`sub_question_index`는 한 번만) 바로 응답을 이어 갑니다. 임베딩과 묶기는 `OutboxWorker`가 `OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘깁니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘려 다음 주기에 다시 시도하며, 5번 실패한 행은 더 처리하지 않습니다.
+미응답 질문은 답변 처리 중에 모아 두었다가, 작업 결과를 확정하는 트랜잭션(`ChatJobCompletionService`) 안에서 공용 대기열 `outbox_events`에 하위 질문마다 `UNANSWERED_QUESTION` 작업으로 한 행씩 넣습니다(`dedup_key`로 같은 `attempt_id`·`sub_question_index`는 한 번만). 작업이 취소되거나 다른 실행에 넘어가 결과가 기록되지 않으면 대기열에도 들어가지 않고, 대기열 등록이 실패하면 결과 확정도 함께 취소됩니다. 임베딩과 묶기는 `OutboxWorker`가 `OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘깁니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘린 뒤 `next_attempt_at`을 10초·20초·40초·80초 뒤로 미뤄 다시 시도하며, 5번 실패한 행은 error 로그를 남기고 더 처리하지 않습니다. 이런 행은 보관 기간 삭제 작업이 마지막 실패 7일 뒤 지웁니다.
 
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.

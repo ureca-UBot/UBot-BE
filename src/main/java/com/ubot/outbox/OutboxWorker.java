@@ -23,6 +23,7 @@ public class OutboxWorker {
 
     static final int MAX_RETRIES = 5;
     static final int BATCH_SIZE = 20;
+    static final long RETRY_BASE_DELAY_SECONDS = 10;
 
     private final OutboxEventRepository outboxRepository;
     private final Map<OutboxEventType, OutboxEventHandler> handlers = new EnumMap<>(OutboxEventType.class);
@@ -64,9 +65,14 @@ public class OutboxWorker {
                     log.warn("대기열을 읽지 못했습니다", exception);
                     return;
                 }
-                outboxRepository.increaseRetryCount(locked[0].id());
-                log.warn("대기열 작업에 실패해 다음에 다시 시도합니다: 대기열ID={}, 작업={}",
-                        locked[0].id(), locked[0].type(), exception);
+                int retryCount = outboxRepository.increaseRetryCount(locked[0].id(), RETRY_BASE_DELAY_SECONDS);
+                if (retryCount >= MAX_RETRIES) {
+                    log.error("대기열 작업이 {}번 실패해 더 처리하지 않습니다: 대기열ID={}, 작업={}",
+                            retryCount, locked[0].id(), locked[0].type(), exception);
+                } else {
+                    log.warn("대기열 작업에 실패해 나중에 다시 시도합니다: 대기열ID={}, 작업={}, 실패횟수={}",
+                            locked[0].id(), locked[0].type(), retryCount, exception);
+                }
                 return;
             }
         }
