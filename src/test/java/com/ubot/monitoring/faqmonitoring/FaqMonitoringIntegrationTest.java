@@ -168,8 +168,8 @@ class FaqMonitoringIntegrationTest {
 		long categoryId = category();
 		long bothFaqId = faq(categoryId, "품질 저하 및 중복 의심 FAQ", Intent.GENERAL, 1, now.minusDays(1));
 		long qualityOnlyFaqId = faq(categoryId, "품질 저하 FAQ", Intent.GENERAL, 1, now.minusDays(1));
-		long firstUnusedFaqId = faq(categoryId, "미사용 FAQ 1", Intent.STORE_DATA, 1, now.minusHours(1));
-		long secondUnusedFaqId = faq(categoryId, "미사용 FAQ 2", Intent.STORE_DATA, 1, now.minusHours(1));
+		long firstUnusedFaqId = faq(categoryId, "미사용 FAQ 1", Intent.STORE_DATA, 1, now.minusDays(8));
+		long secondUnusedFaqId = faq(categoryId, "미사용 FAQ 2", Intent.STORE_DATA, 1, now.minusDays(8));
 		for (int index = 0; index < 20; index++) {
 			long questionId = question(now.minusMinutes(1));
 			faqLog(questionId, bothFaqId, 1, 0.79);
