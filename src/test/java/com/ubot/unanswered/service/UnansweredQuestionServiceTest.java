@@ -24,6 +24,7 @@ import com.ubot.unanswered.entity.UnansweredQuestion;
 import com.ubot.unanswered.entity.UnansweredQuestionGroup;
 import com.ubot.unanswered.enums.UnansweredGroupStatus;
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionGroupRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 
@@ -378,6 +379,28 @@ class UnansweredQuestionServiceTest {
                         tuple(firstAttempt, "해외에서 데이터가 안 돼요"),
                         tuple(retryAttempt, "요금제 해지 위약금")
                 );
+    }
+
+    @Test
+    @DisplayName("발생 경로를 넘기지 않으면 RETRIEVAL, 출력 가드에서 넘기면 OUTPUT_GUARD로 저장한다")
+    void savesSource() {
+        Long retrieval = attempt("해외에서 데이터가 안 돼요");
+        Long outputGuard = attempt("요금제 해지 위약금");
+
+        service.createUnansweredQuestion(retrieval, 1, "해외에서 데이터가 안 돼요", "해외에서 데이터가 안 돼요",
+                UnansweredReason.NO_FAQ, null, null);
+        service.createUnansweredQuestion(outputGuard, 1, "요금제 해지 위약금", "요금제 해지 위약금", UnansweredReason.INSUFFICIENT_FAQ,
+                null, 0.8, UnansweredSource.OUTPUT_GUARD);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT source FROM unanswered_questions WHERE attempt_id = ?", String.class, retrieval))
+                .isEqualTo("RETRIEVAL");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT source FROM unanswered_questions WHERE attempt_id = ?", String.class, outputGuard))
+                .isEqualTo("OUTPUT_GUARD");
+        assertThat(questionRepository.findAll())
+                .extracting(question -> question.getSource())
+                .containsExactlyInAnyOrder(UnansweredSource.RETRIEVAL, UnansweredSource.OUTPUT_GUARD);
     }
 
     private Long attempt(String question) {
