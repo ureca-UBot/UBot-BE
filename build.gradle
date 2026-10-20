@@ -22,6 +22,86 @@ ext {
 	set('springAiVersion', "2.0.1")
 }
 
+// 형태소 분석기 Kiwi(https://github.com/bab2min/Kiwi)는 Maven Central에 없어 GitHub Releases에서 받습니다.
+// jar는 OS마다 네이티브 라이브러리가 달라 빌드하는 OS에 맞는 것을 받습니다. 모델은 모든 OS가 같습니다.
+// 버전을 바꾸면 아래 sha256도 릴리스 페이지의 값으로 함께 바꿉니다.
+def kiwiVersion = '0.24.0'
+def kiwiJarSha256 = [
+	'win-x64'    : '96826c15715167c35fe5873d98b4e23871d03d70064b471082750296cbc64ae3',
+	'lnx-x86-64' : '36b5d3ade43317880a5e9886e4f95d6c81d80bd4b71b58788af75984b7932a46',
+	'lnx-aarch64': 'fd456a5ae8a67f2bef8c4d8ca878dd5f56dff8b1bf1fa212ab1937a91adf1c9b',
+	'mac-arm64'  : '6ac00bb59f487eb0f82c9677a0e23cb0bc8dfb26543dedae6973ad6d95cb3e90',
+	'mac-x86_64' : 'f8e0a8018dc3c9e4e3c18bf63438165a06eb760e59d40eb3d144dfe8c3d7d269',
+]
+def kiwiModelSha256 = '33188ba932bba4717bad5244bbec0ef8b1c9cbb47e26e68394a7976d8d779083'
+def kiwiPlatform = {
+	String os = System.getProperty('os.name').toLowerCase()
+	boolean arm = System.getProperty('os.arch').toLowerCase() in ['aarch64', 'arm64']
+	if (os.contains('win')) return 'win-x64'
+	if (os.contains('mac')) return arm ? 'mac-arm64' : 'mac-x86_64'
+	return arm ? 'lnx-aarch64' : 'lnx-x86-64'
+}()
+// clean으로 지워지지 않도록 build/ 밖에 둡니다. 애플리케이션의 기본 모델 경로(kiwi.model-path)와 같습니다.
+def kiwiDir = layout.projectDirectory.dir('.kiwi')
+
+abstract class DownloadKiwi extends DefaultTask {
+	@Input abstract Property<String> getVersion()
+	@Input abstract Property<String> getPlatform()
+	@Input abstract Property<String> getJarSha256()
+	@Input abstract Property<String> getModelSha256()
+	@OutputFile abstract RegularFileProperty getJar()
+	@OutputDirectory abstract DirectoryProperty getModelDir()
+	@Internal abstract DirectoryProperty getWorkDir()
+	@Inject abstract FileSystemOperations getFiles()
+	@Inject abstract ArchiveOperations getArchives()
+
+	@TaskAction
+	void download() {
+		String base = "https://github.com/bab2min/Kiwi/releases/download/v${version.get()}"
+		File jarFile = jar.get().asFile
+		jarFile.parentFile.mkdirs()
+		fetch("${base}/kiwi-java-v${version.get()}-${platform.get()}.jar", jarFile, jarSha256.get())
+
+		File archive = workDir.file("kiwi_model_v${version.get()}_base.tgz").get().asFile
+		fetch("${base}/kiwi_model_v${version.get()}_base.tgz", archive, modelSha256.get())
+		files.sync {
+			from(archives.tarTree(archives.gzip(archive))) {
+				include 'models/cong/base/**'
+				eachFile { it.path = it.path.substring('models/cong/base/'.length()) }
+				includeEmptyDirs = false
+			}
+			into modelDir
+		}
+		archive.delete()
+	}
+
+	private static void fetch(String url, File target, String sha256) {
+		File partial = new File(target.path + '.part')
+		new URI(url).toURL().withInputStream { input -> partial.withOutputStream { it << input } }
+		String actual = java.security.MessageDigest.getInstance('SHA-256').digest(partial.bytes).encodeHex().toString()
+		if (actual != sha256) {
+			partial.delete()
+			throw new GradleException("Kiwi 파일의 sha256이 다릅니다: ${url} (기대 ${sha256}, 실제 ${actual})")
+		}
+		target.delete()
+		if (!partial.renameTo(target)) {
+			throw new GradleException("Kiwi 파일을 옮기지 못했습니다: ${target}")
+		}
+	}
+}
+
+def downloadKiwi = tasks.register('downloadKiwi', DownloadKiwi) {
+	group = 'build setup'
+	description = 'Kiwi 형태소 분석기 jar와 모델을 .kiwi/에 받습니다.'
+	version = kiwiVersion
+	platform = kiwiPlatform
+	jarSha256 = kiwiJarSha256[kiwiPlatform]
+	modelSha256 = kiwiModelSha256
+	jar = kiwiDir.file("kiwi-java-v${kiwiVersion}-${kiwiPlatform}.jar")
+	modelDir = kiwiDir.dir('model')
+	workDir = kiwiDir
+}
+
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -58,6 +138,7 @@ dependencies {
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	implementation 'net.javacrumbs.shedlock:shedlock-spring:7.10.1'
 	implementation 'net.javacrumbs.shedlock:shedlock-provider-redis-spring:7.10.1'
+	implementation files(downloadKiwi.flatMap { it.jar }).builtBy(downloadKiwi)
 }
 
 dependencyManagement {
@@ -74,6 +155,14 @@ tasks.named('test') {
 	// Tests must never fall back to the local profile and its development database.
 	systemProperty 'spring.profiles.active', 'test'
 	systemProperty 'user.timezone', 'Asia/Seoul'
+
+	dependsOn downloadKiwi
+	environment 'KIWI_MODEL_PATH', kiwiDir.dir('model').asFile.absolutePath
+}
+
+tasks.named('bootRun') {
+	dependsOn downloadKiwi
+	environment 'KIWI_MODEL_PATH', kiwiDir.dir('model').asFile.absolutePath
 }
 
 sourceSets {

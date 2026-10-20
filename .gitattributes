@@ -3,3 +3,4 @@
 *.jar binary
 *.tftpl text eol=lf
 *.sh text eol=lf
+src/main/resources/prompts/*.txt text eol=lf

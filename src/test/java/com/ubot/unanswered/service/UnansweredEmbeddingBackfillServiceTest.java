@@ -183,7 +183,7 @@ class UnansweredEmbeddingBackfillServiceTest {
 	) {
 		return UnansweredQuestion.builder()
 				.id(id)
-				.question(text)
+				.subQuestion(text)
 				.build();
 	}
 

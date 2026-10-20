@@ -2,6 +2,7 @@ package com.ubot.chat.service;
 
 import com.ubot.conversation.service.ConversationService;
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
 import com.ubot.chat.controller.ChatController;
@@ -106,15 +107,25 @@ class ChatServiceTest {
 				.thenAnswer(call -> saved.stream().filter(a -> a.getUserId().equals(call.getArgument(0))
 						&& a.getIdempotencyKey().equals(call.getArgument(1)))
 						.max(Comparator.comparingInt(AnswerAttemptsHistory::getAttemptCount)));
-		when(questions.saveAndFlush(any(), any(), anyString(), anyString(), nullable(RegionSido.class))).thenAnswer(call -> {
-			QuestionLog result = QuestionLog.builder()
-					.userId(call.getArgument(0))
-					.conversationId(call.getArgument(1))
-					.userQuestion(call.getArgument(2))
-					.answer(call.getArgument(3))
-					.build();
-			ReflectionTestUtils.setField(result, "id", 10L);
-			return harness.saveLog(result);
+		when(questions.saveTurn(any(), any(), any(), anyString(), anyList(), anyString(), nullable(RegionSido.class)))
+				.thenAnswer(call -> {
+			List<SubQuestionFaqs> subQuestions = call.getArgument(4);
+			List<QuestionLog> results = new ArrayList<>();
+			for (int index = 0; index < subQuestions.size(); index++) {
+				QuestionLog result = QuestionLog.builder()
+						.userId(call.getArgument(0))
+						.conversationId(call.getArgument(1))
+						.attemptId(call.getArgument(2))
+						.userQuestion(call.getArgument(3))
+						.subQuestion(subQuestions.get(index).searchQuery())
+						.userText(subQuestions.get(index).userText())
+						.subQuestionIndex(index + 1)
+						.answer(call.getArgument(5))
+						.build();
+				ReflectionTestUtils.setField(result, "id", 10L + index);
+				results.add(harness.saveLog(result));
+			}
+			return results;
 		});
 		when(faqs.getReferenceById(anyLong())).thenAnswer(call -> Faq.builder().id(call.getArgument(0)).build());
 		when(llmService.getModelName()).thenReturn("recorded-chat-model");
@@ -124,7 +135,7 @@ class ChatServiceTest {
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
 		processor = new ChatAnswerProcessor(
 				FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(),
-				ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
+				ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, attemptsService, processor, tx);
@@ -198,7 +209,8 @@ class ChatServiceTest {
 				new ChatJobMessage(harness.jobs.getFirst().getId(), new ChatRequestContext(null, null, RegionSido.SEOUL)));
 		assertThat(harness.runQueuedJobs()).isEqualTo(1);
 		assertThat(harness.memberStatus(submission, 1L).status()).isEqualTo(ChatJobStatus.SUCCEEDED);
-		verify(questions).saveAndFlush(1L, null, "질문", "답변", RegionSido.SEOUL);
+		verify(questions).saveTurn(1L, null, saved.getFirst().getId(), "질문",
+				List.of(new SubQuestionFaqs("질문", sources, "질문")), "답변", RegionSido.SEOUL);
 	}
 
 	@Test void publishedQueuedJobIsNotRepublished() {
@@ -220,7 +232,9 @@ class ChatServiceTest {
 		assertThat(saved.getFirst().getStatus()).isEqualTo("SUCCESS");
 		assertThat(harness.acked).as("기록이 끝난 뒤 ACK").hasSize(1);
 		verify(ai).generateAnswer(ChatTestFixtures.materialsFor("질문", sources));
-		verify(questions).saveAndFlush(1L, null, "질문", "생성된 답변", (RegionSido) null);
+		// 질문을 나누기 전까지는 원문을 하위 질문 1개(순번 0)로 저장하고 답변 시도와 연결합니다.
+		verify(questions).saveTurn(1L, null, saved.getFirst().getId(), "질문",
+				List.of(new SubQuestionFaqs("질문", sources, "질문")), "생성된 답변", (RegionSido) null);
 		verify(faqLogs).saveAll(argThat(items -> {
 			var list = new ArrayList<com.ubot.faq.entity.FaqLog>();
 			items.forEach(list::add);
@@ -483,7 +497,8 @@ class ChatServiceTest {
 		var previousMessage = stored.getErrorMessage();
 
 		assertThat(attemptsService.recordSuccess(stored, "늦게 도착한 답변",
-				List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)), null)).isEmpty();
+				List.of(new SubQuestionFaqs("질문", List.of(new FaqSearchResponseDto(1L, "q", "a", 0.9, Intent.GENERAL)), "질문")),
+				null)).isEmpty();
 		assertThat(attemptsService.recordFailure(stored, ChatErrorCode.INTERNAL_ERROR)).isFalse();
 
 		assertThat(stored.getStatus()).isEqualTo(status);
@@ -545,7 +560,8 @@ class ChatServiceTest {
 				ChatAttemptsService.createGuestIdempotencyKey(7L, "질문", attempt.getCreatedAt())).hasSize(64);
 		assertThat(ChatAttemptsService.createGuestIdempotencyKey(8L, "질문", attempt.getCreatedAt()))
 				.isNotEqualTo(attempt.getIdempotencyKey());
-		verify(questions).saveAndFlush(null, 7L, "질문", "생성된 답변", (RegionSido) null);
+		verify(questions).saveTurn(null, 7L, attempt.getId(), "질문",
+				List.of(new SubQuestionFaqs("질문", sources, "질문")), "생성된 답변", (RegionSido) null);
 		assertChatError(() -> harness.guestStatus(submission, 8L), ChatErrorCode.JOB_NOT_FOUND);
 		assertChatError(() -> harness.memberStatus(submission, 1L), ChatErrorCode.JOB_NOT_FOUND);
 	}
