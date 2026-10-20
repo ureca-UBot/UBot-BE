@@ -44,14 +44,27 @@ public class LlmService {
 
     /** 검색과 프롬프트 구성은 호출자가 완료한 뒤 전달합니다. */
 	public LlmResponseDto generateAnswer(LlmRequestDto request) {
+        return generate(request, true);
+    }
+
+    /** 판정은 검색 준비 단계이므로 답변 생성 진행 단계를 보고하지 않습니다. */
+    public LlmResponseDto generateJudgment(LlmRequestDto request) {
+        return generate(request, false);
+    }
+
+    private LlmResponseDto generate(LlmRequestDto request, boolean reportAnswerProgress) {
         // API 호출 전에 메시지 누락·공백·마지막 역할을 확인합니다.
         validateRequest(request);
-        AnswerProgress.report(Phase.WAITING_FOR_MODEL);
+        if (reportAnswerProgress) {
+            AnswerProgress.report(Phase.WAITING_FOR_MODEL);
+        }
         acquirePermit();
         // 실제 모델 통신은 LlmClient 구현체에 맡깁니다.
 		long startedAt = System.nanoTime();
 		try {
-			AnswerProgress.report(Phase.GENERATING);
+			if (reportAnswerProgress) {
+				AnswerProgress.report(Phase.GENERATING);
+			}
 			LlmResponseDto response = llmClient.generateAnswer(request);
 			if(response == null)
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);

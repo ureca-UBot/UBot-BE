@@ -132,7 +132,7 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(materials.storeMap()).isNull();
         assertThat(materials.sections()).singleElement().satisfies(section ->
                 assertThat(section.content()).contains("매장 정보를 조회하지 못했습니다.", "매장 이름이나 주소를 추측하지 말고"));
-        verify(unanswered).createUnansweredQuestion(100L, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 0.9);
+        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 0.9);
         verifyNoInteractions(sentenceFilter);
     }
 
@@ -145,7 +145,7 @@ class ChatAnswerProcessorStoreDataTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(stores, sentenceFilter, ai);
-        verify(unanswered).createUnansweredQuestion(100L, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74);
+        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74);
     }
 
     @Test
@@ -194,7 +194,8 @@ class ChatAnswerProcessorStoreDataTest {
 
     private ChatAnswerProcessor processor() {
         ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai, unanswered,
-                ChatTestFixtures.collector(stores), ChatTestFixtures.disabledCache(), sentenceFilter);
+                ChatTestFixtures.collector(stores), ChatTestFixtures.originalSubQuestions(),
+                ChatTestFixtures.disabledCache(), sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

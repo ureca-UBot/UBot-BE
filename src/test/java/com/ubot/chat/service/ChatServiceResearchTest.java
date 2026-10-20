@@ -31,7 +31,7 @@ class ChatServiceResearchTest {
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
     private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, new ChatAnswerProcessor(
             FaqRetrievalService.denseOnly(vector), ai, mock(UnansweredQuestionService.class), ChatTestFixtures.collector(),
-            ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter()));
+            ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter()));
     private final ChatService service = new ChatService(attempts, filter, harness.submissionService,
             ipRegionResolver);
 

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -25,8 +26,10 @@ import com.pgvector.PGvector;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.service.AiService;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
@@ -210,11 +213,75 @@ class ChatAnswerProcessorIntentValidationTest {
         assertThat(result.answer().abstained()).isTrue();
         assertThat(capturedMaterials().sections()).extracting(ContextSection::content)
                 .containsExactly("사용자 정보를 찾을 수 없습니다.");
-        verify(unanswered).createUnansweredQuestion(100L, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 1.0);
+        verify(unanswered).createUnansweredQuestion(100L, 1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 1.0);
         verifyNoInteractions(embeddings, stores, reranker);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("분리된 질문도 일반 문장만 검사하고 사용자·매장 조회와 이전 대화를 유지한다")
+    void splitQuestionsPreserveIntentLookupsAndHistory(boolean generalPasses) {
+        String generalQuestion = "가입 방법 알려줘";
+        String userQuestion = "내 이름 알려줘";
+        String storeQuestion = "주변 매장 알려줘";
+        FaqSearchResponseDto general = faq(1L, Intent.GENERAL, 0.95, true);
+        FaqSearchResponseDto user = faq(2L, Intent.USER_DATA, 0.9, false);
+        FaqSearchResponseDto store = faq(3L, Intent.STORE_DATA, 0.9, false);
+        PGvector generalVector = new PGvector(new float[] {0, 1});
+        when(vectors.searchWithVector(generalQuestion, null, 3))
+                .thenReturn(new FaqVectorService.SearchResult(List.of(general), generalVector));
+        when(vectors.searchWithVector(userQuestion, null, 3))
+                .thenReturn(new FaqVectorService.SearchResult(List.of(user), QUERY_VECTOR));
+        when(vectors.searchWithVector(storeQuestion, null, 3))
+                .thenReturn(new FaqVectorService.SearchResult(List.of(store), QUERY_VECTOR));
+        when(embeddings.embedTexts(List.of(general.answer())))
+                .thenReturn(List.of(generalPasses ? generalVector : QUERY_VECTOR));
+        SubQuestionPlanner planner = mock(SubQuestionPlanner.class);
+        AnswerAttemptsHistory attempt = attempt(null);
+        List<ConversationTurn> history = List.of(new ConversationTurn("안녕하세요", "무엇을 도와드릴까요?"));
+        when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
+                new SubQuestionPlan.SubQuestion(generalQuestion, generalQuestion),
+                new SubQuestionPlan.SubQuestion(userQuestion, userQuestion),
+                new SubQuestionPlan.SubQuestion(storeQuestion, storeQuestion)),
+                SubQuestionPlan.Source.LLM, history, true, null, false));
+        existingUser();
+        when(ai.generateAnswer(any())).thenReturn(new AiAnswer("조회 자료와 일반 안내 답변", null, false));
+
+        ChatAnswerResult result = processor(true, false, planner).generateAnswer(attempt, null, () -> { });
+
+        assertThat(result.errorCode()).isNull();
+        assertThat(result.subQuestions()).containsExactly(
+                new SubQuestionFaqs(generalQuestion, generalPasses ? List.of(general) : List.of(), generalQuestion),
+                new SubQuestionFaqs(userQuestion, List.of(user), userQuestion),
+                new SubQuestionFaqs(storeQuestion, List.of(store), storeQuestion));
+        AnswerMaterials materials = capturedMaterials();
+        assertThat(materials.faqs()).containsExactlyElementsOf(generalPasses ? List.of(general) : List.of());
+        assertThat(materials.sections()).singleElement().satisfies(section ->
+                assertThat(section.content()).contains("이름: 테스트회원", "가입일: 2026-09-10"));
+        assertThat(materials.tools()).containsExactly(AiTool.STORE_SEARCH);
+        assertThat(materials.history()).containsExactlyElementsOf(history);
+        verify(users).getActiveUser(1L);
+        verify(embeddings).embedTexts(List.of(general.answer()));
+        verifyNoMoreInteractions(embeddings);
+        verify(vectors).searchWithVector(generalQuestion, null, 3);
+        verify(vectors).searchWithVector(userQuestion, null, 3);
+        verify(vectors).searchWithVector(storeQuestion, null, 3);
+        verifyNoMoreInteractions(vectors);
+        verifyNoInteractions(stores, reranker);
+        if (generalPasses) {
+            verifyNoInteractions(unanswered);
+        } else {
+            verify(unanswered).createUnansweredQuestion(100L, 1, generalQuestion, generalQuestion,
+                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore());
+            verifyNoMoreInteractions(unanswered);
+        }
+    }
+
     private ChatAnswerProcessor processor(boolean cacheEnabled, boolean rerankEnabled) {
+        return processor(cacheEnabled, rerankEnabled, ChatTestFixtures.originalSubQuestions());
+    }
+
+    private ChatAnswerProcessor processor(boolean cacheEnabled, boolean rerankEnabled, SubQuestionPlanner planner) {
         FaqRetrievalProperties retrievalProperties = new FaqRetrievalProperties();
         retrievalProperties.getRerank().setEnabled(rerankEnabled);
         FaqCacheProperties cacheProperties = new FaqCacheProperties();
@@ -223,7 +290,7 @@ class ChatAnswerProcessorIntentValidationTest {
                 new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
                 new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3),
-                ai, unanswered, collector, new FaqSemanticCacheService(cacheProperties),
+                ai, unanswered, collector, planner, new FaqSemanticCacheService(cacheProperties),
                 new FaqSentenceFilterService(embeddings, 0.6));
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);

@@ -134,7 +134,7 @@ class ChatAnswerProcessorUserDataTest {
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(users, stores, sentenceFilter, ai);
-        verify(unanswered).createUnansweredQuestion(100L, question,
+        verify(unanswered).createUnansweredQuestion(100L, 1, question, question,
                 UnansweredReason.INSUFFICIENT_FAQ, 1001L, 0.74);
     }
 
@@ -153,7 +153,7 @@ class ChatAnswerProcessorUserDataTest {
         assertThat(capturedMaterials().sections()).singleElement()
                 .satisfies(section -> assertThat(section.content()).isEqualTo("사용자 정보를 찾을 수 없습니다."));
         verifyNoInteractions(users, stores, sentenceFilter);
-        verify(unanswered).createUnansweredQuestion(100L, question,
+        verify(unanswered).createUnansweredQuestion(100L, 1, question, question,
                 UnansweredReason.LLM_ABSTAIN, 1001L, 1.0);
     }
 
@@ -173,7 +173,8 @@ class ChatAnswerProcessorUserDataTest {
         ChatContextCollector collector = new ChatContextCollector(List.of(
                 new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
         ChatAnswerProcessor processor = new ChatAnswerProcessor(
-                retrieval, ai, unanswered, collector, ChatTestFixtures.disabledCache(), sentenceFilter);
+                retrieval, ai, unanswered, collector, ChatTestFixtures.originalSubQuestions(),
+                ChatTestFixtures.disabledCache(), sentenceFilter);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;
