@@ -37,7 +37,7 @@ class ChatServiceResearchTest {
     private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
     private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
     private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
-    private final ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+    private final ChatAnswerProcessor processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
     private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, processor);
     private final ChatService service = new ChatService(attempts, ChatTestFixtures.inputGuard(filter), harness.submissionService,
             ipRegionResolver);
@@ -130,7 +130,7 @@ class ChatServiceResearchTest {
 
         assertThatThrownBy(() -> service.researchChat(1L, KEY, Intent.GENERAL, null, null))
                 .isInstanceOfSatisfying(ChatException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.NO_USABLE_QUESTION));
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_INJECTION_DETECTED));
 
         verify(attempts, never()).createResearchAttempt(any(), any(), any());
         verifyNoInteractions(vector, ai);

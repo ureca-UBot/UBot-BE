@@ -8,10 +8,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.OutputGuardResult;
+import com.ubot.ai.dto.OutputGuardResult.Reason;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.forbiddenword.entity.ForbiddenWord;
@@ -682,6 +686,33 @@ class AiOutputGuardServiceTest {
                 .isEqualTo("근처 매장을 조회했습니다. 반경 3km 안에 매장이 없습니다.");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"고객명: 홍길동\n거주 지역: 서울\n가입일: 2026-01-01",
+            "거주 지역: 서울\n가입일: 2026-01-01\n이름: 홍길동",
+            "성명: 홍길동\n가입일: 2026-01-01"})
+    void 회원자료의_이름_표현이나_필드_순서가_달라도_조회_결과를_인정한다(String content) {
+        var source = AnswerMaterials.builder("내 정보")
+                .addSection(new ContextSection(UserIntentHandler.SECTION_TITLE, content)).build();
+        String answer = "회원 정보를 조회했습니다.";
+        assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(answer);
+        // 기본 회원 자료를 청구 조회나 실제 업무 처리의 근거로 사용하지 않습니다.
+        assertRejected("회원의 청구 내역을 조회해 안내해 드립니다.", source, null);
+        assertRejected("가입을 완료했습니다.", source, null);
+    }
+
+    @Test
+    void 조회_실패_안내와_다른_종류의_섹션은_회원_조회_성공으로_인정하지_않는다() {
+        var missing = AnswerMaterials.builder("내 정보")
+                .addSection(new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.NOT_FOUND_CONTENT))
+                .build();
+        var unrelated = AnswerMaterials.builder("내 정보")
+                .addSection(new ContextSection("일반 설명", "이름: 홍길동\n거주 지역: 서울"))
+                .build();
+        assertRejected("회원 정보를 조회했습니다.", missing, null);
+        assertRejected("회원 정보를 조회했습니다.", unrelated, null);
+        assertRejected("회원 정보를 조회했습니다.", AnswerMaterials.builder("내 정보").build(), null);
+    }
+
     @Test
     void 기존_사용자_조회_자료가_있는_경우만_본인정보_조회_주장을_허용한다() {
         var source = AnswerMaterials.builder("내 정보")
@@ -715,14 +746,8 @@ class AiOutputGuardServiceTest {
 
     @ParameterizedTest
     @MethodSource("metadata")
-    void 기존_파서의_상태는_유지하고_제공되지_않은_근거만_거절한다(String metadata) {
+    void 기존_파서의_상태는_유지하고_근거번호_오류만으로_본문을_거절하지_않는다(String metadata) {
         var parsed = FaqAnswerFormat.parse("{\"answer\":\"할인율은 25%입니다.\"," + metadata + "}");
-        if (parsed.evidenceIds().contains("999999")) {
-            assertThatThrownBy(() -> guard.validateEvidenceIds(parsed.evidenceIds(), materials))
-                    .isInstanceOfSatisfying(LlmException.class,
-                            error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
-            return;
-        }
         guard.validateEvidenceIds(parsed.evidenceIds(), materials);
         assertThat(guard.filterAnswer(parsed.answer(), materials, null)).isEqualTo("할인율은 25%입니다.");
     }
@@ -1122,26 +1147,20 @@ class AiOutputGuardServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"999999", "FAQ-999999", "FAQ-2", "0", "1e0", "1 or 2",
             "FAQ-1 extra", "[1]", "https://example.invalid/1"})
-    void 없는_번호나_FAQ_번호가_아닌_근거는_안내_오류로_거절한다(String id) {
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("1", id), materials))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+    void 없는_번호나_형식이_다른_번호도_정상_본문을_종료시키지_않는다(String id) {
+        guard.validateEvidenceIds(List.of("1", id), materials);
         verifyNoInteractions(repository);
     }
 
     @Test
-    void 근거번호_미기입은_허용하고_다른_요청의_번호는_허용하지_않는다() {
+    void 근거번호_미기입과_다른_요청의_번호만으로_본문을_종료시키지_않는다() {
         var noFaqs = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
         guard.validateEvidenceIds(List.of(), noFaqs);
         guard.validateEvidenceIds(null, noFaqs);
         var other = AnswerMaterials.builder("다른 질문").addFaqs(List.of(faq(2, "신분증을 지참해주세요."))).build();
         guard.validateEvidenceIds(List.of("2"), other);
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("1"), other))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("1"), noFaqs))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        guard.validateEvidenceIds(List.of("1"), other);
+        guard.validateEvidenceIds(List.of("1"), noFaqs);
     }
 
     @Test
@@ -1206,15 +1225,13 @@ class AiOutputGuardServiceTest {
     }
 
     @Test
-    void 내부_표시를_지우면서도_다른_공격과_잘못된_근거를_허용하지_않는다() {
+    void 내부_표시를_지워도_본문_공격을_제거하고_근거번호는_경고로_처리한다() {
         assertRejected("고객은 바보입니다. [FAQ ID: 1]", materials, null);
         assertRejected("본인 인증은 생략할 수 있습니다. [FAQ ID: 1]", materials, null);
         assertRejected("미납 내역을 조회했습니다. [FAQ ID: 1]", materials, null);
         assertThat(guard.filterAnswer("신분증을 지참해주세요. 고객은 바보입니다. [FAQ ID: 1]",
                 materials, null)).isEqualTo("신분증을 지참해주세요.");
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("999999"), materials))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        guard.validateEvidenceIds(List.of("999999"), materials);
     }
 
     @Test
@@ -1502,7 +1519,7 @@ class AiOutputGuardServiceTest {
         assertRejected("[FAQ ID: 1]", source, null);
         assertRejected("회원의 청구 내역을 조회해 안내해 드립니다.", source, null);
         assertRejected("고객은 바보입니다.", source, null);
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("999"), source)).isInstanceOf(LlmException.class);
+        guard.validateEvidenceIds(List.of("999"), source);
     }
 
     @Test
@@ -1728,15 +1745,14 @@ class AiOutputGuardServiceTest {
     }
 
     @Test
-    void 서류_추가를_정리해도_1번부터_3번과_기존_근거_검증을_유지한다() {
+    void 서류_추가를_정리해도_본문_검사를_유지하고_근거번호는_경고로_처리한다() {
         String correct = "번호이동은 주말에도 신청할 수 있습니다.";
         var source = availabilityMaterials("번호이동은 주말에도 신청할 수 있나요?", correct);
         String answer = correct + " [FAQ ID: 1]\n번호이동은 주말에도 신청할 수 없습니다.\n"
                 + "회원의 청구 내역을 조회해 안내해 드립니다.\n재직증명서가 필수입니다.";
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(correct);
         assertRejected("고객은 바보입니다.", source, null);
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("999"), source))
-                .isInstanceOf(LlmException.class);
+        guard.validateEvidenceIds(List.of("999"), source);
         verifyNoInteractions(repository);
     }
 
@@ -1991,7 +2007,7 @@ class AiOutputGuardServiceTest {
     }
 
     @Test
-    void 대상_검사에도_1번부터_4번과_기존_근거_번호_검사를_유지한다() {
+    void 대상_검사에도_본문_검사를_유지하고_근거번호는_경고로_처리한다() {
         String correct = "번호이동은 주말에도 신청할 수 있습니다.";
         var source = availabilityMaterials("번호이동은 주말에도 신청할 수 있나요?", correct,
                 "LTE 휴대폰은 LTE 요금제를 사용할 수 있습니다.");
@@ -2000,7 +2016,7 @@ class AiOutputGuardServiceTest {
                 + "5G 휴대폰은 LTE 요금제를 사용할 수 없습니다.";
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(correct);
         assertRejected("고객은 바보입니다.", source, null);
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("999"), source)).isInstanceOf(LlmException.class);
+        guard.validateEvidenceIds(List.of("999"), source);
         verifyNoInteractions(repository);
     }
 
@@ -2257,7 +2273,7 @@ class AiOutputGuardServiceTest {
                 + "청구액을 조회해 안내해 드립니다.\n노트북은 데이터 쉐어링을 사용할 수 없습니다.";
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(correct);
         assertRejected("고객은 바보입니다.", source, null);
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("999"), source)).isInstanceOf(LlmException.class);
+        guard.validateEvidenceIds(List.of("999"), source);
         verifyNoInteractions(repository);
     }
 
@@ -2326,7 +2342,7 @@ class AiOutputGuardServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"FAQ [730]", "FAQ 982", "(FAQ ID: 114에 따르면,)", "[FAQ ID: 1]"})
-    void 확장_표시를_제거해도_기존_위험_문장과_근거_검사는_유지한다(String citation) {
+    void 확장_표시를_제거해도_본문_공격은_제거하고_근거번호는_경고로_처리한다(String citation) {
         assertRejected("고객은 바보입니다. " + citation, materials, null);
         assertRejected("본인 인증은 생략할 수 있습니다. " + citation, materials, null);
         assertRejected("미납 내역을 조회했습니다. " + citation, materials, null);
@@ -2334,9 +2350,7 @@ class AiOutputGuardServiceTest {
         assertThat(guard.filterAnswer("신분증을 지참해주세요. 고객은 바보입니다. " + citation,
                 materials, null)).isEqualTo("신분증을 지참해주세요.");
         guard.validateEvidenceIds(List.of("1"), materials);
-        assertThatThrownBy(() -> guard.validateEvidenceIds(List.of("999999"), materials))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        guard.validateEvidenceIds(List.of("999999"), materials);
         verifyNoInteractions(repository);
     }
 
@@ -2347,6 +2361,209 @@ class AiOutputGuardServiceTest {
         var source = materials(description);
         assertThat(guard.filterAnswer("(FAQ ID: 114에 따르면, " + description + ")", source, null))
                 .isEqualToNormalizingWhitespace("(" + description + ")");
+    }
+
+    @Test
+    void 정상_답변은_사유_없이_보존하고_검사_결과는_DB를_사용하지_않는다() {
+        var result = guard.inspectAnswer("할인율은 25%입니다.", List.of("1"), materials, null);
+        assertThat(result.answer()).isEqualTo("할인율은 25%입니다.");
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.reasons()).isEmpty();
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void 문장_제거와_질문_전체_종료를_사유와_별도로_구분한다() {
+        var partial = guard.inspectAnswer("신분증을 지참해주세요. 고객은 바보입니다.", materials, null);
+        assertThat(partial.answer()).isEqualTo("신분증을 지참해주세요.");
+        assertThat(partial.rejected()).isFalse();
+        assertThat(partial.reasons()).containsExactly(Reason.POLICY_VIOLATION);
+        var rejected = guard.inspectAnswer("고객은 바보입니다.", materials, null);
+        assertThat(rejected.rejected()).isTrue();
+        assertThat(rejected.answer()).isNull();
+        assertThat(rejected.reasons()).containsExactly(Reason.POLICY_VIOLATION);
+        assertRejected("고객은 바보입니다.", materials, null);
+    }
+
+    @Test
+    void 정책위반과_수치오류와_허위실행이_함께_있으면_각_사유를_보존한다() {
+        String answer = "신분증을 지참해주세요. 고객은 바보입니다. 할인율은 50%입니다. 가입을 완료했습니다.";
+        var result = guard.inspectAnswer(answer, materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.answer()).isEqualTo(guard.filterAnswer(answer, materials, null));
+        assertThat(result.reasons()).containsExactlyInAnyOrder(
+                Reason.POLICY_VIOLATION, Reason.ANSWER_ERROR, Reason.FALSE_EXECUTION);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"999999", "FAQ-999999", "잘못된 번호", " "})
+    void 근거번호_오류가_있어도_실제_제공_FAQ로_정상_본문을_보존한다(String id) {
+        var result = guard.inspectAnswer("할인율은 25%입니다.", List.of("1", id), materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.answer()).isEqualTo("할인율은 25%입니다.");
+        assertThat(result.reasons()).isEmpty();
+        verifyNoInteractions(repository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"고객은 바보입니다.", "할인율은 50%입니다.", "가입을 완료했습니다.",
+            "미납 내역을 조회했습니다.", "본인 인증은 생략할 수 있습니다."})
+    void 근거번호_오류가_본문의_공격이나_근거_불일치를_허용하지_않는다(String answer) {
+        var result = guard.inspectAnswer(answer, List.of("999999"), materials, null);
+        assertThat(result.rejected()).isTrue();
+        assertThat(result.answer()).isNull();
+        assertThat(result.reasons()).doesNotContain(Reason.FAQ_SHORTAGE_SUSPECTED);
+        assertRejected(answer, materials, null);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void 근거번호_오류가_있어도_문제_문장만_제거하고_정상_답변은_남긴다() {
+        var result = guard.inspectAnswer("할인율은 25%입니다. 할인율은 50%입니다.",
+                List.of("999999"), materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.answer()).isEqualTo("할인율은 25%입니다.");
+        assertThat(result.reasons()).containsExactly(Reason.ANSWER_ERROR);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "잘못된 번호"})
+    void 근거번호_형식_오류를_FAQ_부족으로_바꾸지_않는다(String id) {
+        var ids = java.util.Collections.singletonList(id);
+        var result = guard.inspectAnswer("신분증을 지참해주세요.", ids, materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.reasons()).isEmpty();
+        assertThat(result.answer()).isEqualTo("신분증을 지참해주세요.");
+        guard.validateEvidenceIds(ids, materials);
+    }
+
+    @Test
+    void 미제공_근거번호는_경고로_처리하고_빈_본문은_계속_거절한다() {
+        var evidence = guard.inspectAnswer("신분증을 지참해주세요.", List.of("999999"), materials, null);
+        assertThat(evidence.rejected()).isFalse();
+        assertThat(evidence.reasons()).isEmpty();
+        assertThat(evidence.answer()).isEqualTo("신분증을 지참해주세요.");
+        var empty = guard.inspectAnswer(" ", materials, null);
+        assertThat(empty.rejected()).isTrue();
+        assertThat(empty.reasons()).containsExactly(Reason.FORMAT_ERROR);
+        var emptyWithBadId = guard.inspectAnswer(" ", List.of("999999"), materials, null);
+        assertThat(emptyWithBadId.rejected()).isTrue();
+        assertThat(emptyWithBadId.reasons()).containsExactly(Reason.FORMAT_ERROR);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ANSWER", "PARTIAL", "ABSTAIN", "CONFLICT", "OUT_OF_SCOPE"})
+    void status만으로_FAQ_부족을_판정하지_않는다(String status) {
+        var parsed = FaqAnswerFormat.parse("{\"answer\":\"할인율은 25%입니다.\",\"evidence_ids\":[\"1\"],\"status\":\""
+                + status + "\"}");
+        var result = guard.inspectAnswer(parsed.answer(), parsed.evidenceIds(), materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.reasons()).isEmpty();
+    }
+
+    @Test
+    void 실제_검색_근거가_없는_하위질문은_FAQ_부족_의심으로_구분한다() {
+        var source = AnswerMaterials.builder("회선 정지 방법을 알려주세요.")
+                .subQuestions(List.of(new SubQuestionFaqs("회선 정지 방법을 알려주세요.", List.of(),
+                        "회선 정지 방법을 알려주세요."))).build();
+        var result = guard.inspectAnswer("현재 자료만으로는 답변할 수 없습니다.", source, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.reasons()).containsExactly(Reason.FAQ_SHORTAGE_SUSPECTED);
+    }
+
+    @Test
+    void 답변의_부족_자기설명만으로_FAQ_부족을_단정하지_않는다() {
+        var result = guard.inspectAnswer("현재 자료만으로는 답변할 수 없습니다.", materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.reasons()).containsExactly(Reason.UNCLASSIFIED);
+    }
+
+    @Test
+    void 사용자정보_누락은_FAQ_부족과_구분한다() {
+        var source = AnswerMaterials.builder("회원 정보를 알려주세요.")
+                .addSection(new ContextSection("사용자 정보", "사용자 정보를 찾을 수 없습니다.")).build();
+        var result = guard.inspectAnswer("사용자 정보를 찾을 수 없습니다.", source, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.reasons()).containsExactly(Reason.USER_INFORMATION_OR_LOOKUP_MISSING);
+    }
+
+    @Test
+    void 매장조회_결과_누락은_FAQ_부족과_구분하고_성공결과는_누락으로_보지_않는다() {
+        var source = AnswerMaterials.builder("주변 매장을 알려주세요.").enableTool(AiTool.STORE_SEARCH).build();
+        String notice = "매장 정보를 확인할 수 없습니다.";
+        var missing = guard.inspectAnswer(notice, source, null);
+        assertThat(missing.rejected()).isFalse();
+        assertThat(missing.reasons()).containsExactly(Reason.USER_INFORMATION_OR_LOOKUP_MISSING);
+        var found = guard.inspectAnswer(notice, source, storeMap());
+        assertThat(found.reasons()).doesNotContain(Reason.USER_INFORMATION_OR_LOOKUP_MISSING, Reason.FAQ_SHORTAGE_SUSPECTED);
+    }
+
+    @Test
+    void 결과_사유는_변경할_수_없는_사본이며_차단본문을_보관하지_않는다() {
+        var reasons = java.util.EnumSet.of(Reason.POLICY_VIOLATION);
+        var result = new OutputGuardResult("차단된 본문", true, reasons);
+        reasons.clear();
+        assertThat(result.answer()).isNull();
+        assertThat(result.reasons()).containsExactly(Reason.POLICY_VIOLATION);
+        assertThatThrownBy(() -> result.reasons().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void 검사_기능의_기술오류를_차단이나_FAQ_부족으로_숨기지_않는다() {
+        var failingWords = mock(ForbiddenWordFilterService.class);
+        var error = new IllegalStateException("검사 기능 실패");
+        org.mockito.Mockito.doThrow(error).when(failingWords).validateForbiddenWord("신분증을 지참해주세요.");
+        assertThatThrownBy(() -> new AiOutputGuardService(failingWords)
+                .inspectAnswer("신분증을 지참해주세요.", materials, null)).isSameAs(error);
+    }
+
+    @Test
+    void 개인_청구와_사용량_미제공을_실제_자료에서_확인하고_기본회원정보와_구분한다() {
+        String info = "이름: 홍길동\n거주 지역: 서울\n가입일: 2026-01-01\n요금, 데이터 사용량, 미납 정보는 제공되지 않습니다.";
+        var billing = AnswerMaterials.builder("이번 달 요금이 얼마인가요?")
+                .addFaqs(List.of(new FaqSearchResponseDto(1L, "청구 정보", "청구 요금 조회 안내입니다.", 0.9, Intent.USER_DATA)))
+                .addSection(new ContextSection("사용자 정보", info)).build();
+        assertThat(guard.inspectAnswer("정확한 요금은 확인할 수 없습니다.", billing, null).reasons())
+                .containsExactly(Reason.USER_INFORMATION_OR_LOOKUP_MISSING);
+        var name = AnswerMaterials.builder("회원 이름이 무엇인가요?")
+                .addFaqs(billing.faqs()).addSection(new ContextSection("사용자 정보", info)).build();
+        assertThat(guard.inspectAnswer("회원 이름은 홍길동입니다.", name, null).reasons()).isEmpty();
+        assertThat(guard.inspectAnswer("회원 이름을 확인할 수 없습니다.", name, null).reasons())
+                .doesNotContain(Reason.USER_INFORMATION_OR_LOOKUP_MISSING, Reason.FAQ_SHORTAGE_SUSPECTED);
+    }
+
+    @Test
+    void 복합질문의_FAQ부족과_조회결과부족을_각각_남긴다() {
+        var source = AnswerMaterials.builder("회원 정보와 회선 정지 방법을 알려주세요.")
+                .addSection(new ContextSection("사용자 정보", "사용자 정보를 찾을 수 없습니다."))
+                .subQuestions(List.of(new SubQuestionFaqs("회원 정보를 알려주세요.", List.of(), "회원 정보"),
+                        new SubQuestionFaqs("회선 정지 방법을 알려주세요.", List.of(), "회선 정지 방법"))).build();
+        var result = guard.inspectAnswer("현재 자료만으로는 답변할 수 없습니다.", source, null);
+        assertThat(result.reasons()).containsExactlyInAnyOrder(
+                Reason.USER_INFORMATION_OR_LOOKUP_MISSING, Reason.FAQ_SHORTAGE_SUSPECTED);
+    }
+
+    @Test
+    void 차단된_답변에도_검색근거_누락은_별도_신호로_남기고_등록여부는_결정하지_않는다() {
+        var source = AnswerMaterials.builder("회선 정지 방법을 알려주세요.")
+                .subQuestions(List.of(new SubQuestionFaqs("회선 정지 방법을 알려주세요.", List.of(), "회선 정지 방법"))).build();
+        var result = guard.inspectAnswer("고객은 바보입니다.", source, null);
+        assertThat(result.rejected()).isTrue();
+        assertThat(result.answer()).isNull();
+        assertThat(result.reasons()).containsExactlyInAnyOrder(Reason.POLICY_VIOLATION, Reason.FAQ_SHORTAGE_SUSPECTED);
+    }
+
+    @Test
+    void 실제_FAQ에_누락된_요구만_부족_의심으로_구분하고_답변의_자기설명을_단정하지_않는다() {
+        var missing = AnswerMaterials.builder("회선 정지는 어떻게 하나요?")
+                .addFaqs(List.of(faq(1, "남은 할부금은 중도 완납할 수 있습니다."))).build();
+        var result = guard.inspectAnswer("회선 정지 방법은 확인할 수 없습니다.", missing, null);
+        assertThat(result.reasons()).containsExactly(Reason.FAQ_SHORTAGE_SUSPECTED);
+        var supported = AnswerMaterials.builder("회선 정지는 어떻게 하나요?")
+                .addFaqs(List.of(faq(1, "회선 정지는 앱에서 신청할 수 있습니다."))).build();
+        assertThat(guard.inspectAnswer("회선 정지 방법은 확인할 수 없습니다.", supported, null).reasons())
+                .doesNotContain(Reason.FAQ_SHORTAGE_SUSPECTED);
     }
 
     private static FaqSearchResponseDto faq(long id, String answer) {

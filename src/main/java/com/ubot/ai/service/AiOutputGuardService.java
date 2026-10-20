@@ -1,9 +1,15 @@
 package com.ubot.ai.service;
 
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.OutputGuardResult;
+import com.ubot.ai.dto.OutputGuardResult.Reason;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.common.GlobalException;
+import com.ubot.faq.enums.Intent;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -13,20 +19,26 @@ import java.math.RoundingMode;
 import java.text.BreakIterator;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /** 파싱된 답변에서 문제 문장만 제거합니다. 자료의 진위나 모든 의미상의 오류를 판정하지는 않습니다. */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiOutputGuardService {
 
+    private static final String UNANSWERED_SCOPE_NOTICE = "에 대한 내용은 이번 답변에서 안내하지 못했습니다.";
     private static final String DECIMAL_NUMBER = "[0-9]+(?:,[0-9]{3})*(?:\\.[0-9]+)?";
     private static final String MONEY_UNIT = "(?:억|만|천|백|십)";
     private static final String WON_AMOUNT = "(?:" + DECIMAL_NUMBER + "\\s*" + MONEY_UNIT
@@ -645,27 +657,147 @@ public class AiOutputGuardService {
                     + DECIMAL_NUMBER + "\\s*(?:개월|년|일)\\s*(?:이내|이하|미만)");
 
 
+    // 참고 자료에 명시된 조회 실패만 구분합니다. 이 패턴은 문장 차단 조건을 바꾸지 않습니다.
+    private static final Pattern MISSING_LOOKUP_DATA = Pattern.compile(
+            "찾을\\s*수\\s*없|조회하지\\s*못|제공되지\\s*않|정보[^.!?。！？\\n]{0,24}(?:없|부족)");
+
     private final ForbiddenWordFilterService forbiddenWordFilterService;
 
-    /** 기존 파서가 읽은 근거 번호만 확인합니다. 미기입은 허용하고, 제공하지 않은 FAQ를 근거로 삼으면 종료합니다. */
+    /** 검사에 사용한 기존 규칙의 식별자입니다. FAQ 번호·사용자 문구는 식별자로 쓰지 않습니다. */
+    private enum GuardRule {
+        FORBIDDEN_WORD, SENSITIVE_DISCLOSURE, POLICY_OVERRIDE, THIRD_PARTY_LOOKUP, HOSTILE_CONTENT,
+        QUANTITY_CONFLICT, CONDITION_CONFLICT, UNSUPPORTED_BENEFIT, UNSUPPORTED_SOURCE,
+        UNSUPPORTED_OPERATION, INTERNAL_DISCLOSURE_BLOCK, REQUESTED_SUFFIX, FAQ_REFERENCE,
+        THIRD_PARTY_FOLLOWUP, FACT_FOLLOWUP, DEPENDENT_CONCLUSION, LOST_CONDITION,
+        INDEPENDENT_SUPPORT_MISSING, CONTRADICTORY_AVAILABILITY, DOCUMENT_REQUIREMENT,
+        SCOPE_MISMATCH, UNSUPPORTED_RESTRICTION, REQUEST_SCOPE_MISMATCH, EMPTY_HEADING,
+        INVALID_EVIDENCE_ID, UNPROVIDED_EVIDENCE_ID, EMPTY_ANSWER, NO_SAFE_CONTENT,
+        NO_REQUESTED_ANSWER, NO_USABLE_ANSWER
+    }
+
+    /** 호출마다 생성합니다. 제거 수는 실제 삭제한 문장·절·블록 단위이며 한 단위를 중복 집계하지 않습니다. */
+    private static final class InspectionTrace {
+        private final EnumMap<GuardRule, Integer> removals = new EnumMap<>(GuardRule.class);
+        private final EnumMap<GuardRule, Integer> cleanups = new EnumMap<>(GuardRule.class);
+        private final EnumMap<GuardRule, Integer> warnings = new EnumMap<>(GuardRule.class);
+        private int removedUnits;
+        private GuardRule rejection;
+
+        private void removed(GuardRule... rules) {
+            removed(1, rules);
+        }
+
+        private void removed(int count, GuardRule... rules) {
+            if (count == 0) return;
+            removedUnits += count;
+            // 여러 규칙이 한 삭제에 함께 적용될 수 있어 규칙별 합계는 전체 제거 수보다 클 수 있습니다.
+            for (GuardRule rule : rules) if (rule != null) removals.merge(rule, count, Integer::sum);
+        }
+
+        private void cleaned(GuardRule rule) {
+            cleanups.merge(rule, 1, Integer::sum);
+        }
+
+        private void warned(GuardRule rule) {
+            warnings.merge(rule, 1, Integer::sum);
+        }
+
+        private void rejected(GuardRule rule) {
+            rejection = rule;
+        }
+    }
+
+    /** 근거 번호 오류는 경고만 기록합니다. 답변 본문은 모델이 적은 번호와 무관하게 실제 제공 자료로 검사합니다. */
     public void validateEvidenceIds(List<String> evidenceIds, AnswerMaterials materials) {
+        long startedAt = System.nanoTime();
+        InspectionTrace trace = new InspectionTrace();
+        validateEvidenceIds(evidenceIds, materials, trace);
+        if (!trace.warnings.isEmpty())
+            logInspection("EVIDENCE", "WARNING", Set.of(), null, null, startedAt, trace);
+    }
+
+    private void validateEvidenceIds(List<String> evidenceIds, AnswerMaterials materials, InspectionTrace trace) {
         if (evidenceIds == null || evidenceIds.isEmpty()) return;
         List<String> providedIds = materials.faqs().stream().map(faq -> String.valueOf(faq.faqId())).toList();
         for (String evidenceId : evidenceIds) {
             if (!StringUtils.hasText(evidenceId)) {
-                throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                trace.warned(GuardRule.INVALID_EVIDENCE_ID);
+                continue;
             }
             // 현재 프롬프트의 숫자 ID와 저장 테스트의 FAQ- 접두사·앞자리 0 표기를 같은 번호로 비교합니다.
             Matcher id = EVIDENCE_FAQ_ID.matcher(inspect(evidenceId));
-            if (!id.matches() || !providedIds.contains(id.group(1).replaceFirst("^0+(?=\\d)", ""))) {
-                throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-            }
+            if (!id.matches()) trace.warned(GuardRule.INVALID_EVIDENCE_ID);
+            else if (!providedIds.contains(id.group(1).replaceFirst("^0+(?=\\d)", "")))
+                trace.warned(GuardRule.UNPROVIDED_EVIDENCE_ID);
         }
     }
 
     /** 기존 파서의 answer와 실제 제공 자료·매장 조회 결과를 받습니다. DB나 외부 모델을 호출하지 않습니다. */
     public String filterAnswer(String answer, AnswerMaterials materials, StoreMapResult storeMap) {
+        long startedAt = System.nanoTime();
+        Set<Reason> reasons = EnumSet.noneOf(Reason.class);
+        InspectionTrace trace = new InspectionTrace();
+        try {
+            String filtered = filterAnswer(answer, materials, storeMap, reasons, trace);
+            logInspection("BODY", filtered.equals(answer) ? "PASS" : "FILTERED", reasons, answer, filtered, startedAt, trace);
+            return filtered;
+        } catch (LlmException exception) {
+            if (exception.getErrorCode() == LlmErrorCode.LLM_OUTPUT_REJECTED) {
+                logInspection("BODY", "REJECTED", reasons, answer, null, startedAt, trace);
+            }
+            throw exception;
+        }
+    }
+
+    /** 원문·근거 본문·개인정보는 기록하지 않고 기존 검사 사유와 적용 결과만 남깁니다. */
+    private void logInspection(String stage, String outcome, Set<Reason> reasons,
+            String answer, String filtered, long startedAt, InspectionTrace trace) {
+        Set<Reason> loggedReasons = ("FILTERED".equals(outcome) || "REJECTED".equals(outcome)) && reasons.isEmpty()
+                ? Set.of(Reason.UNCLASSIFIED) : reasons;
+        long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000;
+        String message = "출력 가드 적용 결과: 단계={}, 결과={}, 사유={}, 규칙별제거수={}, 제거단위수={}, 정리규칙={}, 경고규칙={}, 거절사유={}, 입력문자수={}, 출력문자수={}, 소요시간={}ms";
+        Object[] values = {stage, outcome, loggedReasons, trace.removals, trace.removedUnits, trace.cleanups,
+                trace.warnings,
+                trace.rejection == null ? "NONE" : trace.rejection, answer == null ? 0 : answer.length(),
+                filtered == null ? 0 : filtered.length(), elapsedMillis};
+        if ("REJECTED".equals(outcome) || !trace.warnings.isEmpty()) log.warn(message, values);
+        else log.info(message, values);
+    }
+
+    /** 본문 검사 결과를 내부에서 읽습니다. 기존 호출 경로·저장·관리자 처리는 연결하지 않습니다. */
+    public OutputGuardResult inspectAnswer(String answer, AnswerMaterials materials, StoreMapResult storeMap) {
+        return inspectAnswer(answer, null, materials, storeMap);
+    }
+
+    /** 기존 파서가 남긴 값만 검사합니다. 파서가 보정한 JSON 자료형·누락 필드는 복원하지 않습니다. */
+    public OutputGuardResult inspectAnswer(String answer, List<String> evidenceIds,
+            AnswerMaterials materials, StoreMapResult storeMap) {
+        Set<Reason> reasons = EnumSet.noneOf(Reason.class);
+        InspectionTrace trace = new InspectionTrace();
+        long startedAt = System.nanoTime();
+        try {
+            validateEvidenceIds(evidenceIds, materials, trace);
+            if (StringUtils.hasText(answer)) recordMaterialShortages(materials, storeMap, reasons);
+            String filtered = filterAnswer(answer, materials, storeMap, reasons, trace);
+            recordUnansweredScopes(filtered, materials, storeMap, reasons);
+            logInspection("BODY", filtered.equals(answer) ? "PASS" : "FILTERED", reasons, answer, filtered, startedAt, trace);
+            return new OutputGuardResult(filtered, false, reasons);
+        } catch (LlmException exception) {
+            if (exception.getErrorCode() != LlmErrorCode.LLM_OUTPUT_REJECTED) throw exception;
+            // 같은 오류 코드를 FAQ 부족으로 바꾸지 않습니다. 판별 근거가 없으면 미분류입니다.
+            boolean explained = reasons.contains(Reason.POLICY_VIOLATION) || reasons.contains(Reason.FORMAT_ERROR)
+                    || reasons.contains(Reason.FALSE_EXECUTION) || reasons.contains(Reason.ANSWER_ERROR);
+            if (!explained) recordReason(reasons, Reason.UNCLASSIFIED);
+            logInspection("BODY", "REJECTED", reasons, answer, null, startedAt, trace);
+            return new OutputGuardResult(null, true, reasons);
+        }
+    }
+
+    private String filterAnswer(String answer, AnswerMaterials materials, StoreMapResult storeMap, Set<Reason> reasons,
+            InspectionTrace trace) {
         if (!StringUtils.hasText(answer)) {
+            recordReason(reasons, Reason.FORMAT_ERROR);
+            trace.rejected(GuardRule.EMPTY_ANSWER);
             throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         }
         List<String> sources = readSources(materials);
@@ -689,12 +821,19 @@ public class AiOutputGuardService {
 
         // 공개 머리말 뒤의 여러 줄 지시도 함께 제거합니다. 원문·자료·프롬프트는 변경하지 않습니다.
         String withoutSuffix = removeRequestedSuffix(answer, materials.question());
+        if (!withoutSuffix.equals(answer)) {
+            recordReason(reasons, Reason.FORMAT_ERROR);
+            trace.cleaned(GuardRule.REQUESTED_SUFFIX);
+        }
         String withoutDisclosures = withoutSuffix;
         for (String block : internalDisclosureBlocks(withoutSuffix)) {
+            int occurrences = withoutDisclosures.split(Pattern.quote(block), -1).length - 1;
             withoutDisclosures = withoutDisclosures.replace(block, "");
+            trace.removed(occurrences, GuardRule.INTERNAL_DISCLOSURE_BLOCK);
         }
         List<String> kept = new ArrayList<>();
         boolean removed = !withoutDisclosures.equals(withoutSuffix);
+        if (removed) recordReason(reasons, Reason.POLICY_VIOLATION);
         for (String paragraph : withoutDisclosures.split("\\R\\s*\\R")) {
             List<String> safeParagraph = new ArrayList<>();
             List<String> sentences = new ArrayList<>();
@@ -717,6 +856,7 @@ public class AiOutputGuardService {
             boolean crossLineLookup = hasThirdPartyLookup(inspect(paragraph))
                     && sentences.stream().noneMatch(sentence -> hasThirdPartyLookup(inspect(sentence)));
             boolean removedInParagraph = crossLineLookup;
+            if (crossLineLookup) recordReason(reasons, Reason.POLICY_VIOLATION);
             boolean lostCondition = crossLineLookup || removed && DEPENDENT_SENTENCE.matcher(inspect(paragraph)).find();
             for (String sentence : sentences) {
                 String inspected = inspect(sentence);
@@ -724,23 +864,32 @@ public class AiOutputGuardService {
                 if (removedThirdPartyLookup && followup.find()
                         && !isRejectedOrReported(inspected.substring(followup.end()))) {
                     removedInParagraph = true;
+                    trace.removed(GuardRule.THIRD_PARTY_FOLLOWUP);
                     continue;
                 }
                 if (removedFactClaim && FACT_FOLLOWUP.matcher(inspected).find()) {
                     removedInParagraph = true;
+                    trace.removed(GuardRule.FACT_FOLLOWUP);
                     continue;
                 }
                 boolean thirdPartyLookup = hasThirdPartyLookup(inspected);
                 boolean quantityConflict = hasQuantityConflict(inspected, facts, materials.question());
                 boolean requirementConflict = hasRequirementConflict(inspected, sources);
-                boolean unsafeContent = containsForbiddenWord(sentence) || hasSensitiveDisclosure(inspected)
-                        || hasPolicyOverride(inspected) || thirdPartyLookup || hasHostileContent(inspected, sources)
-                        || quantityConflict
-                        || hasUnsupportedFreeBenefit(inspected, sources)
-                        || requirementConflict
-                        || hasUnsupportedSource(inspected, materials);
+                GuardRule policyRule = findPolicyViolation(sentence, inspected, sources, thirdPartyLookup);
+                boolean policyViolation = policyRule != null;
+                // 기존 단락 평가 순서를 유지하고, 같은 검사를 다시 실행하지 않고 적용 규칙만 기록합니다.
+                GuardRule contentRule = policyViolation ? policyRule : quantityConflict ? GuardRule.QUANTITY_CONFLICT
+                        : hasUnsupportedFreeBenefit(inspected, sources) ? GuardRule.UNSUPPORTED_BENEFIT
+                        : requirementConflict ? GuardRule.CONDITION_CONFLICT
+                        : hasUnsupportedSource(inspected, materials) ? GuardRule.UNSUPPORTED_SOURCE : null;
+                boolean unsafeContent = contentRule != null;
                 boolean unsupportedOperation = hasUnsupportedOperation(inspected, materials, storeMap);
                 if (unsafeContent || unsupportedOperation) {
+                    trace.removed(contentRule, unsupportedOperation ? GuardRule.UNSUPPORTED_OPERATION : null);
+                    if (policyViolation) recordReason(reasons, Reason.POLICY_VIOLATION);
+                    if (quantityConflict || requirementConflict || unsafeContent && !policyViolation)
+                        recordReason(reasons, Reason.ANSWER_ERROR);
+                    if (unsupportedOperation) recordReason(reasons, Reason.FALSE_EXECUTION);
                     removedInParagraph = true;
                     removedThirdPartyLookup |= thirdPartyLookup;
                     removedFactClaim |= quantityConflict || requirementConflict;
@@ -760,45 +909,77 @@ public class AiOutputGuardService {
                     boolean independent = !hasUnsupportedDependentConclusion(inspected, materials, sources)
                             && (QUESTION_END.matcher(inspected).find() || INDEPENDENT_CHECK_GUIDANCE.matcher(conclusion).find()
                             || sourceExplanation && ASSERTED_CLAUSE_END.matcher(conclusion.replaceFirst("[.!。！]+$", "")).find());
-                    if (!independent && !(removedSourcePolicy && sourceExplanation)) continue;
+                    if (!independent && !(removedSourcePolicy && sourceExplanation)) {
+                        trace.removed(GuardRule.DEPENDENT_CONCLUSION);
+                        continue;
+                    }
                 }
                 safeParagraph.add(sentence);
             }
             removed |= removedInParagraph || separatedClauses;
             if (!lostCondition) {
-                kept.addAll(reviewRestoredParagraph
-                        ? safeParagraph.stream().filter(sentence -> hasIndependentSentenceSupport(sentence, materials, sources)).toList()
-                        : safeParagraph);
+                if (reviewRestoredParagraph) {
+                    for (String sentence : safeParagraph) {
+                        if (hasIndependentSentenceSupport(sentence, materials, sources)) kept.add(sentence);
+                        else trace.removed(GuardRule.INDEPENDENT_SUPPORT_MISSING);
+                    }
+                } else kept.addAll(safeParagraph);
+            } else {
+                trace.removed(safeParagraph.size(), crossLineLookup ? GuardRule.THIRD_PARTY_LOOKUP : GuardRule.LOST_CONDITION);
             }
         }
         if (kept.isEmpty()) {
+            trace.rejected(GuardRule.NO_SAFE_CONTENT);
             throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         }
         // 문제 없는 답변은 원문을 유지합니다. 합친 뒤에만 생기는 금칙어도 기존 서비스로 검사합니다.
         String filtered = removed ? String.join("\n", kept) : withoutSuffix.strip();
+        String beforeReferences = filtered;
         filtered = removeFaqReferences(filtered);
-        filtered = removeContradictoryAvailability(filtered, materials, sources);
-        filtered = removeUnsupportedRequirements(filtered, materials, sources);
-        filtered = removeMismatchedScopes(filtered, materials, sources, scopeEvidence, payoffGoals);
-        filtered = removeUnsupportedRestrictions(filtered, materials, sources);
-        filtered = filterRequestedScopes(filtered, answer, materials);
+        if (!beforeReferences.equals(filtered)) trace.cleaned(GuardRule.FAQ_REFERENCE);
+        String beforeCheck = filtered;
+        filtered = removeContradictoryAvailability(filtered, materials, sources, trace);
+        recordAnswerChange(reasons, beforeCheck, filtered);
+        beforeCheck = filtered;
+        filtered = removeUnsupportedRequirements(filtered, materials, sources, trace);
+        recordAnswerChange(reasons, beforeCheck, filtered);
+        beforeCheck = filtered;
+        filtered = removeMismatchedScopes(filtered, materials, sources, scopeEvidence, payoffGoals, trace);
+        recordAnswerChange(reasons, beforeCheck, filtered);
+        beforeCheck = filtered;
+        filtered = removeUnsupportedRestrictions(filtered, materials, sources, trace);
+        recordAnswerChange(reasons, beforeCheck, filtered);
+        filtered = filterRequestedScopes(filtered, answer, materials, reasons, trace);
         if (!StringUtils.hasText(filtered) || !filtered.equals(withoutSuffix.strip())
                 && splitSentences(filtered).stream().allMatch(sentence ->
                         GENERIC_FOLLOWUP.matcher(inspect(sentence)).matches()
                         || FAQ_REFERENCE_NOTICE.matcher(inspect(sentence)).matches())) {
+            trace.rejected(GuardRule.NO_USABLE_ANSWER);
             throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         }
         String inspectedFiltered = inspect(filtered);
-        if (containsForbiddenWord(filtered) || hasSensitiveDisclosure(inspectedFiltered)
-                || hasPolicyOverride(inspectedFiltered) || hasThirdPartyLookup(inspectedFiltered)
-                || hasHostileContent(inspectedFiltered, sources)) {
+        GuardRule finalRule = findPolicyViolation(filtered, inspectedFiltered, sources,
+                hasThirdPartyLookup(inspectedFiltered));
+        if (finalRule != null) {
+            trace.rejected(finalRule);
+            recordReason(reasons, Reason.POLICY_VIOLATION);
             throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         }
         return filtered;
     }
 
+    private GuardRule findPolicyViolation(String sentence, String inspected, List<String> sources,
+            boolean thirdPartyLookup) {
+        if (containsForbiddenWord(sentence)) return GuardRule.FORBIDDEN_WORD;
+        if (hasSensitiveDisclosure(inspected)) return GuardRule.SENSITIVE_DISCLOSURE;
+        if (hasPolicyOverride(inspected)) return GuardRule.POLICY_OVERRIDE;
+        if (thirdPartyLookup) return GuardRule.THIRD_PARTY_LOOKUP;
+        return hasHostileContent(inspected, sources) ? GuardRule.HOSTILE_CONTENT : null;
+    }
+
     /** 명시된 업무·기기만 비교합니다. 모호한 주제나 생략된 대상은 추측하지 않습니다. */
-    private String filterRequestedScopes(String answer, String originalAnswer, AnswerMaterials materials) {
+    private String filterRequestedScopes(String answer, String originalAnswer, AnswerMaterials materials, Set<Reason> reasons,
+            InspectionTrace trace) {
         if (!StringUtils.hasText(materials.question())) return answer;
         List<ScopedAnswerFact> requests = readRequestedScopes(inspect(materials.question()));
         if (requests.isEmpty() || !StringUtils.hasText(answer)) return answer;
@@ -823,6 +1004,8 @@ public class AiOutputGuardService {
             // 정보 부족·인용 설명은 단어 일치만으로 다른 업무라고 단정하지 않습니다.
             if (mismatch && !QUESTION_END.matcher(inspected).find() && !ANSWER_UNAVAILABLE.matcher(inspected).find()
                     && !REPORTED_OR_HYPOTHETICAL.matcher(inspected).find()) {
+                recordReason(reasons, Reason.ANSWER_ERROR);
+                trace.removed(GuardRule.REQUEST_SCOPE_MISMATCH);
                 removed = true;
             } else {
                 kept.add(sentence);
@@ -836,14 +1019,133 @@ public class AiOutputGuardService {
             if (!changed) return filtered;
             boolean removedRequested = requests.stream().anyMatch(request -> hasRequestedMention(inspect(originalAnswer), request));
             boolean onlyContext = kept.stream().allMatch(sentence -> isRequestContextOnly(inspect(sentence), requests));
-            if (removed || removedRequested && onlyContext) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+            if (removed || removedRequested && onlyContext) {
+                trace.rejected(GuardRule.NO_REQUESTED_ANSWER);
+                throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+            }
             return filtered;
         }
         List<String> missing = requests.stream().filter(request -> !covered.contains(request))
                 .map(this::readRequestLabel).distinct().toList();
         if (missing.isEmpty()) return filtered;
         // 안내는 고정 문구이며, 절차·가능 여부·개인별 값을 새로 만들지 않습니다.
-        return filtered + "\n" + String.join(", ", missing) + "에 대한 내용은 이번 답변에서 안내하지 못했습니다.";
+        return filtered + "\n" + String.join(", ", missing) + UNANSWERED_SCOPE_NOTICE;
+    }
+
+    private void recordReason(Set<Reason> reasons, Reason reason) {
+        if (reasons != null) reasons.add(reason);
+    }
+
+    private void recordAnswerChange(Set<Reason> reasons, String before, String after) {
+        if (!before.equals(after)) recordReason(reasons, Reason.ANSWER_ERROR);
+    }
+
+    /** 검색 근거가 남지 않은 기존 하위 질문을 구분합니다. 답변의 자기 설명이나 status는 판정 근거로 쓰지 않습니다. */
+    private void recordMaterialShortages(AnswerMaterials materials, StoreMapResult storeMap, Set<Reason> reasons) {
+        for (var question : materials.subQuestions()) {
+            if (!question.faqs().isEmpty() || !StringUtils.hasText(question.searchQuery())) continue;
+            recordReason(reasons, hasMissingLookupData(question.searchQuery(), materials, storeMap)
+                    ? Reason.USER_INFORMATION_OR_LOOKUP_MISSING : Reason.FAQ_SHORTAGE_SUSPECTED);
+        }
+    }
+
+    /** 기존 업무·대상 검사로 실제 자료를 비교합니다. 해석할 수 없는 부족은 FAQ 부족으로 단정하지 않습니다. */
+    private void recordUnansweredScopes(String answer, AnswerMaterials materials, StoreMapResult storeMap,
+            Set<Reason> reasons) {
+        if (!ANSWER_UNAVAILABLE.matcher(inspect(answer)).find()) return;
+        if (hasMissingLookupData(materials.question(), materials, storeMap)) {
+            recordReason(reasons, Reason.USER_INFORMATION_OR_LOOKUP_MISSING);
+            return;
+        }
+        List<ScopedAnswerFact> requests = readRequestedScopes(inspect(materials.question()));
+        List<String> sources = readSources(materials);
+        boolean missingScope = requests.stream().anyMatch(request -> sources.stream()
+                .noneMatch(source -> hasRequestCoverage(source, request, materials.question())));
+        if (missingScope) recordReason(reasons, Reason.FAQ_SHORTAGE_SUSPECTED);
+        else if (reasons.isEmpty()) recordReason(reasons, Reason.UNCLASSIFIED);
+    }
+
+    private boolean hasMissingLookupData(String question, AnswerMaterials materials, StoreMapResult storeMap) {
+        if (!StringUtils.hasText(question)) return false;
+        String inspected = inspect(question);
+        boolean userContext = materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA)
+                || materials.sections().stream().anyMatch(this::isUserDataSection);
+        boolean userIntent = materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA);
+        boolean personalValue = ACCOUNT_RECORD.matcher(inspected).find()
+                || userIntent && (inspected.contains("요금") || inspected.contains("데이터"));
+        if (userContext && (USER_SUBJECT.matcher(inspected).find() || personalValue)) {
+            if (!hasUserData(materials)) return true;
+            // 기본 회원 정보가 있으면, 청구·사용량 미제공 안내를 이름·가입일의 누락으로 확대하지 않습니다.
+            return personalValue && materials.sections().stream()
+                    .filter(this::isUserDataSection)
+                    .anyMatch(section -> MISSING_LOOKUP_DATA.matcher(inspect(section.content())).find());
+        }
+        return storeMap == null && STORE_SUBJECT.matcher(inspected).find()
+                && (materials.tools().contains(AiTool.STORE_SEARCH)
+                    || materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA)
+                    || materials.sections().stream().anyMatch(section -> STORE_SUBJECT.matcher(section.title()).find()
+                        && MISSING_LOOKUP_DATA.matcher(inspect(section.content())).find()));
+    }
+
+    /**
+     * 후보 선별에서만 사용합니다. 검사에 전달했던 FAQ와 기존 업무·대상 판정으로 부족한 범위를 읽습니다.
+     * 검색 실패는 기존 미응답 경로가 처리하므로 제외하며, 조회 실패·자료 속 지시·모델 오답만으로 후보를 만들지 않습니다.
+     * 원문이나 새 질문은 만들지 않고 기존 안내에서 쓰는 항목명만 돌려줍니다.
+     */
+    List<String> findMissingFaqTopics(SubQuestionFaqs question, AnswerMaterials materials,
+            StoreMapResult storeMap, OutputGuardResult inspection) {
+        if (inspection.rejected() || !StringUtils.hasText(inspection.answer()) || !question.isAnswered()) return List.of();
+        if (question.faqs().stream().noneMatch(faq -> faq.intent() == Intent.GENERAL)) return List.of();
+        if (question.faqs().stream().anyMatch(faq -> StringUtils.hasText(faq.answer())
+                && SOURCE_DIRECTIVE.matcher(inspect(faq.answer())).find())) return List.of();
+
+        // 다른 하위 질문에만 필요한 회원·매장 조회 실패를 현재 질문의 부족으로 가져오지 않습니다.
+        boolean userIntent = question.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA);
+        boolean storeIntent = question.faqs().stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA);
+        List<ContextSection> sections = materials.sections().stream().filter(section ->
+                userIntent && isUserDataSection(section)
+                        || storeIntent && STORE_SUBJECT.matcher(section.title()).find()).toList();
+        AnswerMaterials scoped = new AnswerMaterials(question.searchQuery(), question.faqs(), sections,
+                storeIntent ? materials.tools() : Set.of(), storeIntent ? storeMap : null,
+                List.of(question), materials.history());
+        if (hasMissingLookupData(question.searchQuery(), scoped, storeIntent ? storeMap : null)) return List.of();
+
+        List<String> sources = readSources(scoped);
+        List<String> answerSentences = splitSentences(inspection.answer()).stream().map(this::inspect).toList();
+        boolean hasUnansweredNotice = answerSentences.stream().anyMatch(sentence ->
+                ANSWER_UNAVAILABLE.matcher(sentence).find() || sentence.contains(UNANSWERED_SCOPE_NOTICE));
+        if (!hasUnansweredNotice) return List.of();
+
+        // 일반적인 거절 문구나 status만으로 누락을 추정하지 않고, 해석할 수 있는 기존 요청 범위만 비교합니다.
+        return readRequestedScopes(inspect(question.searchQuery())).stream()
+                .filter(request -> !hasFaqTopicEvidence(request, scoped, sources))
+                .filter(request -> answerSentences.stream()
+                        .filter(sentence -> !ANSWER_UNAVAILABLE.matcher(sentence).find()
+                                && !sentence.contains(UNANSWERED_SCOPE_NOTICE)
+                                && !QUESTION_END.matcher(sentence).find())
+                        .noneMatch(sentence -> hasRequestCoverage(sentence, request, question.searchQuery())))
+                .map(this::readRequestLabel).distinct().toList();
+    }
+
+    private boolean hasFaqTopicEvidence(ScopedAnswerFact request, AnswerMaterials materials, List<String> sources) {
+        if (sources.stream().filter(source -> !ANSWER_UNAVAILABLE.matcher(source).find())
+                .anyMatch(source -> hasRequestCoverage(source, request, materials.question()))) return true;
+        for (var faq : materials.faqs()) {
+            if (!StringUtils.hasText(faq.question())) continue;
+            List<ScopedAnswerFact> topics = readRequestedScopes(inspect(faq.question()));
+            if (topics.size() != 1) continue;
+            ScopedAnswerFact topic = topics.getFirst();
+            boolean same = request.kind() == topic.kind()
+                    && (request.kind() == AnswerScopeKind.BUSINESS_OPERATION
+                        ? request.target().equals(topic.target()) : compatibleDevice(request.target(), topic.target()));
+            // FAQ 질문에만 대상이 있는 정상 답변을 근거 누락으로 오인하지 않습니다.
+            if (same && providedSourceSentences(faq.answer(), sources).stream()
+                    .anyMatch(sentence -> !ANSWER_UNAVAILABLE.matcher(sentence).find()
+                            && !QUESTION_END.matcher(sentence).find()
+                            && !GENERIC_FOLLOWUP.matcher(sentence).matches()
+                            && !INDEPENDENT_CHECK_GUIDANCE.matcher(sentence).find())) return true;
+        }
+        return false;
     }
 
     private List<ScopedAnswerFact> readRequestedScopes(String question) {
@@ -1682,9 +1984,14 @@ public class AiOutputGuardService {
         return true;
     }
 
+    private boolean isUserDataSection(ContextSection section) {
+        return UserIntentHandler.SECTION_TITLE.equals(section.title());
+    }
+
     private boolean hasUserData(AnswerMaterials materials) {
-        return materials.sections().stream().anyMatch(section ->
-                "사용자 정보".equals(section.title()) && section.content().startsWith("이름: "));
+        // 기존 핸들러가 만든 조회 성공·실패 섹션을 구분합니다. 이름 표기나 필드 순서에는 의존하지 않습니다.
+        return materials.sections().stream().filter(this::isUserDataSection)
+                .anyMatch(section -> !UserIntentHandler.NOT_FOUND_CONTENT.equals(section.content()));
     }
 
     private boolean hasActualClaim(Pattern pattern, String sentence) {
@@ -1724,10 +2031,11 @@ public class AiOutputGuardService {
 
     /** 다른 대상의 사실을 바꿔 적용한 설명과, 근거가 필요한 기능·기기 적용 주장을 문장별로 검사합니다. */
     private String removeMismatchedScopes(String answer, AnswerMaterials materials, List<String> sources,
-            List<ScopedAnswerFact> evidence, List<String> payoffGoals) {
+            List<ScopedAnswerFact> evidence, List<String> payoffGoals, InspectionTrace trace) {
 
         List<String> kept = new ArrayList<>();
         boolean removed = false;
+        int removedHeadings = 0;
         boolean previousRemoved = false;
         for (String paragraph : answer.split("\\R\\s*\\R")) {
             String headingGoal = null;
@@ -1738,7 +2046,10 @@ public class AiOutputGuardService {
                 String inspected = inspect(sentence);
                 Matcher heading = STOP_WORK_HEADING.matcher(inspected);
                 if (heading.find()) {
-                    if (headingIndex >= 0 && keptInstructions == 0) safeParagraph.remove(headingIndex);
+                    if (headingIndex >= 0 && keptInstructions == 0) {
+                        safeParagraph.remove(headingIndex);
+                        removedHeadings++;
+                    }
                     previousRemoved = false;
                     headingGoal = heading.group(1);
                     headingIndex = safeParagraph.size();
@@ -1746,7 +2057,10 @@ public class AiOutputGuardService {
                     safeParagraph.add(sentence);
                     continue;
                 } else if (inspected.endsWith(":") || inspected.endsWith("：")) {
-                    if (headingIndex >= 0 && keptInstructions == 0) safeParagraph.remove(headingIndex);
+                    if (headingIndex >= 0 && keptInstructions == 0) {
+                        safeParagraph.remove(headingIndex);
+                        removedHeadings++;
+                    }
                     previousRemoved = false;
                     headingGoal = null;
                     headingIndex = -1;
@@ -1760,6 +2074,7 @@ public class AiOutputGuardService {
                         && sources.stream().noneMatch(this::hasNumberPlusHidingClaim);
                 mismatch |= previousRemoved && hasUnsupportedDependentConclusion(inspected, materials, sources);
                 if (mismatch) {
+                    trace.removed(GuardRule.SCOPE_MISMATCH);
                     removed = true;
                     previousRemoved = true;
                 } else {
@@ -1768,9 +2083,13 @@ public class AiOutputGuardService {
                     if (headingIndex >= 0) keptInstructions++;
                 }
             }
-            if (headingIndex >= 0 && keptInstructions == 0) safeParagraph.remove(headingIndex);
+            if (headingIndex >= 0 && keptInstructions == 0) {
+                safeParagraph.remove(headingIndex);
+                removedHeadings++;
+            }
             kept.addAll(safeParagraph);
         }
+        if (removed) trace.removed(removedHeadings, GuardRule.EMPTY_HEADING);
         return removed ? String.join("\n", kept) : answer;
     }
 
@@ -2112,7 +2431,8 @@ public class AiOutputGuardService {
     }
 
     /** FAQ에 없는 업무 불가·미지원·강제 분리 조건만 제거합니다. 정보 부족이나 안전한 거절은 정책 제한이 아닙니다. */
-    private String removeUnsupportedRestrictions(String answer, AnswerMaterials materials, List<String> sources) {
+    private String removeUnsupportedRestrictions(String answer, AnswerMaterials materials, List<String> sources,
+            InspectionTrace trace) {
         List<AvailabilityClaim> evidence = new ArrayList<>();
         materials.faqs().forEach(faq -> addRestrictionEvidence(faq.answer(), faq.question(), sources, evidence));
         materials.sections().forEach(section ->
@@ -2122,7 +2442,7 @@ public class AiOutputGuardService {
         boolean previousRemoved = false;
         for (String sentence : availabilitySentences(answer)) {
             boolean missingDataNotice = !hasUserData(materials) && materials.sections().stream().anyMatch(section ->
-                    "사용자 정보".equals(section.title()) && section.content().contains("찾을 수 없습니다"))
+                    isUserDataSection(section) && UserIntentHandler.NOT_FOUND_CONTENT.equals(section.content()))
                     && sentence.matches("(?s).*(?:정보|자료|데이터)(?:가|이|는|은)?\\s*없(?:어|기\\s*때문|으므로).*제공할\\s*수\\s*없.*");
             boolean unsupported = readRestrictionClaims(sentence, materials.question()).stream()
                     .anyMatch(claim -> !(missingDataNotice && isPersonalDataRestriction(claim))
@@ -2135,6 +2455,7 @@ public class AiOutputGuardService {
             }
             unsupported |= previousRemoved && hasUnsupportedDependentConclusion(inspect(sentence), materials, sources);
             if (unsupported) {
+                trace.removed(GuardRule.UNSUPPORTED_RESTRICTION);
                 removed = true;
                 previousRemoved = true;
             } else {
@@ -2439,7 +2760,8 @@ public class AiOutputGuardService {
     }
 
     /** 필수 서류·서류 예시 목록·독점 조건을 원문 근거와 비교합니다. 기존 면제 검사는 유지합니다. */
-    private String removeUnsupportedRequirements(String answer, AnswerMaterials materials, List<String> sources) {
+    private String removeUnsupportedRequirements(String answer, AnswerMaterials materials, List<String> sources,
+            InspectionTrace trace) {
         List<DocumentRequirement> evidence = new ArrayList<>();
         materials.faqs().forEach(faq -> addDocumentEvidence(faq.answer(), faq.question(), sources, evidence));
         materials.sections().forEach(section ->
@@ -2447,6 +2769,7 @@ public class AiOutputGuardService {
         List<String> sentences = availabilitySentences(answer);
         List<String> kept = new ArrayList<>();
         boolean removed = false;
+        int removedHeadings = 0;
         boolean previousRemoved = false;
         boolean exampleList = false;
         String requiredHeading = null;
@@ -2455,7 +2778,10 @@ public class AiOutputGuardService {
         for (String sentence : sentences) {
             boolean listItem = DOCUMENT_LIST_ITEM.matcher(sentence).find();
             if (!listItem && requiredHeading != null) {
-                if (keptItems == 0) kept.remove(headingIndex);
+                if (keptItems == 0) {
+                    kept.remove(headingIndex);
+                    removedHeadings++;
+                }
                 requiredHeading = null;
                 exampleList = false;
             }
@@ -2491,6 +2817,7 @@ public class AiOutputGuardService {
                         && !isUnassertedRequirement(sentence.substring(conclusion.end()));
             }
             if (unsupported) {
+                trace.removed(GuardRule.DOCUMENT_REQUIREMENT);
                 removed = true;
                 previousRemoved = true;
                 continue;
@@ -2499,7 +2826,11 @@ public class AiOutputGuardService {
             kept.add(sentence);
             previousRemoved = false;
         }
-        if (requiredHeading != null && keptItems == 0) kept.remove(headingIndex);
+        if (requiredHeading != null && keptItems == 0) {
+            kept.remove(headingIndex);
+            removedHeadings++;
+        }
+        if (removed) trace.removed(removedHeadings, GuardRule.EMPTY_HEADING);
         return removed ? String.join("\n", kept) : answer;
     }
 
@@ -2810,7 +3141,8 @@ public class AiOutputGuardService {
     }
 
     /** 같은 대상·행위·명시된 조건의 상반된 안내만 비교합니다. 다른 조건을 추측해 합치지 않습니다. */
-    private String removeContradictoryAvailability(String answer, AnswerMaterials materials, List<String> sources) {
+    private String removeContradictoryAvailability(String answer, AnswerMaterials materials, List<String> sources,
+            InspectionTrace trace) {
         List<String> sentences = availabilitySentences(answer);
         List<AvailabilityClaim> claims = new ArrayList<>();
         for (int index = 0; index < sentences.size(); index++) {
@@ -2839,7 +3171,10 @@ public class AiOutputGuardService {
         if (removed.isEmpty()) return answer;
         List<String> kept = new ArrayList<>();
         for (int index = 0; index < sentences.size(); index++) {
-            if (removed.contains(index)) continue;
+            if (removed.contains(index)) {
+                trace.removed(GuardRule.CONTRADICTORY_AVAILABILITY);
+                continue;
+            }
             String sentence = sentences.get(index);
             // 바로 앞에서 삭제한 판단과 같은 행위의 실행 지시만 함께 제거합니다. 직접 확인·문의 안내는 보존합니다.
             String inspected = inspect(sentence);
@@ -2849,7 +3184,10 @@ public class AiOutputGuardService {
             if (dependent.find() && removed.contains(previousIndex) && instruction.find()
                     && claims.stream().anyMatch(claim -> claim.sentenceIndex() == previousIndex
                             && claim.key().endsWith("|" + instruction.group(1)))
-                    && !hasSourceClaim(inspected.substring(dependent.end()).strip(), sources)) continue;
+                    && !hasSourceClaim(inspected.substring(dependent.end()).strip(), sources)) {
+                trace.removed(GuardRule.DEPENDENT_CONCLUSION);
+                continue;
+            }
             kept.add(sentence);
         }
         return String.join("\n", kept);

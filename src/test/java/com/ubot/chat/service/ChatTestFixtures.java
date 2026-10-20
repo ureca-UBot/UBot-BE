@@ -25,6 +25,17 @@ import java.util.List;
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
 final class ChatTestFixtures {
 	static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
+
+	/** 기존 단위 테스트에 추가된 후보 선별·프로필 의존성을 모의 객체로 전달합니다. */
+	static ChatAnswerProcessor processor(com.ubot.faq.retrieval.FaqRetrievalService retrieval,
+			com.ubot.ai.service.AiService ai,
+			ChatContextCollector collector, SubQuestionPlanner planner, FaqSemanticCacheService cache,
+			FaqSentenceFilterService sentenceFilter, ChatInputGuardService inputGuard) {
+		var profile = mock(com.ubot.embedding.service.EmbeddingProfileService.class);
+		return new ChatAnswerProcessor(retrieval, ai, collector, planner, cache, sentenceFilter,
+				inputGuard, mock(com.ubot.ai.service.FaqGapCandidateSelector.class), profile);
+	}
+
 	private ChatTestFixtures() {
 	}
 

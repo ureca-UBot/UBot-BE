@@ -48,7 +48,7 @@ class ChatServiceUnansweredTest {
 
 	@BeforeEach
 	void setUp() {
-		ChatAnswerProcessor processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+		ChatAnswerProcessor processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
@@ -119,11 +119,11 @@ class ChatServiceUnansweredTest {
 	}
 
 	@Test
-	@DisplayName("LLM이 ABSTAIN으로 답하면 1위 FAQ와 함께 LLM_ABSTAIN으로 저장하고 답변은 그대로 보낸다")
-	void recordsLlmAbstain() {
+	@DisplayName("FAQ 부족 후보 없이 ABSTAIN만 반환되면 미응답으로 저장하지 않고 답변은 그대로 보낸다")
+	void doesNotRecordAbstainWithoutFaqGapCandidate() {
 		answerWithStatus("ABSTAIN");
 
-		verify(harness.unanswered).enqueueUnansweredQuestion(1L, candidate(UnansweredReason.LLM_ABSTAIN, 1L, 0.9));
+		verify(harness.unanswered, never()).enqueueUnansweredQuestion(any(), any());
 		assertThat(harness.jobs.getFirst().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
 	}
 

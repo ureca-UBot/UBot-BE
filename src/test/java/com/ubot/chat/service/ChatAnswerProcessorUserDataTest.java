@@ -142,7 +142,7 @@ class ChatAnswerProcessorUserDataTest {
     }
 
     @Test
-    @DisplayName("비회원은 사용자 DB를 조회하지 않고 정보 없음 안내와 LLM 미응답 처리를 유지한다")
+    @DisplayName("비회원은 사용자 조회 없이 정보 없음 안내를 유지하고 FAQ 부족으로 등록하지 않는다")
     void anonymousRequestDoesNotReadUserData() {
         String question = "내 이름이 뭐야?";
         FaqSearchResponseDto userFaq = faq(1001L, Intent.USER_DATA, 1.0);
@@ -156,8 +156,7 @@ class ChatAnswerProcessorUserDataTest {
         assertThat(capturedMaterials().sections()).singleElement()
                 .satisfies(section -> assertThat(section.content()).isEqualTo("사용자 정보를 찾을 수 없습니다."));
         verifyNoInteractions(users, stores, sentenceFilter);
-        assertThat(unanswered).contains(new UnansweredCandidate(
-				1, question, question, UnansweredReason.LLM_ABSTAIN, 1001L, 1.0, UnansweredSource.RETRIEVAL));
+        assertThat(unanswered).isEmpty();
     }
 
     private void search(String question, List<FaqSearchResponseDto> candidates) {
@@ -175,9 +174,7 @@ class ChatAnswerProcessorUserDataTest {
     private ChatAnswerProcessor processor() {
         ChatContextCollector collector = new ChatContextCollector(List.of(
                 new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(
-                retrieval, ai, collector, ChatTestFixtures.originalSubQuestions(),
-                ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(retrieval, ai, collector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

@@ -122,7 +122,7 @@ class ChatAnswerProcessorStoreDataTest {
     }
 
     @Test
-    @DisplayName("매장 조회 실패 안내와 LLM 미응답 이력 처리를 유지한다")
+    @DisplayName("매장 조회 실패 안내는 유지하고 조회 실패를 FAQ 부족으로 등록하지 않는다")
     void lookupFailureProvidesFailureContextAndPreservesAbstention() {
         search(List.of(faq(10L, Intent.STORE_DATA, 0.9)));
         when(stores.search(LOCATION, null)).thenThrow(new IllegalStateException("test lookup failure"));
@@ -137,8 +137,7 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(materials.storeMap()).isNull();
         assertThat(materials.sections()).singleElement().satisfies(section ->
                 assertThat(section.content()).contains("매장 정보를 조회하지 못했습니다.", "매장 이름이나 주소를 추측하지 말고"));
-        assertThat(unanswered).contains(new UnansweredCandidate(
-                1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 0.9, UnansweredSource.RETRIEVAL));
+        assertThat(unanswered).isEmpty();
         verifyNoInteractions(sentenceFilter);
     }
 
@@ -201,9 +200,7 @@ class ChatAnswerProcessorStoreDataTest {
     }
 
     private ChatAnswerProcessor processor() {
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai,
-                ChatTestFixtures.collector(stores), ChatTestFixtures.originalSubQuestions(),
-                ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(retrieval, ai, ChatTestFixtures.collector(stores), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

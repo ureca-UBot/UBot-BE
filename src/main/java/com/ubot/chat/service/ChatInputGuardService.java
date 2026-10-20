@@ -30,9 +30,12 @@ public class ChatInputGuardService {
 	private static final Pattern REQUEST_ENDING = Pattern.compile(
 			"(?<![\\p{L}\\p{N}_])[\\p{IsHangul}]{0,30}"
 					+ "(?:주세요|주실래(?:요)?|줄래(?:요)?|줘(?:요)?|나요|습니까|세요|해)(?![\\p{L}\\p{N}_])");
+	private static final Pattern LEADING_CONNECTOR = Pattern.compile(
+			"(?:그리고|그런데|근데|또|그다음에)[\\p{Zs}\\t]+");
 	private static final Pattern CONVERSATIONAL_BOUNDARY = Pattern.compile(
-			REQUEST_ENDING.pattern()
-					+ "(?<gap>[\\p{Zs}\\t]+(?:(?:그리고|그런데|근데|또|그다음에)[\\p{Zs}\\t]+)?)(?=\\S)");
+			REQUEST_ENDING.pattern() + "(?<gap>[\\p{Zs}\\t]+)(?:" + LEADING_CONNECTOR.pattern() + ")?(?=\\S)");
+	private static final Pattern LEADING_ADDRESS = Pattern.compile(
+			"(?<address>[^\\s.!?;。！？,，]+[야아])[,，]?[\\p{Zs}\\t]+(?=\\S)");
 	private static final Pattern DEPENDENT_REQUEST = Pattern.compile(
 			"(?:그\\s*(?:거|것|내용|정보|조건|대신)|이\\s*(?:것|내용)|위\\s*(?:내용|정보)|앞(?:의|에서)"
 					+ "|그대로|대신|그래서|그러면|하지만|라고|라는|주(?:지|면|는)|줘도)");
@@ -56,16 +59,30 @@ public class ChatInputGuardService {
 	public String prepareQuestion(String question) {
 		List<String> requests = new ArrayList<>();
 		String previousRequest = null;
-		for (String request : prepareCandidates(question)) {
-			if (isAllowedRequest(request, previousRequest)) {
-				requests.add(request);
-				previousRequest = request;
-			} else {
-				// 제거된 요청을 건너뛰어 오래된 기기 문맥을 이어 붙이지 않습니다.
-				previousRequest = null;
+		GlobalException detection = null;
+		for (String candidate : prepareCandidates(question)) {
+			for (String request : splitForbiddenAddress(candidate)) {
+				try {
+					validateRequest(request, previousRequest);
+					requests.add(request);
+					previousRequest = request;
+				} catch (GlobalException exception) {
+					if (!isInputDetection(exception)) {
+						throw exception;
+					}
+					// 원인이 여러 개여도 처음 탐지한 기존 오류를 반환합니다.
+					if (detection == null) {
+						detection = exception;
+					}
+					// 제거된 요청을 건너뛰어 오래된 기기 문맥을 이어 붙이지 않습니다.
+					previousRequest = null;
+				}
 			}
 		}
 		if (requests.isEmpty()) {
+			if (detection != null) {
+				throw detection;
+			}
 			throw new ChatException(ChatErrorCode.NO_USABLE_QUESTION);
 		}
 		removeCombinedAttacks(requests);
@@ -161,17 +178,26 @@ public class ChatInputGuardService {
 				|| exception.getErrorCode() == ChatErrorCode.PROMPT_INJECTION_DETECTED;
 	}
 
-	private boolean isAllowedRequest(String request, String previousRequest) {
+	/** 등록된 금칙어를 포함한 독립 호칭과 그 뒤의 독립 요청만 나눕니다. 일반 문장 중간의 단어는 지우지 않습니다. */
+	private List<String> splitForbiddenAddress(String request) {
+		Matcher connector = LEADING_CONNECTOR.matcher(request);
+		int start = connector.lookingAt() ? connector.end() : 0;
+		Matcher address = LEADING_ADDRESS.matcher(request).region(start, request.length());
+		TextProtection protection = protectContent(request);
+		if (!address.lookingAt() || protection.protectedPositions()[start]
+				|| !hasIndependentRequest(request, address.end(), protection)) {
+			return List.of(request);
+		}
 		try {
-			validateRequest(request, previousRequest);
-			return true;
+			forbiddenWordFilterService.validateForbiddenWord(address.group("address"));
 		} catch (GlobalException exception) {
-			// 탐지 결과만 요청 제거로 처리합니다. 검사 기능의 다른 업무 오류는 숨기지 않습니다.
-			if (isInputDetection(exception)) {
-				return false;
+			if (exception.getErrorCode() == ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED) {
+				return List.of(request.substring(start, address.end()).strip(),
+						request.substring(0, start) + request.substring(address.end()));
 			}
 			throw exception;
 		}
+		return List.of(request);
 	}
 
 	private void validateRequest(String request, String previousRequest) {
@@ -239,17 +265,23 @@ public class ChatInputGuardService {
 	}
 
 	private String stripLeadingGreetings(String text) {
-		int cursor = skipGreetingSeparators(text, 0);
+		String stripped = text.stripLeading();
+		Matcher connector = LEADING_CONNECTOR.matcher(stripped);
+		int prefixEnd = connector.lookingAt() ? connector.end() : 0;
+		int cursor = skipGreetingSeparators(stripped, prefixEnd);
 		boolean foundGreeting = false;
-		while (cursor < text.length()) {
-			Matcher greeting = GREETING.matcher(text).region(cursor, text.length());
-			if (!greeting.lookingAt() || !isGreetingBoundary(text, greeting.end())) {
+		while (cursor < stripped.length()) {
+			Matcher greeting = GREETING.matcher(stripped).region(cursor, stripped.length());
+			if (!greeting.lookingAt() || !isGreetingBoundary(stripped, greeting.end())) {
 				break;
 			}
 			foundGreeting = true;
-			cursor = skipGreetingSeparators(text, greeting.end());
+			cursor = skipGreetingSeparators(stripped, greeting.end());
 		}
-		return foundGreeting ? text.substring(cursor) : text;
+		if (!foundGreeting) {
+			return text;
+		}
+		return cursor == stripped.length() ? "" : stripped.substring(0, prefixEnd) + stripped.substring(cursor);
 	}
 
 	private int skipGreetingSeparators(String text, int start) {
@@ -298,7 +330,8 @@ public class ChatInputGuardService {
 		while (conversation.find()) {
 			int start = conversation.start("gap");
 			int end = conversation.end("gap");
-			if (!protection.protectedPositions()[start] && hasIndependentRequest(text, end, protection)) {
+			// 연결어는 다음 요청에 남깁니다. 분리 여부만 연결어 뒤의 실제 요청으로 판단합니다.
+			if (!protection.protectedPositions()[start] && hasIndependentRequest(text, conversation.end(), protection)) {
 				boundaries.put(start, end);
 			}
 		}
@@ -318,7 +351,8 @@ public class ChatInputGuardService {
 			int end = boundary.getKey();
 			boolean instructionBoundary = instructionRanges.stream()
 					.anyMatch(range -> range.start() == end || range.end() == end);
-			if (end > start && (instructionBoundary || !preservesReportContext(text, start, end, protection))) {
+			if (end > start && (instructionBoundary || !preservesReportContext(text, start, end, protection)
+					&& !isGreetingOnlyContinuation(text, start, end))) {
 				requests.add(new RequestRange(start, end));
 				start = boundary.getValue();
 			}
@@ -327,6 +361,12 @@ public class ChatInputGuardService {
 			requests.add(new RequestRange(start, text.length()));
 		}
 		return requests;
+	}
+
+	private boolean isGreetingOnlyContinuation(String text, int start, int end) {
+		String request = text.substring(start, end).stripLeading();
+		// 연결어에 붙은 인사 뒤에서 끊어 연결어까지 버리지 않고 다음 실제 요청과 함께 정리합니다.
+		return LEADING_CONNECTOR.matcher(request).lookingAt() && stripLeadingGreetings(request).isBlank();
 	}
 
 	private TextProtection protectContent(String text) {
@@ -345,6 +385,12 @@ public class ChatInputGuardService {
 	}
 
 	private boolean hasIndependentRequest(String text, int start, TextProtection protection) {
+		String remaining = text.substring(start);
+		String withoutGreeting = stripLeadingGreetings(remaining);
+		if (!remaining.equals(withoutGreeting)) {
+			return !withoutGreeting.isBlank()
+					&& hasIndependentRequest(withoutGreeting, 0, protectContent(withoutGreeting));
+		}
 		if (DEPENDENT_REQUEST.matcher(text).region(start, text.length()).lookingAt()) {
 			return false;
 		}

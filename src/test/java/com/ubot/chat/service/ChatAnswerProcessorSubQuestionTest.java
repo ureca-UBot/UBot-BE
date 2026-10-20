@@ -51,7 +51,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 	@BeforeEach
 	void setUp() {
-		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
+		processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.
@@ -129,8 +129,8 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("답변 LLM이 ABSTAIN이면 FAQ를 찾은 하위 질문은 모두 LLM_ABSTAIN으로, 근거 없던 하위 질문은 원래 사유로 기록한다")
-	void recordsLlmAbstainForEveryAnsweredSubQuestion() {
+	@DisplayName("ABSTAIN만으로 FAQ를 찾은 하위 질문을 저장하지 않고 검색 기준 미달 질문만 기록한다")
+	void recordsOnlyRetrievalFailureWhenAbstainHasNoFaqGapCandidate() {
 		plan("유심 재발급", "유심 재발급 비용", "해외 로밍 요금");
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9), faq(2L, 0.8)));
 		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
@@ -140,13 +140,9 @@ class ChatAnswerProcessorSubQuestionTest {
 		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
-		assertThat(unanswered).contains(new UnansweredCandidate(
-				1, "유심 재발급", "유심 재발급", UnansweredReason.LLM_ABSTAIN, 1L, 0.9, UnansweredSource.RETRIEVAL));
-		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85, UnansweredSource.RETRIEVAL));
-		assertThat(unanswered).contains(new UnansweredCandidate(
+		assertThat(unanswered).containsExactly(new UnansweredCandidate(
 				3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
-		assertThat(unanswered).hasSize(3);
+		assertThat(result.answer().answer()).isEqualTo("답변할 수 없습니다.");
 	}
 
 	@Test
@@ -167,8 +163,8 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("원문을 자를 근거가 없어 원문 조각이 비어 있으면 미답변 질문에는 원문 전체를 남긴다")
-	void recordsOriginalQuestionWhenPieceIsMissing() {
+	@DisplayName("안전한 원문 조각이 없으면 검색어만 기록하고 원문 전체를 복원하지 않는다")
+	void doesNotRestoreOriginalQuestionWhenSafePieceIsMissing() {
 		when(planner.plan(attempt, attempt.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("유심 재발급", null),
 				new SubQuestionPlan.SubQuestion("해외 로밍 요금", null)),
@@ -181,7 +177,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::userText).containsOnlyNulls();
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "해외 로밍 요금", "유심 재발급이랑 해외 로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
+				2, "해외 로밍 요금", "", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
 	}
 
 	@Test

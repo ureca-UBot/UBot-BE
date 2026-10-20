@@ -113,14 +113,13 @@ class AiServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"112", "FAQ-999999", "999999"})
-    void 파서가_읽은_없는_근거를_출력_가드에서_거절한다(String id) {
+    void 근거번호만_틀린_정상_답변은_기존_생성_흐름에서_보존한다(String id) {
         var materials = AnswerMaterials.builder("서류 안내").addFaqs(faqs).build();
         when(promptService.createPrompt("서류 안내", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요.\",\"evidence_ids\":[\"" + id + "\"],\"status\":\"ANSWER\"}"));
-        assertThatThrownBy(() -> aiService.generateAnswer(materials))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("신분증을 지참해주세요.");
+        verify(llmService).generateAnswer(prompt);
     }
 
     @Test
@@ -279,6 +278,20 @@ class AiServiceTest {
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
                 .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
                         .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        verify(llmService).generateAnswer(prompt);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"바보입니다.", "할인율은 50%입니다.", "가입을 완료했습니다."})
+    void 잘못된_근거번호가_있어도_본문_검사를_거쳐_위험_답변은_거절한다(String answer) {
+        var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
+        var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
+        when(promptService.createPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"" + answer + "\",\"status\":\"ANSWER\",\"evidence_ids\":[\"999999\"]}"));
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
         verify(llmService).generateAnswer(prompt);
     }
 

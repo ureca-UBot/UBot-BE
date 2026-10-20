@@ -128,7 +128,7 @@ class ChatAnswerProcessorSentenceFilterTest {
     private ChatAnswerProcessor processor(boolean cacheEnabled) {
         FaqCacheProperties properties = new FaqCacheProperties();
         properties.setEnabled(cacheEnabled);
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(retrieval, ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(properties), sentenceFilter, ChatTestFixtures.inputGuard());
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(retrieval, ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(properties), sentenceFilter, ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 2);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

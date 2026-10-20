@@ -14,9 +14,7 @@ import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.job.entity.ChatJobStatus;
-import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
 import com.ubot.forbiddenword.entity.ForbiddenWord;
 import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
@@ -32,7 +30,7 @@ class ChatServiceForbiddenWordTest {
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
 	private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
-	private ChatJobTestHarness harness = new ChatJobTestHarness(attempts, new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard()));
+	private ChatJobTestHarness harness = new ChatJobTestHarness(attempts, ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard()));
 	private final ChatService service = new ChatService(attempts, ChatTestFixtures.inputGuard(filter), harness.submissionService,
 			ipRegionResolver);
 
@@ -43,8 +41,8 @@ class ChatServiceForbiddenWordTest {
 				.when(filter).validateForbiddenWord("너 바보야");
 
 		assertThatThrownBy(() -> service.createChat(1L, null, "너 바보야", null, null))
-				.isInstanceOfSatisfying(ChatException.class,
-						e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.NO_USABLE_QUESTION));
+				.isInstanceOfSatisfying(ForbiddenWordException.class,
+						e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
 
 		verifyNoInteractions(attempts, vector, ai);
 		assertThat(harness.jobs).isEmpty();
@@ -94,8 +92,8 @@ class ChatServiceForbiddenWordTest {
 			} else {
 				service.retryChat(1L, key, null);
 			}
-		}).isInstanceOfSatisfying(ChatException.class,
-				e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.NO_USABLE_QUESTION));
+		}).isInstanceOfSatisfying(ForbiddenWordException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
 
 		verify(attempts, never()).createRetryAttempt(1L, key);
 		verify(attempts, never()).createGuestRetryAttempt(7L, key);
@@ -116,8 +114,8 @@ class ChatServiceForbiddenWordTest {
 			} else {
 				actualService.createChat(1L, null, question, null, null);
 			}
-		}).isInstanceOfSatisfying(ChatException.class,
-				e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.NO_USABLE_QUESTION));
+		}).isInstanceOfSatisfying(ForbiddenWordException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
 
 		verifyNoInteractions(attempts, vector, ai);
 		assertThat(harness.jobs).noneSatisfy(job -> assertThat(job.getStatus()).isIn(ChatJobStatus.QUEUED, ChatJobStatus.RUNNING));
@@ -143,8 +141,8 @@ class ChatServiceForbiddenWordTest {
 			} else {
 				actualService.retryChat(1L, key, null);
 			}
-		}).isInstanceOfSatisfying(ChatException.class,
-				e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.NO_USABLE_QUESTION));
+		}).isInstanceOfSatisfying(ForbiddenWordException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
 
 		verify(attempts, never()).createRetryAttempt(1L, key);
 		verify(attempts, never()).createGuestRetryAttempt(7L, key);
@@ -179,7 +177,7 @@ class ChatServiceForbiddenWordTest {
 		ForbiddenWordFilterService actualFilter = new ForbiddenWordFilterService(repository);
 		actualFilter.refreshForbiddenWordCache();
 		var guard = ChatTestFixtures.inputGuard(actualFilter);
-		var processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), guard);
+		var processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), guard);
 		harness = new ChatJobTestHarness(attempts, processor);
 		return new ChatService(attempts, guard, harness.submissionService, ipRegionResolver);
 	}

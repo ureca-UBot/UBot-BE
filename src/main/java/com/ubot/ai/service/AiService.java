@@ -3,12 +3,15 @@ package com.ubot.ai.service;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
+import com.ubot.llm.exception.LlmErrorCode;
+import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
@@ -56,18 +59,21 @@ public class AiService {
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
         // 빈 응답 판단은 ChatAnswerProcessor가 합니다.
         LlmResponseDto response = llmService.generateAnswer(request);
-        // 기존 파서와 출력 가드로 답변을 검사합니다. 상태는 미응답 판단에 씁니다.
+        // 기존 파서와 출력 가드로 한 번 검사하고, 후보 선별에는 상태가 아닌 실제 검사 결과를 전달합니다.
         StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
         String answer = null;
         String status = null;
+        OutputGuardResult inspection = null;
         if (response != null && StringUtils.hasText(response.answer())) {
             FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
-            aiOutputGuardService.validateEvidenceIds(parsed.evidenceIds(), materials);
             log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
-            answer = aiOutputGuardService.filterAnswer(parsed.answer(), materials, storeMap);
+            inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), materials, storeMap);
+            // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+            if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+            answer = inspection.answer();
             status = parsed.status();
         }
-        return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status);
+        return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection);
     }
 
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder) {
