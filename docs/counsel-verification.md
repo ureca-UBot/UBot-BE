@@ -1,5 +1,53 @@
 # 상담 도메인 통합 검증 — 2026-10-20
 
+## 금지어 변경 후 실제 두 계정 브라우저 검증
+
+20:12 KST에 **화면에 표시되는 Edge 창 두 개**를 열고 기존 테스트 고객(USER)·상담사(COUNSELOR)를 실제 로그인 폼으로 각각 로그인했다. 별도 브라우저 세션을 사용했으며 인증 토큰 주입이나 API 응답 대체는 하지 않았다.
+
+- 기존 채팅 목록에서 저장된 대화를 선택해 상담을 호출했다. 두 계정이 같은 상담 ID에 연결되고 상담사가 이전 AI 문답·상담 기록을 모두 읽었다. 이전 AI 문답은 앞선 검증에서 저장한 fixture이며 이번에도 AI 답변 생성을 실행한 것은 아니다.
+- 새 고객 문의와 상담사 답변이 실제 워커·vLLM BGE-M3 검사 후 ALLOWED로 양쪽 화면에 표시됐다.
+- 기존 관리자 금지어 API로 임시 단어를 등록했다. 고객·상담사 양쪽에서 BLOCKED 안내가 표시되고 상대방에게 메시지가 전달되지 않았다. 판정 기록의 벡터 ID·유사도는 null이었다.
+- 임시 단어를 비활성화한 뒤 같은 문장을 전송하면 임베딩 검사 후 ALLOWED로 전달됐다.
+- 초기 색인 문장과 같은 문장을 전송해 실제 벡터 유사도 1.0, BLOCKED 및 상대방 미전달을 확인했다. 검증 시간의 vLLM 로그에는 임베딩 요청 4건이 모두 HTTP 200으로 기록됐다.
+- 상담 종료 후 고객을 로그아웃하고 새 브라우저 컨텍스트에서 재로그인했다. 기존 목록에서 이전 이력과 새 허용 메시지가 복원됐으며 차단된 메시지는 나타나지 않았다.
+- 브라우저 오류는 0건이다. 검증 상담을 종료하고 임시 금지어를 비활성화했으며 테스트용 관리자의 임시 권한을 회수했다. 고객·상담사 창은 사용자가 확인할 수 있도록 열어뒀다.
+
+결과는 PASS이며 Git 제외 경로 `UBot-FE/test-results/counsel-filter-web/result.json`과 같은 폴더의 PNG 9장에 보관했다. 대표 화면은 `02-customer-conversation.png`, `03-counselor-conversation.png`, `04-customer-keyword-blocked.png`다.
+
+## 기존 금지어 필터 재사용 및 중복 판정 제거
+
+20:06 KST 기준 `SafetyGuardService`는 기존 `ForbiddenWordFilterService.validateForbiddenWord`로 원문을 먼저 검사한다. 탐지된 메시지는 워커 호출 없이 상담 `BLOCKED`로 저장·감사하고, 통과한 메시지만 임베딩한다. 고객·상담사 전송과 관리자 평가에 같은 경로를 적용했다. 기존 AI 채팅의 금지어 검사·`FW-003` 응답, 공통 필터·캐시 구현, FE, DB 마이그레이션은 변경하지 않았다.
+
+`DirectInsultRules`의 직접 차단 정규식과 특정 호칭·인용·요금·환불 표현에 따른 유사도 판정 예외를 제거했다. 전처리·해시만 `SafetyTextNormalizer`로 옮겨 기존 벡터의 전처리 버전은 유지한다. 새 판정 감사 버전은 `forbidden-word-semantic-v2`다. 고정 예외 제거 후 유사도가 임계값 이상인 인용·불만 표현도 차단될 수 있으며, 아래 자동 테스트는 모델 정확도 평가가 아닌 처리 순서·판정 기준 검증이다.
+
+```powershell
+.\gradlew.bat test --tests 'com.ubot.counsel.*' --tests 'com.ubot.forbiddenword.*' --tests 'com.ubot.conversation.*' --tests 'com.ubot.retention.*' --tests 'com.ubot.auth.*' --tests 'com.ubot.user.*' --tests 'com.ubot.admin.*' --tests 'com.ubot.chat.*' --tests 'com.ubot.embedding.*' --tests 'com.ubot.faq.retrieval.*' --tests 'com.ubot.inquiry.*' --tests 'com.ubot.outbox.*' --tests 'com.ubot.unanswered.*' bootJar --console=plain
+.\gradlew.bat test --tests 'com.ubot.counsel.WorkerEmbeddingTransportTest' --console=plain
+```
+
+첫 회귀는 **868건 중 863건 통과, 기존 환경 조건 제외 5건, 실패·오류 0건**이다. 이후 추가한 Redis·워커 연결 검증을 포함해 워커 전송 테스트 7건을 모두 통과했다. 중복 실행된 6건을 제외한 최종 검증 범위는 **869건 중 864건 통과, 제외 5건, 실패·오류 0건**이다. 실행 JAR 빌드도 통과했다.
+
+- 실제 기존 관리자 금지어 API로 등록·수정·비활성화·재활성화한 결과가 상담에 반영된다. 차단 시 임베딩 호출은 0회이며 고객·상담사 전송 및 관리자 평가에 적용된다.
+- 금지어 차단 메시지는 전달 순번 없이 저장·감사되며 상대방에게 노출되지 않는다. 동일 메시지 ID 재시도로 중복 메시지·감사 기록을 만들지 않는다.
+- 금지어 필터가 검사한 원문을 통과한 뒤 임베딩한다. 고정 차단 표현도 유사도가 낮으면 허용하며, 고정 예외에 해당했던 표현도 유사도가 높으면 차단한다.
+- 실제 Testcontainers Redis와 `CounselEmbeddingWorker`를 연결했다. 금지어 차단 시 상담 큐 작업과 모델 호출이 없고, 통과한 메시지는 정규화 후 기존 임베딩 클라이언트에 도달한다. 기존 `chat:jobs`는 유지한다. 모델 응답은 테스트 대역을 사용했다.
+- 워커 구성이 누락되면 HTTP로 우회하지 않고 구성 오류를 내며, 워커 오류는 기존 `CHECK_FAILED` 처리를 유지한다.
+
+20:05 KST 로컬 BE를 새 JAR로 재기동해 health UP, 기존 V39 검증·추가 마이그레이션 없음, 기존 금지어 캐시 적재와 새 감사 버전 기록을 확인했다. 이 변경에서 실제 vLLM 문장 정확도나 브라우저 검증을 다시 실행하지는 않았다.
+
+추가로 상담의 기존 기능 재사용 여부를 확인했다.
+
+| 확인 항목 | 결과 |
+|---|---|
+| 하드코딩된 의미 검사 예외 | 특정 표현이 임베딩 결과를 우회하던 조건까지 제거 |
+| 워커/HTTP 선택 | 워커 빈이 없으면 HTTP로 넘어가던 경로를 제거하고 기본값도 worker로 일치 |
+| 벡터 차원 | 상담의 숫자 1024 중복을 기존 `EmbeddingClient.DIMENSIONS` 참조로 변경 |
+| 인증·대화 접근·임베딩 모델 호출·FE 인증 갱신 | 기존 JWT/CustomUserDetails·ConversationService/Repository·EmbeddingClient·requestWithBaseUrl 재사용 확인 |
+| 초기 금지 문장 CSV | DB 초기 등록용이며 실시간 판정 우회 규칙은 없음. 관리자 문장 API로 관리하는 데이터로 유지 |
+| 기존 금지어 캐시 | 변경 이벤트가 같은 JVM에만 전달됨. 여러 API 인스턴스 간 정책 변경 전파는 남은 개선 사항이며 이번에는 공통 캐시 코드를 변경하지 않음 |
+
+상세 실행 결과와 첫 회귀 보고서는 Git 제외 경로 `build/counsel-filter-verification/`에 보관했다. 아래는 변경 전 검증 이력이다.
+
 ## 최신 develop 통합 후 검증
 
 19:48 KST 기준 feature 브랜치의 기반을 최신 `develop` 커밋 `348a447`로 맞췄다. 기존 미커밋 변경은 stash로 백업한 뒤 복원했다. 양쪽에서 수정한 `.env.example`, `application.yml`, 설정 문서, 보관 프로시저는 자동 병합됐으며 미해결 충돌은 없다.

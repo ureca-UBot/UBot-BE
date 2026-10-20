@@ -1,7 +1,9 @@
 package com.ubot.counsel.safety.client;
 
+import static com.ubot.embedding.client.EmbeddingClient.DIMENSIONS;
+
 import com.ubot.counsel.common.config.CounselProperties;
-import com.ubot.counsel.safety.rule.DirectInsultRules;
+import com.ubot.counsel.safety.util.SafetyTextNormalizer;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,13 +37,13 @@ public class EmbeddingClient {
 	private final Semaphore slots;
 	private final WorkerEmbeddingTransport worker;
 	public EmbeddingClient(CounselProperties properties, ObjectMapper json, ObjectProvider<WorkerEmbeddingTransport> worker,
-			@Value("${counsel.guard.transport:http}") String transport) {
+			@Value("${counsel.guard.transport:worker}") String transport) {
 		if (!java.util.Set.of("http", "worker").contains(transport)) {
 			throw new IllegalArgumentException("counsel.guard.transport must be http or worker");
 		}
 		this.config = properties.guard();
 		this.json = json;
-		this.worker = worker.getIfAvailable();
+		this.worker = transport.equals("worker") ? worker.getObject() : null;
 		slots = new Semaphore(config.concurrency());
 		http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(config.connectTimeoutMs()))
 				.followRedirects(HttpClient.Redirect.NEVER).build();
@@ -50,8 +52,8 @@ public class EmbeddingClient {
 		if (!slots.tryAcquire()) throw new Failure("GUARD_BUSY");
 		CompletableFuture<HttpResponse<String>> pending = null;
 		try {
-			if (worker != null) return vectorLiteral(worker.embed(DirectInsultRules.normalize(input)));
-			String body = json.writeValueAsString(Map.of("model", config.model(), "input", DirectInsultRules.normalize(input)));
+			if (worker != null) return vectorLiteral(worker.embed(SafetyTextNormalizer.normalize(input)));
+			String body = json.writeValueAsString(Map.of("model", config.model(), "input", SafetyTextNormalizer.normalize(input)));
 			pending = http.sendAsync(HttpRequest.newBuilder(URI.create(config.embeddingUrl()))
 					.timeout(Duration.ofMillis(config.responseTimeoutMs()))
 					.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
@@ -77,10 +79,10 @@ public class EmbeddingClient {
 	}
 
 	private String vectorLiteral(JsonNode vector) {
-		if (!vector.isArray() || vector.size() != 1024) throw new Failure("EMBEDDING_DIMENSION");
+		if (!vector.isArray() || vector.size() != DIMENSIONS) throw new Failure("EMBEDDING_DIMENSION");
 		double norm = 0;
 		StringBuilder literal = new StringBuilder("[");
-		for (int i = 0; i < 1024; i++) {
+		for (int i = 0; i < DIMENSIONS; i++) {
 			if (!vector.get(i).isNumber()) throw new Failure("EMBEDDING_VALUE");
 			float value = (float) vector.get(i).asDouble();
 			if (!Float.isFinite(value)) throw new Failure("EMBEDDING_VALUE");

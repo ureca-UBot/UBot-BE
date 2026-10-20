@@ -11,7 +11,7 @@ import com.ubot.counsel.message.service.MessageRateLimitService;
 import com.ubot.counsel.safety.client.EmbeddingClient;
 import com.ubot.counsel.safety.entity.SafetySentence;
 import com.ubot.counsel.safety.repository.SafetySentenceRepository;
-import com.ubot.counsel.safety.rule.DirectInsultRules;
+import com.ubot.counsel.safety.util.SafetyTextNormalizer;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -141,8 +141,8 @@ public class AdminSafetySentenceService {
 		}
 	}
 	private String contentHash(String content) {
-		String normalized = DirectInsultRules.normalize(content);
+		String normalized = SafetyTextNormalizer.normalize(content);
 		if (normalized.isBlank() || normalized.length() > 2000) throw new IllegalArgumentException();
-		return DirectInsultRules.contentHash(content);
+		return SafetyTextNormalizer.contentHash(content);
 	}
 }

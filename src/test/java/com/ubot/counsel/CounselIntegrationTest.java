@@ -14,7 +14,7 @@ import com.ubot.counsel.message.repository.MessageRepository;
 import com.ubot.counsel.message.service.MessageService;
 import com.ubot.counsel.message.controller.MessageController;
 import com.ubot.counsel.safety.model.GuardDecision;
-import com.ubot.counsel.safety.rule.DirectInsultRules;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.counsel.safety.client.EmbeddingClient;
 import com.ubot.counsel.safety.repository.SafetyRepository;
 import com.ubot.counsel.safety.service.SafetyGuardService;
@@ -53,6 +53,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CounselIntegrationTest {
 	static final ObjectMapper JSON = new ObjectMapper();
 	static final AtomicInteger EMBEDDING_CALLS = new AtomicInteger();
+	// 모델 정확도 대신 높은/낮은 유사도에 따른 전달·저장을 검증하는 고정 응답이다.
+	static final Set<String> HIGH_SIMILARITY_INPUTS = Set.of(
+			"당신은 정말 무능한 상담사네요.", "당신은 바보예요.", "당신은 사고력이 아예 없는 인간처럼 보이네요.");
 	static final UUID OWN_CONVERSATION = UUID.fromString("10000000-0000-0000-0000-000000000001");
 	static volatile CountDownLatch entered = new CountDownLatch(0);
 	static volatile CountDownLatch release = new CountDownLatch(0);
@@ -71,8 +74,7 @@ class CounselIntegrationTest {
 				}
 				int status = input.contains("GPU장애") ? 503 : 200;
 				List<Double> vector = new ArrayList<>(Collections.nCopies(input.contains("차원오류") ? 3 : 1024, 0.0));
-				vector.set(0, 1.0);
-				if (input.contains("영벡터")) vector.set(0, 0.0);
+				if (!input.contains("영벡터")) vector.set(HIGH_SIMILARITY_INPUTS.contains(input) ? 0 : 1, 1.0);
 				byte[] bytes = JSON.writeValueAsBytes(Map.of("data", List.of(Map.of("embedding", vector, "index", 0))));
 				exchange.getResponseHeaders().add("Content-Type", "application/json");
 				exchange.sendResponseHeaders(status, bytes.length);
@@ -113,6 +115,7 @@ class CounselIntegrationTest {
 	@Autowired SessionService sessions;
 	@Autowired MessageService messages;
 	@Autowired SafetyGuardService guard;
+	@Autowired ForbiddenWordFilterService forbiddenWordFilter;
 	@Autowired AdminCounselService admin;
 	@Autowired MockMvc mvc;
 	@Autowired SafetyProfileService seeder;
@@ -131,6 +134,8 @@ class CounselIntegrationTest {
 				counseling.rate_buckets, counseling.role_audit RESTART IDENTITY CASCADE
 				""");
 		jdbc.execute("TRUNCATE public.users RESTART IDENTITY CASCADE");
+		jdbc.execute("TRUNCATE public.forbidden_words RESTART IDENTITY");
+		forbiddenWordFilter.refreshForbiddenWordCache();
 		jdbc.update("""
 				INSERT INTO public.users(user_id,email,password_hash,name,role)
 				SELECT id,concat('counsel-',id,'@example.test'),'test-hash','test',role
@@ -320,7 +325,7 @@ class CounselIntegrationTest {
 			assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isLessThan(2500);
 		} finally { release.countDown(); }
 	}
-	@Test void quotationAndComplaintsSurviveEvenPerfectCosineMatch() {
+	@Test void semanticDecisionsFollowSimilarityWithoutDirectInsultShortcut() {
 		for (String text : List.of("다른 사람이 저한테 무능하다고 말했어요.", "당신은 바보가 아니에요.",
 				"안내 내용이 틀렸고 설명도 부족합니다.", "당신은 요금 설명을 잘못하셨습니다.",
 				"당신은 정말 무능한 상담사네요라는 말을 들었어요.")) {
@@ -329,7 +334,54 @@ class CounselIntegrationTest {
 		assertThat(guard.checkMessage("당신은 사고력이 아예 없는 인간처럼 보이네요.").status()).isEqualTo("BLOCKED");
 		int before = EMBEDDING_CALLS.get();
 		assertThat(guard.checkMessage("당신은 정말 무능한 상담사네요.").status()).isEqualTo("BLOCKED");
-		assertThat(EMBEDDING_CALLS.get()).isEqualTo(before);
+		assertThat(EMBEDDING_CALLS.get()).isEqualTo(before + 1);
+	}
+
+	@Test void existingForbiddenWordApiControlsCounselBeforeEmbedding() throws Exception {
+		String adminToken = token("admin");
+		String created = mvc.perform(post("/admin/forbidden-words").header("Authorization", adminToken)
+				.contentType(MediaType.APPLICATION_JSON).content("{\"word\":\"필터검증\"}"))
+				.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+		long wordId = JSON.readTree(created).path("data").path("id").asLong();
+		Session room = active();
+		UUID clientId = UUID.randomUUID();
+		String messagePath = "/counsel/sessions/" + room.sessionId() + "/messages";
+		String body = JSON.writeValueAsString(Map.of("clientMessageId", clientId, "content", "필터검증을 인용한 문의"));
+		for (int retry = 0; retry < 2; retry++) {
+			mvc.perform(post(messagePath).header("Authorization", token("customer"))
+					.contentType(MediaType.APPLICATION_JSON).content(body))
+					.andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("BLOCKED"))
+					.andExpect(jsonPath("$.data.deliverySequence").isEmpty());
+		}
+		assertThat(messages.sendMessage(counselor, room.sessionId(), UUID.randomUUID(), "필터검증 답변").status())
+				.isEqualTo("BLOCKED");
+		mvc.perform(post("/counsel/admin/safety/evaluate").header("Authorization", adminToken)
+				.contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"필터검증\"}"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("BLOCKED"));
+		assertThat(EMBEDDING_CALLS.get()).isZero();
+		assertThat(messages.getMessages(customer, room.sessionId(), 0, 100)).isEmpty();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.messages", Integer.class)).isEqualTo(2);
+		assertThat(jdbc.queryForObject("""
+				SELECT count(*) FROM counseling.safety_filter_events
+				WHERE decision='BLOCKED' AND matched_vector_id IS NULL AND score IS NULL
+				  AND rule_version='forbidden-word-semantic-v2'
+				""", Integer.class)).isEqualTo(2);
+
+		mvc.perform(patch("/admin/forbidden-words/" + wordId).header("Authorization", adminToken)
+				.contentType(MediaType.APPLICATION_JSON).content("{\"word\":\"변경금지어\"}")).andExpect(status().isOk());
+		assertThat(messages.sendMessage(customer, room.sessionId(), UUID.randomUUID(), "필터검증을 인용한 문의").status())
+				.isEqualTo("ALLOWED");
+		assertThat(messages.sendMessage(customer, room.sessionId(), UUID.randomUUID(), "변경금지어 문의").status())
+				.isEqualTo("BLOCKED");
+		assertThat(EMBEDDING_CALLS.get()).isEqualTo(1);
+		mvc.perform(patch("/admin/forbidden-words/" + wordId + "/status").header("Authorization", adminToken)
+				.contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"INACTIVE\"}")).andExpect(status().isOk());
+		assertThat(messages.sendMessage(customer, room.sessionId(), UUID.randomUUID(), "변경금지어 문의").status())
+				.isEqualTo("ALLOWED");
+		mvc.perform(patch("/admin/forbidden-words/" + wordId + "/status").header("Authorization", adminToken)
+				.contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"ACTIVE\"}")).andExpect(status().isOk());
+		assertThat(guard.checkMessage("변경금지어 문의").status()).isEqualTo("BLOCKED");
+		assertThat(EMBEDDING_CALLS.get()).isEqualTo(2);
 	}
 	@Test void restartRecoversStrandedPendingWithoutPublishing() {
 		Session room = active();

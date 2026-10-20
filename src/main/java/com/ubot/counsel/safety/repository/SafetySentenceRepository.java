@@ -2,7 +2,7 @@ package com.ubot.counsel.safety.repository;
 
 import com.ubot.counsel.common.config.CounselProperties;
 import com.ubot.counsel.safety.entity.SafetySentence;
-import com.ubot.counsel.safety.rule.DirectInsultRules;
+import com.ubot.counsel.safety.util.SafetyTextNormalizer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -45,7 +45,7 @@ public class SafetySentenceRepository {
 		return Boolean.TRUE.equals(jdbc.queryForObject("""
 				SELECT EXISTS(SELECT 1 FROM counseling.guard_profiles
 				WHERE profile_version=? AND model_name=? AND preprocessing_version=?)
-				""", Boolean.class, config.profile(), config.model(), DirectInsultRules.PREPROCESSING));
+				""", Boolean.class, config.profile(), config.model(), SafetyTextNormalizer.PREPROCESSING));
 	}
 	public long insert(String content, String hash, int severity) {
 		return jdbc.queryForObject("""

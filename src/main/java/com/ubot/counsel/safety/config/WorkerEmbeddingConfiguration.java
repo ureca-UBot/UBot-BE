@@ -9,7 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(name = "counsel.guard.transport", havingValue = "worker")
+@ConditionalOnProperty(name = "counsel.guard.transport", havingValue = "worker", matchIfMissing = true)
 public class WorkerEmbeddingConfiguration {
 	@Bean
 	public WorkerEmbeddingTransport workerEmbeddingTransport(

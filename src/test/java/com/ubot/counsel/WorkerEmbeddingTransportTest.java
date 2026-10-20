@@ -2,10 +2,23 @@ package com.ubot.counsel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+import com.pgvector.PGvector;
 import com.ubot.counsel.common.config.CounselProperties;
 import com.ubot.counsel.safety.client.EmbeddingClient;
 import com.ubot.counsel.safety.client.WorkerEmbeddingTransport;
+import com.ubot.counsel.safety.repository.SafetyRepository;
+import com.ubot.counsel.safety.service.SafetyGuardService;
+import com.ubot.embedding.worker.CounselEmbeddingWorker;
+import com.ubot.forbiddenword.entity.ForbiddenWord;
+import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
+import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -17,6 +30,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
@@ -70,6 +84,42 @@ class WorkerEmbeddingTransportTest {
 		assertThat(redis.hasKey(WorkerEmbeddingTransport.PREFIX + "request:" + id)).isFalse();
 		assertThat(redis.hasKey(WorkerEmbeddingTransport.PREFIX + "result:" + id)).isFalse();
 		assertThat(redis.opsForStream().size("chat:jobs")).isEqualTo(1);
+	}
+
+	@Test void existingFilterPreventsQueueWorkAndOnlyPassedMessagesReachWorker() {
+		var words = mock(ForbiddenWordRepository.class);
+		when(words.findAllByStatus(ForbiddenWordStatus.ACTIVE)).thenReturn(List.of(
+				ForbiddenWord.builder().word("필터검증").status(ForbiddenWordStatus.ACTIVE).build()));
+		var filter = new ForbiddenWordFilterService(words);
+		filter.refreshForbiddenWordCache();
+		var beans = new DefaultListableBeanFactory();
+		beans.registerSingleton("workerTransport", transport);
+		var properties = new CounselProperties(true, 30, 120, 15, 60, 30,
+				new CounselProperties.Guard("http://127.0.0.1:1/unused", "test-model", "test-v1", 0.95, 3, 2, 500, 1000));
+		var embedding = new EmbeddingClient(properties, JSON, beans.getBeanProvider(WorkerEmbeddingTransport.class), "worker");
+		var safety = mock(SafetyRepository.class);
+		when(safety.findTopMatches(anyString())).thenReturn(List.of(new SafetyRepository.Match(1, 0.2, "INSULT")));
+		var guard = new SafetyGuardService(filter, embedding, safety, properties);
+		var model = mock(com.ubot.embedding.client.EmbeddingClient.class);
+		when(model.getModelName()).thenReturn("test-model");
+		float[] values = new float[com.ubot.embedding.client.EmbeddingClient.DIMENSIONS];
+		values[0] = 1;
+		when(model.embed("요금 문의")).thenReturn(new PGvector(values));
+		var worker = new CounselEmbeddingWorker(redis, model, JSON);
+		redis.opsForStream().add("chat:jobs", Map.of("jobId", "untouched"));
+		worker.start();
+		try {
+			assertThat(guard.checkMessage("필터검증 문의").status()).isEqualTo("BLOCKED");
+			verifyNoInteractions(model, safety);
+			assertThat(redis.keys(WorkerEmbeddingTransport.PREFIX + "*")).isEmpty();
+
+			assertThat(guard.checkMessage("  요금　문의  ").status()).isEqualTo("ALLOWED");
+			verify(model).embed("요금 문의");
+			assertThat(redis.keys(WorkerEmbeddingTransport.PREFIX + "*")).isEmpty();
+			assertThat(redis.opsForStream().size("chat:jobs")).isEqualTo(1);
+		} finally {
+			worker.stop();
+		}
 	}
 
 	@Test void noWorkerTimesOutAndRemovesQueuedOriginal() {
