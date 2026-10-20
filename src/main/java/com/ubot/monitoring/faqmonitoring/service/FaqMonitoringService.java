@@ -11,8 +11,7 @@ import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrend;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrendPeriod;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrendPoint;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqTrendWindow;
-import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementItem;
-import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementMetric;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCandidate;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
 import com.ubot.monitoring.faqmonitoring.dto.response.FaqDetailResponse;
 import com.ubot.monitoring.faqmonitoring.dto.response.FaqImprovementResponse;
@@ -20,10 +19,9 @@ import com.ubot.monitoring.faqmonitoring.dto.response.FaqMonitoringResponse;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringDetailQueryRepository;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringImprovementQueryRepository;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringRankingQueryRepository;
+import com.ubot.monitoring.faqmonitoring.repository.FaqImprovementSearchCriteria;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,8 +50,11 @@ public class FaqMonitoringService {
 	@Value("${faq-monitoring.improvement.low-gap-rate-threshold}")
 	private double lowGapRateThreshold;
 
-	@Value("${faq-monitoring.improvement.unused-days}")
-	private int unusedDays;
+	@Value("${faq-monitoring.improvement.low-gap-threshold}")
+	private double lowGapThreshold;
+
+	@Value("${faq-monitoring.improvement.unused-minutes}")
+	private int unusedMinutes;
 
 	@Value("${faq-monitoring.improvement.minimum-top-k-samples}")
 	private int minimumTopKSampleCount;
@@ -84,29 +85,35 @@ public class FaqMonitoringService {
 	}
 
 	@Transactional(readOnly = true)
-	public FaqImprovementResponse getFaqImprovements() {
+	public FaqImprovementResponse getFaqImprovements(List<FaqImprovementType> types, int page, int size) {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
-		LocalDateTime recentUsageStartAt = evaluatedAt.minusDays(unusedDays);
-		List<FaqImprovementItem> items = improvementQueryRepository
-				.findCurrentVersionMetrics(evaluatedAt, recentUsageStartAt, improvementTopK)
-				.stream()
-				.map(metric -> toImprovementItem(metric, evaluatedAt))
-				.flatMap(java.util.Optional::stream)
-				.sorted(Comparator
-						.comparingInt((FaqImprovementItem item) -> item.improvementTypes().size()).reversed()
-						.thenComparing(Comparator.comparingLong(FaqImprovementItem::topKCount).reversed())
-						.thenComparingDouble(FaqImprovementItem::averageSimilarity))
-				.toList();
+		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
+		FaqImprovementSearchCriteria criteria = new FaqImprovementSearchCriteria(
+				evaluatedAt, recentUsageStartAt, improvementTopK, lowGapThreshold,
+				lowSimilarityThreshold, lowGapRateThreshold, minimumTopKSampleCount,
+				minimumTop1SampleCount, types, page, size
+		);
+		var result = improvementQueryRepository.findImprovements(criteria);
 
 		log.info(
-				"개선 필요 FAQ를 조회했습니다. evaluatedAt={}, 결과 수={}, 유사도 기준={}, 낮은 Gap 비율 기준={}, 미사용 기간={}일",
+				"개선 필요 FAQ를 조회했습니다. evaluatedAt={}, 결과 수={}, 유사도 기준={}, 낮은 Gap 비율 기준={}, 미사용 기간={}분",
 				evaluatedAt,
-				items.size(),
+				result.totalElements(),
 				lowSimilarityThreshold,
 				lowGapRateThreshold,
-				unusedDays
+				unusedMinutes
 		);
-		return new FaqImprovementResponse(evaluatedAt, items);
+		return FaqImprovementResponse.of(evaluatedAt, result);
+	}
+
+	@Transactional(readOnly = true)
+	public List<FaqDuplicateCandidate> getDuplicateCandidates(Long faqId) {
+		if (!faqRepository.existsByIdAndDeletedAtIsNull(faqId)) {
+			throw new FaqException(FaqErrorCode.FAQ_NOT_FOUND);
+		}
+		return improvementQueryRepository.findDuplicateCandidates(
+				faqId, LocalDateTime.now(SERVICE_ZONE), lowGapThreshold
+		);
 	}
 
 	@Transactional(readOnly = true)
@@ -156,32 +163,4 @@ public class FaqMonitoringService {
 		);
 	}
 
-	private java.util.Optional<FaqImprovementItem> toImprovementItem(
-			FaqImprovementMetric metric,
-			LocalDateTime evaluatedAt
-	) {
-		List<FaqImprovementType> types = new ArrayList<>();
-		if (metric.topKCount() >= minimumTopKSampleCount
-				&& metric.averageSimilarity() < lowSimilarityThreshold) {
-			types.add(FaqImprovementType.LOW_RAG_QUALITY);
-		}
-		if (metric.top1SampleCount() >= minimumTop1SampleCount
-				&& metric.lowGapRate() >= lowGapRateThreshold) {
-			types.add(FaqImprovementType.DUPLICATE_SUSPECTED);
-		}
-		if (!metric.versionStartedAt().plusDays(unusedDays).isAfter(evaluatedAt)
-				&& metric.recentUsageCount() == 0) {
-			types.add(FaqImprovementType.LOW_USAGE);
-		}
-
-		if (types.isEmpty()) {
-			return java.util.Optional.empty();
-		}
-
-		return java.util.Optional.of(new FaqImprovementItem(
-				metric.faqId(), metric.question(), metric.intent(), metric.faqVersion(), metric.versionStartedAt(),
-				types, metric.topKCount(), metric.averageSimilarity(), metric.top1SampleCount(),
-				metric.recentUsageCount(), metric.averageTopGap(), metric.lowGapRate()
-		));
-	}
 }
