@@ -27,7 +27,9 @@ import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -222,8 +224,9 @@ public class ChatAnswerProcessor {
 	}
 
 	/**
-	 * 검색 결과 하나에 유사도 기준과 답변 문장 검사를 차례로 적용합니다.
-	 * 둘 중 한 단계라도 통과한 FAQ가 없으면 faqs가 비고, 그 사유와 벡터 검색 1위 FAQ를 담습니다.
+	 * 질문 유사도를 통과한 GENERAL FAQ에만 답변 문장 검사를 적용합니다.
+	 * USER_DATA와 STORE_DATA는 실제 조회 자료를 수집하도록 유지합니다.
+	 * 남은 FAQ가 없으면 그 사유와 벡터 검색 1위 FAQ를 담습니다.
 	 */
 	private GatedFaqs gate(AnswerAttemptsHistory attempt, int subQuestionIndex, SearchedCandidates candidates,
 			double minimumSimilarity, Runnable checkCancellation) {
@@ -252,22 +255,35 @@ public class ChatAnswerProcessor {
 					attempt.getId(), subQuestionIndex, highestSimilarity(results), minimumSimilarity);
 			return GatedFaqs.failed(UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 		}
-		// 질문 유사도 기준을 넘은 FAQ에서 이 검색어와 비슷한 답변 문장만 고릅니다.
+		List<FaqSearchResponseDto> sentenceCandidates = filteredResults.stream()
+				.filter(faq -> faq.intent() == Intent.GENERAL)
+				.toList();
 		log.info("FAQ 답변 문장 검색을 시작합니다: 시도ID={}, 하위질문순번={}, 문장검사대상FAQ수={}",
-				attempt.getId(), subQuestionIndex, filteredResults.size());
-		List<MatchedFaq> matched = faqSentenceFilterService.filter(candidates.queryVector(), filteredResults);
+				attempt.getId(), subQuestionIndex, sentenceCandidates.size());
+		List<MatchedFaq> matched = sentenceCandidates.isEmpty() ? List.of()
+				: faqSentenceFilterService.filter(candidates.queryVector(), sentenceCandidates);
 		checkCancellation.run();
 		log.info("FAQ 답변 문장 검색을 완료했습니다: 시도ID={}, 하위질문순번={}, 통과FAQ수={}, 통과FAQ ID={}",
 				attempt.getId(), subQuestionIndex, matched.size(), matched.stream().map(item -> item.faq().faqId()).toList());
-		if (matched.isEmpty()) {
-			log.info("유사도 기준을 통과한 FAQ 답변 문장이 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
+		Map<Long, String> matchedAnswers = matched.stream()
+				.collect(Collectors.toMap(item -> item.faq().faqId(), MatchedFaq::answerSentences));
+		List<FaqSearchResponseDto> originalFaqs = new ArrayList<>();
+		List<FaqSearchResponseDto> promptFaqs = new ArrayList<>();
+		for (FaqSearchResponseDto faq : filteredResults) {
+			boolean generalFaq = faq.intent() == Intent.GENERAL;
+			String answer = generalFaq ? matchedAnswers.get(faq.faqId()) : faq.answer();
+			if (generalFaq && answer == null) {
+				continue;
+			}
+			originalFaqs.add(faq);
+			promptFaqs.add(new FaqSearchResponseDto(faq.faqId(), faq.question(), answer,
+					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable()));
+		}
+		if (originalFaqs.isEmpty()) {
+			log.info("답변 근거로 사용할 FAQ가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
 			return GatedFaqs.failed(UnansweredReason.INSUFFICIENT_FAQ, outcome.denseTop1());
 		}
-		return new GatedFaqs(matched.stream().map(MatchedFaq::faq).toList(), matched.stream().map(item -> {
-			FaqSearchResponseDto faq = item.faq();
-			return new FaqSearchResponseDto(faq.faqId(), faq.question(), item.answerSentences(),
-					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable());
-		}).toList(), null, null);
+		return new GatedFaqs(originalFaqs, promptFaqs, null, null);
 	}
 
 	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
