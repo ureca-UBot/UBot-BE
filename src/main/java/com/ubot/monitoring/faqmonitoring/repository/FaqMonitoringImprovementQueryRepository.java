@@ -1,9 +1,12 @@
 package com.ubot.monitoring.faqmonitoring.repository;
 
+import com.ubot.common.PageResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCandidate;
-import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementMetric;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementItem;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -19,12 +22,7 @@ public class FaqMonitoringImprovementQueryRepository {
 	/**
 	 * 현재 FAQ 버전이 적용된 뒤의 후보 로그만 모아 개선 판단에 필요한 원본 지표를 반환합니다.
 	 */
-	public List<FaqImprovementMetric> findCurrentVersionMetrics(
-			LocalDateTime evaluatedAt,
-			LocalDateTime recentUsageStartAt,
-			int topK,
-			double lowGapThreshold
-	) {
+	public PageResponseDto<FaqImprovementItem> findImprovements(FaqImprovementSearchCriteria criteria) {
 		String sql = """
 				WITH current_version_logs AS (
 					SELECT f.id AS faq_id, f.question, f.intent, f.version AS faq_version,
@@ -68,34 +66,79 @@ public class FaqMonitoringImprovementQueryRepository {
 						) AS low_gap_rate
 					FROM top1_gaps
 					GROUP BY faq_id
+				), classified AS (
+					SELECT m.faq_id, m.question, m.intent, m.faq_version, m.version_started_at,
+						m.top_k_count, m.average_similarity, COALESCE(g.top1_sample_count, 0) AS top1_sample_count,
+						m.recent_usage_count, COALESCE(g.average_top_gap, 0.0) AS average_top_gap,
+						COALESCE(g.low_gap_rate, 0.0) AS low_gap_rate,
+						(m.top_k_count >= :minimumTopKSampleCount
+							AND m.average_similarity < :lowSimilarityThreshold) AS low_rag_quality,
+						(COALESCE(g.top1_sample_count, 0) >= :minimumTop1SampleCount
+							AND COALESCE(g.low_gap_rate, 0.0) >= :lowGapRateThreshold) AS duplicate_suspected,
+						(m.version_started_at <= :recentUsageStartAt
+							AND m.recent_usage_count = 0) AS low_usage
+					FROM metrics m
+					LEFT JOIN gap_metrics g ON g.faq_id = m.faq_id
+				), filtered AS (
+					SELECT *, (low_rag_quality::int + duplicate_suspected::int + low_usage::int) AS type_count
+					FROM classified
+					WHERE (low_rag_quality OR duplicate_suspected OR low_usage)
+						AND (:filterLowRagQuality = FALSE OR low_rag_quality)
+						AND (:filterDuplicateSuspected = FALSE OR duplicate_suspected)
+						AND (:filterLowUsage = FALSE OR low_usage)
 				)
-				SELECT m.faq_id, m.question, m.intent, m.faq_version, m.version_started_at,
-					m.top_k_count, m.average_similarity, COALESCE(g.top1_sample_count, 0) AS top1_sample_count,
-					m.recent_usage_count, COALESCE(g.average_top_gap, 0.0) AS average_top_gap,
-					COALESCE(g.low_gap_rate, 0.0) AS low_gap_rate
-				FROM metrics m
-				LEFT JOIN gap_metrics g ON g.faq_id = m.faq_id
-				ORDER BY m.faq_id
+				SELECT totals.total_count, page_rows.*
+				FROM (SELECT COUNT(*) AS total_count FROM filtered) totals
+				LEFT JOIN LATERAL (
+					SELECT * FROM filtered
+					ORDER BY type_count DESC, top_k_count DESC, average_similarity ASC, faq_id ASC
+					LIMIT :size OFFSET :offset
+				) page_rows ON TRUE
 				""";
 
 		MapSqlParameterSource parameters = new MapSqlParameterSource()
-				.addValue("evaluatedAt", evaluatedAt)
-				.addValue("recentUsageStartAt", recentUsageStartAt)
-				.addValue("lowGapThreshold", lowGapThreshold)
-				.addValue("topK", topK);
-		return jdbcTemplate.query(sql, parameters, (rs, rowNum) -> new FaqImprovementMetric(
-				rs.getLong("faq_id"),
-				rs.getString("question"),
-				Intent.valueOf(rs.getString("intent")),
-				rs.getInt("faq_version"),
-				rs.getTimestamp("version_started_at").toLocalDateTime(),
-				rs.getLong("top_k_count"),
-				rs.getDouble("average_similarity"),
-				rs.getLong("top1_sample_count"),
-				rs.getLong("recent_usage_count"),
-				rs.getDouble("average_top_gap"),
-				rs.getDouble("low_gap_rate")
-		));
+				.addValue("evaluatedAt", criteria.evaluatedAt())
+				.addValue("recentUsageStartAt", criteria.recentUsageStartAt())
+				.addValue("lowGapThreshold", criteria.lowGapThreshold())
+				.addValue("topK", criteria.topK())
+				.addValue("lowSimilarityThreshold", criteria.lowSimilarityThreshold())
+				.addValue("lowGapRateThreshold", criteria.lowGapRateThreshold())
+				.addValue("minimumTopKSampleCount", criteria.minimumTopKSampleCount())
+				.addValue("minimumTop1SampleCount", criteria.minimumTop1SampleCount())
+				.addValue("filterLowRagQuality", criteria.types() != null && criteria.types().contains(FaqImprovementType.LOW_RAG_QUALITY))
+				.addValue("filterDuplicateSuspected", criteria.types() != null && criteria.types().contains(FaqImprovementType.DUPLICATE_SUSPECTED))
+				.addValue("filterLowUsage", criteria.types() != null && criteria.types().contains(FaqImprovementType.LOW_USAGE))
+				.addValue("size", criteria.size())
+				.addValue("offset", (long) criteria.page() * criteria.size());
+		return jdbcTemplate.query(sql, parameters, rs -> {
+			List<FaqImprovementItem> items = new ArrayList<>();
+			long totalElements = 0;
+			while (rs.next()) {
+				totalElements = rs.getLong("total_count");
+				Long faqId = rs.getObject("faq_id", Long.class);
+				if (faqId == null) {
+					continue;
+				}
+				List<FaqImprovementType> improvementTypes = new ArrayList<>(3);
+				if (rs.getBoolean("low_rag_quality")) {
+					improvementTypes.add(FaqImprovementType.LOW_RAG_QUALITY);
+				}
+				if (rs.getBoolean("duplicate_suspected")) {
+					improvementTypes.add(FaqImprovementType.DUPLICATE_SUSPECTED);
+				}
+				if (rs.getBoolean("low_usage")) {
+					improvementTypes.add(FaqImprovementType.LOW_USAGE);
+				}
+				items.add(new FaqImprovementItem(
+						faqId, rs.getString("question"), Intent.valueOf(rs.getString("intent")),
+						rs.getInt("faq_version"), rs.getTimestamp("version_started_at").toLocalDateTime(),
+						improvementTypes, rs.getLong("top_k_count"), rs.getDouble("average_similarity"),
+						rs.getLong("top1_sample_count"), rs.getLong("recent_usage_count"),
+						rs.getDouble("average_top_gap"), rs.getDouble("low_gap_rate")
+				));
+			}
+			return PageResponseDto.of(items, criteria.page(), criteria.size(), totalElements);
+		});
 	}
 
 	public List<FaqDuplicateCandidate> findDuplicateCandidates(
