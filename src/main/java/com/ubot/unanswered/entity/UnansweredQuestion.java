@@ -1,6 +1,7 @@
 package com.ubot.unanswered.entity;
 
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.enums.UnansweredSource;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -40,6 +41,10 @@ public class UnansweredQuestion {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "reason")
 	private UnansweredReason reason;
+
+	@Enumerated(EnumType.STRING)
+	@Column(name = "source")
+	private UnansweredSource source;
 
 	@Column(name = "best_faq_id")
 	private Long bestFaqId;

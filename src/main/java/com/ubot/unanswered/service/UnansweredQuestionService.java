@@ -8,6 +8,7 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.unanswered.enums.UnansweredReason;
+import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
 
@@ -49,6 +50,21 @@ public class UnansweredQuestionService {
             Long bestFaqId,
             Double bestSimilarity
     ) {
+        createUnansweredQuestion(attemptId, subQuestionIndex, subQuestion, userText, reason, bestFaqId, bestSimilarity,
+                UnansweredSource.RETRIEVAL);
+    }
+
+    @Transactional
+    public void createUnansweredQuestion(
+            Long attemptId,
+            int subQuestionIndex,
+            String subQuestion,
+            String userText,
+            UnansweredReason reason,
+            Long bestFaqId,
+            Double bestSimilarity,
+            UnansweredSource source
+    ) {
         // 같은 시도의 같은 하위 질문은 한 번만 저장합니다.
         if (unansweredQuestionRepository.existsByAttemptIdAndSubQuestionIndex(attemptId, subQuestionIndex)) {
             return;
@@ -87,7 +103,8 @@ public class UnansweredQuestionService {
                 profileId,
                 reason,
                 bestFaqId,
-                bestSimilarity
+                bestSimilarity,
+                source
         );
 
         unansweredQuestionVectorRepository.updateGroupCentroid(
