@@ -18,10 +18,24 @@ http {
         https https;
     }
 
-    # A bearer header alone does not prove authentication, so apply the limit
-    # to every chat submission using the client IP as the key.
-    limit_req_zone $binary_remote_addr zone=chat_guest:10m rate=${CHAT_GUEST_RATE_LIMIT_RATE};
-    limit_req_zone $binary_remote_addr zone=chat_poll:10m rate=20r/s;
+    # Guests are limited per client IP. Members are limited per access token, not per IP,
+    # so customers behind a carrier NAT or in one building do not share a limit.
+    # A forged bearer value only gets its own bucket; the backend rejects it at the
+    # JWT signature check before any chat job or model call is created.
+    map $http_authorization $chat_guest_key {
+        default            $binary_remote_addr;
+        "~^Bearer\s+\S"    "";
+    }
+    map $http_authorization $chat_member_key {
+        default                          "";
+        "~^Bearer\s+(?<chat_token>\S+)"  $chat_token;
+    }
+
+    # An empty key skips that zone, so each request is counted by exactly one of each pair.
+    limit_req_zone $chat_guest_key zone=chat_guest:10m rate=${CHAT_GUEST_RATE_LIMIT_RATE};
+    limit_req_zone $chat_member_key zone=chat_member:20m rate=${CHAT_MEMBER_RATE_LIMIT_RATE};
+    limit_req_zone $chat_guest_key zone=chat_poll:10m rate=20r/s;
+    limit_req_zone $chat_member_key zone=chat_member_poll:20m rate=20r/s;
     limit_req_status 429;
 
     server {
@@ -54,11 +68,13 @@ http {
         }
         location /api/chat/jobs/ {
             limit_req zone=chat_poll burst=40 nodelay;
+            limit_req zone=chat_member_poll burst=40 nodelay;
             error_page 429 = @chat_rate_limited;
             proxy_pass http://backend/chat/jobs/;
         }
         location /api/chat/ {
             limit_req zone=chat_guest burst=${CHAT_GUEST_RATE_LIMIT_BURST} nodelay;
+            limit_req zone=chat_member burst=${CHAT_MEMBER_RATE_LIMIT_BURST} nodelay;
             error_page 429 = @chat_rate_limited;
             proxy_pass http://backend/chat/;
         }

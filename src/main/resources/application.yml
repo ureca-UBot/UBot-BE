@@ -62,6 +62,11 @@ app:
       execution-timeout: ${CHAT_WORKER_EXECUTION_TIMEOUT:180s}
       # 종료 때 실행 중 작업 대기 시간. 컨테이너 종료 유예 시간보다 짧아야 함
       shutdown-wait: ${CHAT_WORKER_SHUTDOWN_WAIT:20s}
+    # 회원 질문·재시도·의도 재검색 접수를 사용자 ID별로 window마다 max-requests회까지 받음(Redis)
+    member-rate-limit:
+      enabled: ${CHAT_USER_RATE_LIMIT_ENABLED:true}
+      max-requests: ${CHAT_USER_RATE_LIMIT_MAX:30}
+      window: ${CHAT_USER_RATE_LIMIT_WINDOW:60s}
   ai:
     mode: ${AI_MODE:ollama}
     chat-engine: ${AI_CHAT_ENGINE:}

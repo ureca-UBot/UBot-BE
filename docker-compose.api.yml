@@ -31,6 +31,8 @@ services:
       FE_PRIVATE_IP: ${FE_PRIVATE_IP:?Set FE_PRIVATE_IP}
       CHAT_GUEST_RATE_LIMIT_RATE: ${CHAT_GUEST_RATE_LIMIT_RATE:-30r/m}
       CHAT_GUEST_RATE_LIMIT_BURST: ${CHAT_GUEST_RATE_LIMIT_BURST:-10}
+      CHAT_MEMBER_RATE_LIMIT_RATE: ${CHAT_MEMBER_RATE_LIMIT_RATE:-30r/m}
+      CHAT_MEMBER_RATE_LIMIT_BURST: ${CHAT_MEMBER_RATE_LIMIT_BURST:-10}
     volumes:
       - ./infra/nginx/nginx.api.conf.template:/etc/nginx/templates/nginx.conf.template:ro
     depends_on:

@@ -119,6 +119,9 @@ src/main/resources/
 | `CHAT_WORKER_RESULT_TTL` | Redis 결과 캐시 TTL. DB 원본은 지도까지 보존함 | `24h` | `24h` |
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM을 포함한 전체 실행 제한. 초과 시 CHAT-016, 취소 요청 및 늦은 결과 폐기 | `180s` | `180s` |
 | `CHAT_WORKER_SHUTDOWN_WAIT` | Worker 종료 시 실행 중인 작업을 기다리는 시간. 넘기면 대기열에 돌려놓고 다시 발행. 컨테이너 종료 유예 시간(`stop_grace_period`, ECS `stopTimeout`)보다 짧아야 함 | `20s` | `20s` |
+| `CHAT_USER_RATE_LIMIT_ENABLED` | `ChatRateLimitService`: 회원 질문·재시도·의도 재검색 접수를 사용자 ID별로 제한할지 여부. Redis(`chat:rate:user:<사용자ID>`)에 고정 윈도로 세고, Redis 장애 시 제한 없이 접수 | `true` | `true` (`test` 프로필은 `false`) |
+| `CHAT_USER_RATE_LIMIT_MAX` | `ChatRateLimitService`: 윈도 하나에 받는 회원 접수 수. 넘으면 시도·작업을 만들지 않고 `CHAT-024`(429). 1 미만이면 기동 실패 | `30` | `30` |
+| `CHAT_USER_RATE_LIMIT_WINDOW` | `ChatRateLimitService`: 회원 접수를 세는 윈도 길이. 1초 미만이면 기동 실패 | `60s` | `60s` |
 | `DB_POOL_MAX_SIZE` | HikariCP(`spring.datasource.hikari.maximum-pool-size`): 프로세스 하나의 DB 연결 수. API와 Worker를 합쳐 PostgreSQL `max_connections`보다 작아야 함 | `10` | `10` |
 | `SCHEDULER_POOL_SIZE` | `spring.task.scheduling.pool.size`: `@Scheduled` 작업을 동시에 실행할 스레드 수. 1이면 한 작업(보관 기간 삭제 재시도, LLM 호출 등)이 끝날 때까지 다른 예약 작업(Outbox 처리 등)이 기다림. 같은 작업은 겹쳐 실행되지 않음 | `4` | `4` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |

@@ -65,7 +65,7 @@ class ChatServiceIntentRoutingTest {
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);
 		service = new ChatService(attempts, ChatTestFixtures.inputGuard(),
-				harness.submissionService, ipRegionResolver);
+				harness.submissionService, ipRegionResolver, ChatTestFixtures.noRateLimit());
 		when(attempts.createAnswerAttempt(1L, null, "근처 매장 알려줘")).thenReturn(attempt);
 		when(attempts.createRetryAttempt(1L, attempt.getIdempotencyKey())).thenReturn(attempt);
 		when(vector.getSimilarList("근처 매장 알려줘", 3)).thenReturn(sources);

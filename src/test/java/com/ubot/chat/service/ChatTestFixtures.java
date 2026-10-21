@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.chat.config.ChatRateLimitProperties;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
@@ -21,6 +22,7 @@ import com.ubot.faq.service.FaqVectorService;
 import com.pgvector.PGvector;
 import com.ubot.user.service.UserService;
 import java.util.List;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
 final class ChatTestFixtures {
@@ -50,6 +52,13 @@ final class ChatTestFixtures {
 	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */
 	static ChatInputGuardService passthroughInputGuard() {
 		return mock(ChatInputGuardService.class, invocation -> invocation.getArgument(0));
+	}
+
+	/** 회원 접수 제한과 무관한 테스트용. Redis를 부르지 않습니다(ChatRateLimitServiceTest에서 검증). */
+	static ChatRateLimitService noRateLimit() {
+		ChatRateLimitProperties properties = new ChatRateLimitProperties();
+		properties.setEnabled(false);
+		return new ChatRateLimitService(mock(StringRedisTemplate.class), properties);
 	}
 
 	static FaqSemanticCacheService disabledCache() {

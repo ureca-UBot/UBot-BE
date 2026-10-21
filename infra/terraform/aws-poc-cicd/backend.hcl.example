@@ -1,5 +1,0 @@
-bucket       = "REPLACE_WITH_BOOTSTRAP_OUTPUT"
-key          = "ubot/aws-poc-cicd/terraform.tfstate"
-region       = "ap-northeast-2"
-encrypt      = true
-use_lockfile = true

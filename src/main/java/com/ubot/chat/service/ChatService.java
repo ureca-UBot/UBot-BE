@@ -13,7 +13,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-/** 회원·게스트의 질문과 재시도 요청을 검증하고 답변 시도를 만들어 실행을 요청합니다. */
+/**
+ * 회원·게스트의 질문과 재시도 요청을 검증하고 답변 시도를 만들어 실행을 요청합니다.
+ * 회원 접수는 질문 검사(형태소 분석 포함)보다 먼저 사용자 ID별 횟수를 셉니다. 게스트는 세션 질문 수로 제한합니다.
+ */
 @Slf4j
 @Service
 public class ChatService {
@@ -21,20 +24,24 @@ public class ChatService {
 	private final ChatInputGuardService chatInputGuardService;
 	private final ChatSubmissionService chatSubmissionService;
 	private final IpRegionResolver ipRegionResolver;
+	private final ChatRateLimitService chatRateLimitService;
 
 	public ChatService(
 			ChatAttemptsService chatAttemptsService,
 			ChatInputGuardService chatInputGuardService,
 			ChatSubmissionService chatSubmissionService,
-			IpRegionResolver ipRegionResolver) {
+			IpRegionResolver ipRegionResolver,
+			ChatRateLimitService chatRateLimitService) {
 		this.chatAttemptsService = chatAttemptsService;
 		this.chatInputGuardService = chatInputGuardService;
 		this.chatSubmissionService = chatSubmissionService;
 		this.ipRegionResolver = ipRegionResolver;
+		this.chatRateLimitService = chatRateLimitService;
 	}
 
 	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
 	public ChatSubmission createChat(Long userId, Long conversationId, String question, Location myLocation, String userIp) {
+		chatRateLimitService.validateMemberRequest(userId);
 		validateQuestion(question);
 		return chatSubmissionService.submit(() -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, conversationId, question);
@@ -55,6 +62,7 @@ public class ChatService {
 
 	// 시도 이력에 위치를 저장하지 않으므로 재시도는 회원·게스트 모두 위치 없이 진행합니다.
 	public ChatSubmission retryChat(Long userId, String idempotencyKey, String userIp) {
+		chatRateLimitService.validateMemberRequest(userId);
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		validateQuestion(chatAttemptsService.getLatestAnswerAttempt(userId, idempotencyKey).getQuestion());
 		return chatSubmissionService.submit(() -> {
@@ -83,6 +91,7 @@ public class ChatService {
 	 */
 	public ChatSubmission researchChat(
 			Long userId, String idempotencyKey, Intent intent, Location myLocation, String userIp) {
+		chatRateLimitService.validateMemberRequest(userId);
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_REQUEST);
 		if (intent == null) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
