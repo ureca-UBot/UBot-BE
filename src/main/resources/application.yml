@@ -75,13 +75,13 @@ app:
     refresh-token-expiration-days: ${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:14}
 
 ranking:
-  window-minutes: ${RANKING_WINDOW_MINUTES:60}
+  window-minutes: ${RANKING_WINDOW_MINUTES:20}
   size: ${RANKING_SIZE:5}
-  refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:5}
-  min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:20}
-  baseline-period-days: ${BASELINE_PERIOD_DAYS:7}
-  baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:20}
-  trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:20}
+  refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:1}
+  min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:10}
+  baseline-period-days: ${BASELINE_PERIOD_DAYS:2}
+  baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:10}
+  trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
 faq-monitoring:
   improvement:

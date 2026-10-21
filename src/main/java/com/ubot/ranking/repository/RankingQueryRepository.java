@@ -52,6 +52,7 @@ public class RankingQueryRepository {
 				JOIN faq f
 				    ON f.id = c.faq_id
 					AND f.deleted_at IS NULL
+					AND f.intent = 'GENERAL'
 				ORDER BY
 					 c.current_count DESC,
 					 c.faq_id ASC
@@ -159,6 +160,7 @@ public class RankingQueryRepository {
 				JOIN faq f 
 					ON f.id = t.faq_id
 					AND f.deleted_at IS NULL
+					AND f.intent = 'GENERAL'
 				WHERE t.trend_ratio >= :trendRatioThreshold
 				ORDER BY
 				    t.trend_ratio DESC,
