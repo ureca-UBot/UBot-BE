@@ -185,12 +185,14 @@ class ProductCrudIntegrationTest {
     @EnumSource(Product.class)
     @DisplayName("상품 코드는 유일하고 등록 실패 시 새 행을 만들지 않는다")
     void rejectsDuplicateCode(Product product) throws Exception {
+        // 상품 시드(V43)가 있으므로 등록 전 행 수를 기준으로 비교한다.
+        int before = jdbcTemplate.queryForObject("SELECT count(*) FROM " + product.table, Integer.class);
         create(product, product.createBody);
         mockMvc.perform(post("/admin" + product.route).with(administrator())
                         .contentType(MediaType.APPLICATION_JSON).content(product.createBody))
                 .andExpect(status().isConflict());
         assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM " + product.table,
-                Integer.class)).isEqualTo(1);
+                Integer.class)).isEqualTo(before + 1);
     }
 
     @ParameterizedTest
@@ -227,13 +229,15 @@ class ProductCrudIntegrationTest {
     })
     @DisplayName("무제한·제공량 및 나이 조합이 잘못되면 저장하지 않는다")
     void rejectsInvalidPlanCombination(String replacement) throws Exception {
+        // 상품 시드(V43)가 있으므로 요청 전 행 수를 기준으로 비교한다.
+        int before = jdbcTemplate.queryForObject("SELECT count(*) FROM plans", Integer.class);
         String[] parts = replacement.split("=>");
         mockMvc.perform(post("/admin/plans").with(administrator())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(Product.PLAN.createBody.replace(parts[0], parts[1])))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PLAN-003"));
-        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM plans", Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM plans", Integer.class)).isEqualTo(before);
     }
 
     @Test
@@ -277,10 +281,11 @@ class ProductCrudIntegrationTest {
     @Test
     @DisplayName("로밍은 국가 하나로 정확히 필터링한다")
     void filtersRoamingCountry() throws Exception {
-        create(Product.ROAMING, Product.ROAMING.createBody);
-        mockMvc.perform(get("/roaming-products").param("country", " 일본 "))
+        // 상품 시드(V43)에 없는 국가로 확인한다.
+        create(Product.ROAMING, Product.ROAMING.createBody.replace("일본", "몰디브"));
+        mockMvc.perform(get("/roaming-products").param("country", " 몰디브 "))
                 .andExpect(jsonPath("$.data.totalElements").value(1));
-        mockMvc.perform(get("/roaming-products").param("country", "미국"))
+        mockMvc.perform(get("/roaming-products").param("country", "칠레"))
                 .andExpect(jsonPath("$.data.totalElements").value(0));
     }
 

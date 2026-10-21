@@ -25,8 +25,11 @@ Docker Desktop이 실행 중이고 `.env` 파일이 준비되어 있어야 합�
 
 생성되는 FAQ·카테고리·variant 건수는 CSV의 내용에 따라 결정됩니다. 벡터는 적재되지 않습니다. 기본 계정은 다음과 같습니다.
 
-- `user@user.com` / `12345678` / `USER`
+- `user@user.com`, `user2@user.com` ~ `user10@user.com` / `12345678` / `USER`
 - `admin@admin.com` / `12345678` / `ADMIN`
+
+상품 카탈로그(요금제·부가서비스·결합·로밍·인터넷/IPTV)는 Flyway `V43`이 넣습니다. 사용자 10명은 `tools/faq-db/seed-users.sql`로
+회선·부가서비스·결합·로밍·인터넷/IPTV 가입을 가진 상태로 만들어집니다. `reset-faq-data.ps1`은 이 데이터를 건드리지 않습니다.
 
 벡터를 적재하기 위해서는 백엔드를 켜고 다음 명령어를 실행하세요.
 

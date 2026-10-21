@@ -18,7 +18,7 @@ import org.testcontainers.utility.DockerImageName;
 class ProductCatalogMigrationTest {
 
     @Test
-    @DisplayName("기존 상품·가입 행은 기본값을 받고, 새 테이블은 조건·유일성·FK 동작을 지킨다")
+    @DisplayName("기존 상품·가입 행은 기본값을 받고, 새 컬럼·테이블은 조건·유일성·FK 동작을 지킨다")
     void migratesExistingRowsAndAddsTables() {
         var image = new ImageFromDockerfile("ubot-postgres:18-pgvector0.8.6-postgis3.6.4", false)
                 .withFileFromClasspath("Dockerfile", "Dockerfile");
@@ -65,11 +65,15 @@ class ProductCatalogMigrationTest {
                     """, Long.class, subscriptionId, bundleId);
 
             Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration").load().migrate();
+                    .locations("classpath:db/migration").target("42").load().migrate();
 
             // 추가 컬럼: 기존 행은 기본값 또는 NULL을 받는다.
-            assertThat(jdbc.queryForObject("SELECT bundle_type FROM bundle_products WHERE bundle_product_id = ?",
-                    String.class, bundleId)).isEqualTo("ETC");
+            assertThat(jdbc.queryForMap(
+                    "SELECT bundle_type, line_count, home_product_id FROM bundle_products WHERE bundle_product_id = ?",
+                    bundleId))
+                    .containsEntry("bundle_type", "ETC")
+                    .containsEntry("line_count", null)
+                    .containsEntry("home_product_id", null);
             assertThat(jdbc.queryForObject("SELECT category FROM addon_services WHERE addon_service_id = ?",
                     String.class, addonId)).isEqualTo("ETC");
             assertThat(jdbc.queryForObject("SELECT plan_changed_at FROM subscriptions WHERE subscription_id = ?",
@@ -102,23 +106,14 @@ class ProductCatalogMigrationTest {
                     VALUES ('IPTV_SPEED', '속도 있는 IPTV', 'IPTV', 100, 16500)
                     """)).isInstanceOf(DataIntegrityViolationException.class);
 
-            // bundle_discount_rules: 회선 수와 인터넷 상품 중 하나만, 같은 조건은 한 번만.
-            jdbc.update("""
-                    INSERT INTO bundle_discount_rules (bundle_product_id, condition_label, line_count, discount_amount)
-                    VALUES (?, '휴대폰 2회선', 2, 6000)
-                    """, bundleId);
-            jdbc.update("""
-                    INSERT INTO bundle_discount_rules (bundle_product_id, condition_label, home_product_id, discount_amount)
-                    VALUES (?, '인터넷 100Mbps', ?, 3300)
-                    """, bundleId, internetId);
-            assertThatThrownBy(() -> jdbc.update("""
-                    INSERT INTO bundle_discount_rules (bundle_product_id, condition_label, line_count, discount_amount)
-                    VALUES (?, '휴대폰 2회선 중복', 2, 7000)
-                    """, bundleId)).isInstanceOf(DataIntegrityViolationException.class);
-            assertThatThrownBy(() -> jdbc.update("""
-                    INSERT INTO bundle_discount_rules (bundle_product_id, condition_label, line_count, home_product_id, discount_amount)
-                    VALUES (?, '두 조건', 3, ?, 1000)
-                    """, bundleId, internetId)).isInstanceOf(DataIntegrityViolationException.class);
+            // bundle_products: 결합 회선 수는 1~10, 홈 결합은 인터넷 상품을 가리킨다.
+            assertThatThrownBy(() -> jdbc.update(
+                    "UPDATE bundle_products SET line_count = 0 WHERE bundle_product_id = ?", bundleId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+            Long homeBundleId = jdbc.queryForObject("""
+                    INSERT INTO bundle_products (code, name, discount_amount, bundle_type, line_count, home_product_id)
+                    VALUES ('HOME_TEST', '홈 결합', 3300, 'HOME', 1, ?) RETURNING bundle_product_id
+                    """, Long.class, internetId);
 
             // plan_included_addons: 같은 연결은 한 번만.
             jdbc.update("INSERT INTO plan_included_addons (plan_id, addon_service_id) VALUES (?, ?)", planId, addonId);
@@ -157,13 +152,14 @@ class ProductCatalogMigrationTest {
                     "SELECT representative_subscription_id FROM bundle_groups WHERE bundle_group_id = ?",
                     Object.class, groupId)).isNull();
             jdbc.update("DELETE FROM plans WHERE plan_id = ?", planId);
-            jdbc.update("DELETE FROM bundle_products WHERE bundle_product_id = ?", bundleId);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM plan_included_addons", Integer.class)).isZero();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM bundle_discount_rules", Integer.class)).isZero();
 
-            // 회원이 지워지면 인터넷/IPTV 가입도 함께 지워진다.
+            // 회원이 지워지면 인터넷/IPTV 가입도 함께 지워지고, 인터넷 상품이 지워지면 홈 결합의 연결만 비워진다.
             jdbc.update("DELETE FROM users WHERE user_id = ?", userId);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM home_subscriptions", Integer.class)).isZero();
+            jdbc.update("DELETE FROM home_products WHERE home_product_id = ?", internetId);
+            assertThat(jdbc.queryForObject("SELECT home_product_id FROM bundle_products WHERE bundle_product_id = ?",
+                    Object.class, homeBundleId)).isNull();
         }
     }
 

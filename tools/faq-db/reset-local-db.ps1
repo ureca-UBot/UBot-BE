@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
 $migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\src\main\resources\db\migration')).Path
 $sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
+$usersSqlPath = Join-Path $PSScriptRoot 'seed-users.sql'
 . (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 
 function Invoke-Checked {
@@ -56,9 +57,15 @@ try {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
             -U $databaseUser -d $databaseName -f /tmp/seed-baseline.sql
     } 'Baseline seed import failed.'
+    Invoke-Checked { docker cp $usersSqlPath "${containerId}:/tmp/seed-users.sql" } 'Could not copy user seed SQL.'
+    Invoke-Checked {
+        docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
+            -U $databaseUser -d $databaseName -f /tmp/seed-users.sql
+    } 'User seed import failed.'
 } finally {
     if ($containerId) {
         Remove-FaqSeedContainerFiles -ContainerId $containerId -SqlName 'seed-baseline.sql'
+        & docker compose exec -T postgres rm -f /tmp/seed-users.sql | Out-Null
     }
     Remove-Item -LiteralPath $renderedSql -Force -ErrorAction SilentlyContinue
 }
@@ -70,10 +77,14 @@ SELECT
   (SELECT count(*) FROM faq_category),
   (SELECT count(*) FROM faq),
   (SELECT count(*) FROM faq_question_variants),
-  (SELECT count(*) FROM faq_embeddings);
+  (SELECT count(*) FROM faq_embeddings),
+  (SELECT count(*) FROM plans),
+  (SELECT count(*) FROM subscriptions),
+  (SELECT count(*) FROM subscription_bundles),
+  (SELECT count(*) FROM bundle_groups);
 '@).Trim()
-$expected = "2|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.variantCount)|0"
+$expected = "11|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.variantCount)|0|107|12|12|6"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "Baseline seed verification failed: $verification"
 }
-Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs and $($seedSummary.variantCount) variants. No vectors were inserted."
+Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs and $($seedSummary.variantCount) variants, 10 users with subscriptions. No vectors were inserted."
