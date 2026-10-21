@@ -144,6 +144,9 @@ public class ChatAttemptsService {
 			AnswerAttemptsHistory latest = answerAttemptsHistoryRepository
 					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+			if ("PENDING".equals(latest.getStatus())) {
+				throw new ChatException(ChatErrorCode.RESEARCH_NOT_ALLOWED);
+			}
 			if (latest.getConversationId() != null) {
 				lockActiveConversation(latest.getConversationId(), userId);
 			}
@@ -187,6 +190,11 @@ public class ChatAttemptsService {
 			AnswerAttemptsHistory source = guest
 					? getLatestGuestAnswerAttempt(conversationId, idempotencyKey)
 					: getLatestAnswerAttempt(userId, idempotencyKey);
+			if ("PENDING".equals(source.getStatus())) {
+				validateRetryAttempt(source).ifPresent(errorCode -> {
+					throw new ChatException(errorCode);
+				});
+			}
 			if (source.getConversationId() != null) {
 				// 대화 → 시도 순서로 잠가 삭제·게스트 승계와 잠금 순서를 맞춥니다.
 				lockActiveConversation(source.getConversationId(), userId);

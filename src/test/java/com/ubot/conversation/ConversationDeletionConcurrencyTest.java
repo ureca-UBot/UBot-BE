@@ -2,18 +2,31 @@ package com.ubot.conversation;
 
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
+import com.ubot.chat.exception.ChatErrorCode;
+import com.ubot.chat.exception.ChatException;
+import com.ubot.chat.job.entity.ChatJob;
+import com.ubot.chat.job.entity.ChatJobStatus;
+import com.ubot.chat.job.repository.ChatJobQueueRepository;
+import com.ubot.chat.job.repository.ChatJobRepository;
+import com.ubot.chat.job.service.ChatJobCompletionService;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.service.ChatAttemptsService;
+import com.ubot.chat.service.ChatJobOutcome;
 import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.exception.ConversationErrorCode;
 import com.ubot.conversation.exception.ConversationException;
 import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.conversation.service.ConversationService;
+import com.ubot.faq.enums.Intent;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.repository.UserRepository;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -21,12 +34,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -38,10 +55,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
         "app.role=api", "app.chat.worker.polling-enabled=false",
         "notification.reservation-reminder-cron=-", "notification.billing-reminder-cron=-",
         "notification.subscription-reminder-cron=-", "notification.usage-reminder-cron=-",
-        "data-retention.purge-cron=-"
+        "data-retention.purge-cron=-",
+        "spring.jpa.properties.hibernate.session_factory.statement_inspector="
+                + "com.ubot.conversation.ConversationDeletionConcurrencyTest$LockSqlInspector"
 })
 @Import(PgvectorTestConfiguration.class)
-@DisplayName("대화 삭제와 질문 접수 동시성 통합 테스트")
+@DisplayName("대화 삭제와 답변 시도 동시성 통합 테스트")
 class ConversationDeletionConcurrencyTest {
     @Autowired ConversationService service;
     @Autowired ChatAttemptsService attemptsService;
@@ -49,12 +68,17 @@ class ConversationDeletionConcurrencyTest {
     @Autowired AnswerAttemptsHistoryRepository attempts;
     @Autowired UserRepository users;
     @Autowired PlatformTransactionManager transactionManager;
+    @Autowired ChatJobRepository jobs;
+    @Autowired ChatJobQueueRepository queue;
+    @Autowired ChatJobCompletionService completionService;
+    @Autowired JdbcTemplate jdbc;
     @MockitoBean com.ubot.ranking.scheduler.RankingScheduler rankingScheduler;
 
     private User member;
     private Conversation conversation;
 
     @BeforeEach void setup() {
+        LockSqlInspector.conversationLocks.clear();
         LocalDateTime now = LocalDateTime.now();
         member = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
                 .hashedPassword("test-hash").name("테스트 회원").role(UserRole.USER)
@@ -126,6 +150,133 @@ class ConversationDeletionConcurrencyTest {
         }
         assertThat(conversations.findById(conversation.getId()).orElseThrow().isDeleted()).isFalse();
         assertThat(attempts.existsByConversationIdAndStatus(conversation.getId(), "PENDING")).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(Request.class)
+    @DisplayName("진행 중 요청은 Worker의 시도 잠금을 기다리지 않고 거절하며 Worker는 답변을 저장한다")
+    void rejectsPendingRequestWithoutWaitingForWorker(Request request) throws Exception {
+        AnswerAttemptsHistory pending = request == Request.GUEST_RETRY
+                ? attemptsService.createGuestAnswerAttempt(service.createGuestConversation(), "진행 중 질문")
+                : attemptsService.createAnswerAttempt(member.getId(), conversation.getId(), "진행 중 질문");
+        RunningJob running = queueJob(pending);
+        CountDownLatch workerLocked = new CountDownLatch(1);
+        CountDownLatch finishWorker = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<ChatJobCompletionService.Completion> completion = executor.submit(() ->
+                    new TransactionTemplate(transactionManager).execute(status -> {
+                        jdbc.execute("SET LOCAL lock_timeout = '5s'");
+                        jobs.findJobForLock(running.id()).orElseThrow();
+                        attempts.findAttemptForLock(pending.getId()).orElseThrow();
+                        workerLocked.countDown();
+                        await(finishWorker);
+                        return complete(running);
+                    }));
+            try {
+                assertThat(workerLocked.await(10, TimeUnit.SECONDS)).isTrue();
+                Future<AnswerAttemptsHistory> rejectedRequest = executor.submit(() -> requestAgain(request, pending));
+                ExecutionException rejected = assertThrows(ExecutionException.class,
+                        () -> rejectedRequest.get(2, TimeUnit.SECONDS));
+                assertThat(rejected.getCause()).isInstanceOfSatisfying(ChatException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(
+                                request == Request.RESEARCH
+                                        ? ChatErrorCode.RESEARCH_NOT_ALLOWED : ChatErrorCode.PROCESSING));
+            } finally {
+                finishWorker.countDown();
+            }
+            assertThat(completion.get(10, TimeUnit.SECONDS).recorded()).isTrue();
+        }
+        assertThat(attempts.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo("SUCCESS");
+        assertThat(jobs.findById(running.id()).orElseThrow().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Request.class, names = {"MEMBER_RETRY", "RESEARCH"})
+    @DisplayName("재시도·재검색이 대화를 잠근 동안에도 같은 대화의 Worker가 FK를 검사하고 답변을 저장한다")
+    void workerCompletesWhileAnotherRequestHoldsConversationLock(Request request) throws Exception {
+        AnswerAttemptsHistory original = attemptsService.createAnswerAttempt(
+                member.getId(), conversation.getId(), "이전 질문");
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            AnswerAttemptsHistory locked = attempts.findAttemptForLock(original.getId()).orElseThrow();
+            if (request == Request.RESEARCH) {
+                locked.succeed();
+            } else {
+                locked.fail(ChatErrorCode.NO_FAQ);
+            }
+        });
+        AnswerAttemptsHistory pending = attemptsService.createAnswerAttempt(
+                member.getId(), conversation.getId(), "진행 중 질문");
+        RunningJob running = queueJob(pending);
+        CountDownLatch requestLocked = new CountDownLatch(1);
+        CountDownLatch commitRequest = new CountDownLatch(1);
+        LockSqlInspector.conversationLocks.clear();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<AnswerAttemptsHistory> requestAttempt = executor.submit(() ->
+                    new TransactionTemplate(transactionManager).execute(status -> {
+                        jdbc.execute("SET LOCAL lock_timeout = '5s'");
+                        AnswerAttemptsHistory created = requestAgain(request, original);
+                        requestLocked.countDown();
+                        await(commitRequest);
+                        return created;
+                    }));
+            try {
+                assertThat(requestLocked.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(LockSqlInspector.conversationLocks)
+                        .anySatisfy(sql -> assertThat(sql).contains("for no key update"));
+                Future<ChatJobCompletionService.Completion> completion = executor.submit(() ->
+                        new TransactionTemplate(transactionManager).execute(status -> {
+                            jdbc.execute("SET LOCAL lock_timeout = '5s'");
+                            return complete(running);
+                        }));
+                assertThat(completion.get(10, TimeUnit.SECONDS).recorded()).isTrue();
+            } finally {
+                commitRequest.countDown();
+            }
+            assertThat(requestAttempt.get(10, TimeUnit.SECONDS).getStatus()).isEqualTo("PENDING");
+        }
+        assertThat(attempts.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo("SUCCESS");
+        assertThat(jobs.findById(running.id()).orElseThrow().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
+    }
+
+    private AnswerAttemptsHistory requestAgain(Request request, AnswerAttemptsHistory source) {
+        return switch (request) {
+            case MEMBER_RETRY -> attemptsService.createRetryAttempt(member.getId(), source.getIdempotencyKey());
+            case GUEST_RETRY -> attemptsService.createGuestRetryAttempt(
+                    source.getConversationId(), source.getIdempotencyKey());
+            case RESEARCH -> attemptsService.createResearchAttempt(
+                    member.getId(), source.getIdempotencyKey(), Intent.GENERAL);
+        };
+    }
+
+    private RunningJob queueJob(AnswerAttemptsHistory attempt) {
+        ChatJob job = jobs.saveAndFlush(ChatJob.queue(attempt.getId()));
+        LocalDateTime startedAt = queue.claim(job.getId(),
+                LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
+        return new RunningJob(job.getId(), startedAt);
+    }
+
+    private ChatJobCompletionService.Completion complete(RunningJob running) {
+        return completionService.complete(running.id(), running.startedAt(),
+                new ChatJobOutcome("테스트 답변", List.of(), null, null, List.of()), null);
+    }
+
+    private record RunningJob(Long id, LocalDateTime startedAt) {}
+
+    private enum Request {
+        MEMBER_RETRY, GUEST_RETRY, RESEARCH
+    }
+
+    public static class LockSqlInspector implements StatementInspector {
+        private static final ConcurrentLinkedQueue<String> conversationLocks = new ConcurrentLinkedQueue<>();
+
+        @Override
+        public String inspect(String sql) {
+            String normalized = sql.toLowerCase(Locale.ROOT);
+            if (normalized.contains("from conversations") && normalized.contains(" for ")) {
+                conversationLocks.add(normalized);
+            }
+            return sql;
+        }
     }
 
     private static void await(CountDownLatch latch) {
