@@ -8,6 +8,7 @@ import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.UserDataRecorder;
+import com.ubot.ai.tool.UserRecordClaims;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.enums.Intent;
@@ -805,10 +806,10 @@ public class AiOutputGuardService {
         List<QuantityFact> facts = new ArrayList<>();
         sources.stream().filter(StringUtils::hasText).flatMap(source -> splitSentences(source).stream())
                 .forEach(source -> facts.addAll(readFacts(inspect(source))));
-        // 가입 정보의 금액·데이터량은 회원 본인의 실제 기록입니다. "청구서 기준: 총 78,000원"처럼 라벨이 없어도
-        // 요금·데이터 근거로 봐야 월정액 등 다른 요금 값과 달라도 실제 청구 금액을 지우지 않습니다.
-        materials.sections().stream().filter(this::isUserDataSection)
-                .forEach(section -> facts.addAll(readUserRecordFacts(inspect(section.content()))));
+        // 회원의 청구 금액·데이터량은 일반 수치 검사가 아니라 회선·월·항목을 맞춰 실제 기록과 비교합니다.
+        UserRecordClaims userRecords = userRecords(materials);
+        List<String> faqSources = materials.faqs().stream().map(faq -> faq.answer())
+                .filter(StringUtils::hasText).map(this::inspect).toList();
         // 대상별 근거는 한 번 모아 수치 비교와 뒤의 대상 검사에서 함께 사용합니다.
         List<ScopedAnswerFact> scopeEvidence = new ArrayList<>();
         List<String> payoffGoals = new ArrayList<>();
@@ -878,7 +879,10 @@ public class AiOutputGuardService {
                     continue;
                 }
                 boolean thirdPartyLookup = hasThirdPartyLookup(inspected);
-                boolean quantityConflict = hasQuantityConflict(inspected, facts, materials.question());
+                // 회원 기록과 비교한 값은 지운 문장으로 일반 수치 검사를 해, 같은 값을 두 기준으로 판정하지 않습니다.
+                UserRecordClaims.Verdict recordVerdict = userRecords.check(inspected, faqSources);
+                boolean quantityConflict = recordVerdict.conflict()
+                        || hasQuantityConflict(recordVerdict.unhandled(), facts, materials.question());
                 boolean requirementConflict = hasRequirementConflict(inspected, sources);
                 GuardRule policyRule = findPolicyViolation(sentence, inspected, sources, thirdPartyLookup);
                 boolean policyViolation = policyRule != null;
@@ -1113,7 +1117,7 @@ public class AiOutputGuardService {
         AnswerMaterials scoped = new AnswerMaterials(question.searchQuery(), question.faqs(), sections,
                 storeIntent ? materials.tools() : Set.of(), storeIntent ? storeMap : null,
                 List.of(question), materials.history(), userIntent ? materials.userId() : null,
-                userIntent ? materials.userDataSummary() : null);
+                userIntent ? materials.userDataSummary() : null, userIntent ? materials.toolRecords() : null);
         if (hasMissingLookupData(question.searchQuery(), scoped, storeIntent ? storeMap : null)) return List.of();
 
         List<String> sources = readSources(scoped);
@@ -1898,9 +1902,11 @@ public class AiOutputGuardService {
     private boolean hasUnsupportedOperation(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
         if (QUESTION_END.matcher(sentence).find()) return false;
         if (hasActualClaim(TRANSACTION_CLAIM, sentence, materials.question())) return true;
-        // 가입 정보 요약(청구서·사용량 기록)이 없으면 FAQ 요금이나 기본 회원 정보로 실제 청구를 단정하지 않습니다.
-        // 요약이 있으면 청구 내역은 실제 조회 결과이므로, 금액은 수치 검사가 그 기록과 비교합니다.
-        if (!hasUserRecords(materials) && hasActualClaim(PERSONAL_BILLING_CLAIM, sentence)) return true;
+        // 문장이 가리키는 청구서(월·회선)가 회원 기록에 없으면 FAQ 요금이나 기본 회원 정보로 실제 청구를 단정하지 않습니다.
+        // 그 청구서가 있으면 실제 조회 결과이므로, 금액은 수치 검사가 그 청구서와 비교합니다.
+        if (hasActualClaim(PERSONAL_BILLING_CLAIM, sentence) && !userRecords(materials).hasReferencedBill(sentence)) {
+            return true;
+        }
         if (hasUnsupportedQueryPromise(sentence, materials, storeMap)) return true;
         boolean storeProgress = STORE_SUBJECT.matcher(sentence).find() && hasActualClaim(STORE_PROGRESS_CLAIM, sentence);
         if (!hasActualClaim(QUERY_CLAIM, sentence) && !storeProgress) return false;
@@ -1996,38 +2002,9 @@ public class AiOutputGuardService {
                 || UserDataRecorder.SECTION_TITLE.equals(section.title());
     }
 
-    /**
-     * 가입 정보 요약을 미리 조회했거나 도구로 사용량·청구서를 조회했으면 회원의 실제 기록이 자료로 제공된 것입니다.
-     * 요약이 실패해도 도구 조회 결과가 있으면 그 기록으로 답한 청구 내역은 실제 조회 결과입니다.
-     */
-    private boolean hasUserRecords(AnswerMaterials materials) {
-        return materials.userDataSummary() != null || materials.sections().stream()
-                .anyMatch(section -> UserDataRecorder.SECTION_TITLE.equals(section.title()));
-    }
-
-    /** 가입 정보 섹션의 금액은 요금, 데이터량은 데이터 근거로 읽습니다. 다른 단위는 기존 라벨 기준 비교를 따릅니다. */
-    private List<QuantityFact> readUserRecordFacts(String text) {
-        List<QuantityFact> facts = new ArrayList<>();
-        Matcher quantity = QUANTITY.matcher(text);
-        while (quantity.find()) {
-            String money = quantity.group("money");
-            if (money != null) {
-                BigDecimal value = readWonValue(money);
-                if (value != null) facts.add(new QuantityFact("요금", value, "원", QuantityBound.EXACT));
-                continue;
-            }
-            String unit = quantity.group("unit").toLowerCase(Locale.ROOT);
-            unit = switch (unit) {
-                case "기가바이트" -> "gb";
-                case "메가바이트" -> "mb";
-                default -> unit;
-            };
-            if (unit.equals("gb") || unit.equals("mb")) {
-                facts.add(new QuantityFact("데이터", new BigDecimal(quantity.group("value").replace(",", "")), unit,
-                        QuantityBound.EXACT));
-            }
-        }
-        return facts;
+    /** 가입 정보 요약의 최근·미납 청구서와 최근 사용량, 도구로 조회한 사용량·청구서입니다. 회선·월·항목으로 비교합니다. */
+    private UserRecordClaims userRecords(AnswerMaterials materials) {
+        return UserRecordClaims.of(materials.userDataSummary(), materials.toolRecords());
     }
 
     /** 비회원·없는 회원·조회 실패 안내는 가입 정보가 제공되지 않은 것으로 봅니다. */

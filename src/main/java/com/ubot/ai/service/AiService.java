@@ -77,7 +77,8 @@ public class AiService {
             // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
             String toolRecords = userDataRecorder.describe();
             AnswerMaterials inspected = toolRecords.isEmpty() ? materials
-                    : materials.withSection(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords));
+                    : materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
+                            userDataRecorder.cards());
             inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
             // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
             if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);

@@ -374,7 +374,7 @@ public class UserDataSummarizer {
         return valueOrUnknown(remaining);
     }
 
-    private static int unpaidAmount(BillingRecordResponseDto billing) {
+    static int unpaidAmount(BillingRecordResponseDto billing) {
         int total = billing.totalAmount() == null ? 0 : billing.totalAmount();
         int paid = billing.paidAmount() == null ? 0 : billing.paidAmount();
         return Math.max(0, total - paid);
