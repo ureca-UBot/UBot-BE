@@ -24,8 +24,6 @@ public class AiReviewLlmService {
 			candidateAssessments에는 제공된 모든 후보 FAQ를 정확히 한 번씩 포함하세요. candidateFaqId는
 			제공된 ID를 그대로 사용하세요. 제공된 모든 검색 질문을 판정 근거로 검토하되, 질문 내용을 응답에
 			복사하거나 새로 작성하지 마세요.
-			중복으로 판단한 후보가 하나라도 있으면 대상 FAQ와 중복 후보 중 유지할 기준 FAQ 하나를 선택해
-			canonicalFaqId에 작성하세요. 중복으로 판단한 후보가 없으면 canonicalFaqId는 0으로 작성하세요.
 			result는 DUPLICATE, NEEDS_DISTINCTION, NOT_DUPLICATE, INSUFFICIENT_EVIDENCE 중 하나만 사용하세요.
 			reason은 판단 근거가 드러나는 완전한 문장으로 구체적으로 작성하세요. 판단 근거의 마지막 결론은
 			반드시 판단 결과와 같아야 합니다.
@@ -53,14 +51,13 @@ public class AiReviewLlmService {
 
 	public DuplicateSuspectedAssessment generateDuplicateSuspectedReview(
 			String prompt,
-			Long targetFaqId,
 			List<Long> candidateFaqIds
 	) {
 		String output = llmService.generateJudgment(new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, DUPLICATE_SUSPECTED_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(DuplicateSuspectedReviewFormat.schema())).answer();
-		return DuplicateSuspectedReviewFormat.parse(output, targetFaqId, candidateFaqIds);
+		return DuplicateSuspectedReviewFormat.parse(output, candidateFaqIds);
 	}
 
 	public LowRagQualityRepresentativeAssessment generateLowRagQualityRepresentativeAssessment(String prompt) {

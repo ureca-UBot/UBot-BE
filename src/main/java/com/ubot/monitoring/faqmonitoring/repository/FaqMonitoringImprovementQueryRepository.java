@@ -31,7 +31,7 @@ public class FaqMonitoringImprovementQueryRepository {
 				WITH current_version_logs AS (
 					SELECT f.id AS faq_id, f.question, f.intent, f.version AS faq_version,
 						f.updated_at AS version_started_at, fl.question_log_id, fl.rank, fl.similarity,
-						ql.created_at AS question_created_at
+						ql.created_at AS question_created_at, ql.anonymized_at AS question_anonymized_at
 					FROM faq f
 					LEFT JOIN (
 						faq_log fl
@@ -44,7 +44,12 @@ public class FaqMonitoringImprovementQueryRepository {
 				), metrics AS (
 					SELECT faq_id, question, intent, faq_version, version_started_at,
 						COUNT(question_log_id) AS top_k_count,
-						COALESCE(AVG(similarity), 0.0) AS average_similarity,
+						COUNT(question_log_id) FILTER (
+							WHERE question_anonymized_at IS NULL
+						) AS reviewable_top_k_count,
+						COALESCE(AVG(similarity) FILTER (
+							WHERE question_anonymized_at IS NULL
+						), 0.0) AS average_similarity,
 						COUNT(question_log_id) FILTER (
 							WHERE question_created_at >= :unusedCutoffAt
 						) AS recent_usage_count
@@ -59,6 +64,7 @@ public class FaqMonitoringImprovementQueryRepository {
 						AND second_log.rank = 2
 					WHERE first_log.rank = 1
 						AND first_log.question_created_at IS NOT NULL
+						AND first_log.question_anonymized_at IS NULL
 						AND first_log.similarity IS NOT NULL
 						AND second_log.similarity IS NOT NULL
 				), gap_metrics AS (
@@ -75,7 +81,7 @@ public class FaqMonitoringImprovementQueryRepository {
 						m.top_k_count, m.average_similarity, COALESCE(g.top1_sample_count, 0) AS top1_sample_count,
 						m.recent_usage_count, COALESCE(g.average_top_gap, 0.0) AS average_top_gap,
 						COALESCE(g.low_gap_rate, 0.0) AS low_gap_rate,
-						(m.top_k_count >= :minimumTopKSampleCount
+						(m.reviewable_top_k_count >= :minimumTopKSampleCount
 							AND m.average_similarity < :lowSimilarityThreshold) AS low_rag_quality,
 						(COALESCE(g.top1_sample_count, 0) >= :minimumTop1SampleCount
 							AND COALESCE(g.low_gap_rate, 0.0) >= :lowGapRateThreshold) AS duplicate_suspected,
@@ -159,6 +165,7 @@ public class FaqMonitoringImprovementQueryRepository {
 						AND target_log.rank = 1
 					JOIN question_log ql
 						ON ql.id = target_log.question_log_id
+						AND ql.anonymized_at IS NULL
 						AND ql.created_at >= target_faq.updated_at
 						AND ql.created_at < :evaluatedAt
 					JOIN faq_log other_log
@@ -179,6 +186,7 @@ public class FaqMonitoringImprovementQueryRepository {
 					JOIN faq f ON f.id = pairs.candidate_faq_id
 					JOIN faq_log fl ON fl.faq_id = f.id AND fl.rank = 1
 					JOIN question_log ql ON ql.id = fl.question_log_id
+						AND ql.anonymized_at IS NULL
 						AND ql.created_at >= f.updated_at
 						AND ql.created_at < :evaluatedAt
 					GROUP BY fl.faq_id
@@ -220,6 +228,7 @@ public class FaqMonitoringImprovementQueryRepository {
 					FROM faq target_faq
 					JOIN faq_log target_log ON target_log.faq_id = target_faq.id AND target_log.rank = 1
 					JOIN question_log ql ON ql.id = target_log.question_log_id
+						AND ql.anonymized_at IS NULL
 						AND ql.created_at >= target_faq.updated_at AND ql.created_at < :evaluatedAt
 					JOIN faq_log other_log ON other_log.question_log_id = target_log.question_log_id
 						AND other_log.rank = 2 AND other_log.faq_id IN (:candidateFaqIds)
@@ -289,6 +298,7 @@ public class FaqMonitoringImprovementQueryRepository {
 					FROM faq f
 					JOIN faq_log fl ON fl.faq_id = f.id AND fl.rank <= :topK
 					JOIN question_log ql ON ql.id = fl.question_log_id
+						AND ql.anonymized_at IS NULL
 						AND ql.created_at >= f.updated_at
 						AND ql.created_at < :evaluatedAt
 					WHERE f.id = :faqId
