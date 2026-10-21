@@ -1,6 +1,9 @@
--- 로컬 초기화용 사용자 10명과 가입 상품. reset-local-db.ps1이 seed-baseline.sql 다음에 실행한다.
+-- 로컬 초기화용 사용자 10명과 가입 상품·이용 기록. reset-local-db.ps1이 seed-demo-users.sql 다음에 실행한다.
 -- 상품은 V43 카탈로그를 코드로 찾는다. 비밀번호는 기본 계정과 같은 12345678이다.
 -- user@user.com은 seed-baseline.sql이 만들고, user2@user.com ~ user10@user.com을 여기서 만든다.
+-- 날짜는 실행일 기준이다. usage_records.billing_month는 사용한 달, billing_records.billing_month는 청구서가 나온 달
+-- (금액은 전월 사용분)이다.
+-- 마지막에 가상 사용자 300명(seed-demo-users.sql)의 청구 월을 같은 기준으로 옮기고, 결합 기록을 그룹으로 묶는다.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -135,5 +138,146 @@ SELECT li.subscription_id, r.roaming_product_id, CURRENT_DATE + sr.start_offset,
 FROM seed_roaming sr
 JOIN seed_line_id li ON li.line_key = sr.line_key
 JOIN roaming_products r ON r.code = sr.roaming_code;
+
+-- 약정: 선택약정은 요금제 월정액의 25% 할인, 공시지원금 약정은 단말 할부를 함께 둔다.
+CREATE TEMP TABLE seed_contract (line_key TEXT, contract_type TEXT, months_ago INT, term_months INT,
+    status TEXT, device_name TEXT, device_total_amount INT) ON COMMIT DROP;
+INSERT INTO seed_contract VALUES
+    ('U1', 'DEVICE_SUBSIDY', 10, 24, 'ACTIVE', 'Ubot Phone S26', 720000),
+    ('U2', 'SELECTIVE_CONTRACT', 14, 24, 'ACTIVE', NULL, NULL),
+    ('U5', 'SELECTIVE_CONTRACT', 5, 12, 'ACTIVE', NULL, NULL),
+    ('U8', 'DEVICE_SUBSIDY', 16, 24, 'ACTIVE', 'Ubot Phone S26 Ultra', 1200000),
+    ('U9', 'SELECTIVE_CONTRACT', 30, 24, 'EXPIRED', NULL, NULL);
+
+INSERT INTO subscription_contracts (subscription_id, contract_type, started_at, expires_at, discount_amount, status,
+    device_name, device_total_amount, installment_months, paid_installment_months, monthly_installment_amount,
+    remaining_installment_amount, installment_started_at, installment_expires_at, installment_status)
+SELECT li.subscription_id, c.contract_type, d.started_at, d.expires_at,
+       CASE WHEN c.contract_type = 'SELECTIVE_CONTRACT' THEN p.monthly_fee / 4 ELSE 0 END,
+       c.status, c.device_name, c.device_total_amount,
+       CASE WHEN c.device_name IS NULL THEN NULL ELSE c.term_months END,
+       CASE WHEN c.device_name IS NULL THEN NULL ELSE LEAST(c.months_ago, c.term_months) END,
+       CASE WHEN c.device_name IS NULL THEN NULL ELSE c.device_total_amount / c.term_months END,
+       CASE WHEN c.device_name IS NULL THEN NULL
+            ELSE c.device_total_amount - c.device_total_amount / c.term_months * LEAST(c.months_ago, c.term_months) END,
+       CASE WHEN c.device_name IS NULL THEN NULL ELSE d.started_at END,
+       CASE WHEN c.device_name IS NULL THEN NULL ELSE d.expires_at END,
+       CASE WHEN c.device_name IS NULL THEN NULL ELSE 'ACTIVE' END
+FROM seed_contract c
+JOIN seed_line_id li ON li.line_key = c.line_key
+JOIN subscriptions s ON s.subscription_id = li.subscription_id
+JOIN plans p ON p.plan_id = s.plan_id
+CROSS JOIN LATERAL (
+    SELECT (date_trunc('month', CURRENT_DATE) - make_interval(months => c.months_ago))::DATE AS started_at,
+           (date_trunc('month', CURRENT_DATE) - make_interval(months => c.months_ago)
+               + make_interval(months => c.term_months) - INTERVAL '1 day')::DATE AS expires_at
+) d;
+
+-- 사용량: 이번 달(어제까지 집계, 미확정)과 지난 3개월(확정). 사용률은 회선·달마다 35~94%로 고정한다.
+INSERT INTO usage_records (subscription_id, billing_month, data_used_mb, voice_used_minutes, sms_used_count,
+    allowance_snapshot, aggregated_through_date, finalized_at, full_month_active, updated_at)
+SELECT li.subscription_id, m.month_start,
+       CASE WHEN p.data_unlimited THEN 15000 + u.pct * 900 ELSE p.data_amount_mb * u.pct / 100 END / m.divisor,
+       CASE WHEN p.voice_unlimited THEN 80 + u.pct * 4 ELSE p.voice_minutes * u.pct / 100 END / m.divisor,
+       CASE WHEN p.sms_unlimited THEN u.pct / 3 ELSE p.sms_count * u.pct / 100 END / m.divisor,
+       jsonb_build_object(
+           'dataAmountMb', CASE WHEN p.data_unlimited THEN NULL ELSE p.data_amount_mb END,
+           'dataUnlimited', p.data_unlimited,
+           'voiceMinutes', CASE WHEN p.voice_unlimited THEN NULL ELSE p.voice_minutes END,
+           'voiceUnlimited', p.voice_unlimited,
+           'smsCount', CASE WHEN p.sms_unlimited THEN NULL ELSE p.sms_count END,
+           'smsUnlimited', p.sms_unlimited),
+       CASE WHEN m.months_ago > 0 THEN (m.month_start + INTERVAL '1 month' - INTERVAL '1 day')::DATE
+            WHEN EXTRACT(DAY FROM CURRENT_DATE) > 1 THEN CURRENT_DATE - 1 END,
+       CASE WHEN m.months_ago > 0 THEN m.month_start + INTERVAL '1 month' END,
+       CASE WHEN m.months_ago > 0 THEN TRUE END,
+       CASE WHEN m.months_ago > 0 THEN m.month_start + INTERVAL '1 month' ELSE date_trunc('day', now()) END
+FROM seed_line_id li
+JOIN subscriptions s ON s.subscription_id = li.subscription_id
+JOIN plans p ON p.plan_id = s.plan_id
+CROSS JOIN LATERAL (
+    SELECT k AS months_ago, (date_trunc('month', CURRENT_DATE) - make_interval(months => k))::DATE AS month_start,
+           CASE WHEN k = 0 THEN 2 ELSE 1 END AS divisor
+    FROM generate_series(0, 3) AS k
+) m
+CROSS JOIN LATERAL (SELECT 35 + abs(hashtext(li.line_key || ':' || m.months_ago)) % 60 AS pct) u;
+
+-- 청구: 지난 3개월 사용분. 청구서는 사용한 다음 달 1일에 나오고 25일이 납부 기한이다.
+-- 총액 = 기본료 + 부가서비스 + 로밍 + 기타(단말 할부) - 할인(결합 대표 회선 + 선택약정).
+-- user5의 이번 달 청구서는 미납(기한이 지나면 연체), user6의 지난달 청구서는 연체로 둔다.
+CREATE TEMP TABLE seed_billing ON COMMIT DROP AS
+SELECT li.line_key, li.subscription_id, m.months_ago, m.month_start,
+       p.monthly_fee AS base_fee,
+       COALESCE((SELECT sum(a.monthly_fee_snapshot) FROM subscription_addons a
+                 WHERE a.subscription_id = li.subscription_id AND a.status = 'ACTIVE'
+                   AND a.subscribed_at < m.month_start + INTERVAL '1 month'), 0)::INT AS addon_fee,
+       COALESCE((SELECT sum((r.end_date - r.start_date + 1) * r.daily_fee_snapshot) FROM subscription_roamings r
+                 WHERE r.subscription_id = li.subscription_id AND r.status IN ('ACTIVE', 'EXPIRED')
+                   AND r.start_date >= m.month_start AND r.start_date < m.month_start + INTERVAL '1 month'), 0)::INT AS roaming_fee,
+       COALESCE((SELECT sum(c.monthly_installment_amount) FROM subscription_contracts c
+                 WHERE c.subscription_id = li.subscription_id AND c.installment_status = 'ACTIVE'
+                   AND c.installment_started_at <= m.month_start AND c.installment_expires_at >= m.month_start), 0)::INT AS extra_fee,
+       (COALESCE((SELECT sum(b.applied_discount_amount) FROM subscription_bundles b
+                  WHERE b.subscription_id = li.subscription_id AND b.status = 'ACTIVE'
+                    AND b.joined_at < m.month_start), 0)
+        + COALESCE((SELECT sum(c.discount_amount) FROM subscription_contracts c
+                    WHERE c.subscription_id = li.subscription_id AND c.contract_type = 'SELECTIVE_CONTRACT'
+                      AND c.started_at <= m.month_start AND c.expires_at >= m.month_start), 0))::INT AS discount_amount,
+       (m.month_start + INTERVAL '1 month')::DATE AS issued_month,
+       (m.month_start + INTERVAL '1 month' + INTERVAL '24 days')::DATE AS due_date,
+       NOT ((li.line_key = 'U5' AND m.months_ago = 1) OR (li.line_key = 'U6' AND m.months_ago = 2)) AS paid
+FROM seed_line_id li
+JOIN subscriptions s ON s.subscription_id = li.subscription_id
+JOIN plans p ON p.plan_id = s.plan_id
+CROSS JOIN LATERAL (
+    SELECT k AS months_ago, (date_trunc('month', CURRENT_DATE) - make_interval(months => k))::DATE AS month_start
+    FROM generate_series(1, 3) AS k
+) m;
+
+INSERT INTO billing_records (subscription_id, billing_month, base_fee, addon_fee, roaming_fee, extra_fee,
+    discount_amount, total_amount, due_date, payment_status, paid_amount, payment_method, paid_at, created_at, updated_at)
+SELECT b.subscription_id, b.issued_month, b.base_fee, b.addon_fee, b.roaming_fee, b.extra_fee, b.discount_amount,
+       t.total, b.due_date,
+       CASE WHEN b.paid THEN 'PAID' WHEN b.due_date >= CURRENT_DATE THEN 'UNPAID' ELSE 'OVERDUE' END,
+       CASE WHEN b.paid THEN t.total ELSE 0 END,
+       CASE WHEN b.paid AND t.total > 0 THEN (ARRAY['AUTO_TRANSFER', 'CARD', 'ACCOUNT'])[1 + abs(hashtext(b.line_key)) % 3] END,
+       CASE WHEN b.paid AND t.total > 0
+            THEN LEAST(b.issued_month + INTERVAL '4 days', date_trunc('day', now())) END,
+       b.issued_month,
+       b.issued_month
+FROM seed_billing b
+CROSS JOIN LATERAL (SELECT GREATEST(b.base_fee + b.addon_fee + b.roaming_fee + b.extra_fee - b.discount_amount, 0) AS total) t;
+
+-- 가상 사용자 300명의 청구 월 옮기기: 원본은 사용한 달로 적었으므로 한 달 뒤(청구서가 나온 달)로 옮긴다.
+-- 원본의 생성일·납부 기한은 이미 청구서가 나온 달 기준이다. 회선·월 유일 조건에 걸리지 않도록 두 번에 나눠 옮긴다.
+UPDATE billing_records r SET billing_month = (r.billing_month + INTERVAL '1200 months')::DATE
+FROM subscriptions s JOIN users u ON u.user_id = s.user_id
+WHERE s.subscription_id = r.subscription_id AND u.email LIKE 'ubot.demo.%@example.test';
+UPDATE billing_records r SET billing_month = (r.billing_month - INTERVAL '1199 months')::DATE
+FROM subscriptions s JOIN users u ON u.user_id = s.user_id
+WHERE s.subscription_id = r.subscription_id AND u.email LIKE 'ubot.demo.%@example.test';
+
+-- 결합 그룹 복원: 그룹이 없는 이용 중 결합 기록은 대표 회선에만 할인액이 있고 구성 회선은 0원이다.
+-- 같은 결합 상품에서 사용자·할인액 순으로 정렬하면 대표 회선 뒤에 구성 회선이 온다.
+CREATE TEMP TABLE legacy_bundle ON COMMIT DROP AS
+SELECT sb.subscription_bundle_id, sb.subscription_id, sb.bundle_product_id, sb.applied_discount_amount, sb.joined_at,
+       sum(CASE WHEN sb.applied_discount_amount > 0 THEN 1 ELSE 0 END) OVER (
+           PARTITION BY sb.bundle_product_id
+           ORDER BY s.user_id, sb.applied_discount_amount DESC, sb.subscription_bundle_id) AS group_no
+FROM subscription_bundles sb
+JOIN subscriptions s ON s.subscription_id = sb.subscription_id
+WHERE sb.bundle_group_id IS NULL AND sb.status = 'ACTIVE';
+
+INSERT INTO bundle_groups (representative_subscription_id, status, created_at, updated_at)
+SELECT subscription_id, 'ACTIVE', joined_at, joined_at
+FROM legacy_bundle
+WHERE applied_discount_amount > 0;
+
+UPDATE subscription_bundles sb SET bundle_group_id = g.bundle_group_id
+FROM legacy_bundle lb
+JOIN legacy_bundle rep ON rep.bundle_product_id = lb.bundle_product_id AND rep.group_no = lb.group_no
+    AND rep.applied_discount_amount > 0
+JOIN bundle_groups g ON g.representative_subscription_id = rep.subscription_id AND g.status = 'ACTIVE'
+WHERE sb.subscription_bundle_id = lb.subscription_bundle_id;
 
 COMMIT;
