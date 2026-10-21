@@ -76,9 +76,13 @@ abstract class DownloadKiwi extends DefaultTask {
 	}
 
 	private static void fetch(String url, File target, String sha256) {
+		// 사용 중인 정상 jar를 Windows에서 삭제·교체하지 않도록 검증 후 재사용합니다.
+		if (target.isFile() && checksum(target) == sha256) {
+			return
+		}
 		File partial = new File(target.path + '.part')
 		new URI(url).toURL().withInputStream { input -> partial.withOutputStream { it << input } }
-		String actual = java.security.MessageDigest.getInstance('SHA-256').digest(partial.bytes).encodeHex().toString()
+		String actual = checksum(partial)
 		if (actual != sha256) {
 			partial.delete()
 			throw new GradleException("Kiwi 파일의 sha256이 다릅니다: ${url} (기대 ${sha256}, 실제 ${actual})")
@@ -87,6 +91,10 @@ abstract class DownloadKiwi extends DefaultTask {
 		if (!partial.renameTo(target)) {
 			throw new GradleException("Kiwi 파일을 옮기지 못했습니다: ${target}")
 		}
+	}
+
+	private static String checksum(File file) {
+		return java.security.MessageDigest.getInstance('SHA-256').digest(file.bytes).encodeHex().toString()
 	}
 }
 

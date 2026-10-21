@@ -11,9 +11,17 @@ import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
-import com.ubot.unanswered.service.UnansweredQuestionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import com.ubot.chat.job.entity.ChatJobStatus;
+import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
+import com.ubot.forbiddenword.entity.ForbiddenWord;
+import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
+import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
+import java.util.List;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @DisplayName("채팅 금지어 차단 테스트")
 class ChatServiceForbiddenWordTest {
@@ -22,10 +30,8 @@ class ChatServiceForbiddenWordTest {
 	private final ChatAttemptsService attempts = mock(ChatAttemptsService.class);
 	private final IpRegionResolver ipRegionResolver = mock(IpRegionResolver.class);
 	private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
-	private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, new ChatAnswerProcessor(
-			FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(),
-			ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter()));
-	private final ChatService service = new ChatService(attempts, filter, harness.submissionService,
+	private ChatJobTestHarness harness = new ChatJobTestHarness(attempts, ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard()));
+	private final ChatService service = new ChatService(attempts, ChatTestFixtures.inputGuard(filter), harness.submissionService,
 			ipRegionResolver);
 
 	@Test
@@ -50,7 +56,7 @@ class ChatServiceForbiddenWordTest {
 
 		service.createChat(1L, null, "요금제 알려줘", null, null);
 
-		verify(filter).validateForbiddenWord("요금제 알려줘");
+		verify(filter, atLeastOnce()).validateForbiddenWord("요금제 알려줘");
 		verify(attempts).createAnswerAttempt(1L, null, "요금제 알려줘");
 		assertThat(harness.jobs).hasSize(1);
 	}
@@ -62,5 +68,137 @@ class ChatServiceForbiddenWordTest {
 				.isInstanceOf(com.ubot.chat.exception.ChatException.class);
 
 		verifyNoInteractions(filter);
+	}
+
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	@DisplayName("회원·비회원 재시도도 현재 금지어 검사에서 차단되면 새 시도를 만들지 않는다")
+	void blocksStoredForbiddenWordBeforeCreatingRetry(boolean guest) {
+		String key = "a".repeat(64);
+		AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
+		when(attempt.getQuestion()).thenReturn("너 바보야");
+		if (guest) {
+			when(attempts.getLatestGuestAnswerAttempt(7L, key)).thenReturn(attempt);
+		} else {
+			when(attempts.getLatestAnswerAttempt(1L, key)).thenReturn(attempt);
+		}
+		doThrow(new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED))
+				.when(filter).validateForbiddenWord("너 바보야");
+
+		assertThatThrownBy(() -> {
+			if (guest) {
+				service.retryGuestChat(7L, key, null);
+			} else {
+				service.retryChat(1L, key, null);
+			}
+		}).isInstanceOfSatisfying(ForbiddenWordException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
+
+		verify(attempts, never()).createRetryAttempt(1L, key);
+		verify(attempts, never()).createGuestRetryAttempt(7L, key);
+		verifyNoInteractions(vector, ai);
+		assertThat(harness.jobs).noneSatisfy(job -> assertThat(job.getStatus()).isIn(ChatJobStatus.QUEUED, ChatJobStatus.RUNNING));
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	@DisplayName("회원·비회원 최초 질문의 변형 금지어는 시도 생성과 AI 작업 전에 차단한다")
+	void blocksVariantBeforeCreatingInitialAttempt(boolean guest) {
+		ChatService actualService = createServiceWithActiveForbiddenWord();
+		String question = "너 진짜 바\u200B 보입니다.";
+
+		assertThatThrownBy(() -> {
+			if (guest) {
+				actualService.createGuestChat(7L, question, null, null);
+			} else {
+				actualService.createChat(1L, null, question, null, null);
+			}
+		}).isInstanceOfSatisfying(ForbiddenWordException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
+
+		verifyNoInteractions(attempts, vector, ai);
+		assertThat(harness.jobs).noneSatisfy(job -> assertThat(job.getStatus()).isIn(ChatJobStatus.QUEUED, ChatJobStatus.RUNNING));
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	@DisplayName("저장된 질문의 변형 금지어도 재시도 횟수를 늘리기 전에 차단한다")
+	void blocksStoredVariantBeforeCreatingRetry(boolean guest) {
+		ChatService actualService = createServiceWithActiveForbiddenWord();
+		String key = "a".repeat(64);
+		AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
+		when(attempt.getQuestion()).thenReturn("너 진짜 바\u200B 보라고요");
+		if (guest) {
+			when(attempts.getLatestGuestAnswerAttempt(7L, key)).thenReturn(attempt);
+		} else {
+			when(attempts.getLatestAnswerAttempt(1L, key)).thenReturn(attempt);
+		}
+
+		assertThatThrownBy(() -> {
+			if (guest) {
+				actualService.retryGuestChat(7L, key, null);
+			} else {
+				actualService.retryChat(1L, key, null);
+			}
+		}).isInstanceOfSatisfying(ForbiddenWordException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
+
+		verify(attempts, never()).createRetryAttempt(1L, key);
+		verify(attempts, never()).createGuestRetryAttempt(7L, key);
+		verifyNoInteractions(vector, ai);
+		assertThat(harness.jobs).noneSatisfy(job -> assertThat(job.getStatus()).isIn(ChatJobStatus.QUEUED, ChatJobStatus.RUNNING));
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	@DisplayName("검사를 통과한 질문은 전각·숨은 문자·공백을 포함한 원문 그대로 기록에 전달한다")
+	void preservesOriginalQuestionWhenPassed(boolean guest) {
+		ChatService actualService = createServiceWithActiveForbiddenWord();
+		String question = "ＵＳＩＭ\u200B\t재발급 방법을 알려줘.";
+		AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
+		if (guest) {
+			when(attempts.createGuestAnswerAttempt(7L, question)).thenReturn(attempt);
+			actualService.createGuestChat(7L, question, null, null);
+			verify(attempts).createGuestAnswerAttempt(7L, question);
+		} else {
+			when(attempts.createAnswerAttempt(1L, null, question)).thenReturn(attempt);
+			actualService.createChat(1L, null, question, null, null);
+			verify(attempts).createAnswerAttempt(1L, null, question);
+		}
+
+		assertThat(harness.jobs).hasSize(1);
+	}
+
+	private ChatService createServiceWithActiveForbiddenWord() {
+		ForbiddenWordRepository repository = mock(ForbiddenWordRepository.class);
+		when(repository.findAllByStatus(ForbiddenWordStatus.ACTIVE)).thenReturn(List.of(
+				ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
+		ForbiddenWordFilterService actualFilter = new ForbiddenWordFilterService(repository);
+		actualFilter.refreshForbiddenWordCache();
+		var guard = ChatTestFixtures.inputGuard(actualFilter);
+		var processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), guard);
+		harness = new ChatJobTestHarness(attempts, processor);
+		return new ChatService(attempts, guard, harness.submissionService, ipRegionResolver);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	@DisplayName("독립된 금지어 요청을 제거해도 남은 정상 질문은 시작하고 원문은 기록에 전달한다")
+	void startsRemainingQuestionWhileKeepingOriginalWithForbiddenRequest(boolean guest) {
+		ChatService actualService = createServiceWithActiveForbiddenWord();
+		String original = "안녕 😊 바보야. 요금제 알려줘";
+		AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
+		if (guest) {
+			when(attempts.createGuestAnswerAttempt(7L, original)).thenReturn(attempt);
+			actualService.createGuestChat(7L, original, null, null);
+			verify(attempts).createGuestAnswerAttempt(7L, original);
+		} else {
+			when(attempts.createAnswerAttempt(1L, null, original)).thenReturn(attempt);
+			actualService.createChat(1L, null, original, null, null);
+			verify(attempts).createAnswerAttempt(1L, null, original);
+		}
+		assertThat(harness.jobs).hasSize(1);
+		verifyNoInteractions(vector, ai);
 	}
 }

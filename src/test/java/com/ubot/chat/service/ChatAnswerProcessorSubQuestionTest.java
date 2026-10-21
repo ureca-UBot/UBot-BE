@@ -51,9 +51,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 	@BeforeEach
 	void setUp() {
-		processor = new ChatAnswerProcessor(FaqRetrievalService.denseOnly(vector), ai,
-				ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(),
-				sentenceFilter);
+		processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.
@@ -107,7 +105,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@DisplayName("같은 FAQ에서 하위 질문마다 다른 답변 문장을 고르면 공통 목록에는 합쳐 넣고 하위 질문별 묶음은 그대로 둔다")
 	void mergesSentencesOfSameFaqIntoCommonList() {
 		// 원문 조각이 없어 프롬프트가 공통 목록을 쓰는 경우입니다.
-		when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(attempt, attempt.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("5G 프리미어 데이터 제공량", null),
 				new SubQuestionPlan.SubQuestion("5G 프리미어 월정액", null)),
 				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
@@ -131,8 +129,8 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("답변 LLM이 ABSTAIN이면 FAQ를 찾은 하위 질문은 모두 LLM_ABSTAIN으로, 근거 없던 하위 질문은 원래 사유로 기록한다")
-	void recordsLlmAbstainForEveryAnsweredSubQuestion() {
+	@DisplayName("ABSTAIN만으로 FAQ를 찾은 하위 질문을 저장하지 않고 검색 기준 미달 질문만 기록한다")
+	void recordsOnlyRetrievalFailureWhenAbstainHasNoFaqGapCandidate() {
 		plan("유심 재발급", "유심 재발급 비용", "해외 로밍 요금");
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9), faq(2L, 0.8)));
 		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
@@ -142,13 +140,9 @@ class ChatAnswerProcessorSubQuestionTest {
 		ChatAnswerResult result = processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.isFailed()).isFalse();
-		assertThat(unanswered).contains(new UnansweredCandidate(
-				1, "유심 재발급", "유심 재발급", UnansweredReason.LLM_ABSTAIN, 1L, 0.9, UnansweredSource.RETRIEVAL));
-		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85, UnansweredSource.RETRIEVAL));
-		assertThat(unanswered).contains(new UnansweredCandidate(
+		assertThat(unanswered).containsExactly(new UnansweredCandidate(
 				3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
-		assertThat(unanswered).hasSize(3);
+		assertThat(result.answer().answer()).isEqualTo("답변할 수 없습니다.");
 	}
 
 	@Test
@@ -169,9 +163,9 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("원문을 자를 근거가 없어 원문 조각이 비어 있으면 미답변 질문에는 원문 전체를 남긴다")
-	void recordsOriginalQuestionWhenPieceIsMissing() {
-		when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
+	@DisplayName("안전한 원문 조각이 없으면 검색어만 기록하고 원문 전체를 복원하지 않는다")
+	void doesNotRestoreOriginalQuestionWhenSafePieceIsMissing() {
+		when(planner.plan(attempt, attempt.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("유심 재발급", null),
 				new SubQuestionPlan.SubQuestion("해외 로밍 요금", null)),
 				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
@@ -183,7 +177,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::userText).containsOnlyNulls();
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "해외 로밍 요금", "유심 재발급이랑 해외 로밍 요금 알려줘", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
+				2, "해외 로밍 요금", "", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
 	}
 
 	@Test
@@ -225,7 +219,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	void researchSearchesEachSubQuestionWithIntent() {
 		var research = AnswerAttemptsHistory.builder().id(200L).userId(1L).question("원문").status("PENDING")
 				.sourceAttemptId(100L).intent(Intent.STORE_DATA).build();
-		when(planner.plan(research)).thenReturn(new SubQuestionPlan(
+		when(planner.plan(research, research.getQuestion())).thenReturn(new SubQuestionPlan(
 				List.of("강남역 매장", "해외 로밍 요금"), SubQuestionPlan.Source.LLM));
 		when(vector.getSimilarListByIntent("강남역 매장", Intent.STORE_DATA, 3)).thenReturn(List.of(faq(1L, 0.9)));
 		when(vector.getSimilarListByIntent("해외 로밍 요금", Intent.STORE_DATA, 3)).thenReturn(List.of());
@@ -242,7 +236,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	void answersWithOriginalSearchWhenItPasses() {
 		var plain = AnswerAttemptsHistory.builder().id(300L).userId(1L).question("해외 로밍은 어떻게 신청하나요?")
 				.status("PENDING").build();
-		when(planner.plan(plain)).thenReturn(
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(
 				SubQuestionPlan.searchFirst(plain.getQuestion(), List.of(), QuestionRouter.Route.none()));
 		var roaming = faq(29L, 0.99);
 		when(vector.getSimilarList("해외 로밍은 어떻게 신청하나요?", 3)).thenReturn(List.of(roaming));
@@ -251,7 +245,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		assertThat(result.subQuestions()).containsExactly(
 				new SubQuestionFaqs("해외 로밍은 어떻게 신청하나요?", List.of(roaming), "해외 로밍은 어떻게 신청하나요?"));
-		verify(planner, never()).judge(any(), any());
+		verify(planner, never()).judge(any(), any(), any());
 		verify(vector).getSimilarList("해외 로밍은 어떻게 신청하나요?", 3);
 	}
 
@@ -261,8 +255,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		var question = "로밍 신청은 어떻게 하고 문자 수신은 무료인가요?";
 		var plain = AnswerAttemptsHistory.builder().id(301L).userId(1L).question(question).status("PENDING").build();
 		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
-		when(planner.plan(plain)).thenReturn(first);
-		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(first);
+		when(planner.judge(plain, first, plain.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("로밍 신청 방법은 무엇인가요?", "로밍 신청은 어떻게 하고"),
 				new SubQuestionPlan.SubQuestion("해외 문자 수신은 무료인가요?", "문자 수신은 무료인가요?")),
 				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
@@ -290,9 +284,9 @@ class ChatAnswerProcessorSubQuestionTest {
 		var plain = AnswerAttemptsHistory.builder().id(303L).userId(1L).conversationId(7L).question(question)
 				.status("PENDING").build();
 		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, history, QuestionRouter.Route.none());
-		when(planner.plan(plain)).thenReturn(first);
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(first);
 		// 가드가 검색어를 막아 원문 전체로 되돌린 경우입니다.
-		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.judge(plain, first, plain.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion(question, question)),
 				SubQuestionPlan.Source.LLM, history, true, null, false));
 		// 0.77은 유사도 기준(0.75)은 넘지만, 이 검색이 넘지 못한 이전 대화 기준(0.80)에는 못 미칩니다.
@@ -313,8 +307,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		var question = "해지 안 되나요? 그리고 위약금은요?";
 		var plain = AnswerAttemptsHistory.builder().id(304L).userId(1L).question(question).status("PENDING").build();
 		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
-		when(planner.plan(plain)).thenReturn(first);
-		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(first);
+		when(planner.judge(plain, first, plain.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("해지 안 되나요?", "해지 안 되나요?"),
 				new SubQuestionPlan.SubQuestion("해지 위약금은 얼마인가요?", "그리고 위약금은요?")),
 				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
@@ -336,8 +330,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		var question = "로밍 신청은 어떻게 하고 문자 수신은 무료인가요?";
 		var plain = AnswerAttemptsHistory.builder().id(306L).userId(1L).question(question).status("PENDING").build();
 		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
-		when(planner.plan(plain)).thenReturn(first);
-		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(first);
+		when(planner.judge(plain, first, plain.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("로밍 신청 방법은 무엇인가요?", "로밍 신청은 어떻게 하고"),
 				new SubQuestionPlan.SubQuestion("해외 문자 수신은 무료인가요?", "문자 수신은 무료인가요?")),
 				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
@@ -351,7 +345,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
-		verify(planner).judge(plain, first);
+		verify(planner).judge(plain, first, plain.getQuestion());
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::faqs)
 				.containsExactly(List.of(apply), List.of(sms));
 		assertThat(unanswered).isEmpty();
@@ -363,8 +357,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		var question = "신청 취소는 어떻게 해요?";
 		var plain = AnswerAttemptsHistory.builder().id(307L).userId(1L).question(question).status("PENDING").build();
 		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
-		when(planner.plan(plain)).thenReturn(first);
-		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(first);
+		when(planner.judge(plain, first, plain.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion(question, question)),
 				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
 		var broad = faq(147L, 0.9);
@@ -389,14 +383,14 @@ class ChatAnswerProcessorSubQuestionTest {
 		var question = "신청 취소는 어떻게 해요?";
 		var plain = AnswerAttemptsHistory.builder().id(305L).userId(1L).conversationId(7L).question(question)
 				.status("PENDING").build();
-		when(planner.plan(plain)).thenReturn(SubQuestionPlan.searchFirst(question, history, QuestionRouter.Route.none()));
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(SubQuestionPlan.searchFirst(question, history, QuestionRouter.Route.none()));
 		var cancel = faq(147L, 0.77);
 		when(vector.getSimilarList(question, 3)).thenReturn(List.of(cancel));
 
 		ChatAnswerResult result = processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
 		assertThat(result.subQuestions()).containsExactly(new SubQuestionFaqs(question, List.of(cancel), question));
-		verify(planner, never()).judge(any(), any());
+		verify(planner, never()).judge(any(), any(), any());
 	}
 
 	@Test
@@ -407,8 +401,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		var plain = AnswerAttemptsHistory.builder().id(302L).userId(1L).conversationId(7L).question(question)
 				.status("PENDING").build();
 		SubQuestionPlan first = SubQuestionPlan.searchFirst(question, history, QuestionRouter.Route.none());
-		when(planner.plan(plain)).thenReturn(first);
-		when(planner.judge(plain, first)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(plain, plain.getQuestion())).thenReturn(first);
+		when(planner.judge(plain, first, plain.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("로밍 신청 취소는 어떻게 하나요?", question)),
 				SubQuestionPlan.Source.LLM, history, true, null, false));
 		// 0.77은 유사도 기준(0.75)은 넘지만 이전 대화가 있을 때의 기준(0.80)에는 못 미칩니다.
@@ -417,7 +411,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		processor.generateAnswer(plain, null, NOT_CANCELLED, unanswered);
 
-		verify(planner).judge(plain, first);
+		verify(planner).judge(plain, first, plain.getQuestion());
 		// 멀티턴이라 답변 자료에 이전 대화가 들어갑니다.
 		assertThat(captureMaterials().history()).isEqualTo(history);
 	}
@@ -426,7 +420,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	@DisplayName("멀티턴이 아니면 이전 대화가 있어도 답변 자료에 넣지 않는다")
 	void leavesHistoryOutWhenNotMultiTurn() {
 		var history = List.of(new ConversationTurn("유심 재발급 방법", "매장에서 가능합니다."));
-		when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
+		when(planner.plan(attempt, attempt.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
 				new SubQuestionPlan.SubQuestion("해외 로밍 신청 방법", "해외 로밍 신청")),
 				SubQuestionPlan.Source.LLM, history, false, null, false));
 		when(vector.getSimilarList("해외 로밍 신청 방법", 3)).thenReturn(List.of(faq(29L, 0.9)));
@@ -437,7 +431,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	private void plan(String... subQuestions) {
-		when(planner.plan(attempt)).thenReturn(
+		when(planner.plan(attempt, attempt.getQuestion())).thenReturn(
 				new SubQuestionPlan(List.of(subQuestions), SubQuestionPlan.Source.LLM));
 	}
 
