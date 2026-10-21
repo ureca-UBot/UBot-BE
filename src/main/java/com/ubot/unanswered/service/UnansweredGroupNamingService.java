@@ -62,13 +62,17 @@ public class UnansweredGroupNamingService {
         int named = 0;
         for (NamingTarget target : targets) {
             try {
+                namingRepository.markAttempted(target.id());
                 Optional<Naming> naming = parse(callLlm(systemPrompt, categories, target), categories);
                 if (naming.isEmpty()) {
                     log.warn("미응답 묶음 이름을 정하지 못했습니다: 묶음ID={}", target.id());
                     continue;
                 }
-                namingRepository.saveNaming(target.id(), naming.get().topic(), naming.get().categoryId(),
-                        target.questionCount());
+                if (!namingRepository.saveNaming(target.id(), naming.get().topic(), naming.get().categoryId(),
+                        target.questionCount())) {
+                    log.info("이름을 정하는 동안 처리가 끝난 묶음이라 저장하지 않았습니다: 묶음ID={}", target.id());
+                    continue;
+                }
                 named++;
             } catch (RuntimeException exception) {
                 log.warn("미응답 묶음 이름 생성에 실패했습니다: 묶음ID={}", target.id(), exception);

@@ -2,6 +2,7 @@ package com.ubot.unanswered.entity;
 
 import com.ubot.unanswered.enums.UnansweredGroupStatus;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Formula;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -43,10 +44,10 @@ public class UnansweredQuestionGroup {
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
 
-	@Column(name = "topic_name")
+	@Column(name = "topic_name", insertable = false, updatable = false)
 	private String topicName;
 
-	@Column(name = "suggested_category_id")
+	@Formula("(SELECT c.id FROM faq_category c WHERE c.id = suggested_category_id AND c.deleted_at IS NULL)")
 	private Long suggestedCategoryId;
 
 	public void updateStatus(UnansweredGroupStatus status){

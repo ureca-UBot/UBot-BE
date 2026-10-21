@@ -22,7 +22,7 @@ public class UnansweredGroupNamingRepository {
                 FROM unanswered_question_groups
                 WHERE status IN ('PENDING', 'ON_HOLD')
                   AND (topic_name IS NULL OR question_count >= named_question_count * 2)
-                ORDER BY question_count DESC, id
+                ORDER BY naming_attempted_at NULLS FIRST, question_count DESC, id
                 LIMIT ?
                 """,
                 (rs, rowNum) -> new NamingTarget(
@@ -60,18 +60,26 @@ public class UnansweredGroupNamingRepository {
         return categories;
     }
 
-    public void saveNaming(Long groupId, String topicName, Long suggestedCategoryId, int questionCount) {
+    public void markAttempted(Long groupId) {
         jdbcTemplate.update(
+                "UPDATE unanswered_question_groups SET naming_attempted_at = LOCALTIMESTAMP WHERE id = ?",
+                groupId
+        );
+    }
+
+    public boolean saveNaming(Long groupId, String topicName, Long suggestedCategoryId, int questionCount) {
+        return jdbcTemplate.update(
                 """
                 UPDATE unanswered_question_groups
                 SET topic_name = ?, suggested_category_id = ?, named_question_count = ?
                 WHERE id = ?
+                  AND status IN ('PENDING', 'ON_HOLD')
                 """,
                 topicName,
                 suggestedCategoryId,
                 questionCount,
                 groupId
-        );
+        ) == 1;
     }
 
     public record NamingTarget(Long id, String representativeQuestion, int questionCount) {

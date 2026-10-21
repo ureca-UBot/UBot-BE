@@ -27,7 +27,7 @@ public class UnansweredGroupNamingScheduler {
             initialDelayString = "${UNANSWERED_NAMING_INTERVAL_MINUTES:5}",
             fixedDelayString = "${UNANSWERED_NAMING_INTERVAL_MINUTES:5}",
             timeUnit = TimeUnit.MINUTES)
-    @SchedulerLock(name = "unansweredGroupNaming", lockAtMostFor = "PT10M")
+    @SchedulerLock(name = "unansweredGroupNaming", lockAtMostFor = "PT30M")
     public void nameGroups() {
         try {
             namingService.nameGroups();

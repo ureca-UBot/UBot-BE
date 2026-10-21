@@ -21,6 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.llm.dto.request.LlmRequestDto;
@@ -28,6 +29,9 @@ import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
+import com.ubot.unanswered.enums.UnansweredGroupStatus;
+import com.ubot.unanswered.repository.UnansweredGroupNamingRepository;
+import com.ubot.unanswered.repository.UnansweredQuestionGroupRepository;
 
 @SpringBootTest
 @Import(PgvectorTestConfiguration.class)
@@ -40,6 +44,15 @@ class UnansweredGroupNamingServiceTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private UnansweredGroupNamingRepository namingRepository;
+
+    @Autowired
+    private UnansweredQuestionGroupRepository groupRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @MockitoBean
     private LlmService llmService;
@@ -132,6 +145,59 @@ class UnansweredGroupNamingServiceTest {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT topic_name FROM unanswered_question_groups WHERE id = ?", String.class, succeeded))
                 .isEqualTo("로밍 신청 방법");
+    }
+
+    @Test
+    @DisplayName("이름 붙이기를 시도한 묶음은 질문 수가 많아도 아직 시도하지 않은 묶음 뒤로 밀린다")
+    void putsAttemptedGroupsBehind() {
+        Long attempted = group("자주 실패하는 묶음", 50, "PENDING", null, null);
+        Long fresh = group("처음 보는 묶음", 1, "PENDING", null, null);
+        namingRepository.markAttempted(attempted);
+
+        assertThat(namingRepository.findTargets(1)).extracting(UnansweredGroupNamingRepository.NamingTarget::id)
+                .containsExactly(fresh);
+    }
+
+    @Test
+    @DisplayName("이름을 정하는 동안 처리가 끝난 묶음에는 저장하지 않는다")
+    void skipsGroupClosedDuringNaming() {
+        Long groupId = group("처리 중 승인될 묶음", 2, "PENDING", null, null);
+        given(llmService.generateAnswer(any())).willAnswer(call -> {
+            jdbcTemplate.update("UPDATE unanswered_question_groups SET status = 'APPROVED' WHERE id = ?", groupId);
+            return answer("{\"topic\": \"늦게 온 이름\", \"category\": null}");
+        });
+
+        assertThat(namingService.nameGroups()).isZero();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT topic_name FROM unanswered_question_groups WHERE id = ?", String.class, groupId)).isNull();
+    }
+
+    @Test
+    @DisplayName("관리자가 상태를 바꿔도 JPA가 네이밍 결과를 옛 값으로 덮어쓰지 않는다")
+    void jpaUpdateKeepsNaming() {
+        Long groupId = group("상태가 바뀔 묶음", 2, "PENDING", null, null);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var group = groupRepository.findById(groupId).orElseThrow();
+            jdbcTemplate.update("UPDATE unanswered_question_groups SET topic_name = '새 이름' WHERE id = ?", groupId);
+            group.updateStatus(UnansweredGroupStatus.ON_HOLD);
+        });
+
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT topic_name, status FROM unanswered_question_groups WHERE id = ?", groupId))
+                .containsEntry("topic_name", "새 이름")
+                .containsEntry("status", "ON_HOLD");
+    }
+
+    @Test
+    @DisplayName("추천 카테고리가 삭제되면 묶음 응답에서 추천 카테고리를 비운다")
+    void hidesDeletedSuggestedCategory() {
+        Long groupId = group("카테고리가 지워질 묶음", 2, "PENDING", "개통 서류", 2);
+        jdbcTemplate.update("UPDATE unanswered_question_groups SET suggested_category_id = ? WHERE id = ?", categoryId, groupId);
+        jdbcTemplate.update("UPDATE faq_category SET deleted_at = LOCALTIMESTAMP WHERE id = ?", categoryId);
+
+        assertThat(groupRepository.findById(groupId).orElseThrow().getSuggestedCategoryId()).isNull();
     }
 
     @Test
