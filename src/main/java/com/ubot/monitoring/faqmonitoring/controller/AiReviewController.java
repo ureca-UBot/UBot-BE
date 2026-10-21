@@ -26,6 +26,6 @@ public class AiReviewController {
 			@PathVariable("faqId") @Positive Long faqId,
 			@Valid @RequestBody AiReviewRequest request
 	) {
-		return ApiResponse.success(aiReviewService.review(faqId, request.improvementTypes()));
+		return ApiResponse.success(aiReviewService.review(faqId, request));
 	}
 }

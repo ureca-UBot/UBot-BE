@@ -3,11 +3,14 @@ package com.ubot.monitoring.faqmonitoring.repository;
 import com.ubot.common.PageResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCandidate;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateEvidence;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementItem;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -195,5 +198,75 @@ public class FaqMonitoringImprovementQueryRepository {
 				rs.getLong("candidate_faq_id"), rs.getString("question"),
 				rs.getLong("top1_count"), rs.getLong("pair_count")
 		));
+	}
+
+	/** 전달된 후보별 함께 검색된 전체 횟수와 질문 목록을 조회합니다. 현재 양쪽 FAQ 버전 이후의 로그만 사용합니다. */
+	public List<FaqDuplicateEvidence> findDuplicateEvidence(
+			Long faqId,
+			List<Long> candidateFaqIds,
+			LocalDateTime evaluatedAt,
+			double lowGapThreshold,
+			int limitPerCandidate
+	) {
+		if (candidateFaqIds.isEmpty()) {
+			return List.of();
+		}
+		String sql = """
+				WITH matched_logs AS (
+					SELECT other_faq.id AS candidate_faq_id,
+						COALESCE(NULLIF(BTRIM(ql.sub_question), ''), NULLIF(BTRIM(ql.user_question), '')) AS question
+					FROM faq target_faq
+					JOIN faq_log target_log ON target_log.faq_id = target_faq.id AND target_log.rank = 1
+					JOIN question_log ql ON ql.id = target_log.question_log_id
+						AND ql.created_at >= target_faq.updated_at AND ql.created_at < :evaluatedAt
+					JOIN faq_log other_log ON other_log.question_log_id = target_log.question_log_id
+						AND other_log.rank = 2 AND other_log.faq_id IN (:candidateFaqIds)
+					JOIN faq other_faq ON other_faq.id = other_log.faq_id
+						AND other_faq.deleted_at IS NULL AND ql.created_at >= other_faq.updated_at
+					WHERE target_faq.id = :faqId AND target_faq.deleted_at IS NULL
+						AND target_log.similarity - other_log.similarity < :lowGapThreshold
+				), pair_counts AS (
+					SELECT candidate_faq_id, COUNT(*) AS pair_count
+					FROM matched_logs GROUP BY candidate_faq_id
+				), question_counts AS (
+					SELECT candidate_faq_id, question, COUNT(*) AS question_count
+					FROM matched_logs WHERE question IS NOT NULL
+					GROUP BY candidate_faq_id, question
+				), ranked AS (
+					SELECT candidate_faq_id, question, question_count,
+						ROW_NUMBER() OVER (
+							PARTITION BY candidate_faq_id ORDER BY question_count DESC, question ASC
+						) AS question_rank
+					FROM question_counts
+				)
+				SELECT pairs.candidate_faq_id, pairs.pair_count, ranked.question
+				FROM pair_counts pairs
+				LEFT JOIN ranked ON ranked.candidate_faq_id = pairs.candidate_faq_id
+					AND ranked.question_rank <= :limitPerCandidate
+				ORDER BY pairs.candidate_faq_id, ranked.question_rank
+				""";
+		MapSqlParameterSource parameters = new MapSqlParameterSource()
+				.addValue("faqId", faqId)
+				.addValue("candidateFaqIds", candidateFaqIds)
+				.addValue("evaluatedAt", evaluatedAt)
+				.addValue("lowGapThreshold", lowGapThreshold)
+				.addValue("limitPerCandidate", limitPerCandidate);
+		return jdbcTemplate.query(sql, parameters, rs -> {
+			Map<Long, Long> pairCounts = new LinkedHashMap<>();
+			Map<Long, List<String>> questions = new LinkedHashMap<>();
+			while (rs.next()) {
+				long candidateId = rs.getLong("candidate_faq_id");
+				pairCounts.putIfAbsent(candidateId, rs.getLong("pair_count"));
+				String question = rs.getString("question");
+				if (question != null) {
+					questions.computeIfAbsent(candidateId, ignored -> new ArrayList<>()).add(question);
+				}
+			}
+			return pairCounts.entrySet().stream()
+					.map(entry -> new FaqDuplicateEvidence(
+							entry.getKey(), entry.getValue(),
+							List.copyOf(questions.getOrDefault(entry.getKey(), List.of()))))
+					.toList();
+		});
 	}
 }

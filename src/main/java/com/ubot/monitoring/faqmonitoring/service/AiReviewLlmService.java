@@ -22,7 +22,7 @@ public class AiReviewLlmService {
 
 	private final LlmService llmService;
 
-	@Value("${faq-monitoring.ai-review.max-input-chars:12000}")
+	@Value("${faq-monitoring.ai-review.max-input-chars}")
 	private int maxInputChars;
 
 	public boolean fits(String prompt) {
