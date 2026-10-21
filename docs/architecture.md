@@ -99,7 +99,7 @@ com.ubot
       → FaqRetrievalService → FaqVectorService : 질문 임베딩 → FAQ 질문 표현 검색
           → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성
           → FaqVectorRepository : 삭제되지 않은 FAQ의 질문 표현(variant) 대상 pgvector 코사인 유사도 검색
-                                  QUESTION 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환 (HNSW 인덱스 미사용)
+                                  HNSW로 QUESTION 후보 검색 → FAQ별 최고 점수 표현 하나 반환 (중복 제거 후 부족하면 후보 확대)
       → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
       → 캐시 승인 시 공식 FAQ 답변 반환
       → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
