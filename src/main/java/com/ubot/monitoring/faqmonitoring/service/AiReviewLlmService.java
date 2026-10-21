@@ -4,7 +4,6 @@ import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.service.LlmService;
-import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityRepresentativeAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityVariantAssessment;
@@ -12,6 +11,7 @@ import com.ubot.monitoring.faqmonitoring.format.DuplicateSuspectedReviewFormat;
 import com.ubot.monitoring.faqmonitoring.format.LowRagQualityReviewFormat;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -49,7 +49,9 @@ public class AiReviewLlmService {
 			""";
 
 	private final LlmService llmService;
-	private final AiReviewProperties aiReviewProperties;
+
+	@Value("${faq-monitoring.ai-review.max-llm-queue-wait-millis}")
+	private long maxLlmQueueWaitMillis;
 
 	public DuplicateSuspectedAssessment generateDuplicateSuspectedReview(
 			String prompt,
@@ -59,7 +61,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, DUPLICATE_SUSPECTED_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(DuplicateSuspectedReviewFormat.schema()),
-				aiReviewProperties.getMaxLlmQueueWaitMillis()).answer();
+				maxLlmQueueWaitMillis).answer();
 		return DuplicateSuspectedReviewFormat.parse(output, candidateFaqIds);
 	}
 
@@ -68,7 +70,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, LOW_RAG_QUALITY_REPRESENTATIVE_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(LowRagQualityReviewFormat.representativeSchema()),
-				aiReviewProperties.getMaxLlmQueueWaitMillis()).answer();
+				maxLlmQueueWaitMillis).answer();
 		return LowRagQualityReviewFormat.parseRepresentative(output);
 	}
 
@@ -80,7 +82,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, LOW_RAG_QUALITY_VARIANT_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(LowRagQualityReviewFormat.variantSchema()),
-				aiReviewProperties.getMaxLlmQueueWaitMillis()).answer();
+				maxLlmQueueWaitMillis).answer();
 		return LowRagQualityReviewFormat.parseVariant(output, questionCount);
 	}
 }
