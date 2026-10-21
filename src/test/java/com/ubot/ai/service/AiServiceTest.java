@@ -148,7 +148,23 @@ class AiServiceTest {
         assertThat(request.getValue().toolCallbacks())
                 .extracting(callback -> callback.getToolDefinition().name())
                 .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth");
-        assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.USER_ID, 7L);
+        assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.USER_ID, 7L)
+                // 요약이 없으면(미리 조회 실패) 도구가 가장 최근 달도 직접 돌려주도록 표시하지 않습니다.
+                .doesNotContainKey(UserDataTools.SUMMARY_PROVIDED);
+    }
+
+    @Test
+    void 가입_정보_요약이_프롬프트에_들어갔으면_toolContext에_표시한다() {
+        var materials = AnswerMaterials.builder("지난달 요금").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.SUMMARY_PROVIDED, true);
     }
 
     @Test

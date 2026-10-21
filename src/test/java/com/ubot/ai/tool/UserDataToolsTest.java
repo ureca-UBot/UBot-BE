@@ -38,6 +38,8 @@ class UserDataToolsTest {
 
     private static final Long USER_ID = 1L;
     private static final ToolContext LOGGED_IN = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID));
+    private static final ToolContext SUMMARIZED = new ToolContext(
+            Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.SUMMARY_PROVIDED, true));
 
     @Mock
     private SubscriptionService subscriptionService;
@@ -99,12 +101,36 @@ class UserDataToolsTest {
         when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
                 .thenReturn(page(List.of(billing(YearMonth.of(2026, 9), PaymentStatus.UNPAID))));
 
-        assertThat(tools.getUsageByMonth("2026-10", null, LOGGED_IN))
+        assertThat(tools.getUsageByMonth("2026-10", null, SUMMARIZED))
                 .isEqualTo("010-****-5678 회선\n" + String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-10", "사용량"));
-        assertThat(tools.getBillingByMonth("2026-09", null, LOGGED_IN))
+        assertThat(tools.getBillingByMonth("2026-09", null, SUMMARIZED))
                 .isEqualTo("010-****-5678 회선\n" + String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-09", "청구서"));
-        assertThat(tools.getBillingByMonth("2026-10", null, LOGGED_IN))
+        assertThat(tools.getBillingByMonth("2026-10", null, SUMMARIZED))
                 .isEqualTo("010-****-5678 회선\n2026-10 청구서 기록이 없습니다.");
+    }
+
+    @Test
+    void 요약이_실패해_프롬프트에_없으면_가장_최근_달도_기록을_돌려주고_카드로_남긴다() {
+        givenSubscriptions();
+        when(usageService.getMyUsageRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(usage(YearMonth.of(2026, 10)))));
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(billing(YearMonth.of(2026, 10), PaymentStatus.UNPAID))));
+        UserDataRecorder recorder = new UserDataRecorder();
+        // 요약이 없으면 SUMMARY_PROVIDED를 넣지 않습니다(AiService 참고).
+        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder));
+
+        String usage = tools.getUsageByMonth("2026-10", null, context);
+        String billing = tools.getBillingByMonth("2026-10", null, context);
+
+        assertThat(usage).startsWith("010-****-5678 회선\n")
+                .doesNotContain(String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-10", "사용량"));
+        assertThat(billing).contains("2026년 10월 청구서(9월 사용분): 총 ")
+                .doesNotContain(String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-10", "청구서"));
+        assertThat(recorder.cards().usages()).extracting(card -> card.usage().billingMonth())
+                .containsExactly(YearMonth.of(2026, 10));
+        assertThat(recorder.cards().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactly(YearMonth.of(2026, 10));
     }
 
     @Test
@@ -117,7 +143,8 @@ class UserDataToolsTest {
                         billing(YearMonth.of(2026, 10), PaymentStatus.UNPAID),
                         billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
         UserDataRecorder recorder = new UserDataRecorder();
-        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder));
+        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder,
+                UserDataTools.SUMMARY_PROVIDED, true));
 
         tools.getUsageByMonth("2026-09", null, context);
         tools.getBillingByMonth("2026-09", null, context);

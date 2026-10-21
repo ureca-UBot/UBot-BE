@@ -100,6 +100,10 @@ public class AiService {
         if (materials.userId() != null) {
             context.put(UserDataTools.USER_ID, materials.userId());
         }
+        // 요약이 실패하면 사용자 정보 섹션에 최근 달 기록이 없으므로, 도구가 그 달도 직접 돌려주게 합니다.
+        if (materials.userDataSummary() != null) {
+            context.put(UserDataTools.SUMMARY_PROVIDED, true);
+        }
         return context;
     }
 }

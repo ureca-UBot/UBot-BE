@@ -39,6 +39,8 @@ public class UserDataTools {
     // AiService가 toolContext를 만들 때와 이 클래스가 읽을 때 같은 키를 씁니다.
     public static final String USER_ID = "userId";
     public static final String RECORDER = "userDataRecorder";
+    // 미리 조회한 요약이 프롬프트에 들어갔을 때만 true로 넣습니다. 요약이 실패했으면 가장 최근 달도 도구가 돌려줍니다.
+    public static final String SUMMARY_PROVIDED = "userDataSummaryProvided";
 
     static final int LOOKUP_MONTHS = 12;
 
@@ -105,6 +107,7 @@ public class UserDataTools {
 
     /**
      * recentRecords는 최신 월부터 정렬된 최근 기록입니다. 첫 건은 UserDataSummarizer가 미리 넣은 기록이므로 다시 돌려주지 않습니다.
+     * 다만 요약이 실패해 프롬프트에 없으면 첫 건도 다른 달처럼 돌려줍니다.
      * 기록은 한 달에 한 건이라 최근 12건이면 조회 가능한 12개월을 모두 덮습니다.
      * 답변에 쓰일 기록은 화면 카드로도 보내도록 onFound로 남깁니다. 미리 넣은 달을 다시 물은 경우도 그 기록으로 답하므로 남깁니다.
      */
@@ -126,9 +129,10 @@ public class UserDataTools {
         if (requested.isBefore(oldest)) {
             return String.format(TOO_OLD_MONTH_MESSAGE, oldest, current);
         }
+        boolean summaryProvided = Boolean.TRUE.equals(toolContext.getContext().get(SUMMARY_PROVIDED));
         return lookup(phoneLast4, toolContext, (userId, subscription) -> {
             List<T> records = recentRecords.apply(userId, subscription);
-            if (!records.isEmpty() && monthOf.apply(records.getFirst()).equals(requested)) {
+            if (summaryProvided && !records.isEmpty() && monthOf.apply(records.getFirst()).equals(requested)) {
                 onFound.accept(subscription, records.getFirst());
                 return String.format(ALREADY_PROVIDED_MESSAGE, requested, recordName);
             }
