@@ -41,9 +41,13 @@ public final class UserDataCardSelector {
         List<UsageCard> usages = new ArrayList<>();
         List<BillingCard> billings = new ArrayList<>();
         for (SubscriptionSummary subscription : summary.subscriptions()) {
+            // 질문이 특정 회선을 가리키면 그 회선의 카드만 붙입니다. 회선마다 청구서가 같은 달에 나오고
+            // 요금제가 같을 수도 있어, 답변 문자열만으로는 어느 회선의 기록인지 가릴 수 없습니다.
+            if (!askedSubscriptions.contains(subscription)) {
+                continue;
+            }
             String phoneNumber = UserDataSummarizer.maskPhone(subscription.subscription().phoneNumber());
-            if (subscription.plan() != null && (mentions(answer, subscription.plan().summary().name())
-                    || askedPlan && askedSubscriptions.contains(subscription))) {
+            if (subscription.plan() != null && (mentions(answer, subscription.plan().summary().name()) || askedPlan)) {
                 plans.add(new PlanCard(phoneNumber, subscription.plan()));
             }
             UsageRecordResponseDto usage = subscription.latestUsage();

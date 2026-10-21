@@ -122,6 +122,25 @@ class UserDataCardSelectorTest {
                 .containsExactly("010-****-0001");
     }
 
+    @Test
+    void 질문이_회선을_지정하면_다른_회선의_같은_달_청구서와_같은_값_카드를_붙이지_않는다() {
+        // 두 회선은 요금제·사용량·청구서가 모두 같아 답변 문자열만으로는 회선을 가릴 수 없습니다.
+        UserDataSummary twoLines = summary(line(1L, "010-1234-5678"), line(2L, "010-9999-0001"));
+        String answer = "10월 청구서는 78,000원이고 5G 스탠다드 요금제입니다. 데이터는 12.3GB 쓰셨습니다.";
+
+        UserDataCards asked = UserDataCardSelector.select("0001 회선 이번 달 요금 얼마야?", answer, twoLines);
+
+        assertThat(asked.plans()).extracting(UserDataCards.PlanCard::phoneNumber).containsExactly("010-****-0001");
+        assertThat(asked.usages()).extracting(UserDataCards.UsageCard::phoneNumber).containsExactly("010-****-0001");
+        assertThat(asked.billings()).extracting(UserDataCards.BillingCard::phoneNumber).containsExactly("010-****-0001");
+
+        // 회선을 지정하지 않으면 회선별로 안내한 것으로 보고 두 회선 모두 붙입니다.
+        UserDataCards all = UserDataCardSelector.select("이번 달 요금 얼마야?", answer, twoLines);
+
+        assertThat(all.billings()).extracting(UserDataCards.BillingCard::phoneNumber)
+                .containsExactly("010-****-5678", "010-****-0001");
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     void 답변이_비었으면_카드를_만들지_않는다(String answer) {
