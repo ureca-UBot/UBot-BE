@@ -89,11 +89,11 @@ public class AiReviewService {
 
 		List<FaqImprovementType> skippedTypes = orderedTypes.subList(reviewedTypes.size(), orderedTypes.size());
 		if (reviewedTypes.isEmpty()) {
-			return new AiReviewResponse(withSkippedNotice(
-					"검토 입력 한도를 초과해 AI 검토를 진행하지 못했습니다.", skippedTypes));
+			return withSkippedNotice(new AiReviewResponse(
+					"검토 입력을 줄인 뒤 AI 검토를 다시 요청하세요.",
+					"검토 입력 한도를 초과해 AI 검토를 진행하지 못했습니다."), skippedTypes);
 		}
-		return new AiReviewResponse(withSkippedNotice(
-				aiReviewLlmService.generateReview(prompt.toString()), skippedTypes));
+		return withSkippedNotice(aiReviewLlmService.generateReview(prompt.toString()), skippedTypes);
 	}
 
 	private void validateDuplicateRequest(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
@@ -109,13 +109,14 @@ public class AiReviewService {
 		}
 	}
 
-	private String withSkippedNotice(String answer, List<FaqImprovementType> skippedTypes) {
+	private AiReviewResponse withSkippedNotice(AiReviewResponse response, List<FaqImprovementType> skippedTypes) {
 		if (skippedTypes.isEmpty()) {
-			return answer;
+			return response;
 		}
 		String names = String.join(", ", skippedTypes.stream()
 				.map(FaqImprovementType::getDescription).toList());
-		return answer + "\n\n입력 한도로 인해 다음 태그는 AI 검토에 포함되지 않았습니다: " + names;
+		return new AiReviewResponse(response.recommendation(),
+				response.details() + "\n\n입력 한도로 인해 다음 태그는 AI 검토에 포함되지 않았습니다: " + names);
 	}
 
 	private String buildDuplicateSection(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
@@ -152,6 +153,8 @@ public class AiReviewService {
 				다음 후보를 각각 독립적으로 검토하세요. 각 검색 질문에 대상 FAQ와 후보 FAQ의 답변이
 				모두 적용되는지, 한쪽에만 적용되는지, 둘 다 부적절한지, 판단할 수 없는지 구분하세요.
 				질문과 답변의 적용 조건이 다르면 검색에 함께 등장했다는 이유만으로 통합을 제안하지 마세요.
+				대상 FAQ뿐 아니라 후보 FAQ 각각에도 질문 또는 답변 수정이 필요한지 판단하고,
+				필요하다면 무엇을 어떻게 바꿀지 권고하세요. 근거가 없으면 수정안을 만들어내지 마세요.
 				question은 실제 검색에 쓰인 sub_question이며, 없는 과거 로그에서는 user_question입니다.
 				질문은 후보별 최대 %d개입니다. pairCount는 두 FAQ가 함께 검색된 전체 횟수이며,
 				질문 목록에서는 보관 기간에 따라 본문이 지워진 검색 로그를 제외했습니다.
