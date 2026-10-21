@@ -8,6 +8,7 @@ import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateCandidateAssessment;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewAction;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateEvidence;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
@@ -212,6 +213,7 @@ public class AiReviewService {
 				- 중복 아님: 각각 유지할 이유와 각 FAQ의 수정 필요 여부를 적으세요.
 				- 판단 근거 부족: 단정적인 수정안을 만들지 말고 추가로 확인할 자료를 적으세요.
 				판단 근거 안에서 선택한 판단 결과를 뒤집거나 서로 다른 결론을 함께 쓰지 마세요.
+				판단 결과에 대응하는 result와 action 코드는 시스템 지침에 정의된 조합대로 작성하세요.
 				대표 유저 질문에는 질문을 정확히 한 개만 쓰고, 여러 질문을 쉼표나 목록으로 나열하지 마세요.
 				후보마다 구조화 응답의 모든 항목을 빠짐없이 한 번씩 작성하세요.
 				후보 FAQ 자료(JSON): %s
@@ -229,6 +231,7 @@ public class AiReviewService {
 	) {
 		Map<Long, DuplicateCandidateAssessment> assessmentByCandidate = assessment.candidateAssessments().stream()
 				.collect(Collectors.toMap(DuplicateCandidateAssessment::candidateFaqId, Function.identity()));
+		String recommendation = buildDuplicateSuspectedRecommendation(targetFaqId, materials, assessmentByCandidate);
 		StringBuilder details = new StringBuilder("## 중복 의심 FAQ 판정 결과\n");
 		for (int index = 0; index < materials.size(); index++) {
 			DuplicateCandidateMaterial material = materials.get(index);
@@ -240,7 +243,8 @@ public class AiReviewService {
 			details.append("- **함께 검색된 횟수**: ").append(material.pairCount()).append('\n');
 			details.append("- **대표 유저 질문**: ").append(candidate.representativeQuestion().strip()).append('\n');
 			details.append("#### 판정\n");
-			details.append("- **판단 결과**: **").append(candidate.result()).append("**\n");
+			details.append("- **판단 결과**: **").append(candidate.result().getDescription()).append("**\n");
+			details.append("- **권고 조치**: **").append(candidate.action().getDescription()).append("**\n");
 			details.append("- **판단 근거**: ").append(candidate.reason().strip()).append('\n');
 			details.append("#### 조치 권고\n");
 			details.append("- **대상 FAQ ").append(targetFaqId).append("**: ")
@@ -251,7 +255,31 @@ public class AiReviewService {
 				details.append("\n\n");
 			}
 		}
-		return new AiReviewResponse(assessment.recommendation().strip(), details.toString());
+		return new AiReviewResponse(recommendation, details.toString());
+	}
+
+	private String buildDuplicateSuspectedRecommendation(
+			Long targetFaqId,
+			List<DuplicateCandidateMaterial> materials,
+			Map<Long, DuplicateCandidateAssessment> assessmentByCandidate
+	) {
+		List<String> actionClauses = new ArrayList<>(materials.size());
+		for (DuplicateCandidateMaterial material : materials) {
+			DuplicateReviewAction action = assessmentByCandidate.get(material.id()).action();
+			actionClauses.add(switch (action) {
+				case MERGE_CANDIDATE_INTO_TARGET ->
+						"FAQ %d를 FAQ %d에 통합".formatted(material.id(), targetFaqId);
+				case MERGE_TARGET_INTO_CANDIDATE ->
+						"FAQ %d를 FAQ %d에 통합".formatted(targetFaqId, material.id());
+				case CLARIFY_SCOPE ->
+						"FAQ %d와 FAQ %d의 질문 범위를 명확히 구분".formatted(targetFaqId, material.id());
+				case KEEP_SEPARATE ->
+						"FAQ %d와 FAQ %d를 각각 유지".formatted(targetFaqId, material.id());
+				case COLLECT_MORE_EVIDENCE ->
+						"FAQ %d와 FAQ %d의 중복 판단 근거를 추가로 확인".formatted(targetFaqId, material.id());
+			});
+		}
+		return String.join("하고, ", actionClauses) + "하세요.";
 	}
 
 	private record DuplicateCandidateMaterial(

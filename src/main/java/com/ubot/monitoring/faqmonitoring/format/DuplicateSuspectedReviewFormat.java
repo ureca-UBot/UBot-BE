@@ -3,6 +3,8 @@ package com.ubot.monitoring.faqmonitoring.format;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateCandidateAssessment;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewAction;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewResult;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
 import java.util.Collections;
 import java.util.HashSet;
@@ -19,7 +21,6 @@ import tools.jackson.databind.json.JsonMapper;
 public final class DuplicateSuspectedReviewFormat {
 	private static final Pattern CODE_BLOCK = Pattern.compile("(?si)^```(?:json)?\\s*(.*?)\\s*```$");
 	private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
-	private static final Set<String> ALLOWED_RESULTS = Set.of("중복", "구분 필요", "중복 아님", "판단 근거 부족");
 	private static final Map<String, Object> SCHEMA = createSchema();
 
 	private DuplicateSuspectedReviewFormat() {
@@ -31,8 +32,7 @@ public final class DuplicateSuspectedReviewFormat {
 
 	public static DuplicateSuspectedAssessment parse(String output, List<Long> expectedCandidateIds) {
 		DuplicateSuspectedAssessment assessment = read(output);
-		if (!StringUtils.hasText(assessment.recommendation())
-				|| assessment.candidateAssessments() == null
+		if (assessment.candidateAssessments() == null
 				|| assessment.candidateAssessments().size() != expectedCandidateIds.size()) {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
@@ -43,7 +43,9 @@ public final class DuplicateSuspectedReviewFormat {
 			if (candidate == null || candidate.candidateFaqId() == null
 					|| !expectedIds.contains(candidate.candidateFaqId())
 					|| !actualIds.add(candidate.candidateFaqId())
-					|| !ALLOWED_RESULTS.contains(candidate.result())
+					|| candidate.result() == null
+					|| candidate.action() == null
+					|| !isAllowedCombination(candidate.result(), candidate.action())
 					|| !hasText(candidate.representativeQuestion(), candidate.reason(),
 						candidate.targetFaqRecommendation(), candidate.candidateFaqRecommendation())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
@@ -53,6 +55,19 @@ public final class DuplicateSuspectedReviewFormat {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		return assessment;
+	}
+
+	private static boolean isAllowedCombination(
+			DuplicateReviewResult result,
+			DuplicateReviewAction action
+	) {
+		return switch (result) {
+			case DUPLICATE -> action == DuplicateReviewAction.MERGE_CANDIDATE_INTO_TARGET
+					|| action == DuplicateReviewAction.MERGE_TARGET_INTO_CANDIDATE;
+			case NEEDS_DISTINCTION -> action == DuplicateReviewAction.CLARIFY_SCOPE;
+			case NOT_DUPLICATE -> action == DuplicateReviewAction.KEEP_SEPARATE;
+			case INSUFFICIENT_EVIDENCE -> action == DuplicateReviewAction.COLLECT_MORE_EVIDENCE;
+		};
 	}
 
 	private static boolean hasText(String... values) {
@@ -90,7 +105,11 @@ public final class DuplicateSuspectedReviewFormat {
 		candidateProperties.put("representativeQuestion", Map.of("type", "string"));
 		candidateProperties.put("result", Map.of(
 				"type", "string",
-				"enum", List.copyOf(ALLOWED_RESULTS)
+				"enum", enumNames(DuplicateReviewResult.values())
+		));
+		candidateProperties.put("action", Map.of(
+				"type", "string",
+				"enum", enumNames(DuplicateReviewAction.values())
 		));
 		candidateProperties.put("reason", Map.of("type", "string"));
 		candidateProperties.put("targetFaqRecommendation", Map.of("type", "string"));
@@ -98,12 +117,15 @@ public final class DuplicateSuspectedReviewFormat {
 		Map<String, Object> candidateSchema = objectSchema(candidateProperties);
 
 		Map<String, Object> properties = new LinkedHashMap<>();
-		properties.put("recommendation", Map.of("type", "string"));
 		properties.put("candidateAssessments", Map.of(
 				"type", "array",
 				"items", candidateSchema
 		));
 		return objectSchema(properties);
+	}
+
+	private static List<String> enumNames(Enum<?>[] values) {
+		return java.util.Arrays.stream(values).map(Enum::name).toList();
 	}
 
 	private static Map<String, Object> objectSchema(Map<String, Object> properties) {
