@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -185,6 +186,45 @@ class LlmServiceTest {
 
         assertThatThrownBy(() -> limited.generateAnswer(request)).isInstanceOf(LlmException.class);
         assertThat(limited.generateAnswer(request).answer()).isEqualTo("답변");
+    }
+
+    @Test
+    @DisplayName("LLM 호출 슬롯을 대기 시간 안에 얻지 못하면 요청 과다 오류를 반환한다")
+    void judgmentReturnsBusyWhenPermitWaitTimeoutExpires() throws Exception {
+        var limited = new LlmService(llmClient, 1);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "AI 검토")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        when(llmClient.generateAnswer(request)).thenAnswer(invocation -> {
+            calls.incrementAndGet();
+            firstStarted.countDown();
+            releaseFirst.await(5, TimeUnit.SECONDS);
+            return new LlmResponseDto("검토 결과");
+        });
+
+        var first = CompletableFuture.supplyAsync(() -> limited.generateJudgment(request));
+        try {
+            assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> limited.generateJudgment(request, 10))
+                    .isInstanceOfSatisfying(LlmException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_BUSY));
+            assertThat(calls.get()).isEqualTo(1);
+        } finally {
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("LLM 호출 슬롯 대기 시간이 0 이하면 모델을 호출하기 전에 거절한다")
+    void rejectsNonPositivePermitWaitTimeoutBeforeCallingModel() {
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "AI 검토")));
+
+        assertThatThrownBy(() -> llmService.generateJudgment(request, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(llmClient);
     }
 
     @Test
