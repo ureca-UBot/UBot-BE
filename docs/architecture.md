@@ -99,7 +99,7 @@ com.ubot
       → FaqRetrievalService → FaqVectorService : 질문 임베딩 → FAQ 질문 표현 검색
           → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성
           → FaqVectorRepository : 삭제되지 않은 FAQ의 질문 표현(variant) 대상 pgvector 코사인 유사도 검색
-                                  QUESTION 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환 (HNSW 인덱스 미사용)
+                                  HNSW로 QUESTION 후보 검색 → FAQ별 최고 점수 표현 하나 반환 (중복 제거 후 부족하면 후보 확대)
       → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
       → 캐시 승인 시 공식 FAQ 답변 반환
       → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
@@ -188,6 +188,7 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 - 대기열에 넣지 못해도 경고 로그만 남기고 채팅 응답은 그대로 나갑니다.
 - 재시도도 새 답변 시도이므로, 같은 질문을 재시도해 또 실패하면 한 건씩 더 쌓여 묶음의 질문 수가 늘어납니다.
 - 의도 재검색이 같은 사유로 실패한 경우는 저장하지 않습니다([의도 재검색](#의도-재검색-117)).
+- 처리 대기·보류 묶음에는 `UnansweredGroupNamingScheduler`가 `UNANSWERED_NAMING_INTERVAL_MINUTES`(기본 5분)마다 LLM으로 주제 이름(`topic_name`)과 추천 FAQ 카테고리(`suggested_category_id`)를 붙입니다(#230). 이름이 없거나 질문 수가 이름 붙인 때의 2배 이상이 된 묶음을 한 번에 10개까지 처리하고, 카테고리는 기존 카테고리 이름과 같을 때만 저장합니다. 실패한 묶음은 다음 주기에 다시 시도합니다. 관리자 묶음 목록·상세 응답에 `topicName`, `suggestedCategoryId`로 나갑니다.
 - 묶음을 찾고 만드는 과정에 잠금이 없어, 동시에 들어온 비슷한 질문이 서로 다른 묶음으로 나뉠 수 있습니다.
 - 묶음을 조회하고 처리 상태를 바꾸는 관리자 API는 아직 없습니다(#109).
 
