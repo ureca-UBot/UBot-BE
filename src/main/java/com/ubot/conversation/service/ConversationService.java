@@ -75,6 +75,9 @@ public class ConversationService {
 		if (conversation.isDeleted()) {
 			return;
 		}
+		if (conversationRepository.existsCounselSessionByPublicId(conversation.getPublicId())) {
+			throw new ConversationException(ConversationErrorCode.CONVERSATION_HAS_COUNSEL_HISTORY);
+		}
 		if (answerAttemptsHistoryRepository.existsByConversationIdAndStatus(conversation.getId(), "PENDING")) {
 			throw new ConversationException(ConversationErrorCode.CONVERSATION_IN_PROGRESS);
 		}

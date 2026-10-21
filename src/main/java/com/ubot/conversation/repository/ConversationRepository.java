@@ -23,6 +23,13 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 
 	boolean existsByIdAndDeletedAtIsNull(Long conversationId);
 
+	@Query(value = """
+			SELECT EXISTS (
+			    SELECT 1 FROM counseling.sessions s WHERE s.conversation_id = :publicId
+			)
+			""", nativeQuery = true)
+	boolean existsCounselSessionByPublicId(@Param("publicId") UUID publicId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select c from Conversation c where c.publicId = :publicId and c.userId = :userId")
 	Optional<Conversation> findMemberConversationForLock(

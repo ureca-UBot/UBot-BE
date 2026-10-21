@@ -17,6 +17,10 @@ import com.ubot.conversation.exception.ConversationErrorCode;
 import com.ubot.conversation.exception.ConversationException;
 import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.conversation.service.ConversationService;
+import com.ubot.counsel.auth.model.Caller;
+import com.ubot.counsel.session.dto.request.HandoffRequestDto;
+import com.ubot.counsel.session.entity.Session;
+import com.ubot.counsel.session.service.SessionService;
 import com.ubot.faq.enums.Intent;
 import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
@@ -72,6 +76,7 @@ class ConversationDeletionConcurrencyTest {
     @Autowired ChatJobQueueRepository queue;
     @Autowired ChatJobCompletionService completionService;
     @Autowired JdbcTemplate jdbc;
+    @Autowired SessionService counselSessions;
     @MockitoBean com.ubot.ranking.scheduler.RankingScheduler rankingScheduler;
 
     private User member;
@@ -236,6 +241,75 @@ class ConversationDeletionConcurrencyTest {
         }
         assertThat(attempts.findById(pending.getId()).orElseThrow().getStatus()).isEqualTo("SUCCESS");
         assertThat(jobs.findById(running.id()).orElseThrow().getStatus()).isEqualTo(ChatJobStatus.SUCCEEDED);
+    }
+
+    @Test
+    @DisplayName("삭제가 먼저 대화를 잠그면 상담 연결은 삭제 커밋 후 거절된다")
+    void deletionCommitsBeforeCounselHandoff() throws Exception {
+        CountDownLatch deletionReady = new CountDownLatch(1);
+        CountDownLatch commitDeletion = new CountDownLatch(1);
+        CountDownLatch handoffStarted = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> deletion = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                service.deleteConversation(member.getId(), conversation.getPublicId());
+                deletionReady.countDown();
+                await(commitDeletion);
+            }));
+            try {
+                assertThat(deletionReady.await(10, TimeUnit.SECONDS)).isTrue();
+                Future<Session> handoff = executor.submit(() -> {
+                    handoffStarted.countDown();
+                    return counselSessions.createHandoff(new Caller(member.getId(), UserRole.USER),
+                            new HandoffRequestDto(UUID.randomUUID(), conversation.getPublicId(), List.of()));
+                });
+                assertThat(handoffStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> handoff.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                commitDeletion.countDown();
+                deletion.get(10, TimeUnit.SECONDS);
+                ExecutionException rejected = assertThrows(ExecutionException.class, () -> handoff.get(10, TimeUnit.SECONDS));
+                assertThat(rejected.getCause()).isInstanceOfSatisfying(ConversationException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ConversationErrorCode.CONVERSATION_NOT_FOUND));
+            } finally {
+                commitDeletion.countDown();
+            }
+        }
+        assertThat(conversations.findById(conversation.getId()).orElseThrow().isDeleted()).isTrue();
+        assertThat(conversations.existsCounselSessionByPublicId(conversation.getPublicId())).isFalse();
+    }
+
+    @Test
+    @DisplayName("상담 연결이 먼저 대화를 잠그면 삭제는 연결 커밋 후 상담 이력 오류로 거절된다")
+    void counselHandoffCommitsBeforeDeletion() throws Exception {
+        CountDownLatch handoffReady = new CountDownLatch(1);
+        CountDownLatch commitHandoff = new CountDownLatch(1);
+        CountDownLatch deletionStarted = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Session> handoff = executor.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                Session created = counselSessions.createHandoff(new Caller(member.getId(), UserRole.USER),
+                        new HandoffRequestDto(UUID.randomUUID(), conversation.getPublicId(), List.of()));
+                handoffReady.countDown();
+                await(commitHandoff);
+                return created;
+            }));
+            try {
+                assertThat(handoffReady.await(10, TimeUnit.SECONDS)).isTrue();
+                Future<?> deletion = executor.submit(() -> {
+                    deletionStarted.countDown();
+                    service.deleteConversation(member.getId(), conversation.getPublicId());
+                });
+                assertThat(deletionStarted.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> deletion.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                commitHandoff.countDown();
+                assertThat(handoff.get(10, TimeUnit.SECONDS).conversationId()).isEqualTo(conversation.getPublicId());
+                ExecutionException rejected = assertThrows(ExecutionException.class, () -> deletion.get(10, TimeUnit.SECONDS));
+                assertThat(rejected.getCause()).isInstanceOfSatisfying(ConversationException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ConversationErrorCode.CONVERSATION_HAS_COUNSEL_HISTORY));
+            } finally {
+                commitHandoff.countDown();
+            }
+        }
+        assertThat(conversations.findById(conversation.getId()).orElseThrow().isDeleted()).isFalse();
+        assertThat(conversations.existsCounselSessionByPublicId(conversation.getPublicId())).isTrue();
     }
 
     private AnswerAttemptsHistory requestAgain(Request request, AnswerAttemptsHistory source) {

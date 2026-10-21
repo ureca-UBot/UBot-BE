@@ -29,6 +29,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -323,6 +325,50 @@ class ConversationIntegrationTest {
 				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONV-002"));
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"WAITING", "ACTIVE", "PAUSED", "ENDED"})
+	@DisplayName("사람 상담 세션이 있는 대화는 상태와 관계없이 삭제를 거절하고 목록과 이력을 유지한다")
+	void rejectsDeletionOfConversationWithCounselSession(String sessionStatus) throws Exception {
+		UUID conversationId = askAsMember(member, "상담 전 질문", null);
+		User counselor = saveUser(UserRole.COUNSELOR);
+		UUID sessionId = UUID.randomUUID();
+		boolean hasMessage = !"WAITING".equals(sessionStatus);
+		jdbc.update("""
+				INSERT INTO counseling.sessions
+				    (id, customer_id, counselor_id, status, conversation_id, last_delivered_seq, paused_at, ended_at)
+				VALUES (?, ?, ?, ?, ?, ?,
+				    CASE WHEN ? = 'PAUSED' THEN now() ELSE NULL END,
+				    CASE WHEN ? = 'ENDED' THEN now() ELSE NULL END)
+				""", sessionId, member.getId(), hasMessage ? counselor.getId() : null,
+				sessionStatus, conversationId, hasMessage ? 1L : 0L, sessionStatus, sessionStatus);
+		if (hasMessage) {
+			jdbc.update("""
+					INSERT INTO counseling.messages
+					    (session_id, sender_id, sender_role, assignment_version, client_message_id,
+					     content, status, delivery_sequence, decided_at)
+					VALUES (?, ?, 'COUNSELOR', 0, ?, '상담사 답변', 'ALLOWED', 1, now())
+					""", sessionId, counselor.getId(), UUID.randomUUID());
+		}
+
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONV-003"));
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(other)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		assertThat(jdbc.queryForObject("select deleted_at from conversations where public_id = ?",
+				LocalDateTime.class, conversationId)).isNull();
+		assertThat(jdbc.queryForObject("select count(*) from counseling.sessions where id = ?",
+				Long.class, sessionId)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select count(*) from counseling.messages where session_id = ?",
+				Long.class, sessionId)).isEqualTo(hasMessage ? 1 : 0);
+		mvc.perform(get("/conversations/me").header("Authorization", bearer(member)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.totalElements").value(1))
+				.andExpect(jsonPath("$.data.content[0].conversationId").value(conversationId.toString()))
+				.andExpect(jsonPath("$.data.content[0].hasCounsel").value(true));
+		mvc.perform(get("/conversations/{id}/messages", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1));
+	}
+
 	private JsonNode submitAsMember(String question) throws Exception {
 		String body = mvc.perform(question(question, null).header("Authorization", bearer(member)))
 				.andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -353,8 +399,12 @@ class ConversationIntegrationTest {
 	}
 
 	private User saveUser() {
+		return saveUser(UserRole.USER);
+	}
+
+	private User saveUser(UserRole role) {
 		return users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
-				.hashedPassword("test-hash").name("대화방 테스트").role(UserRole.USER)
+				.hashedPassword("test-hash").name("대화방 테스트").role(role)
 				.createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
 	}
 }
