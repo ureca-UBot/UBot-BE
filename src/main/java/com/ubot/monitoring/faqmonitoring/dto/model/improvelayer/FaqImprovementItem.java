@@ -12,6 +12,7 @@ public record FaqImprovementItem(
 		LocalDateTime versionStartedAt,
 		List<FaqImprovementType> improvementTypes,
 		long topKCount,
+		long reviewableTopKCount,
 		double averageSimilarity,
 		long top1SampleCount,
 		long recentUsageCount,

@@ -201,9 +201,8 @@ public class AiReviewService {
 				모두 적용되는지, 한쪽에만 적용되는지, 둘 다 부적절한지, 판단할 수 없는지 구분하세요.
 				질문과 답변의 적용 조건이 다르면 검색에 함께 등장했다는 이유만으로 통합을 제안하지 마세요.
 				question은 실제 검색에 쓰인 sub_question이며, 없는 과거 로그에서는 user_question입니다.
-				질문은 후보별 최대 %d개입니다. pairCount는 두 FAQ가 함께 검색된 전체 횟수이며,
-				질문 목록에서는 보관 기간에 따라 본문이 지워진 검색 로그를 제외했고, 서로 다른 질문을
-				최근 검색된 순서로 정렬했습니다.
+				질문은 후보별 최대 %d개입니다. pairCount는 현재 두 FAQ 버전 이후의 익명화되지 않은 로그에서
+				두 FAQ가 함께 검색된 횟수입니다. 질문 목록은 서로 다른 질문을 최근 검색된 순서로 정렬했습니다.
 				판단 결과는 다음 기준으로 고르세요.
 				- 중복: 한 FAQ의 질문 범위와 답변이 다른 FAQ에 완전히 포함되어 별도로 유지할 실익이 없습니다.
 				  일반적인 FAQ와 그 범위에 완전히 포함되는 구체적인 사례 FAQ도, 별도의 조건이나 다른 답변이 없다면 중복입니다.
@@ -243,7 +242,8 @@ public class AiReviewService {
 			details.append("#### 후보 FAQ 정보\n");
 			details.append("- **질문**: ").append(material.question()).append('\n');
 			details.append("- **답변**: ").append(material.answer()).append('\n');
-			details.append("- **함께 검색된 횟수**: ").append(material.pairCount()).append('\n');
+			details.append("- **익명화되지 않은 로그에서 함께 검색된 횟수**: ")
+					.append(material.pairCount()).append('\n');
 			details.append("#### 함께 검색된 유저 질문\n");
 			int displayedQuestionCount = Math.min(
 					material.coRetrievedQuestions().size(),

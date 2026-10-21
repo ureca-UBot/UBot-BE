@@ -78,7 +78,8 @@ public class FaqMonitoringImprovementQueryRepository {
 					GROUP BY faq_id
 				), classified AS (
 					SELECT m.faq_id, m.question, m.intent, m.faq_version, m.version_started_at,
-						m.top_k_count, m.average_similarity, COALESCE(g.top1_sample_count, 0) AS top1_sample_count,
+						m.top_k_count, m.reviewable_top_k_count, m.average_similarity,
+						COALESCE(g.top1_sample_count, 0) AS top1_sample_count,
 						m.recent_usage_count, COALESCE(g.average_top_gap, 0.0) AS average_top_gap,
 						COALESCE(g.low_gap_rate, 0.0) AS low_gap_rate,
 						(m.reviewable_top_k_count >= :minimumTopKSampleCount
@@ -142,7 +143,8 @@ public class FaqMonitoringImprovementQueryRepository {
 				items.add(new FaqImprovementItem(
 						faqId, rs.getString("question"), Intent.valueOf(rs.getString("intent")),
 						rs.getInt("faq_version"), rs.getTimestamp("version_started_at").toLocalDateTime(),
-						improvementTypes, rs.getLong("top_k_count"), rs.getDouble("average_similarity"),
+						improvementTypes, rs.getLong("top_k_count"), rs.getLong("reviewable_top_k_count"),
+						rs.getDouble("average_similarity"),
 						rs.getLong("top1_sample_count"), rs.getLong("recent_usage_count"),
 						rs.getDouble("average_top_gap"), rs.getDouble("low_gap_rate")
 				));
@@ -209,7 +211,7 @@ public class FaqMonitoringImprovementQueryRepository {
 		));
 	}
 
-	/** 전달된 후보별 함께 검색된 전체 횟수와 질문 목록을 조회합니다. 현재 양쪽 FAQ 버전 이후의 로그만 사용합니다. */
+	/** 전달된 후보별 익명화되지 않은 로그의 함께 검색된 횟수와 질문 목록을 조회합니다. 현재 양쪽 FAQ 버전 이후의 로그만 사용합니다. */
 	public List<FaqDuplicateEvidence> findDuplicateEvidence(
 			Long faqId,
 			List<Long> candidateFaqIds,
