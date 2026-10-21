@@ -23,12 +23,14 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AiReviewService {
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int MAX_DUPLICATE_CANDIDATES = 5;
@@ -48,6 +50,26 @@ public class AiReviewService {
 	private double lowGapThreshold;
 
 	public AiReviewResponse review(Long faqId, AiReviewRequest request) {
+		long startedAt = System.nanoTime();
+		List<FaqImprovementType> requestedTypes = request == null ? null : request.improvementTypes();
+		int duplicateCandidateCount = request == null || request.duplicateSuspected() == null
+				|| request.duplicateSuspected().candidateFaqIds() == null
+				? 0 : request.duplicateSuspected().candidateFaqIds().size();
+		log.info("FAQ AI 검토를 시작합니다: faqId={}, 요청태그={}, 중복후보수={}",
+				faqId, requestedTypes, duplicateCandidateCount);
+		try {
+			AiReviewResponse response = reviewInternal(faqId, request);
+			log.info("FAQ AI 검토를 완료했습니다: faqId={}, 요청태그={}, 처리시간={}ms",
+					faqId, requestedTypes, elapsedMillis(startedAt));
+			return response;
+		} catch (RuntimeException exception) {
+			log.warn("FAQ AI 검토에 실패했습니다: faqId={}, 요청태그={}, 처리시간={}ms, 사유={}",
+					faqId, requestedTypes, elapsedMillis(startedAt), exception.getMessage());
+			throw exception;
+		}
+	}
+
+	private AiReviewResponse reviewInternal(Long faqId, AiReviewRequest request) {
 		List<FaqImprovementType> improvementTypes = request.improvementTypes();
 		if (improvementTypes == null || improvementTypes.isEmpty() || improvementTypes.contains(null)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
@@ -89,10 +111,15 @@ public class AiReviewService {
 
 		List<FaqImprovementType> skippedTypes = orderedTypes.subList(reviewedTypes.size(), orderedTypes.size());
 		if (reviewedTypes.isEmpty()) {
+			log.warn("FAQ AI 검토의 LLM 호출을 생략했습니다: faqId={}, 사유=입력 한도 초과, 제외태그={}",
+					faqId, skippedTypes);
 			return withSkippedNotice(new AiReviewResponse(
 					"검토 입력을 줄인 뒤 AI 검토를 다시 요청하세요.",
 					"검토 입력 한도를 초과해 AI 검토를 진행하지 못했습니다."), skippedTypes);
 		}
+		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 포함태그={}, 제외태그={}, 입력문자수={}",
+				faqId, reviewedTypes, skippedTypes, prompt.length());
+		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}", faqId);
 		return withSkippedNotice(aiReviewLlmService.generateReview(prompt.toString()), skippedTypes);
 	}
 
@@ -159,6 +186,35 @@ public class AiReviewService {
 				질문은 후보별 최대 %d개입니다. pairCount는 두 FAQ가 함께 검색된 전체 횟수이며,
 				질문 목록에서는 보관 기간에 따라 본문이 지워진 검색 로그를 제외했습니다.
 				질문 자료가 부족하면 판단 근거가 부족하다고 밝히세요.
+				판단 결과는 다음 기준으로 고르세요.
+				- 중복: 한 FAQ의 질문 범위와 답변이 다른 FAQ에 완전히 포함되어 별도로 유지할 실익이 없습니다.
+				  일반적인 FAQ와 그 범위에 완전히 포함되는 구체적인 사례 FAQ도, 별도의 조건이나 다른 답변이 없다면 중복입니다.
+				- 구분 필요: 주제는 유사하지만 적용 조건이나 답변이 달라 두 FAQ를 유지하되 질문에서 범위를 명확히 해야 합니다.
+				- 중복 아님: 서로 다른 사용자 요구를 해결하며 각각 유지할 이유가 있습니다.
+				- 판단 근거 부족: 제공된 질문과 답변만으로 적용 범위를 판단할 수 없습니다.
+				판단 결과에 따라 다음 조치 규칙을 반드시 지키세요.
+				- 중복: 유지할 FAQ와 통합·삭제 또는 비활성화를 검토할 FAQ를 명시하세요. 대상과 후보 모두에
+				  수정 불필요 또는 현행 유지를 권고하면 안 됩니다.
+				- 구분 필요: 대상 FAQ와 후보 FAQ 각각에서 구분해야 할 조건과 수정 방향을 제안하세요.
+				- 중복 아님: 각각 유지할 이유와 각 FAQ의 수정 필요 여부를 적으세요.
+				- 판단 근거 부족: 단정적인 수정안을 만들지 말고 추가로 확인할 자료를 적으세요.
+				판단 근거 안에서 선택한 판단 결과를 뒤집거나 서로 다른 결론을 함께 쓰지 마세요.
+				details의 이 태그 부분은 반드시 다음 Markdown 구조를 사용하세요.
+				## 중복 의심 FAQ 판정 결과
+				### 후보 {순번}: FAQ {후보 FAQ ID}
+				#### 후보 FAQ 정보
+				- **질문**: {후보 질문}
+				- **답변**: {후보 답변}
+				- **함께 검색된 횟수**: {pairCount}
+				- **대표 유저 질문**: {함께 검색된 질문 중 판단에 가장 적합한 질문 정확히 1개}
+				#### 판정
+				- **판단 결과**: **{중복, 구분 필요, 중복 아님, 판단 근거 부족 중 하나}**
+				- **판단 근거**: {대상 FAQ와 후보 FAQ가 대표 질문에 적용되는지를 비교한 근거}
+				#### 조치 권고
+				- **대상 FAQ {대상 FAQ ID}**: {유지, 수정, 통합, 삭제 검토 등 구체적인 조치}
+				- **후보 FAQ {후보 FAQ ID}**: {유지, 수정, 통합, 삭제 검토 등 구체적인 조치}
+				대표 유저 질문에는 질문을 정확히 한 개만 쓰고, 여러 질문을 쉼표나 목록으로 나열하지 마세요.
+				후보마다 위 항목을 빠짐없이 한 번씩 작성하세요.
 				후보 FAQ 자료(JSON): %s
 
 				""".formatted(MAX_QUESTIONS_PER_CANDIDATE, JSON_MAPPER.writeValueAsString(materials));
@@ -178,5 +234,9 @@ public class AiReviewService {
 	private String buildLowUsageSection(Long faqId) {
 		// 사용 추이와 관련 사용자 질문 자료는 후속 단계에서 추가합니다.
 		return "[사용도 낮음]\n사용 추이와 관련 질문 자료는 아직 제공되지 않았습니다. 수요가 없다고 단정하지 마세요.\n\n";
+	}
+
+	private long elapsedMillis(long startedAt) {
+		return (System.nanoTime() - startedAt) / 1_000_000;
 	}
 }
