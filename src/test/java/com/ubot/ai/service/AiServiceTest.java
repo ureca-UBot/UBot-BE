@@ -246,7 +246,7 @@ class AiServiceTest {
             var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
             recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
             recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 10)));
-            return new LlmResponseDto("{\"answer\":\"2026년 10월 청구서는 9월 청구서보다 1,000원 많습니다.\","
+            return new LlmResponseDto("{\"answer\":\"2026년 10월 청구서와 9월 청구서는 모두 78,000원으로 같습니다.\","
                     + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
         });
 
@@ -256,6 +256,28 @@ class AiServiceTest {
                 .extracting(card -> card.billing().billingMonth(), UserDataCards.BillingCard::usageMonth)
                 .containsExactly(tuple(YearMonth.of(2026, 9), 8), tuple(YearMonth.of(2026, 10), 9));
         assertThat(answer.userData().plans()).isEmpty();
+    }
+
+    @Test
+    void 도구로_조회했지만_답변에_쓰지_않은_달은_카드로_붙이지_않는다() {
+        var materials = AnswerMaterials.builder("8월이랑 9월 요금 비교해줘").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("8월이랑 9월 요금 비교해줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 모델이 7월까지 더 조회했지만 답변에는 8월·9월만 쓴 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 7)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 8)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            return new LlmResponseDto("{\"answer\":\"8월 청구서와 9월 청구서는 모두 78,000원으로 같습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactly(YearMonth.of(2026, 8), YearMonth.of(2026, 9));
     }
 
     @Test

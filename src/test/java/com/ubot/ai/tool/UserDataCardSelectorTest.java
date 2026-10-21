@@ -14,6 +14,8 @@ import com.ubot.ai.dto.UserDataSummary.Profile;
 import com.ubot.ai.dto.UserDataSummary.SubscriptionSummary;
 import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.subscription.enums.SubscriptionStatus;
+import com.ubot.usage.dto.response.UsageAllowanceResponseDto;
+import com.ubot.usage.dto.response.UsageRecordResponseDto;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -93,6 +95,77 @@ class UserDataCardSelectorTest {
 
         assertThat(cards.usages()).singleElement()
                 .satisfies(card -> assertThat(card.usage().billingMonth()).isEqualTo(YearMonth.of(2026, 10)));
+    }
+
+    @Test
+    void 청구서는_월과_총액이_모두_나와야_카드로_만든다() {
+        // 월만 있는 부정 답변과, 월 없이 금액만 있는 답변에는 붙이지 않습니다.
+        assertThat(UserDataCardSelector.select("10월 요금", "10월 청구서는 현재 확인할 수 없습니다.", ONE_LINE).billings()).isEmpty();
+        assertThat(UserDataCardSelector.select("10월 요금", "78,000원입니다.", ONE_LINE).billings()).isEmpty();
+        assertThat(UserDataCardSelector.select("10월 요금", "10월 청구서는 78,000원입니다.", ONE_LINE).billings())
+                .extracting(card -> card.billing().billingMonth()).containsExactly(YearMonth.of(2026, 10));
+    }
+
+    @Test
+    void 요약의_최근_청구서는_월_대신_이번_달로_써도_총액이_나오면_카드로_만든다() {
+        assertThat(UserDataCardSelector.select("이번 달 요금 얼마야?", "이번 달 요금은 78,000원입니다.", ONE_LINE).billings())
+                .extracting(card -> card.billing().billingMonth()).containsExactly(YearMonth.of(2026, 10));
+        assertThat(UserDataCardSelector.select("이번달 요금 얼마야?", "이번달 요금은 78,000원입니다.", ONE_LINE).billings())
+                .extracting(card -> card.billing().billingMonth()).containsExactly(YearMonth.of(2026, 10));
+        // 총액이 없으면 "이번 달"만으로는 붙이지 않습니다.
+        assertThat(UserDataCardSelector.select("이번 달 요금 얼마야?", "이번 달 요금은 확인할 수 없습니다.", ONE_LINE).billings())
+                .isEmpty();
+    }
+
+    @Test
+    void 이번_달_표현은_도구로_조회한_기록에는_쓰지_않는다() {
+        // 도구로 조회한 9월 청구서도 총액이 78,000원이지만, "이번 달"로는 어느 달인지 가릴 수 없어 붙이지 않습니다.
+        UserDataCards recorded = new UserDataCards(List.of(), List.of(), List.of(
+                UserDataCards.BillingCard.of("010-****-5678", billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
+
+        assertThat(UserDataCardSelector.selectRecorded("이번 달 요금 얼마야?", "이번 달 요금은 78,000원입니다.", recorded).billings())
+                .isEmpty();
+    }
+
+    @Test
+    void 데이터를_쓰지_않아_잔여량이_제공량과_같으면_잔여량으로는_사용량_카드를_만들지_않는다() {
+        // 잔여 150.0GB가 요금제 데이터 제공량 150.0GB와 같습니다.
+        UsageRecordResponseDto unused = new UsageRecordResponseDto(1L, YearMonth.of(2026, 10), 0L, null, 0,
+                new UsageAllowanceResponseDto(153600L, false, null, true, null, true),
+                153600L, null, null, LocalDate.of(2026, 10, 11), false, null, null);
+        UserDataSummary summary = summary(new SubscriptionSummary(subscription(1L, "010-1234-5678", SubscriptionStatus.ACTIVE),
+                plan(), unused, null, List.of(), null, List.of(), List.of(), List.of()));
+
+        assertThat(UserDataCardSelector.select("내 요금제 데이터 얼마나 줘?", "5G 스탠다드는 데이터 150.0GB를 제공합니다.", summary).usages())
+                .isEmpty();
+        assertThat(UserDataCardSelector.select("이번 달 데이터 얼마나 썼어?", "이번 달 데이터는 0MB 사용했습니다.", summary).usages())
+                .hasSize(1);
+    }
+
+    @Test
+    void 도구로_조회한_기록은_답변에_나온_것만_남긴다() {
+        UserDataCards recorded = new UserDataCards(List.of(),
+                List.of(new UserDataCards.UsageCard("010-****-5678", usage(YearMonth.of(2026, 9)))),
+                List.of(UserDataCards.BillingCard.of("010-****-5678", billing(YearMonth.of(2026, 9), PaymentStatus.PAID)),
+                        UserDataCards.BillingCard.of("010-****-5678", billing(YearMonth.of(2026, 7), PaymentStatus.PAID))));
+
+        UserDataCards cards = UserDataCardSelector.selectRecorded("9월 청구서 보여줘", "9월 청구서는 78,000원입니다.", recorded);
+
+        assertThat(cards.usages()).isEmpty();
+        assertThat(cards.billings()).extracting(card -> card.billing().billingMonth()).containsExactly(YearMonth.of(2026, 9));
+        assertThat(UserDataCardSelector.selectRecorded("9월 청구서 보여줘", "", recorded)).isEqualTo(UserDataCards.EMPTY);
+        assertThat(UserDataCardSelector.selectRecorded("9월 청구서 보여줘", "9월 청구서는 78,000원입니다.", null))
+                .isEqualTo(UserDataCards.EMPTY);
+    }
+
+    @Test
+    void 질문이_회선을_지정하면_도구로_조회한_기록도_그_회선만_남긴다() {
+        UserDataCards recorded = new UserDataCards(List.of(), List.of(), List.of(
+                UserDataCards.BillingCard.of("010-****-5678", billing(YearMonth.of(2026, 9), PaymentStatus.PAID)),
+                UserDataCards.BillingCard.of("010-****-0001", billing(YearMonth.of(2026, 9), PaymentStatus.PAID))));
+
+        assertThat(UserDataCardSelector.selectRecorded("0001 회선 9월 청구서", "9월 청구서는 78,000원입니다.", recorded).billings())
+                .extracting(UserDataCards.BillingCard::phoneNumber).containsExactly("010-****-0001");
     }
 
     @Test

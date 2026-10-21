@@ -72,10 +72,12 @@ public class AiService {
         }
         // 지도 정보는 도구 결과를 먼저 쓰고, 없으면 핸들러가 내 위치로 바로 조회한 결과를 씁니다.
         StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
-        // 가입 정보 카드는 도구로 조회한 기록과, 미리 넣은 요약 중 답변에 쓰인 기록을 합칩니다.
+        // 가입 정보 카드는 도구로 조회한 기록과 미리 넣은 요약 중, 답변에 쓰인 기록만 합칩니다.
+        // 도구로 조회만 하고 답변에 쓰지 않은 달은 붙이지 않습니다.
         // 모델이 답을 보류했으면 조회한 기록이 있어도 카드를 붙이지 않습니다. 미응답 판단에 쓰도록 status는 그대로 둡니다.
         UserDataCards userData = "ABSTAIN".equals(status) ? null
-                : UserDataCards.merge(userDataRecorder.cards(),
+                : UserDataCards.merge(
+                        UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
                         UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary()));
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, userData);
     }
