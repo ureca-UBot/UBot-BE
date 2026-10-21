@@ -228,9 +228,11 @@ ON CONFLICT (code) DO NOTHING;
 
 -- V42에서 추가한 컬럼·테이블 채우기 (근거: FAQ tools/faq-db/seed/baseline-faqs.csv)
 
--- 인터넷/IPTV (FAQ 301~303). 500Mbps·1Gbps 인터넷은 월 요금이 정해지지 않아 넣지 않는다.
+-- 인터넷/IPTV (FAQ 301~303). 500M·1G 요금은 FAQ에 없어 100M과 같은 3년 약정 기준으로 정했다.
 INSERT INTO home_products (code, name, description, product_type, speed_mbps, monthly_fee, status) VALUES
     ('UBOT_HOME_INTERNET_100', 'Ubot 인터넷 100M', '최대 100Mbps 초고속 인터넷. 3년 약정 기준 월 22,000원, 부가세 포함.', 'INTERNET', 100, 22000, 'ACTIVE'),
+    ('UBOT_HOME_INTERNET_500', 'Ubot 인터넷 500M', '최대 500Mbps 초고속 인터넷. 3년 약정 기준 월 33,000원, 부가세 포함.', 'INTERNET', 500, 33000, 'ACTIVE'),
+    ('UBOT_HOME_INTERNET_1000', 'Ubot 인터넷 1G', '최대 1Gbps 기가 인터넷. 3년 약정 기준 월 38,500원, 부가세 포함.', 'INTERNET', 1000, 38500, 'ACTIVE'),
     ('UBOT_HOME_IPTV_BASIC', 'Ubot IPTV 베이직', 'IPTV 기본 상품. 셋톱박스 임대 포함. 월 16,500원, 부가세 포함.', 'IPTV', NULL, 16500, 'ACTIVE'),
     ('UBOT_HOME_IPTV_PREMIUM', 'Ubot IPTV 프리미엄', 'IPTV 상위 상품. 셋톱박스 임대 포함. 월 22,000원, 부가세 포함.', 'IPTV', NULL, 22000, 'ACTIVE')
 ON CONFLICT (code) DO NOTHING;
@@ -250,7 +252,7 @@ FROM (VALUES
 ) AS m (code, category)
 WHERE a.code = m.code;
 
--- 결합 종류와 회선 수 (FAQ 298, 1373, 1376~1380). 홈 500·기가 결합은 인터넷 상품이 없어 연결하지 않는다.
+-- 결합 종류와 회선 수 (FAQ 298, 1373, 1376~1380)
 UPDATE bundle_products b SET bundle_type = m.bundle_type, line_count = m.line_count
 FROM (VALUES
     ('UBOT_BUNDLE_FAMILY_2', 'FAMILY', 2), ('UBOT_BUNDLE_FAMILY_3', 'FAMILY', 3),
@@ -265,8 +267,13 @@ FROM (VALUES
 WHERE b.code = m.code;
 
 UPDATE bundle_products b SET home_product_id = h.home_product_id
-FROM home_products h
-WHERE b.code = 'UBOT_BUNDLE_HOME_100' AND h.code = 'UBOT_HOME_INTERNET_100';
+FROM (VALUES
+    ('UBOT_BUNDLE_HOME_100', 'UBOT_HOME_INTERNET_100'),
+    ('UBOT_BUNDLE_HOME_500', 'UBOT_HOME_INTERNET_500'),
+    ('UBOT_BUNDLE_HOME_1000', 'UBOT_HOME_INTERNET_1000')
+) AS m (bundle_code, home_code)
+JOIN home_products h ON h.code = m.home_code
+WHERE b.code = m.bundle_code;
 
 -- 요금제 포함 부가서비스 (FAQ 1113, 1116, 1119, 1343~1347)
 INSERT INTO plan_included_addons (plan_id, addon_service_id)
