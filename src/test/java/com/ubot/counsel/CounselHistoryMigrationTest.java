@@ -27,7 +27,7 @@ class CounselHistoryMigrationTest {
 					Long.class, UUID.randomUUID(), customer);
 			var before = jdbc.queryForList("SELECT * FROM conversations");
 
-			var flyway = Flyway.configure().dataSource(dataSource).load();
+			var flyway = Flyway.configure().dataSource(dataSource).target("39").load();
 			assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
 			flyway.validate();
 			assertThat(jdbc.queryForList("SELECT * FROM conversations")).isEqualTo(before);
