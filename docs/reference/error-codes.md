@@ -202,6 +202,32 @@
 - `FW-003`: 채팅 질문에 활성 금지어가 포함된 경우. 시도 기록을 만들지 않으므로 재시도 대상이 아닙니다. 어떤 단어가 걸렸는지는 응답에 포함하지 않습니다.
 
 
+## 상담
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `COUNSEL-001` | 400 | `INVALID_INPUT` | 요청 형식 또는 범위를 확인해 주세요. |
+| `COUNSEL-003` | 403 | `FORBIDDEN` | 접근 권한이 없습니다. |
+| `COUNSEL-004` | 404 | `SESSION_NOT_FOUND` | 상담을 찾을 수 없습니다. |
+| `COUNSEL-005` | 404 | `USER_NOT_FOUND` | 사용자를 찾을 수 없습니다. |
+| `COUNSEL-006` | 409 | `CONFLICT` | 상담 상태를 확인해 주세요. |
+| `COUNSEL-007` | 413 | `PAYLOAD_TOO_LARGE` | 요청이 너무 큽니다. |
+| `COUNSEL-008` | 429 | `RATE_LIMITED` | 전송이 너무 잦습니다. 잠시 후 재시도해 주세요. |
+| `COUNSEL-009` | 503 | `DISABLED` | 현재 사람 상담을 이용할 수 없습니다. |
+| `COUNSEL-011` | 503 | `DATABASE_UNAVAILABLE` | 상담 저장소에 연결할 수 없습니다. 잠시 후 재시도해 주세요. |
+| `COUNSEL-012` | 500 | `INTERNAL_ERROR` | 요청 처리에 실패했습니다. |
+| `COUNSEL-013` | 404 | `SAFETY_SENTENCE_NOT_FOUND` | 금지 문장을 찾을 수 없습니다. |
+| `COUNSEL-014` | 409 | `SAFETY_SENTENCE_DUPLICATE` | 동일한 금지 문장이 이미 등록되어 있습니다. |
+| `COUNSEL-015` | 503 | `SAFETY_INDEX_UNAVAILABLE` | 문장 색인에 실패했습니다. 상태를 확인한 후 다시 시도해 주세요. |
+| `COUNSEL-016` | 409 | `SAFETY_PROFILE_NOT_READY` | 현재 모델의 상담 필터 프로필을 먼저 등록해 주세요. |
+
+- 상담 API(`/counsel/**`, `/admin/counsel/**`, `/conversations/{id}/timeline`)의 오류는 `CounselExceptionHandler`가 먼저 처리합니다. 요청 검증 오류는 `G-001`~`G-003` 대신 `COUNSEL-001`, DB 오류는 `COUNSEL-011`, 처리하지 못한 예외는 `COUNSEL-012`로 응답합니다. 다른 도메인 예외(예: 남의 대화를 요청한 `CONV-001`)는 원래 코드 그대로 나갑니다.
+- `COUNSEL-006`: 진행 중인 다른 대화의 상담이 있을 때, 연결되지 않은 상담에 메시지를 보낼 때, 같은 `clientMessageId`로 내용을 바꿀 때, 금지 문장의 `revision`이 최신이 아닐 때 등. 메시지는 상황별 사유로 바뀌어 나갑니다.
+- `COUNSEL-008`: 메시지 전송·관리자 평가·수동 색인을 합쳐 사용자마다 일정 시간 동안 허용하는 횟수를 넘긴 경우.
+- `COUNSEL-009`: `COUNSEL_ENABLED=false`일 때 상담 API 전체.
+- 메시지 검사 결과(`BLOCKED`, `CHECK_FAILED`)는 오류 응답이 아닙니다. 전송 API가 `200`과 함께 `data.status`로 돌려줍니다.
+
+
 ## 공지·장애
 
 | code | HTTP | 이름 | 기본 메시지 |

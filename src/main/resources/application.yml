@@ -40,6 +40,10 @@ operation-monitoring:
 app:
   # api: 접수·조회·나머지 API, worker: 답변 Worker만, all: 둘 다(로컬)
   role: ${APP_ROLE:all}
+  counsel:
+    embedding-worker:
+      # worker/all 역할에서 기본 실행하며 api 역할에서는 실행하지 않습니다.
+      enabled: ${COUNSEL_EMBEDDING_WORKER_ENABLED:true}
   chat:
     worker:
       concurrency: ${CHAT_WORKER_CONCURRENCY:4}
@@ -131,3 +135,24 @@ notification:
 data-retention:
   # 보관 기간이 지난 데이터 삭제(purge_expired_data) 실행 시각. Asia/Seoul 기준 Spring cron
   purge-cron: ${DATA_RETENTION_PURGE_CRON:0 0 4 * * *}
+
+# 기존 BE의 인증·DataSource·Redis를 사용하는 상담 도메인
+counsel:
+  enabled: ${COUNSEL_ENABLED:true}
+  seed-on-start: ${COUNSEL_SEED_ON_START:false}
+  heartbeat-seconds: ${COUNSEL_HEARTBEAT_SECONDS:45}
+  reconnect-seconds: ${COUNSEL_RECONNECT_SECONDS:120}
+  pending-timeout-seconds: ${COUNSEL_PENDING_TIMEOUT_SECONDS:30}
+  maintenance-delay-ms: ${COUNSEL_MAINTENANCE_DELAY_MS:5000}
+  rate-window-seconds: ${COUNSEL_RATE_WINDOW_SECONDS:60}
+  rate-max-requests: ${COUNSEL_RATE_MAX_REQUESTS:30}
+  guard:
+    transport: ${COUNSEL_EMBEDDING_TRANSPORT:worker}
+    embedding-url: ${COUNSEL_EMBEDDING_URL:http://localhost:8001/v1/embeddings}
+    model: ${COUNSEL_GUARD_MODEL:ubot-embedding}
+    profile: ${COUNSEL_GUARD_PROFILE:insult-v1}
+    threshold: ${COUNSEL_BLOCK_THRESHOLD:0.95}
+    top-k: ${COUNSEL_GUARD_TOP_K:3}
+    concurrency: ${COUNSEL_GUARD_CONCURRENCY:2}
+    connect-timeout-ms: ${COUNSEL_GUARD_CONNECT_TIMEOUT_MS:2000}
+    response-timeout-ms: ${COUNSEL_GUARD_RESPONSE_TIMEOUT_MS:5000}

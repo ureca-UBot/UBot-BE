@@ -11,6 +11,9 @@ import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.exception.ConversationErrorCode;
 import com.ubot.conversation.exception.ConversationException;
 import com.ubot.conversation.repository.ConversationRepository;
+import com.ubot.conversation.repository.ConversationFaqSelectionRepository;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -28,6 +31,7 @@ public class ConversationService {
 	private final ConversationRepository conversationRepository;
 	private final AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository;
 	private final QuestionLogRepository questionLogRepository;
+	private final ConversationFaqSelectionRepository faqSelections;
 
 	@Transactional
 	public Long createGuestConversation() {
@@ -76,10 +80,14 @@ public class ConversationService {
 	@Transactional(readOnly = true)
 	public List<ConversationMessageResponseDto> getConversationMessageList(Long userId, UUID conversationId) {
 		Conversation conversation = findMemberConversation(userId, conversationId);
-		return questionLogRepository.findAllByConversationIdAndSubQuestionIndexOrderByCreatedAtAscIdAsc(
+		var messages = new ArrayList<>(questionLogRepository.findAllByConversationIdAndSubQuestionIndexOrderByCreatedAtAscIdAsc(
 						conversation.getId(), 1).stream()
 				.map(ConversationMessageResponseDto::from)
-				.toList();
+				.toList());
+		faqSelections.findAllByConversationIdOrderByCreatedAtAscIdAsc(conversation.getId()).forEach(selection ->
+				messages.add(new ConversationMessageResponseDto(null, selection.getQuestion(), selection.getAnswer(), selection.getCreatedAt())));
+		messages.sort(Comparator.comparing(ConversationMessageResponseDto::createdAt));
+		return messages;
 	}
 
 	private Conversation findMemberConversation(Long userId, UUID conversationId) {

@@ -22,11 +22,13 @@ source "${SCRIPT_DIR}/lib/compose.sh"
 source "${SCRIPT_DIR}/lib/ai-runtime.sh"
 source "${SCRIPT_DIR}/lib/embeddings.sh"
 source "${SCRIPT_DIR}/lib/backend.sh"
+source "${SCRIPT_DIR}/lib/counsel.sh"
 
 cd "${DEPLOY_DIR}"
 
 
 validate_environment
+validate_counsel_environment
 
 
 echo "== Load backend Docker image =="
@@ -48,6 +50,8 @@ validate_ai_from_app_network
 
 prepare_embeddings_before_switch
 
+prepare_counsel_before_switch
+
 start_application
 
 health_check
@@ -56,7 +60,10 @@ worker_health_check
 
 cleanup_old_backend_images
 
+# FAQ 검색은 채팅 핵심 기능이라 상담 색인 실패와 관계없이 먼저 복구함
 finish_embeddings_after_switch
+
+finish_counsel_after_switch
 
 echo "== Container status =="
 
