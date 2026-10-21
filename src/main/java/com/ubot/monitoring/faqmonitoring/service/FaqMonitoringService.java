@@ -87,9 +87,9 @@ public class FaqMonitoringService {
 	@Transactional(readOnly = true)
 	public FaqImprovementResponse getFaqImprovements(List<FaqImprovementType> types, int page, int size) {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
-		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
+		LocalDateTime unusedCutoffAt = evaluatedAt.minusMinutes(unusedMinutes);
 		FaqImprovementSearchCriteria criteria = new FaqImprovementSearchCriteria(
-				evaluatedAt, recentUsageStartAt, improvementTopK, lowGapThreshold,
+				evaluatedAt, unusedCutoffAt, improvementTopK, lowGapThreshold,
 				lowSimilarityThreshold, lowGapRateThreshold, minimumTopKSampleCount,
 				minimumTop1SampleCount, types, page, size
 		);

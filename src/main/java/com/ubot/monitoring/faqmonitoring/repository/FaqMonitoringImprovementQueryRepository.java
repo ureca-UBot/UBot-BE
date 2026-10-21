@@ -46,7 +46,7 @@ public class FaqMonitoringImprovementQueryRepository {
 						COUNT(question_log_id) AS top_k_count,
 						COALESCE(AVG(similarity), 0.0) AS average_similarity,
 						COUNT(question_log_id) FILTER (
-							WHERE question_created_at >= :recentUsageStartAt
+							WHERE question_created_at >= :unusedCutoffAt
 						) AS recent_usage_count
 					FROM current_version_logs
 					GROUP BY faq_id, question, intent, faq_version, version_started_at
@@ -79,8 +79,8 @@ public class FaqMonitoringImprovementQueryRepository {
 							AND m.average_similarity < :lowSimilarityThreshold) AS low_rag_quality,
 						(COALESCE(g.top1_sample_count, 0) >= :minimumTop1SampleCount
 							AND COALESCE(g.low_gap_rate, 0.0) >= :lowGapRateThreshold) AS duplicate_suspected,
-						(m.version_started_at <= :recentUsageStartAt
-							AND m.recent_usage_count = 0) AS low_usage
+						(m.version_started_at <= :unusedCutoffAt
+							AND m.top_k_count = 0) AS low_usage
 					FROM metrics m
 					LEFT JOIN gap_metrics g ON g.faq_id = m.faq_id
 				), filtered AS (
@@ -102,7 +102,7 @@ public class FaqMonitoringImprovementQueryRepository {
 
 		MapSqlParameterSource parameters = new MapSqlParameterSource()
 				.addValue("evaluatedAt", criteria.evaluatedAt())
-				.addValue("recentUsageStartAt", criteria.recentUsageStartAt())
+				.addValue("unusedCutoffAt", criteria.unusedCutoffAt())
 				.addValue("lowGapThreshold", criteria.lowGapThreshold())
 				.addValue("topK", criteria.topK())
 				.addValue("lowSimilarityThreshold", criteria.lowSimilarityThreshold())
