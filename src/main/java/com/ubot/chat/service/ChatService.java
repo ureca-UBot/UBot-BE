@@ -9,7 +9,6 @@ import com.ubot.chat.job.service.ChatSubmissionService;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
 import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.faq.enums.Intent;
-import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -19,17 +18,17 @@ import org.springframework.util.StringUtils;
 @Service
 public class ChatService {
 	private final ChatAttemptsService chatAttemptsService;
-	private final ForbiddenWordFilterService forbiddenWordFilterService;
+	private final ChatInputGuardService chatInputGuardService;
 	private final ChatSubmissionService chatSubmissionService;
 	private final IpRegionResolver ipRegionResolver;
 
 	public ChatService(
 			ChatAttemptsService chatAttemptsService,
-			ForbiddenWordFilterService forbiddenWordFilterService,
+			ChatInputGuardService chatInputGuardService,
 			ChatSubmissionService chatSubmissionService,
 			IpRegionResolver ipRegionResolver) {
 		this.chatAttemptsService = chatAttemptsService;
-		this.forbiddenWordFilterService = forbiddenWordFilterService;
+		this.chatInputGuardService = chatInputGuardService;
 		this.chatSubmissionService = chatSubmissionService;
 		this.ipRegionResolver = ipRegionResolver;
 	}
@@ -57,6 +56,7 @@ public class ChatService {
 	// 시도 이력에 위치를 저장하지 않으므로 재시도는 회원·게스트 모두 위치 없이 진행합니다.
 	public ChatSubmission retryChat(Long userId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
+		validateQuestion(chatAttemptsService.getLatestAnswerAttempt(userId, idempotencyKey).getQuestion());
 		return chatSubmissionService.submit(() -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
 			log.info("회원 답변 재시도를 생성했습니다: 시도ID={}, 사용자ID={}, 재시도횟수={}",
@@ -67,6 +67,7 @@ public class ChatService {
 
 	public ChatSubmission retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
+		validateQuestion(chatAttemptsService.getLatestGuestAnswerAttempt(conversationId, idempotencyKey).getQuestion());
 		return chatSubmissionService.submit(() -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
 			log.info("비회원 답변 재시도를 생성했습니다: 시도ID={}, 대화ID={}, 재시도횟수={}",
@@ -77,7 +78,7 @@ public class ChatService {
 
 	/**
 	 * 성공한 답변을 사용자가 고른 의도로 다시 검색합니다. 회원만 가능합니다.
-	 * 질문은 최초 요청에서 이미 검증된 원본 attempt의 것을 그대로 쓰므로 다시 검증하지 않습니다.
+	 * 본인 원본 질문을 다시 검사하고, 원문·기존 소유권·상태·잠금 검증은 보존합니다.
 	 * myLocation은 사용자가 내 위치 기준으로 요청했을 때만 있습니다.
 	 */
 	public ChatSubmission researchChat(
@@ -86,6 +87,7 @@ public class ChatService {
 		if (intent == null) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
+		validateQuestion(chatAttemptsService.getLatestAnswerAttempt(userId, idempotencyKey).getQuestion());
 		return chatSubmissionService.submit(() -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createResearchAttempt(userId, idempotencyKey, intent);
 			log.info("회원 의도 재검색 시도를 생성했습니다: 시도ID={}, 원본시도ID={}, 사용자ID={}, 의도={}",
@@ -103,8 +105,8 @@ public class ChatService {
 		if (!StringUtils.hasText(question) || question.length() > 4000) {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
-		// 임베딩·FAQ 검색·LLM 호출 전에 금지어를 차단합니다.
-		forbiddenWordFilterService.validateForbiddenWord(question);
+		// 원문은 기록에 보존하고, 처리할 요청이 남는지는 접수 전에 확인합니다.
+		chatInputGuardService.prepareQuestion(question);
 	}
 
 	private void validateIdempotencyKey(String idempotencyKey, ChatErrorCode invalidCode) {

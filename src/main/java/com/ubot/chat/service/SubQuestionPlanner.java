@@ -38,6 +38,7 @@ public class SubQuestionPlanner {
 	private final SubQuestionGuard subQuestionGuard;
 	private final QuestionRouter questionRouter;
 	private final MultiTurnDetector multiTurnDetector;
+	private final ChatInputGuardService chatInputGuardService;
 
 	public SubQuestionPlanner(
 			@Value("${CHAT_SUB_QUESTION_ENABLED:true}") boolean enabled,
@@ -46,7 +47,8 @@ public class SubQuestionPlanner {
 			LlmService llmService,
 			SubQuestionGuard subQuestionGuard,
 			QuestionRouter questionRouter,
-			MultiTurnDetector multiTurnDetector) {
+			MultiTurnDetector multiTurnDetector,
+			ChatInputGuardService chatInputGuardService) {
 		this.enabled = enabled;
 		this.conversationTurnRepository = conversationTurnRepository;
 		this.subQuestionPromptService = subQuestionPromptService;
@@ -54,12 +56,18 @@ public class SubQuestionPlanner {
 		this.subQuestionGuard = subQuestionGuard;
 		this.questionRouter = questionRouter;
 		this.multiTurnDetector = multiTurnDetector;
+		this.chatInputGuardService = chatInputGuardService;
 	}
 
 	SubQuestionPlan plan(AnswerAttemptsHistory attempt) {
+		return plan(attempt, attempt.getQuestion());
+	}
+
+	/** 기록 원문과 분리된 입력 가드 정리본으로 질문을 계획합니다. */
+	SubQuestionPlan plan(AnswerAttemptsHistory attempt, String question) {
 		if (!enabled) {
 			// 끄면 원문 하나로 검색합니다. 원문 먼저 검색 경로를 타야 FAQ 시맨틱 캐시도 보고, 기준 미달이어도 판정하지 않습니다(judge).
-			return SubQuestionPlan.searchFirst(attempt.getQuestion(), List.of(), QuestionRouter.Route.none());
+			return SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
 		}
 		List<ConversationTurn> history;
 		try {
@@ -69,26 +77,29 @@ public class SubQuestionPlanner {
 			history = loadHistory(historyAttemptId, attempt.getConversationId());
 		} catch (DataAccessException exception) {
 			log.warn("이전 대화를 읽지 못해 원문으로 검색합니다: 시도ID={}, 사유={}", attempt.getId(), exception.getMessage());
-			return SubQuestionPlan.original(attempt.getQuestion(), SubQuestionPlan.Source.LLM_FAILED);
+			return SubQuestionPlan.original(question, SubQuestionPlan.Source.LLM_FAILED);
 		}
-		QuestionRouter.Route route = questionRouter.route(attempt.getQuestion(), !history.isEmpty());
+		QuestionRouter.Route route = questionRouter.route(question, !history.isEmpty());
 		if (!route.needsJudge()) {
 			log.info("판정할 표지가 없어 원문으로 먼저 검색합니다: 시도ID={}, 이전대화수={}", attempt.getId(), history.size());
-			return SubQuestionPlan.searchFirst(attempt.getQuestion(), history, route);
+			return SubQuestionPlan.searchFirst(question, history, route);
 		}
-		return judge(attempt, history, route);
+		return judge(attempt, question, history, route);
 	}
 
 	/** 원문으로 먼저 검색했는데 실패했을 때 판정 LLM을 부릅니다. 질문 정리를 껐으면 부르지 않고 원문 그대로 둡니다. */
 	SubQuestionPlan judge(AnswerAttemptsHistory attempt, SubQuestionPlan searchFirst) {
-		if (!enabled) {
-			return SubQuestionPlan.original(attempt.getQuestion(), SubQuestionPlan.Source.ORIGINAL);
-		}
-		return judge(attempt, searchFirst.history(), searchFirst.route());
+		return judge(attempt, searchFirst, attempt.getQuestion());
 	}
 
-	private SubQuestionPlan judge(AnswerAttemptsHistory attempt, List<ConversationTurn> history, QuestionRouter.Route route) {
-		String question = attempt.getQuestion();
+	SubQuestionPlan judge(AnswerAttemptsHistory attempt, SubQuestionPlan searchFirst, String question) {
+		if (!enabled) {
+			return SubQuestionPlan.original(question, SubQuestionPlan.Source.ORIGINAL);
+		}
+		return judge(attempt, question, searchFirst.history(), searchFirst.route());
+	}
+
+	private SubQuestionPlan judge(AnswerAttemptsHistory attempt, String question, List<ConversationTurn> history, QuestionRouter.Route route) {
 		long startedAt = System.nanoTime();
 		try {
 			LlmResponseDto response = llmService.generateJudgment(subQuestionPromptService.createPrompt(question, history));
@@ -119,7 +130,8 @@ public class SubQuestionPlanner {
 	}
 
 	private List<ConversationTurn> loadHistory(Long attemptId, Long conversationId) {
-		return conversationId == null ? List.of() : conversationTurnRepository.findPreviousTurns(attemptId, MAX_HISTORY_TURNS);
+		return conversationId == null ? List.of() : chatInputGuardService.prepareHistory(
+				conversationTurnRepository.findPreviousTurns(attemptId, MAX_HISTORY_TURNS));
 	}
 
 	private long elapsedMillis(long startedAt) {
