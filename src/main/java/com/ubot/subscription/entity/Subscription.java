@@ -84,6 +84,10 @@ public class Subscription extends BusinessEntity {
 	@Column(name = "sim_deactivated_at")
 	private LocalDateTime simDeactivatedAt;
 
+	// 마지막으로 요금제를 바꾼 시각. 요금제 변경 월 1회 제한에 쓴다.
+	@Column(name = "plan_changed_at")
+	private LocalDateTime planChangedAt;
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();

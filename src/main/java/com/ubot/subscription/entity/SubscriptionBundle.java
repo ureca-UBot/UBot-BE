@@ -67,6 +67,10 @@ public class SubscriptionBundle extends BusinessEntity {
 	@Column(name = "applied_discount_amount")
 	private Integer appliedDiscountAmount;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "bundle_group_id")
+	private BundleGroup bundleGroup;
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();
