@@ -21,11 +21,12 @@ import org.springframework.stereotype.Component;
 @Component
 @RequiredArgsConstructor
 public class UserIntentHandler implements IntentHandler {
-	static final String SECTION_TITLE = "사용자 정보";
-	static final String LOGIN_REQUIRED_CONTENT =
+	// 출력 가드가 이 섹션의 조회 성공·실패를 구분할 때도 씁니다.
+	public static final String SECTION_TITLE = "사용자 정보";
+	public static final String LOGIN_REQUIRED_CONTENT =
 			"로그인한 사용자만 가입 정보를 확인할 수 있습니다. 로그인 후 다시 질문하도록 안내하세요.";
-	static final String NOT_FOUND_CONTENT = "사용자 정보를 찾을 수 없습니다.";
-	static final String LOOKUP_FAILED_CONTENT = "사용자 정보를 불러오지 못했습니다. "
+	public static final String NOT_FOUND_CONTENT = "사용자 정보를 찾을 수 없습니다.";
+	public static final String LOOKUP_FAILED_CONTENT = "사용자 정보를 불러오지 못했습니다. "
 			+ "프로필, 요금제, 최근 사용량·청구, 미납, 약정, 부가서비스·결합·로밍 정보는 지금 확인할 수 없다고 안내하세요.";
 
 	private final UserDataSummarizer userDataSummarizer;

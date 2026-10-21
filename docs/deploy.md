@@ -42,7 +42,7 @@
 ```
 
 - `backend`는 호스트 포트를 열지 않고(`expose: 8080`) Compose 네트워크 안에서만 접근됩니다. 외부 요청은 `nginx`를 거칩니다.
-- `backend`는 `.env`를 `env_file`로 읽습니다. Compose가 덮어쓰는 값은 `POSTGRES_HOST=postgres`, `POSTGRES_PORT=5432`, `REDIS_HOST=redis`, `REDIS_PORT=6379` 네 개뿐입니다. 프로필(`SPRING_PROFILES_ACTIVE`)과 모델 서버 주소는 `.env`에 적은 값이 그대로 들어갑니다.
+- `backend`는 `.env`를 `env_file`로 읽습니다. Compose는 DB·Redis의 내부 주소, 프로세스 역할, Prometheus 주소를 지정하고 `COUNSEL_SEED_ON_START=false`로 API 기동 시 색인을 끕니다. 상담 색인은 CD의 일회성 작업에서 실행합니다. 프로필(`SPRING_PROFILES_ACTIVE`)과 모델 서버 주소는 `.env`에 적은 값이 그대로 들어갑니다.
 - `backend`는 `APP_ROLE=api`로, `ai-worker`는 같은 이미지를 `APP_ROLE=worker`로 띄웁니다. `backend`는 질문을 `chat_jobs`에 넣고 Redis Streams(`chat:jobs`)에 작업 메시지를 발행한 뒤 `202`로 답합니다. `ai-worker`가 메시지를 읽어 답변을 만들고, 모델 서버는 `ai-worker`만 호출합니다. 랭킹·보관 기간 삭제 스케줄러는 `backend`에서만 돕니다.
 - `ai-worker`는 포트를 열지 않고, `backend`와 같은 `.env`와 Compose 덮어쓰기 값을 씁니다. 같은 이미지라 API 코드도 함께 뜨지만 HTTP는 `/actuator`만 받고 나머지는 `404 G-004`로 거절하므로, 요청이 잘못 `ai-worker`로 가도 API처럼 처리되지 않습니다.
 - 모델 서버에 동시에 들어가는 요청은 `ai-worker` 하나당 `CHAT_WORKER_CONCURRENCY`개까지입니다. DB 선점과 실행 토큰으로 결과의 중복 저장을 막습니다. 장애 회수 시 모델 호출은 재실행될 수 있습니다. 프로세스마다 DB 연결을 `DB_POOL_MAX_SIZE`개까지 씁니다.
@@ -167,13 +167,14 @@ GitHub Actions에서 하는 일:
    - 백필이 끝나면 다시 확인하고, 벡터가 다 있어야 다음으로 넘어갑니다.
    - 백필이 실패하면 여기서 끝납니다. 기존 백엔드와 Nginx는 그대로입니다.
    - variant 테이블이 아직 없거나 적용되지 않은 마이그레이션이 있으면 임시 백엔드는 백필하지 않고 끝납니다. 이때는 교체를 먼저 하고 12번에서 백필합니다.
-9. `backend`와 `ai-worker`를 새 이미지로 올리고 `nginx`를 강제로 다시 만듭니다(`--no-deps --force-recreate`). 두 프로세스가 함께 기동해도 Flyway가 DB 잠금으로 마이그레이션을 한 번만 적용합니다.
+9. 상담이 켜져 있으면 워커 교체 전에 일회성 `backend`로 마이그레이션을 검사합니다(`--counsel.seed-on-start=true --counsel.seed-only=true --counsel.seed-check-only=true`). 이 실행은 스키마 변경·스케줄러·색인을 실행하지 않습니다. 미적용 항목이 있으면 종료 코드 3으로 색인을 미루며 기존 API·워커를 유지합니다. 미적용 항목이 없으면 새 `ai-worker`의 헬스 확인 후 `--counsel.seed-on-start=true --counsel.seed-only=true`로 색인과 워커·활성 벡터를 검증합니다. 이후 `backend`와 `ai-worker`를 올리고 `nginx`를 강제로 다시 만듭니다(`--no-deps --force-recreate`). 실제 API·워커 기동에서만 Flyway가 DB 잠금으로 마이그레이션을 적용합니다. 미뤄진 상담 색인은 13번에서 실행합니다.
 10. `http://127.0.0.1/actuator/health`를 5초 간격으로 최대 30회 확인합니다. 실패하면 컨테이너 상태와 `backend`·`nginx` 로그 200줄을 출력하고 실패로 끝납니다. 이어서 같은 Docker 네트워크에 `curl` 컨테이너를 띄워 `http://ai-worker:8080/actuator/health`를 같은 방식으로 확인하고, 실패하면 `ai-worker`의 상태와 로그 200줄을 출력하고 실패로 끝납니다.
 11. 오래된 백엔드 이미지를 지웁니다. 지금 이미지와 그 전 이미지 2개는 남깁니다.
 12. 교체 뒤에 FAQ 벡터를 다시 확인합니다.
     - 8번에서 백필을 미뤘다면 임시 백엔드를 다시 띄워 백필하고 확인합니다. 실패하면 배포를 실패로 끝냅니다.
     - 그렇지 않으면 확인만 하고, 그 사이 등록·수정된 FAQ의 벡터가 모자라면 경고만 출력합니다.
-13. 컨테이너 상태를 출력합니다.
+13. 9번에서 상담 색인을 미뤘다면 일회성 `backend`로 색인합니다(`--counsel.seed-on-start=true --counsel.seed-only=true`). 12번 다음에 실행하므로 상담 색인이 실패해도 FAQ 백필은 이미 끝나 있습니다. 실패하면 배포를 실패로 끝냅니다. 새 API는 실행 중이며, 처음 색인하는 배포였다면 색인이 끝날 때까지 상담 메시지가 `CHECK_FAILED`로 처리돼 전달되지 않습니다. 원인을 해결한 뒤 배포를 재시도합니다.
+14. 컨테이너 상태를 출력합니다.
 
 ### 서버 사전 준비 (최초 1회)
 

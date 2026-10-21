@@ -12,6 +12,7 @@ import com.ubot.chat.job.stream.ChatJobResultStore;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.service.ChatAttemptsService;
+import com.ubot.conversation.repository.ConversationRepository;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -27,18 +28,21 @@ public class ChatJobQueryService {
 	private final QuestionLogRepository questionLogRepository;
 	private final ChatAttemptsService chatAttemptsService;
 	private final ChatJobResultStore resultStore;
+	private final ConversationRepository conversationRepository;
 
 	public ChatJobQueryService(
 			ChatJobRepository chatJobRepository,
 			AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
 			QuestionLogRepository questionLogRepository,
 			ChatAttemptsService chatAttemptsService,
-			ChatJobResultStore resultStore) {
+			ChatJobResultStore resultStore,
+			ConversationRepository conversationRepository) {
 		this.chatJobRepository = chatJobRepository;
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
 		this.questionLogRepository = questionLogRepository;
 		this.chatAttemptsService = chatAttemptsService;
 		this.resultStore = resultStore;
+		this.conversationRepository = conversationRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -92,10 +96,14 @@ public class ChatJobQueryService {
 	}
 
 	private boolean isOwner(AnswerAttemptsHistory attempt, Long userId, Optional<Long> guestConversationId) {
+		boolean owner;
 		if (userId != null) {
-			return userId.equals(attempt.getUserId());
+			owner = userId.equals(attempt.getUserId());
+		} else {
+			owner = attempt.getUserId() == null
+					&& guestConversationId.filter(id -> Objects.equals(id, attempt.getConversationId())).isPresent();
 		}
-		return attempt.getUserId() == null
-				&& guestConversationId.filter(id -> Objects.equals(id, attempt.getConversationId())).isPresent();
+		return owner && (attempt.getConversationId() == null
+				|| conversationRepository.existsByIdAndDeletedAtIsNull(attempt.getConversationId()));
 	}
 }

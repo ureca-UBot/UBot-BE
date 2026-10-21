@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.context.ChatContextCollector;
@@ -20,12 +21,41 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.pgvector.PGvector;
 import com.ubot.user.service.UserService;
+import com.ubot.billing.service.BillingService;
+import com.ubot.contract.service.ContractService;
+import com.ubot.subscription.service.SubscriptionService;
+import com.ubot.usage.service.UsageService;
+import java.time.Clock;
 import java.util.List;
 
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
 final class ChatTestFixtures {
 	static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
+
+	/** 기존 단위 테스트에 추가된 후보 선별·프로필 의존성을 모의 객체로 전달합니다. */
+	static ChatAnswerProcessor processor(com.ubot.faq.retrieval.FaqRetrievalService retrieval,
+			com.ubot.ai.service.AiService ai,
+			ChatContextCollector collector, SubQuestionPlanner planner, FaqSemanticCacheService cache,
+			FaqSentenceFilterService sentenceFilter, ChatInputGuardService inputGuard) {
+		var profile = mock(com.ubot.embedding.service.EmbeddingProfileService.class);
+		return new ChatAnswerProcessor(retrieval, ai, collector, planner, cache, sentenceFilter,
+				inputGuard, mock(com.ubot.ai.service.FaqGapCandidateSelector.class), profile);
+	}
+
 	private ChatTestFixtures() {
+	}
+
+	static ChatInputGuardService inputGuard() {
+		return inputGuard(mock(ForbiddenWordFilterService.class));
+	}
+
+	static ChatInputGuardService inputGuard(ForbiddenWordFilterService filter) {
+		return new ChatInputGuardService(filter, new ChatPromptInjectionService());
+	}
+
+	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */
+	static ChatInputGuardService passthroughInputGuard() {
+		return mock(ChatInputGuardService.class, invocation -> invocation.getArgument(0));
 	}
 
 	static FaqSemanticCacheService disabledCache() {
@@ -69,11 +99,18 @@ final class ChatTestFixtures {
 				new UserIntentHandler(mock(UserDataSummarizer.class))));
 	}
 
+	/** 회원 정보는 users로 조회하고 이용 중인 회선은 없는 실제 가입 정보 핸들러입니다. */
+	static UserIntentHandler userIntentHandler(UserService users) {
+		return new UserIntentHandler(new UserDataSummarizer(users, mock(SubscriptionService.class),
+				mock(UsageService.class), mock(BillingService.class), mock(ContractService.class),
+				Clock.systemDefaultZone()));
+	}
+
 	/** 판정 LLM을 부르지 않고 원문을 하위 질문 하나로 쓰는 정리기입니다. */
 	static SubQuestionPlanner originalSubQuestions() {
 		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class),
 				mock(SubQuestionPromptService.class), mock(LlmService.class), mock(SubQuestionGuard.class),
-				mock(QuestionRouter.class), mock(MultiTurnDetector.class));
+				mock(QuestionRouter.class), mock(MultiTurnDetector.class), inputGuard());
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

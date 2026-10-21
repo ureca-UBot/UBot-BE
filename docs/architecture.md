@@ -99,7 +99,7 @@ com.ubot
       → FaqRetrievalService → FaqVectorService : 질문 임베딩 → FAQ 질문 표현 검색
           → EmbeddingService    : EmbeddingClient로 1024차원 벡터 생성
           → FaqVectorRepository : 삭제되지 않은 FAQ의 질문 표현(variant) 대상 pgvector 코사인 유사도 검색
-                                  QUESTION 벡터 전체와 비교해 FAQ별 최고 점수 표현 하나 반환 (HNSW 인덱스 미사용)
+                                  HNSW로 QUESTION 후보 검색 → FAQ별 최고 점수 표현 하나 반환 (중복 제거 후 부족하면 후보 확대)
       → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
       → 캐시 승인 시 공식 FAQ 답변 반환
       → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
@@ -173,6 +173,8 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 `CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에, LLM이 답변 상태를 `ABSTAIN`(자료로 답할 수 없음)으로 낸 질문은 답변을 보낸 뒤 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
+미응답 질문은 답변 처리 중에 모아 두었다가, 작업 결과를 확정하는 트랜잭션(`ChatJobCompletionService`) 안에서 공용 대기열 `outbox_events`에 하위 질문마다 `UNANSWERED_QUESTION` 작업으로 한 행씩 넣습니다(`dedup_key`로 같은 `attempt_id`·`sub_question_index`는 한 번만). 작업이 취소되거나 다른 실행에 넘어가 결과가 기록되지 않으면 대기열에도 들어가지 않고, 대기열 등록이 실패하면 결과 확정도 함께 취소됩니다. 임베딩과 묶기는 `OutboxWorker`가 `OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘깁니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘린 뒤 `next_attempt_at`을 10초·20초·40초·80초 뒤로 미뤄 다시 시도하며, 5번 실패한 행은 error 로그를 남기고 더 처리하지 않습니다. 이런 행은 보관 기간 삭제 작업이 마지막 실패 7일 뒤 지웁니다.
+
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.
 3. 상태가 `PENDING`·`ON_HOLD`인 묶음 중, 지금 Profile의 중심 벡터와의 코사인 유사도가 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`) 이상인 가장 가까운 묶음에 넣습니다. 없으면 이 질문을 대표 질문으로 새 묶음을 만듭니다. `APPROVED`·`REJECTED` 묶음에는 합류하지 않습니다.
@@ -183,9 +185,10 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 - 기준 미달(`INSUFFICIENT_FAQ`)이면 가장 가까웠던 FAQ와 그 유사도를 함께 남깁니다.
 - LLM이 답할 수 없다고 판단한 질문(`LLM_ABSTAIN`)은 LLM에 넘긴 1위 FAQ와 그 유사도를 남깁니다. 사용자에게는 LLM 답변이 그대로 나가고 채팅은 성공으로 기록됩니다. `PARTIAL`(일부만 답함), `OUT_OF_SCOPE`(상담 범위 밖), `CONFLICT`는 저장하지 않습니다.
 - 벡터 검색 실패, 시간 초과, LLM 오류처럼 시스템 문제로 실패한 질문은 저장하지 않습니다(#102). 금지어로 차단된 질문도 시도 기록이 없어 저장되지 않습니다.
-- 저장에 실패해도 경고 로그만 남기고 채팅 응답(`CHAT-012`·`CHAT-013`)은 그대로 나갑니다.
+- 대기열에 넣지 못해도 경고 로그만 남기고 채팅 응답은 그대로 나갑니다.
 - 재시도도 새 답변 시도이므로, 같은 질문을 재시도해 또 실패하면 한 건씩 더 쌓여 묶음의 질문 수가 늘어납니다.
 - 의도 재검색이 같은 사유로 실패한 경우는 저장하지 않습니다([의도 재검색](#의도-재검색-117)).
+- 처리 대기·보류 묶음에는 `UnansweredGroupNamingScheduler`가 `UNANSWERED_NAMING_INTERVAL_MINUTES`(기본 5분)마다 LLM으로 주제 이름(`topic_name`)과 추천 FAQ 카테고리(`suggested_category_id`)를 붙입니다(#230). 이름이 없거나 질문 수가 이름 붙인 때의 2배 이상이 된 묶음을 한 번에 10개까지 처리하고, 카테고리는 기존 카테고리 이름과 같을 때만 저장합니다. 실패한 묶음은 다음 주기에 다시 시도합니다. 관리자 묶음 목록·상세 응답에 `topicName`, `suggestedCategoryId`로 나갑니다.
 - 묶음을 찾고 만드는 과정에 잠금이 없어, 동시에 들어온 비슷한 질문이 서로 다른 묶음으로 나뉠 수 있습니다.
 - 묶음을 조회하고 처리 상태를 바꾸는 관리자 API는 아직 없습니다(#109).
 

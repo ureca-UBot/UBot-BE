@@ -16,8 +16,9 @@ import com.ubot.faq.retrieval.rerank.FaqRerankService;
 import com.ubot.faq.retrieval.rerank.RerankException;
 import com.ubot.faq.retrieval.rerank.RerankerClient;
 import com.ubot.faq.service.FaqVectorService;
-import com.ubot.unanswered.service.UnansweredQuestionService;
+import com.ubot.unanswered.dto.UnansweredCandidate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,8 +29,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -44,8 +45,7 @@ class ChatAnswerProcessorRerankTest {
     FaqVectorService faqVectorService = ChatTestFixtures.vectorService();
     @Mock
     AiService aiService;
-    @Mock
-    UnansweredQuestionService unansweredQuestionService;
+    private final List<UnansweredCandidate> unanswered = new ArrayList<>();
     @Mock
     ChatContextCollector chatContextCollector;
     private final FaqSentenceFilterService sentenceFilter = ChatTestFixtures.passthroughSentenceFilter();
@@ -60,7 +60,7 @@ class ChatAnswerProcessorRerankTest {
         ChatAnswerProcessor processor = processor((query, documents) -> List.of(0.1, 0.2, 0.3, 0.4, 0.8, 0.9));
         answerWith("답변");
 
-        ChatAnswerResult result = processor.generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         // Reranker 상위 3개(6, 5, 4번)를 먼저 잘랐다면 4번 하나만 남았을 것입니다.
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(4L, 3L, 2L);
@@ -77,11 +77,14 @@ class ChatAnswerProcessorRerankTest {
         when(faqVectorService.getSimilarList("유심 재발급", 10)).thenReturn(List.of(faq(1L, 0.70), faq(2L, 0.60)));
         ChatAnswerProcessor processor = processor((query, documents) -> List.of(0.2, 0.99));
 
-        ChatAnswerResult result = processor.generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         // 미응답 질문에는 Reranker 1위(2번)가 아니라 벡터 검색 1위(1번)를 남깁니다.
-        verify(unansweredQuestionService).createUnansweredQuestion(eq(100L), eq(1), eq("유심 재발급"), eq("유심 재발급"), any(), eq(1L), eq(0.70));
+        assertThat(unanswered)
+                .extracting(UnansweredCandidate::subQuestionIndex, UnansweredCandidate::subQuestion,
+                        UnansweredCandidate::bestFaqId, UnansweredCandidate::bestSimilarity)
+                .containsExactly(tuple(1, "유심 재발급", 1L, 0.70));
         verifyNoInteractions(aiService);
         verifyNoInteractions(sentenceFilter);
     }
@@ -96,7 +99,7 @@ class ChatAnswerProcessorRerankTest {
         });
         answerWith("답변");
 
-        ChatAnswerResult result = processor.generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor.generateAnswer(attempt(), null, NOT_CANCELLED, unanswered);
 
         assertThat(result.isFailed()).isFalse();
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L, 3L);
@@ -109,22 +112,19 @@ class ChatAnswerProcessorRerankTest {
             throw new AssertionError("호출하면 안 됩니다.");
         };
         when(faqVectorService.getSimilarList("유심 재발급", 10)).thenReturn(List.of());
-        assertThat(processor(neverCalled).generateAnswer(attempt(), null, NOT_CANCELLED).errorCode())
+        assertThat(processor(neverCalled).generateAnswer(attempt(), null, NOT_CANCELLED, unanswered).errorCode())
                 .isEqualTo(ChatErrorCode.NO_FAQ);
 
         when(faqVectorService.getSimilarList("유심 재발급", 10))
                 .thenThrow(new DataAccessResourceFailureException("DB 오류"));
-        assertThat(processor(neverCalled).generateAnswer(attempt(), null, NOT_CANCELLED).errorCode())
+        assertThat(processor(neverCalled).generateAnswer(attempt(), null, NOT_CANCELLED, unanswered).errorCode())
                 .isEqualTo(ChatErrorCode.VECTOR_SEARCH_FAILED);
     }
 
     private ChatAnswerProcessor processor(RerankerClient rerankerClient) {
         FaqRetrievalProperties properties = new FaqRetrievalProperties();
         properties.getRerank().setEnabled(true);
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(
-                new FaqRetrievalService(faqVectorService, new FaqRerankService(rerankerClient), properties, 3),
-                aiService, unansweredQuestionService, chatContextCollector, ChatTestFixtures.originalSubQuestions(),
-                ChatTestFixtures.disabledCache(), sentenceFilter);
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(faqVectorService, new FaqRerankService(rerankerClient), properties, 3), aiService, chatContextCollector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

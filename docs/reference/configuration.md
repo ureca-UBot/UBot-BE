@@ -100,6 +100,14 @@ src/main/resources/
 | `VLLM_RERANKER_GPU_MEMORY_UTILIZATION` | Docker Compose: Reranker 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
 | `APP_ROLE` | `AppRole`(`app.role`): 프로세스 역할. `api`는 접수·상태 조회와 나머지 API·스케줄러, `worker`는 답변 Worker만(랭킹·보관 기간 삭제 스케줄러 없음, HTTP는 `/actuator`만 받고 나머지는 `404 G-004`), `all`은 둘 다. 배포 Compose는 `backend=api`, `ai-worker=worker`로 정함 | `all` | `all`. 다른 값이면 기동되지 않음 |
 | `CHAT_WORKER_CONCURRENCY` | `ChatJobWorker`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
+| `COUNSEL_EMBEDDING_WORKER_ENABLED` | `CounselEmbeddingWorker`: 상담 전용 Redis 큐의 임베딩만 처리. `worker/all` 역할에서 기본 실행하며 `api`에서는 실행하지 않음. 별도 스레드 1개이며 기존 채팅 큐·실행 풀·DB를 사용하지 않음. 필요하면 `false`로 비활성화 | `true` | `true` (`test` 프로필은 `false`) |
+| `COUNSEL_ENABLED` | 기존 BE 상담 API·배정/미완료 메시지 복구 활성화 | `true` | `true` |
+| `COUNSEL_EMBEDDING_TRANSPORT` | 상담 임베딩 경로. 기본 `worker`는 기존 ai-worker에 위임. 자동 HTTP 우회 없음 | `worker` | `worker` |
+| `COUNSEL_SEED_ON_START` | 로컬 API/all 시작 시 50개 상담 예시 색인. CD에서는 API의 이 값을 false로 고정하고 워커 준비 후 일회성 프로세스의 실행 인자로 색인·준비 상태를 검증. 동일 프로필은 재색인하지 않음 | `false` | `false` |
+| `--counsel.seed-only=true` (실행 인자) | `--counsel.seed-on-start=true`와 함께 사용. Flyway migrate·스케줄러 없이 실행하며, 미적용 마이그레이션은 종료 코드 3, 성공은 0, 실패는 1. CD는 코드 3이면 API·워커 교체와 FAQ 벡터 확인이 끝난 뒤 색인 | 지정하지 않음 | `false` |
+| `--counsel.seed-check-only=true` (실행 인자) | 위 두 인자와 함께 워커 교체 전 사전 검사에 사용. 체크섬·미적용 마이그레이션만 확인하며 색인·워커 호출 없이 종료 | 지정하지 않음 | `false` |
+| `COUNSEL_GUARD_MODEL` / `COUNSEL_GUARD_PROFILE` | 상담 벡터 모델명 / 불변 검색 프로필 | `ubot-embedding` / `insult-v1` | 동일 |
+| `COUNSEL_BLOCK_THRESHOLD` | 상담 문장 코사인 유사도 후보 기준 | `0.95` | `0.95` |
 | `CHAT_WORKER_READ_BLOCK` | 새 메시지가 없을 때 다음 읽기까지 쉬는 간격. 실행 슬롯은 반환함 | `2s` | `2s` |
 | `CHAT_WORKER_CONSUMER_NAME` | `ChatJobWorker`: Redis Streams 그룹(`chat-workers`) 안의 Worker 이름. Worker마다 달라야 함. 빈 값으로 두면 기동 실패 | 주석 처리 | `HOSTNAME`(컨테이너 ID), 없으면 `local` |
 | `CHAT_WORKER_MAX_QUEUE_WAIT` | `ChatJobWorker`: 접수 뒤 이 시간 안에 시작하지 못한 작업을 `CHAT-016`으로 실패 처리. 발행 표시는 이보다 1분 길게 둠 | `10m` | `10m` |
@@ -112,7 +120,10 @@ src/main/resources/
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM을 포함한 전체 실행 제한. 초과 시 CHAT-016, 취소 요청 및 늦은 결과 폐기 | `180s` | `180s` |
 | `CHAT_WORKER_SHUTDOWN_WAIT` | Worker 종료 시 실행 중인 작업을 기다리는 시간. 넘기면 대기열에 돌려놓고 다시 발행. 컨테이너 종료 유예 시간(`stop_grace_period`, ECS `stopTimeout`)보다 짧아야 함 | `20s` | `20s` |
 | `DB_POOL_MAX_SIZE` | HikariCP(`spring.datasource.hikari.maximum-pool-size`): 프로세스 하나의 DB 연결 수. API와 Worker를 합쳐 PostgreSQL `max_connections`보다 작아야 함 | `10` | `10` |
+| `SCHEDULER_POOL_SIZE` | `spring.task.scheduling.pool.size`: `@Scheduled` 작업을 동시에 실행할 스레드 수. 1이면 한 작업(보관 기간 삭제 재시도, LLM 호출 등)이 끝날 때까지 다른 예약 작업(Outbox 처리 등)이 기다림. 같은 작업은 겹쳐 실행되지 않음 | `4` | `4` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
+| `OUTBOX_POLL_DELAY_MS` | `OutboxWorker`: 공용 대기열(`outbox_events`) 작업을 꺼내 처리하는 주기(밀리초, 이전 처리가 끝난 뒤부터) | `2000` | `2000` |
+| `UNANSWERED_NAMING_INTERVAL_MINUTES` | `UnansweredGroupNamingScheduler`: 처리 대기·보류 미응답 묶음에 LLM으로 주제 이름과 추천 카테고리를 붙이는 주기(분). 이름이 없거나 질문 수가 이름 붙인 때의 2배 이상이 된 묶음을 한 번에 10개까지 처리 | `5` | `5` |
 | `OLLAMA_CONNECT_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 연결 제한 시간 | `3s` | `3s` |
 | `OLLAMA_READ_TIMEOUT` | `EmbeddingConfig`: Ollama 임베딩 응답 제한 시간 | `10s` | `10s` |
 | `EMBEDDING_BASE_URL` | `EmbeddingConfig`: 임베딩 엔진이 `vllm`일 때 호출할 OpenAI 호환 API 주소(`/v1`까지) | `http://localhost:8001/v1` | `http://localhost:8001/v1` |

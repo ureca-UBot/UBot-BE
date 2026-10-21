@@ -49,6 +49,10 @@ DECLARE
     legal_cutoff CONSTANT DATE := (now_at - INTERVAL '5 years')::DATE;
     updated_count INTEGER;
 BEGIN
+    -- 상담의 차단·검사 실패 기록은 생성 후 3개월 보관한다. 판정 이벤트도 CASCADE로 함께 지운다.
+    CALL purge_in_batches('counseling.messages', 'id',
+            format($c$status IN ('BLOCKED','CHECK_FAILED') AND created_at < %L$c$, log_cutoff), batch_size);
+
     -- 1. 만료된 리프레시 토큰
     CALL purge_in_batches('refresh_tokens', 'id',
             format('expired_at < %L', now_at), batch_size);
@@ -73,7 +77,9 @@ BEGIN
             LEFT JOIN conversations c ON c.conversation_id = ql.conversation_id
             WHERE ql.anonymized_at IS NULL
               AND ql.created_at < log_cutoff
-              AND (ql.conversation_id IS NULL OR c.updated_at < log_cutoff)
+              AND (ql.conversation_id IS NULL OR (c.updated_at < log_cutoff
+                  AND NOT EXISTS (SELECT 1 FROM counseling.sessions s
+                                  WHERE s.conversation_id=c.public_id AND s.status<>'ENDED')))
             LIMIT batch_size
         );
         GET DIAGNOSTICS updated_count = ROW_COUNT;
@@ -84,7 +90,9 @@ BEGIN
     -- 3. 마지막 활동 후 3개월이 지난 대화 (남은 question_log·answer_attempts_history CASCADE)
     --    미답변 질문은 attempt_id만 NULL이 되고 그룹과 함께 5단계에서 지워집니다.
     CALL purge_in_batches('conversations', 'conversation_id',
-            format('updated_at < %L', log_cutoff), batch_size);
+            format($c$updated_at < %L AND NOT EXISTS (
+                SELECT 1 FROM counseling.sessions s
+                WHERE s.conversation_id=conversations.public_id AND s.status<>'ENDED')$c$, log_cutoff), batch_size);
 
     -- 4. FAQ 모니터링 보관 기간(3년)이 지난 질문 로그 (faq_log CASCADE)와 대화에 속하지 않은 예전 답변 시도
     CALL purge_in_batches('question_log', 'id',
@@ -98,6 +106,9 @@ BEGIN
     CALL purge_in_batches('unanswered_question_groups', 'id',
             format($c$status IN ('APPROVED', 'REJECTED') AND updated_at < %L$c$, log_cutoff), batch_size);
 
+    CALL purge_in_batches('outbox_events', 'id',
+            format('retry_count >= 5 AND next_attempt_at < %L', now_at - INTERVAL '7 days'), batch_size);
+
     -- 6. 방문일이 3개월 지난 예약 (알림 CASCADE)
     --    예약을 COMPLETED·NO_SHOW로 바꾸는 기능이 없어 지난 예약도 RESERVED로 남으므로 상태와 관계없이 방문일로 판단합니다.
     CALL purge_in_batches('store_reservations', 'reservation_id',
@@ -108,6 +119,12 @@ BEGIN
             format('created_at < %L', log_cutoff), batch_size);
 
     -- 8-1. 탈퇴 후 3개월이 지났고 구독이 없는 회원 (남은 로그 CASCADE, 감사 컬럼 SET NULL)
+    -- 탈퇴 상담사의 FK를 비울 수 있도록 남아 있는 상담을 먼저 종료한다.
+    UPDATE counseling.sessions s SET status='ENDED', ended_at=now_at, assignment_version=assignment_version+1
+    WHERE s.status<>'ENDED' AND EXISTS (
+        SELECT 1 FROM users u WHERE u.user_id=s.counselor_id AND u.deleted_at<log_cutoff
+    );
+    COMMIT;
     CALL purge_in_batches('users', 'user_id',
             format($c$deleted_at < %L
                 AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = users.user_id)

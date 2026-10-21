@@ -10,6 +10,8 @@ import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.util.PersonalInfoMasker;
 import com.ubot.common.ErrorCode;
 import com.ubot.conversation.entity.Conversation;
+import com.ubot.conversation.exception.ConversationErrorCode;
+import com.ubot.conversation.exception.ConversationException;
 import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -20,6 +22,7 @@ import com.ubot.faq.repository.FaqRepository;
 import com.ubot.guest.entity.GuestChatSettings;
 import com.ubot.guest.repository.GuestChatSettingsRepository;
 import com.ubot.llm.service.LlmService;
+import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.ranking.enums.RegionSido;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -92,9 +95,13 @@ public class ChatAttemptsService {
 		String input = PersonalInfoMasker.mask(question.strip());
 		LocalDateTime createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 		String idempotencyKey = createIdempotencyKey(userId, input, createdAt);
-		return transactionTemplate
-				.execute(transactionStatus -> answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
-						userId, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel)));
+		return transactionTemplate.execute(transactionStatus -> {
+			if (conversationId != null) {
+				lockActiveConversation(conversationId, userId);
+			}
+			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
+					userId, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel));
+		});
 	}
 
 	public AnswerAttemptsHistory createGuestAnswerAttempt(Long conversationId, String question) {
@@ -106,6 +113,21 @@ public class ChatAttemptsService {
 			return answerAttemptsHistoryRepository.saveAndFlush(new AnswerAttemptsHistory(
 					null, conversationId, input, 1, idempotencyKey, createdAt, llmModel, embeddingModel));
 		});
+	}
+
+	/** 회원 본인의 최신 시도 기록을 조회합니다. */
+	public AnswerAttemptsHistory getLatestAnswerAttempt(Long userId, String idempotencyKey) {
+		return answerAttemptsHistoryRepository
+				.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
+				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+	}
+
+	/** 해당 비회원 대화의 최신 시도 기록만 조회합니다. */
+	public AnswerAttemptsHistory getLatestGuestAnswerAttempt(Long conversationId, String idempotencyKey) {
+		return answerAttemptsHistoryRepository
+				.findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
+						conversationId, idempotencyKey)
+				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 	}
 
 	public AnswerAttemptsHistory createRetryAttempt(Long userId, String idempotencyKey) {
@@ -122,6 +144,12 @@ public class ChatAttemptsService {
 			AnswerAttemptsHistory latest = answerAttemptsHistoryRepository
 					.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey)
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+			if ("PENDING".equals(latest.getStatus())) {
+				throw new ChatException(ChatErrorCode.RESEARCH_NOT_ALLOWED);
+			}
+			if (latest.getConversationId() != null) {
+				lockActiveConversation(latest.getConversationId(), userId);
+			}
 
 			AnswerAttemptsHistory source = answerAttemptsHistoryRepository
 					.findAttemptForLock(latest.getId())
@@ -159,6 +187,18 @@ public class ChatAttemptsService {
 	private AnswerAttemptsHistory createRetryAttempt(Long userId, Long conversationId, String idempotencyKey) {
 		boolean guest = userId == null;
 		return transactionTemplate.execute(transactionStatus -> {
+			AnswerAttemptsHistory source = guest
+					? getLatestGuestAnswerAttempt(conversationId, idempotencyKey)
+					: getLatestAnswerAttempt(userId, idempotencyKey);
+			if ("PENDING".equals(source.getStatus())) {
+				validateRetryAttempt(source).ifPresent(errorCode -> {
+					throw new ChatException(errorCode);
+				});
+			}
+			if (source.getConversationId() != null) {
+				// 대화 → 시도 순서로 잠가 삭제·게스트 승계와 잠금 순서를 맞춥니다.
+				lockActiveConversation(source.getConversationId(), userId);
+			}
 			// 최초 행을 잠가서 같은 질문에 대한 동시 재시도를 직렬로 처리합니다.
 			(guest
 					? answerAttemptsHistoryRepository
@@ -166,13 +206,9 @@ public class ChatAttemptsService {
 					: answerAttemptsHistoryRepository
 							.findInitialAttemptsForLock(userId, idempotencyKey, 1))
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
-			AnswerAttemptsHistory latestAttempt = (guest
-					? answerAttemptsHistoryRepository
-							.findFirstByUserIdIsNullAndConversationIdAndIdempotencyKeyOrderByAttemptCountDesc(
-									conversationId, idempotencyKey)
-					: answerAttemptsHistoryRepository
-							.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(userId, idempotencyKey))
-					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+			AnswerAttemptsHistory latestAttempt = guest
+					? getLatestGuestAnswerAttempt(conversationId, idempotencyKey)
+					: getLatestAnswerAttempt(userId, idempotencyKey);
 
 			validateRetryAttempt(latestAttempt).ifPresent(errorCode -> {
 				throw new ChatException(errorCode);
@@ -185,9 +221,7 @@ public class ChatAttemptsService {
 	}
 
 	private void validateGuestQuestionLimit(Long conversationId, String idempotencyKey) {
-		Conversation conversation = conversationRepository
-				.findConversationForLock(conversationId)
-				.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
+		Conversation conversation = lockActiveConversation(conversationId, null);
 		int maxQuestionCount = guestChatSettingsRepository
 				.findById(GuestChatSettings.SETTINGS_ID).orElseThrow().getMaxQuestionCount();
 		long usedQuestionCount = answerAttemptsHistoryRepository.countGuestQuestions(
@@ -196,6 +230,14 @@ public class ChatAttemptsService {
 			throw new ChatException(ChatErrorCode.GUEST_QUESTION_LIMIT_REACHED);
 		}
 		conversation.touch();
+	}
+
+	private Conversation lockActiveConversation(Long conversationId, Long userId) {
+		return conversationRepository.findConversationForLock(conversationId)
+				.filter(conversation -> !conversation.isDeleted())
+				.filter(conversation -> userId == null
+						? conversation.isGuest() : userId.equals(conversation.getUserId()))
+				.orElseThrow(() -> new ConversationException(ConversationErrorCode.CONVERSATION_NOT_FOUND));
 	}
 
 	// 작업 완료와 함께 커밋되도록 호출자 트랜잭션 안에서만 부름. 이미 끝난 시도면 기록 없이 빈 값
@@ -274,6 +316,10 @@ public class ChatAttemptsService {
 			return Optional.of(ChatErrorCode.LIMIT_REACHED);
 		}
 		if (!"FAIL".equals(attempt.getStatus())) {
+			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
+		}
+		// 출력 가드가 거절한 질문은 API를 직접 재호출해도 새 시도를 만들지 않습니다.
+		if (attempt.getErrorCode() == LlmErrorCode.LLM_OUTPUT_REJECTED) {
 			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}
 		return Optional.empty();

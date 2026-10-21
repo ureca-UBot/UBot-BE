@@ -9,30 +9,36 @@ import com.ubot.chat.service.ChatAttemptsService;
 import com.ubot.chat.service.ChatJobOutcome;
 import com.ubot.common.ErrorCode;
 import com.ubot.ranking.enums.RegionSido;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-// 작업·시도 상태와 질문 로그·근거 FAQ 로그를 한 트랜잭션으로 커밋함. 모델 호출은 포함 안 함
+// 작업·시도 상태와 질문 로그·근거 FAQ 로그·미응답 대기열 등록을 한 트랜잭션으로 커밋함. 모델 호출은 포함 안 함
 @Slf4j
 @Service
 public class ChatJobCompletionService {
 	private final ChatJobRepository chatJobRepository;
 	private final AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository;
 	private final ChatAttemptsService chatAttemptsService;
+	private final UnansweredQuestionService unansweredQuestionService;
 	private final TransactionTemplate transactionTemplate;
 
 	public ChatJobCompletionService(
 			ChatJobRepository chatJobRepository,
 			AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
 			ChatAttemptsService chatAttemptsService,
+			UnansweredQuestionService unansweredQuestionService,
 			PlatformTransactionManager transactionManager) {
 		this.chatJobRepository = chatJobRepository;
 		this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
 		this.chatAttemptsService = chatAttemptsService;
+		this.unansweredQuestionService = unansweredQuestionService;
 		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
@@ -48,7 +54,7 @@ public class ChatJobCompletionService {
 			ChatJob job = locked.get();
 			AnswerAttemptsHistory attempt = lockAttempt(job);
 			return outcome.isFailed()
-					? finishFailed(job, attempt, outcome.errorCode())
+					? finishFailed(job, attempt, outcome.errorCode(), outcome.unanswered())
 					: finishSucceeded(job, attempt, outcome, region);
 		});
 	}
@@ -58,7 +64,7 @@ public class ChatJobCompletionService {
 		return Boolean.TRUE.equals(transactionTemplate.execute(status -> chatJobRepository
 				.findQueuedJobForLock(jobId)
 				.map(job -> {
-					finishFailed(job, lockAttempt(job), errorCode);
+					finishFailed(job, lockAttempt(job), errorCode, List.of());
 					return true;
 				})
 				.orElse(false)));
@@ -69,7 +75,7 @@ public class ChatJobCompletionService {
 		return Boolean.TRUE.equals(transactionTemplate.execute(status -> chatJobRepository
 				.findRunningJobStartedBeforeForLock(jobId, startedBefore)
 				.map(job -> {
-					finishFailed(job, lockAttempt(job), errorCode);
+					finishFailed(job, lockAttempt(job), errorCode, List.of());
 					return true;
 				})
 				.orElse(false)));
@@ -84,19 +90,26 @@ public class ChatJobCompletionService {
 		if (questionLogId.isEmpty()) {
 			return finishWithoutRecording(job, attempt);
 		}
+		enqueueUnanswered(attempt, outcome.unanswered());
 		job.succeed(new ChatJobResult(questionLogId.get(), outcome.store(), outcome.userData()));
 		log.info("답변 작업을 완료했습니다: 작업ID={}, 시도ID={}", job.getId(), attempt.getId());
 		return new Completion(true, questionLogId.get());
 	}
 
-	private Completion finishFailed(ChatJob job, AnswerAttemptsHistory attempt, ErrorCode errorCode) {
+	private Completion finishFailed(ChatJob job, AnswerAttemptsHistory attempt, ErrorCode errorCode,
+			List<UnansweredCandidate> unanswered) {
 		if (!chatAttemptsService.recordFailure(attempt, errorCode)) {
 			return finishWithoutRecording(job, attempt);
 		}
+		enqueueUnanswered(attempt, unanswered);
 		job.fail();
 		log.info("답변 작업이 실패로 끝났습니다: 작업ID={}, 시도ID={}, 오류코드={}",
 				job.getId(), attempt.getId(), errorCode.getCode());
 		return new Completion(true, null);
+	}
+
+	private void enqueueUnanswered(AnswerAttemptsHistory attempt, List<UnansweredCandidate> unanswered) {
+		unanswered.forEach(candidate -> unansweredQuestionService.enqueueUnansweredQuestion(attempt.getId(), candidate));
 	}
 
 	// 시도당 작업은 하나라 일어나면 안 되는 경우. 시도는 두고 작업만 닫음

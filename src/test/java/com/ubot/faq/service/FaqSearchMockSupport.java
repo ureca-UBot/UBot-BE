@@ -10,15 +10,23 @@ import static org.mockito.Mockito.doAnswer;
 import java.util.List;
 
 import com.pgvector.PGvector;
+import com.ubot.embedding.client.EmbeddingClient;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqSentenceFilterService;
 
 /** 기존 채팅 통합 테스트의 FAQ 응답을 새 검색·문장 필터 경로에 연결합니다. */
 public final class FaqSearchMockSupport {
-    private static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
+    private static final PGvector QUERY_VECTOR = createQueryVector();
 
     private FaqSearchMockSupport() {
+    }
+
+    private static PGvector createQueryVector() {
+        // 검색 벡터가 Outbox를 거쳐 실제 테스트 DB에 저장되므로 운영과 같은 차원을 사용합니다.
+        float[] values = new float[EmbeddingClient.DIMENSIONS];
+        values[0] = 1;
+        return new PGvector(values);
     }
 
     public static void bridgeSearch(FaqVectorService vector) {

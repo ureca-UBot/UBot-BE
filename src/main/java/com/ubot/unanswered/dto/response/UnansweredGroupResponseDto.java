@@ -8,6 +8,8 @@ import java.time.LocalDateTime;
 public record UnansweredGroupResponseDto(
 		Long id,
 		String representativeQuestion,
+		String topicName,
+		Long suggestedCategoryId,
 		Integer questionCount,
 		Long relatedFaqId,
 		Long resolvedFaqId,
@@ -18,6 +20,8 @@ public record UnansweredGroupResponseDto(
 		return new UnansweredGroupResponseDto(
 				group.getId(),
 				group.getRepresentativeQuestion(),
+				group.getTopicName(),
+				group.getSuggestedCategoryId(),
 				group.getQuestionCount(),
 				group.getRelatedFaqId(),
 				group.getResolvedFaqId(),

@@ -14,7 +14,8 @@ public enum LlmErrorCode implements ErrorCode {
 	LLM_MODEL_NOT_CONFIGURED(HttpStatus.INTERNAL_SERVER_ERROR, "LLM-002", "답변 생성에 사용할 LLM 모델이 설정되지 않았습니다."),
 	LLM_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "LLM-003", "LLM 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."),
 	LLM_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "LLM-004", "LLM 응답 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."),
-	LLM_RESPONSE_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "LLM-005", "LLM 서버에서 올바른 답변을 받지 못했습니다.");
+	LLM_RESPONSE_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "LLM-005", "LLM 서버에서 올바른 답변을 받지 못했습니다."),
+	LLM_OUTPUT_REJECTED(HttpStatus.UNPROCESSABLE_CONTENT, "LLM-006", "검사 후 제공할 수 있는 답변이 없습니다. 질문을 바꾸어 다시 입력해주세요.");
 
 	private final HttpStatus status;
 	private final String code;

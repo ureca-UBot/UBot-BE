@@ -61,6 +61,14 @@ public record AnswerMaterials(
                 userDataSummary);
     }
 
+    /** 섹션 하나를 덧붙인 사본입니다. */
+    public AnswerMaterials withSection(ContextSection section) {
+        List<ContextSection> values = new ArrayList<>(sections);
+        values.add(section);
+        return new AnswerMaterials(question, faqs, values, tools, storeMap, subQuestions, history, userId,
+                userDataSummary);
+    }
+
     public static Builder builder(String question) {
         return new Builder(question);
     }

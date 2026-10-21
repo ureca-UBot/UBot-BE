@@ -29,4 +29,17 @@ public class UserDataRecorder {
     public UserDataCards cards() {
         return new UserDataCards(List.of(), usages, billings);
     }
+
+    /**
+     * 도구가 LLM에 돌려준 기록을 같은 표기로 만듭니다. 프롬프트 자료에 없는 지난 달 값을 출력 검사가 근거로 보게 할 때 씁니다.
+     * 조회한 기록이 없으면 빈 문자열입니다.
+     */
+    public String describe() {
+        StringBuilder text = new StringBuilder();
+        usages.forEach(card -> text.append(card.phoneNumber()).append(" 회선\n")
+                .append(UserDataSummarizer.formatUsage(card.usage())).append('\n'));
+        billings.forEach(card -> text.append(card.phoneNumber()).append(" 회선\n")
+                .append(UserDataSummarizer.formatBilling(card.billing())).append('\n'));
+        return text.toString();
+    }
 }

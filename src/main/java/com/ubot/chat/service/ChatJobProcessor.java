@@ -8,6 +8,8 @@ import com.ubot.chat.entity.converter.AnswerAttemptErrorCodeConverter;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
+import com.ubot.unanswered.dto.UnansweredCandidate;
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -24,18 +26,19 @@ public class ChatJobProcessor {
 	}
 
 	// checkCancellation은 작업을 잃거나 종료 중이면 CancellationException을 던짐. 이 예외는 그대로 전달함
-	public ChatJobOutcome process(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation) {
+	public ChatJobOutcome process(AnswerAttemptsHistory attempt, Location location, Runnable checkCancellation,
+			List<UnansweredCandidate> unanswered) {
 		long startedAt = System.nanoTime();
 		log.info("답변 생성 작업을 시작했습니다: 시도ID={}, 재시도횟수={}", attempt.getId(), attempt.getAttemptCount());
 		try {
-			ChatAnswerResult result = chatAnswerProcessor.generateAnswer(attempt, location, checkCancellation);
+			ChatAnswerResult result = chatAnswerProcessor.generateAnswer(attempt, location, checkCancellation, unanswered);
 			if (result.isFailed()) {
-				return ChatJobOutcome.failed(result.errorCode());
+				return ChatJobOutcome.failed(result.errorCode(), unanswered);
 			}
 			AiAnswer answer = result.answer();
 			log.info("답변을 생성했습니다: 시도ID={}, 처리시간={}ms", attempt.getId(), elapsedMillis(startedAt));
 			return ChatJobOutcome.answered(answer.answer(), result.subQuestions(),
-					ChatStoreDto.of(answer.locationRequired(), answer.storeMap()), answer.userData());
+					ChatStoreDto.of(answer.locationRequired(), answer.storeMap()), answer.userData(), unanswered);
 		} catch (CancellationException exception) {
 			throw exception;
 		} catch (GlobalException exception) {
@@ -46,15 +49,15 @@ public class ChatJobProcessor {
 			if (!AnswerAttemptErrorCodeConverter.supports(errorCode)) {
 				log.error("답변 시도에 저장할 수 없는 오류 코드라 INTERNAL_ERROR로 기록합니다: 시도ID={}, 오류코드={}",
 						attempt.getId(), errorCode.getCode());
-				return ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR);
+				return ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR, unanswered);
 			}
-			return ChatJobOutcome.failed(errorCode);
+			return ChatJobOutcome.failed(errorCode, unanswered);
 		} catch (DataAccessException exception) {
 			log.warn("답변 저장소 접근에 실패했습니다: 시도ID={}", attempt.getId(), exception);
-			return ChatJobOutcome.failed(ChatErrorCode.STORAGE_UNAVAILABLE);
+			return ChatJobOutcome.failed(ChatErrorCode.STORAGE_UNAVAILABLE, unanswered);
 		} catch (RuntimeException exception) {
 			log.error("답변 생성에 실패했습니다: 시도ID={}", attempt.getId(), exception);
-			return ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR);
+			return ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR, unanswered);
 		}
 	}
 

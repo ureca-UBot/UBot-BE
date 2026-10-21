@@ -12,6 +12,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AnswerAttemptsHistoryRepository extends JpaRepository<AnswerAttemptsHistory, Long> {
+	boolean existsByConversationIdAndStatus(Long conversationId, String status);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("""
 			select a

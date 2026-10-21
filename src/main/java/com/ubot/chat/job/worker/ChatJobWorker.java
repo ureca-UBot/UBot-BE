@@ -20,6 +20,7 @@ import com.ubot.chat.job.stream.ReceivedChatJob;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.service.ChatJobOutcome;
 import com.ubot.chat.service.ChatJobProcessor;
+import com.ubot.unanswered.dto.UnansweredCandidate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -29,6 +30,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -493,7 +495,7 @@ public class ChatJobWorker implements SmartLifecycle {
 			AnswerAttemptsHistory attempt = answerAttemptsHistoryRepository.findById(claimed.attemptId()).orElseThrow();
 			job.computation = computations.submit(() -> AnswerProgress.observe(
 					phase -> reportPhase(job, phase),
-					() -> jobProcessor.process(attempt, message.context().location(), job::checkActive)));
+					() -> jobProcessor.process(attempt, message.context().location(), job::checkActive, job.unanswered)));
 			ChatJobOutcome outcome;
 			try {
 				// 선점 때 안내한 마감까지의 시간만 사용. 단계 전환으로 시간을 연장하지 않음.
@@ -504,7 +506,7 @@ public class ChatJobWorker implements SmartLifecycle {
 			} catch (TimeoutException exception) {
 				count("timeouts");
 				job.cancel();
-				outcome = ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT);
+				outcome = ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT, job.unanswered);
 			} catch (InterruptedException exception) {
 				job.cancel();
 				Thread.currentThread().interrupt();
@@ -684,6 +686,7 @@ public class ChatJobWorker implements SmartLifecycle {
 		private final LocalDateTime startedAt;
 		private volatile boolean lost;
 		private volatile Future<ChatJobOutcome> computation;
+		private final List<UnansweredCandidate> unanswered = new CopyOnWriteArrayList<>();
 
 		private void cancel() {
 			lost = true;

@@ -10,6 +10,8 @@ import java.util.List;
 public record UnansweredGroupDetailResponseDto(
 		Long id,
 		String representativeQuestion,
+		String topicName,
+		Long suggestedCategoryId,
 		Integer questionCount,
 		Long relatedFaqId,
 		Long resolvedFaqId,
@@ -22,6 +24,8 @@ public record UnansweredGroupDetailResponseDto(
 		return new UnansweredGroupDetailResponseDto(
 				group.getId(),
 				group.getRepresentativeQuestion(),
+				group.getTopicName(),
+				group.getSuggestedCategoryId(),
 				group.getQuestionCount(),
 				group.getRelatedFaqId(),
 				group.getResolvedFaqId(),

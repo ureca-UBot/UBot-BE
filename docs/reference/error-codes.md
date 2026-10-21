@@ -202,6 +202,45 @@
 - `FW-003`: 채팅 질문에 활성 금지어가 포함된 경우. 시도 기록을 만들지 않으므로 재시도 대상이 아닙니다. 어떤 단어가 걸렸는지는 응답에 포함하지 않습니다.
 
 
+## 대화
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `CONV-001` | 404 | `CONVERSATION_NOT_FOUND` | 대화를 찾을 수 없습니다. |
+| `CONV-002` | 409 | `CONVERSATION_IN_PROGRESS` | 답변 생성 중인 대화는 삭제할 수 없습니다. |
+| `CONV-003` | 409 | `CONVERSATION_HAS_COUNSEL_HISTORY` | 사람 상담 이력이 있는 대화는 삭제할 수 없습니다. |
+
+- `DELETE /conversations/{conversationId}`는 본인 대화를 소프트 삭제하고 `204 No Content`를 반환합니다. 이미 삭제한 본인 대화의 반복 삭제도 `204`입니다.
+- 삭제된 대화는 목록에서 제외하며 메시지 조회·이어서 질문·재시도·의도 재검색을 허용하지 않습니다. 해당 대화의 작업 조회는 기존 작업 접근 거절과 같은 `404 CHAT-020`을 반환합니다.
+- 대기에 있거나 실행 중인 답변 시도(`PENDING`)가 있으면 삭제를 거절합니다. 질문·답변 이력과 FAQ 통계는 삭제 API에서 지우지 않고 기존 보존 정책을 따릅니다.
+- 사람 상담 세션이 연결된 대화는 `WAITING`·`ACTIVE`·`PAUSED`·`ENDED` 상태와 관계없이 삭제를 거절합니다. 상담 메시지가 아직 없는 대기 상태도 포함하며, AI 답변도 진행 중이면 `CONV-003`을 우선 반환합니다.
+
+## 상담
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `COUNSEL-001` | 400 | `INVALID_INPUT` | 요청 형식 또는 범위를 확인해 주세요. |
+| `COUNSEL-003` | 403 | `FORBIDDEN` | 접근 권한이 없습니다. |
+| `COUNSEL-004` | 404 | `SESSION_NOT_FOUND` | 상담을 찾을 수 없습니다. |
+| `COUNSEL-005` | 404 | `USER_NOT_FOUND` | 사용자를 찾을 수 없습니다. |
+| `COUNSEL-006` | 409 | `CONFLICT` | 상담 상태를 확인해 주세요. |
+| `COUNSEL-007` | 413 | `PAYLOAD_TOO_LARGE` | 요청이 너무 큽니다. |
+| `COUNSEL-008` | 429 | `RATE_LIMITED` | 전송이 너무 잦습니다. 잠시 후 재시도해 주세요. |
+| `COUNSEL-009` | 503 | `DISABLED` | 현재 사람 상담을 이용할 수 없습니다. |
+| `COUNSEL-011` | 503 | `DATABASE_UNAVAILABLE` | 상담 저장소에 연결할 수 없습니다. 잠시 후 재시도해 주세요. |
+| `COUNSEL-012` | 500 | `INTERNAL_ERROR` | 요청 처리에 실패했습니다. |
+| `COUNSEL-013` | 404 | `SAFETY_SENTENCE_NOT_FOUND` | 금지 문장을 찾을 수 없습니다. |
+| `COUNSEL-014` | 409 | `SAFETY_SENTENCE_DUPLICATE` | 동일한 금지 문장이 이미 등록되어 있습니다. |
+| `COUNSEL-015` | 503 | `SAFETY_INDEX_UNAVAILABLE` | 문장 색인에 실패했습니다. 상태를 확인한 후 다시 시도해 주세요. |
+| `COUNSEL-016` | 409 | `SAFETY_PROFILE_NOT_READY` | 현재 모델의 상담 필터 프로필을 먼저 등록해 주세요. |
+
+- 상담 API(`/counsel/**`, `/admin/counsel/**`, `/conversations/{id}/timeline`)의 오류는 `CounselExceptionHandler`가 먼저 처리합니다. 요청 검증 오류는 `G-001`~`G-003` 대신 `COUNSEL-001`, DB 오류는 `COUNSEL-011`, 처리하지 못한 예외는 `COUNSEL-012`로 응답합니다. 다른 도메인 예외(예: 남의 대화를 요청한 `CONV-001`)는 원래 코드 그대로 나갑니다.
+- `COUNSEL-006`: 진행 중인 다른 대화의 상담이 있을 때, 연결되지 않은 상담에 메시지를 보낼 때, 같은 `clientMessageId`로 내용을 바꿀 때, 금지 문장의 `revision`이 최신이 아닐 때 등. 메시지는 상황별 사유로 바뀌어 나갑니다.
+- `COUNSEL-008`: 메시지 전송·관리자 평가·수동 색인을 합쳐 사용자마다 일정 시간 동안 허용하는 횟수를 넘긴 경우.
+- `COUNSEL-009`: `COUNSEL_ENABLED=false`일 때 상담 API 전체.
+- 메시지 검사 결과(`BLOCKED`, `CHECK_FAILED`)는 오류 응답이 아닙니다. 전송 API가 `200`과 함께 `data.status`로 돌려줍니다.
+
+
 ## 공지·장애
 
 | code | HTTP | 이름 | 기본 메시지 |

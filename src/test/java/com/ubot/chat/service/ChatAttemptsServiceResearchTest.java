@@ -201,6 +201,7 @@ class ChatAttemptsServiceResearchTest {
     @Test
     void researchAttemptsAreNotCountedAsGuestQuestions() {
         Long conversationId = conversationService.createGuestConversation();
+        conversationService.claimGuestConversation(conversationId, user.getId());
         var original = new AnswerAttemptsHistory(user.getId(), conversationId, "유심 재발급", 1,
                 "q-" + UUID.randomUUID(), LocalDateTime.now(), "", "");
         original.succeed();
