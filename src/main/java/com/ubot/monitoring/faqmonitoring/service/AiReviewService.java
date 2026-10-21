@@ -180,10 +180,13 @@ public class AiReviewService {
 				continue;
 			}
 			FaqDuplicateEvidence candidateEvidence = evidenceByCandidate.get(candidateId);
-			long pairCount = candidateEvidence == null ? 0 : candidateEvidence.pairCount();
-			List<String> questionMaterials = candidateEvidence == null ? List.of() : candidateEvidence.questions();
+			if (candidateEvidence == null || candidateEvidence.pairCount() <= 0
+					|| candidateEvidence.questions() == null || candidateEvidence.questions().isEmpty()) {
+				throw new FaqException(FaqErrorCode.FAQ_DUPLICATE_EVIDENCE_NOT_FOUND);
+			}
 			materials.add(new DuplicateCandidateMaterial(
-					faq.getId(), faq.getQuestion(), faq.getAnswer(), pairCount, questionMaterials));
+					faq.getId(), faq.getQuestion(), faq.getAnswer(),
+					candidateEvidence.pairCount(), candidateEvidence.questions()));
 		}
 		return List.copyOf(materials);
 	}
@@ -198,8 +201,8 @@ public class AiReviewService {
 				필요하다면 무엇을 어떻게 바꿀지 권고하세요. 근거가 없으면 수정안을 만들어내지 마세요.
 				question은 실제 검색에 쓰인 sub_question이며, 없는 과거 로그에서는 user_question입니다.
 				질문은 후보별 최대 %d개입니다. pairCount는 두 FAQ가 함께 검색된 전체 횟수이며,
-				질문 목록에서는 보관 기간에 따라 본문이 지워진 검색 로그를 제외했습니다.
-				질문 자료가 부족하면 판단 근거가 부족하다고 밝히세요.
+				질문 목록에서는 보관 기간에 따라 본문이 지워진 검색 로그를 제외했고, 서로 다른 질문을
+				최근 검색된 순서로 정렬했습니다.
 				판단 결과는 다음 기준으로 고르세요.
 				- 중복: 한 FAQ의 질문 범위와 답변이 다른 FAQ에 완전히 포함되어 별도로 유지할 실익이 없습니다.
 				  일반적인 FAQ와 그 범위에 완전히 포함되는 구체적인 사례 FAQ도, 별도의 조건이나 다른 답변이 없다면 중복입니다.
@@ -214,7 +217,6 @@ public class AiReviewService {
 				- 판단 근거 부족: 단정적인 수정안을 만들지 말고 추가로 확인할 자료를 적으세요.
 				판단 근거 안에서 선택한 판단 결과를 뒤집거나 서로 다른 결론을 함께 쓰지 마세요.
 				판단 결과에 대응하는 result와 action 코드는 시스템 지침에 정의된 조합대로 작성하세요.
-				대표 유저 질문에는 질문을 정확히 한 개만 쓰고, 여러 질문을 쉼표나 목록으로 나열하지 마세요.
 				후보마다 구조화 응답의 모든 항목을 빠짐없이 한 번씩 작성하세요.
 				후보 FAQ 자료(JSON): %s
 
@@ -241,7 +243,15 @@ public class AiReviewService {
 			details.append("- **질문**: ").append(material.question()).append('\n');
 			details.append("- **답변**: ").append(material.answer()).append('\n');
 			details.append("- **함께 검색된 횟수**: ").append(material.pairCount()).append('\n');
-			details.append("- **대표 유저 질문**: ").append(candidate.representativeQuestion().strip()).append('\n');
+			details.append("#### 함께 검색된 유저 질문\n");
+			int displayedQuestionCount = Math.min(
+					material.coRetrievedQuestions().size(),
+					aiReviewProperties.getMaxDisplayedQuestionsPerDuplicateCandidate()
+			);
+			for (int questionIndex = 0; questionIndex < displayedQuestionCount; questionIndex++) {
+				details.append("- **질문 ").append(questionIndex + 1).append("**: ")
+						.append(material.coRetrievedQuestions().get(questionIndex)).append('\n');
+			}
 			details.append("#### 판정\n");
 			details.append("- **판단 결과**: **").append(candidate.result().getDescription()).append("**\n");
 			details.append("- **권고 조치**: **").append(candidate.action().getDescription()).append("**\n");

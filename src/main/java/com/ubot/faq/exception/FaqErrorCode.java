@@ -16,7 +16,8 @@ public enum FaqErrorCode implements ErrorCode {
     FAQ_CATEGORY_EXIST(HttpStatus.CONFLICT, "FAQ-004", "이미 존재하는 카테고리 명입니다."),
     FAQ_CATEGORY_SAME_NAME(HttpStatus.BAD_REQUEST, "FAQ-005", "이전 카테고리명과 후 카테고리명이 같습니다."),
     FAQ_CATEGORY_IN_USE(HttpStatus.BAD_REQUEST, "FAQ-006", "해당 카테고리를 사용중인 FAQ가 있습니다."),
-    FAQ_REVIEW_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-007", "검토할 수 있는 활성 후보 FAQ가 없습니다.");
+    FAQ_REVIEW_CANDIDATE_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-007", "검토할 수 있는 활성 후보 FAQ가 없습니다."),
+    FAQ_DUPLICATE_EVIDENCE_NOT_FOUND(HttpStatus.NOT_FOUND, "FAQ-008", "중복 의심 검토에 필요한 검색 질문 근거가 없습니다.");
 
     private final HttpStatus status;
     private final String code;

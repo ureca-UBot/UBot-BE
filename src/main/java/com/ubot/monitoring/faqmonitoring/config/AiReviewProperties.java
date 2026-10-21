@@ -18,5 +18,8 @@ public class AiReviewProperties {
 	private int maxQuestionsPerDuplicateCandidate = 20;
 
 	@Min(1)
+	private int maxDisplayedQuestionsPerDuplicateCandidate = 5;
+
+	@Min(1)
 	private int maxLowRagQualityQuestions = 20;
 }

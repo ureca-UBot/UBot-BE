@@ -215,7 +215,8 @@ public class FaqMonitoringImprovementQueryRepository {
 		String sql = """
 				WITH matched_logs AS (
 					SELECT other_faq.id AS candidate_faq_id,
-						COALESCE(NULLIF(BTRIM(ql.sub_question), ''), NULLIF(BTRIM(ql.user_question), '')) AS question
+						COALESCE(NULLIF(BTRIM(ql.sub_question), ''), NULLIF(BTRIM(ql.user_question), '')) AS question,
+						ql.created_at AS searched_at
 					FROM faq target_faq
 					JOIN faq_log target_log ON target_log.faq_id = target_faq.id AND target_log.rank = 1
 					JOIN question_log ql ON ql.id = target_log.question_log_id
@@ -230,13 +231,13 @@ public class FaqMonitoringImprovementQueryRepository {
 					SELECT candidate_faq_id, COUNT(*) AS pair_count
 					FROM matched_logs GROUP BY candidate_faq_id
 				), question_counts AS (
-					SELECT candidate_faq_id, question, COUNT(*) AS question_count
+					SELECT candidate_faq_id, question, MAX(searched_at) AS latest_searched_at
 					FROM matched_logs WHERE question IS NOT NULL
 					GROUP BY candidate_faq_id, question
 				), ranked AS (
-					SELECT candidate_faq_id, question, question_count,
+					SELECT candidate_faq_id, question, latest_searched_at,
 						ROW_NUMBER() OVER (
-							PARTITION BY candidate_faq_id ORDER BY question_count DESC, question ASC
+							PARTITION BY candidate_faq_id ORDER BY latest_searched_at DESC, question ASC
 						) AS question_rank
 					FROM question_counts
 				)

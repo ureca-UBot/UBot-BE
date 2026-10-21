@@ -46,7 +46,7 @@ public final class DuplicateSuspectedReviewFormat {
 					|| candidate.result() == null
 					|| candidate.action() == null
 					|| !isAllowedCombination(candidate.result(), candidate.action())
-					|| !hasText(candidate.representativeQuestion(), candidate.reason(),
+					|| !hasText(candidate.reason(),
 						candidate.targetFaqRecommendation(), candidate.candidateFaqRecommendation())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 			}
@@ -102,7 +102,6 @@ public final class DuplicateSuspectedReviewFormat {
 	private static Map<String, Object> createSchema() {
 		Map<String, Object> candidateProperties = new LinkedHashMap<>();
 		candidateProperties.put("candidateFaqId", Map.of("type", "integer"));
-		candidateProperties.put("representativeQuestion", Map.of("type", "string"));
 		candidateProperties.put("result", Map.of(
 				"type", "string",
 				"enum", enumNames(DuplicateReviewResult.values())
