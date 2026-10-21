@@ -3,6 +3,7 @@ package com.ubot.home.entity;
 import com.ubot.common.entity.AdminManagedEntity;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.home.enums.HomeProductType;
+import com.ubot.user.entity.User;
 
 import org.hibernate.annotations.DynamicUpdate;
 
@@ -53,4 +54,49 @@ public class HomeProduct extends AdminManagedEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private MasterStatus status;
+
+    public static HomeProduct create(
+            User administrator,
+            String code,
+            String name,
+            String description,
+            HomeProductType productType,
+            Integer speedMbps,
+            Integer monthlyFee
+    ) {
+        HomeProduct product = new HomeProduct();
+        product.code = code;
+        product.name = name;
+        product.description = description;
+        product.productType = productType;
+        product.speedMbps = speedMbps;
+        product.monthlyFee = monthlyFee;
+        product.status = MasterStatus.ACTIVE;
+        product.initializeMetadata(administrator);
+        return product;
+    }
+
+    public void update(
+            User administrator,
+            String name,
+            String description,
+            Integer speedMbps,
+            Integer monthlyFee
+    ) {
+        this.name = name;
+        this.description = description;
+        this.speedMbps = speedMbps;
+        this.monthlyFee = monthlyFee;
+        markUpdated(administrator);
+    }
+
+    public void changeStatus(User administrator, MasterStatus status) {
+        this.status = status;
+        markUpdated(administrator);
+    }
+
+    public void delete(User administrator) {
+        this.status = MasterStatus.INACTIVE;
+        markDeleted(administrator);
+    }
 }

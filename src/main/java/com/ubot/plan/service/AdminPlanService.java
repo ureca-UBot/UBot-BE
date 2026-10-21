@@ -1,5 +1,6 @@
 package com.ubot.plan.service;
 
+import java.util.List;
 import java.util.Objects;
 
 import org.springframework.data.domain.PageRequest;
@@ -7,18 +8,22 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.ubot.addon.dto.response.AddonServiceResponseDto;
+import com.ubot.addon.repository.AddonServiceRepository;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.common.repository.ProductSpecification;
 import com.ubot.common.repository.ProductSubscriptionRepository;
 import com.ubot.common.repository.ProductWriteSupport;
 import com.ubot.plan.dto.request.AdminPlanCreateRequestDto;
+import com.ubot.plan.dto.request.AdminPlanIncludedAddonRequestDto;
 import com.ubot.plan.dto.request.AdminPlanUpdateRequestDto;
 import com.ubot.plan.dto.request.AdminPlanStatusUpdateRequestDto;
 import com.ubot.plan.dto.response.AdminPlanResponseDto;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.exception.PlanErrorCode;
 import com.ubot.plan.exception.PlanException;
+import com.ubot.plan.repository.PlanIncludedAddonRepository;
 import com.ubot.plan.repository.PlanRepository;
 import com.ubot.user.repository.UserRepository;
 
@@ -34,6 +39,9 @@ public class AdminPlanService {
     private final PlanRepository productRepository;
     private final UserRepository userRepository;
     private final ProductSubscriptionRepository subscriptionRepository;
+    private final PlanIncludedAddonRepository includedAddonRepository;
+    private final AddonServiceRepository addonServiceRepository;
+    private final PlanService planService;
 
     public AdminPlanResponseDto createPlan(Long administratorId, AdminPlanCreateRequestDto request) {
         validatePlan(request.dataAmountMb(), request.dataUnlimited(), request.exhaustedSpeedKbps(), request.voiceMinutes(), request.voiceUnlimited(), request.smsCount(), request.smsUnlimited(), request.tetheringAmountMb(), request.minAge(), request.maxAge());
@@ -128,6 +136,21 @@ public class AdminPlanService {
         }
         product.delete(userRepository.getReferenceById(administratorId));
         log.info("요금제을 삭제했습니다: 상품ID={}", planId);
+    }
+
+    // 중복 ID는 한 번만 넣고, 삭제된 부가서비스나 없는 ID가 있으면 바꾸지 않는다.
+    public List<AddonServiceResponseDto> replaceIncludedAddons(Long planId, AdminPlanIncludedAddonRequestDto request) {
+        getUndeletedProduct(planId);
+        List<Long> addonServiceIds = request.addonServiceIds().stream().distinct().toList();
+        long undeleted = addonServiceRepository.findAllById(addonServiceIds).stream()
+                .filter(addon -> addon.getDeletedAt() == null)
+                .count();
+        if (undeleted != addonServiceIds.size()) {
+            throw new PlanException(PlanErrorCode.INVALID_PRODUCT);
+        }
+        includedAddonRepository.replace(planId, addonServiceIds);
+        log.info("요금제 포함 부가서비스를 바꿨습니다: 상품ID={}, 부가서비스 수={}", planId, addonServiceIds.size());
+        return planService.findIncludedAddons(planId);
     }
 
     private Plan getUndeletedProduct(Long planId) {

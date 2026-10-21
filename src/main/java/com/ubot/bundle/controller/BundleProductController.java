@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
 import com.ubot.bundle.dto.response.BundleProductResponseDto;
+import com.ubot.bundle.enums.BundleType;
 import com.ubot.bundle.service.BundleProductService;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,10 +25,11 @@ public class BundleProductController {
     @GetMapping
     public ApiResponse<PageResponseDto<BundleProductResponseDto>> getBundleProductList(
             @RequestParam(name = "keyword", required = false) @Size(max = 100) String keyword,
+            @RequestParam(name = "bundleType", required = false) BundleType bundleType,
             @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return ApiResponse.success(productService.getBundleProductList(keyword, page, size));
+        return ApiResponse.success(productService.getBundleProductList(keyword, bundleType, page, size));
     }
 
     @GetMapping("/{bundleProductId}")
