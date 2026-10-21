@@ -59,7 +59,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, DUPLICATE_SUSPECTED_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(DuplicateSuspectedReviewFormat.schema()),
-				aiReviewProperties.getMaxLlmQueueWait()).answer();
+				aiReviewProperties.getMaxLlmQueueWaitMillis()).answer();
 		return DuplicateSuspectedReviewFormat.parse(output, candidateFaqIds);
 	}
 
@@ -68,7 +68,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, LOW_RAG_QUALITY_REPRESENTATIVE_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(LowRagQualityReviewFormat.representativeSchema()),
-				aiReviewProperties.getMaxLlmQueueWait()).answer();
+				aiReviewProperties.getMaxLlmQueueWaitMillis()).answer();
 		return LowRagQualityReviewFormat.parseRepresentative(output);
 	}
 
@@ -80,7 +80,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, LOW_RAG_QUALITY_VARIANT_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(LowRagQualityReviewFormat.variantSchema()),
-				aiReviewProperties.getMaxLlmQueueWait()).answer();
+				aiReviewProperties.getMaxLlmQueueWaitMillis()).answer();
 		return LowRagQualityReviewFormat.parseVariant(output, questionCount);
 	}
 }

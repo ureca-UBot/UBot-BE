@@ -8,7 +8,6 @@ import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmException;
-import java.time.Duration;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -55,24 +54,24 @@ public class LlmService {
     }
 
 	/** 지정된 시간 안에 모델 호출 슬롯을 얻지 못하면 요청 과다 오류를 반환합니다. */
-	public LlmResponseDto generateJudgment(LlmRequestDto request, Duration permitWaitTimeout) {
-		if (permitWaitTimeout == null || permitWaitTimeout.isZero() || permitWaitTimeout.isNegative()) {
+	public LlmResponseDto generateJudgment(LlmRequestDto request, long permitWaitTimeoutMillis) {
+		if (permitWaitTimeoutMillis <= 0) {
 			throw new IllegalArgumentException("LLM 호출 슬롯 대기 시간은 0보다 커야 합니다.");
 		}
-		return generate(request, false, permitWaitTimeout);
+		return generate(request, false, permitWaitTimeoutMillis);
 	}
 
 	private LlmResponseDto generate(
 			LlmRequestDto request,
 			boolean reportAnswerProgress,
-			Duration permitWaitTimeout
+			Long permitWaitTimeoutMillis
 	) {
         // API 호출 전에 메시지 누락·공백·마지막 역할을 확인합니다.
         validateRequest(request);
         if (reportAnswerProgress) {
             AnswerProgress.report(Phase.WAITING_FOR_MODEL);
         }
-		acquirePermit(permitWaitTimeout);
+		acquirePermit(permitWaitTimeoutMillis);
         // 실제 모델 통신은 LlmClient 구현체에 맡깁니다.
 		long startedAt = System.nanoTime();
 		try {
@@ -98,16 +97,16 @@ public class LlmService {
     }
 
 	// 기다리다 취소되면 모델을 부르지 않음
-	private void acquirePermit(Duration waitTimeout) {
+	private void acquirePermit(Long waitTimeoutMillis) {
 		if (permits == null || permits.tryAcquire()) {
 			return;
 		}
 		long waitStartedAt = System.nanoTime();
 		try {
-			if (waitTimeout == null) {
+			if (waitTimeoutMillis == null) {
 				permits.acquire();
-			} else if (!permits.tryAcquire(waitTimeout.toNanos(), TimeUnit.NANOSECONDS)) {
-				log.warn("LLM 호출 슬롯 대기 시간이 초과되었습니다: 대기한도={}ms", waitTimeout.toMillis());
+			} else if (!permits.tryAcquire(waitTimeoutMillis, TimeUnit.MILLISECONDS)) {
+				log.warn("LLM 호출 슬롯 대기 시간이 초과되었습니다: 대기한도={}ms", waitTimeoutMillis);
 				throw new LlmException(LlmErrorCode.LLM_BUSY);
 			}
 		} catch (InterruptedException exception) {
