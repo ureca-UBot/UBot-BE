@@ -14,6 +14,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class UserDataRecorder {
 
+    /** 출력 검사 근거로 덧붙이는 도구 조회 결과 섹션의 제목입니다. 출력 가드는 이 섹션이 있으면 회원 기록이 제공된 것으로 봅니다. */
+    public static final String SECTION_TITLE = "사용자 정보(도구 조회 결과)";
+
     // 도구 실행과 결과 확인이 다른 스레드에서 일어나도 기록이 빠지지 않게 합니다.
     private final List<UsageCard> usages = new CopyOnWriteArrayList<>();
     private final List<BillingCard> billings = new CopyOnWriteArrayList<>();

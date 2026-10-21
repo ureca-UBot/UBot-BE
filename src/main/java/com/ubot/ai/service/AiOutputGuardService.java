@@ -7,6 +7,7 @@ import com.ubot.ai.dto.OutputGuardResult.Reason;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.enums.Intent;
@@ -1991,12 +1992,17 @@ public class AiOutputGuardService {
     }
 
     private boolean isUserDataSection(ContextSection section) {
-        return UserIntentHandler.SECTION_TITLE.equals(section.title());
+        return UserIntentHandler.SECTION_TITLE.equals(section.title())
+                || UserDataRecorder.SECTION_TITLE.equals(section.title());
     }
 
-    /** 가입 정보 요약을 미리 조회했으면 회원의 요금제·사용량·청구서 기록이 자료로 제공된 것입니다. */
+    /**
+     * 가입 정보 요약을 미리 조회했거나 도구로 사용량·청구서를 조회했으면 회원의 실제 기록이 자료로 제공된 것입니다.
+     * 요약이 실패해도 도구 조회 결과가 있으면 그 기록으로 답한 청구 내역은 실제 조회 결과입니다.
+     */
     private boolean hasUserRecords(AnswerMaterials materials) {
-        return materials.userDataSummary() != null;
+        return materials.userDataSummary() != null || materials.sections().stream()
+                .anyMatch(section -> UserDataRecorder.SECTION_TITLE.equals(section.title()));
     }
 
     /** 가입 정보 섹션의 금액은 요금, 데이터량은 데이터 근거로 읽습니다. 다른 단위는 기존 라벨 기준 비교를 따릅니다. */

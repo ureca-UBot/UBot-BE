@@ -57,13 +57,44 @@ class UserDataOutputGuardTest {
 
     @Test
     void 도구로_조회한_지난_달_청구서_금액도_근거로_본다() {
-        var recorder = new UserDataRecorder();
-        recorder.recordBilling("010-****-5678", new BillingRecordResponseDto(2L, YearMonth.of(2026, 9), 75000, 11200,
-                0, 0, 24250, 61950, LocalDate.of(2026, 9, 25), PaymentStatus.PAID, 61950, null, null));
-        var materials = materials().withSection(new ContextSection(UserIntentHandler.SECTION_TITLE, recorder.describe()));
+        var materials = materials().withSection(toolRecords());
         String answer = "2026년 9월 청구서(8월 사용분) 기준으로 안내드립니다. 9월 요금은 총 61,950원입니다.";
 
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
+    }
+
+    @Test
+    void 요약이_실패해도_도구로_조회한_청구서로_답한_청구_내역은_그대로_둔다() {
+        var materials = AnswerMaterials.builder("9월 청구서에 뭐 포함됐어?")
+                .addSection(new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.LOOKUP_FAILED_CONTENT))
+                .enableTool(AiTool.USER_DATA_LOOKUP)
+                .userId(1L)
+                .build()
+                .withSection(toolRecords());
+        String answer = "고객님의 청구서에는 부가서비스 요금 11,200원이 포함되었습니다.";
+
+        assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
+    }
+
+    @Test
+    void 요약이_실패하고_도구도_조회하지_않았으면_청구_내역_단정은_거절한다() {
+        var materials = AnswerMaterials.builder("9월 청구서에 뭐 포함됐어?")
+                .addSection(new ContextSection(UserIntentHandler.SECTION_TITLE, UserIntentHandler.LOOKUP_FAILED_CONTENT))
+                .enableTool(AiTool.USER_DATA_LOOKUP)
+                .userId(1L)
+                .build();
+
+        assertThatThrownBy(() -> guard.filterAnswer("고객님의 청구서에는 부가서비스 요금 11,200원이 포함되었습니다.",
+                materials, null)).isInstanceOfSatisfying(LlmException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+    }
+
+    /** AiService가 출력 검사 근거로 덧붙이는 것과 같은 도구 조회 결과 섹션입니다. 2026년 9월 청구서 한 건입니다. */
+    private static ContextSection toolRecords() {
+        var recorder = new UserDataRecorder();
+        recorder.recordBilling("010-****-5678", new BillingRecordResponseDto(2L, YearMonth.of(2026, 9), 75000, 11200,
+                0, 0, 24250, 61950, LocalDate.of(2026, 9, 25), PaymentStatus.PAID, 61950, null, null));
+        return new ContextSection(UserDataRecorder.SECTION_TITLE, recorder.describe());
     }
 
     @Test
