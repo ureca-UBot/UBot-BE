@@ -320,4 +320,54 @@ public class FaqMonitoringImprovementQueryRepository {
 				rs.getString("question"), rs.getDouble("similarity")
 		));
 	}
+
+	/** 현재 FAQ 버전 이후 이 FAQ가 검색 결과에 포함된 서로 다른 질문을 최근순으로 조회합니다. */
+	public List<FaqLowRagQualityQuestion> findRecentLowRagQualityQuestions(
+			Long faqId,
+			LocalDateTime evaluatedAt,
+			int topK,
+			int limit
+	) {
+		String sql = """
+				WITH matched_questions AS (
+					SELECT COALESCE(
+							NULLIF(BTRIM(ql.sub_question), ''),
+							NULLIF(BTRIM(ql.user_question), '')
+						) AS question,
+						fl.similarity,
+						ql.created_at,
+						ql.id AS question_log_id
+					FROM faq f
+					JOIN faq_log fl ON fl.faq_id = f.id AND fl.rank <= :topK
+					JOIN question_log ql ON ql.id = fl.question_log_id
+						AND ql.anonymized_at IS NULL
+						AND ql.created_at >= f.updated_at
+						AND ql.created_at < :evaluatedAt
+					WHERE f.id = :faqId
+						AND f.deleted_at IS NULL
+						AND fl.similarity IS NOT NULL
+				), ranked_questions AS (
+					SELECT question, similarity, created_at,
+						ROW_NUMBER() OVER (
+							PARTITION BY question
+							ORDER BY created_at DESC, question_log_id DESC
+						) AS question_rank
+					FROM matched_questions
+					WHERE question IS NOT NULL
+				)
+				SELECT question, similarity
+				FROM ranked_questions
+				WHERE question_rank = 1
+				ORDER BY created_at DESC, question ASC
+				LIMIT :limit
+				""";
+		MapSqlParameterSource parameters = new MapSqlParameterSource()
+				.addValue("faqId", faqId)
+				.addValue("evaluatedAt", evaluatedAt)
+				.addValue("topK", topK)
+				.addValue("limit", limit);
+		return jdbcTemplate.query(sql, parameters, (rs, rowNum) -> new FaqLowRagQualityQuestion(
+				rs.getString("question"), rs.getDouble("similarity")
+		));
+	}
 }

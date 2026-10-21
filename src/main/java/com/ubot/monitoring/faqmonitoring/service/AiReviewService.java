@@ -24,6 +24,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -76,10 +77,15 @@ public class AiReviewService {
 				faqId, FaqImprovementType.LOW_RAG_QUALITY);
 		try {
 			Faq faq = findActiveFaq(faqId);
+			LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 			List<FaqLowRagQualityQuestion> questions = improvementQueryRepository.findLowRagQualityQuestions(
-					faq.getId(), LocalDateTime.now(SERVICE_ZONE), improvementTopK,
+					faq.getId(), evaluatedAt, improvementTopK,
 					aiReviewProperties.getMaxLowRagQualityQuestions());
-			AiReviewResponse response = generateLowRagQualityReview(faq, questions);
+			List<FaqLowRagQualityQuestion> recentQuestions =
+					improvementQueryRepository.findRecentLowRagQualityQuestions(
+							faq.getId(), evaluatedAt, improvementTopK,
+							aiReviewProperties.getMaxDisplayedQuestionsForLowRagQuality());
+			AiReviewResponse response = generateLowRagQualityReview(faq, questions, recentQuestions);
 			logReviewCompleted(faqId, FaqImprovementType.LOW_RAG_QUALITY, startedAt);
 			return response;
 		} catch (RuntimeException exception) {
@@ -231,8 +237,7 @@ public class AiReviewService {
 	) {
 		Map<Long, DuplicateCandidateAssessment> assessmentByCandidate = assessment.candidateAssessments().stream()
 				.collect(Collectors.toMap(DuplicateCandidateAssessment::candidateFaqId, Function.identity()));
-		String recommendation = buildDuplicateSuspectedRecommendation(
-				targetFaqId, materials, assessmentByCandidate);
+		String recommendation = buildDuplicateSuspectedRecommendation(materials, assessmentByCandidate);
 		StringBuilder details = new StringBuilder("## 중복 의심 FAQ 판정 결과\n");
 		for (int index = 0; index < materials.size(); index++) {
 			DuplicateCandidateMaterial material = materials.get(index);
@@ -241,7 +246,7 @@ public class AiReviewService {
 			details.append("#### 후보 FAQ 정보\n");
 			details.append("- **질문**: ").append(material.question()).append('\n');
 			details.append("- **답변**: ").append(material.answer()).append('\n');
-			details.append("- **익명화되지 않은 로그에서 함께 검색된 횟수**: ")
+			details.append("- **함께 검색된 횟수**: ")
 					.append(material.pairCount()).append('\n');
 			details.append("#### 함께 검색된 유저 질문\n");
 			int displayedQuestionCount = Math.min(
@@ -256,13 +261,7 @@ public class AiReviewService {
 			details.append("- **판단 결과**: **").append(candidate.result().getDescription()).append("**\n");
 			details.append("- **판단 근거**: ").append(candidate.reason().strip()).append('\n');
 			details.append("#### 조치 권고\n");
-			details.append("- **대상 FAQ ").append(targetFaqId).append("**: ")
-					.append(buildFaqRecommendation(
-							material.id(), candidate.result()))
-					.append('\n');
-			details.append("- **후보 FAQ ").append(material.id()).append("**: ")
-					.append(buildFaqRecommendation(
-							targetFaqId, candidate.result()));
+			details.append("- ").append(buildFaqRecommendation(targetFaqId, candidate.result()));
 			if (index < materials.size() - 1) {
 				details.append("\n\n");
 			}
@@ -271,26 +270,23 @@ public class AiReviewService {
 	}
 
 	private String buildDuplicateSuspectedRecommendation(
-			Long targetFaqId,
 			List<DuplicateCandidateMaterial> materials,
 			Map<Long, DuplicateCandidateAssessment> assessmentByCandidate
 	) {
-		List<String> actionClauses = new ArrayList<>(materials.size());
+		StringBuilder recommendation = new StringBuilder();
 		for (DuplicateCandidateMaterial material : materials) {
 			DuplicateReviewResult result = assessmentByCandidate.get(material.id()).result();
-			actionClauses.add(switch (result) {
-				case DUPLICATE ->
-						"FAQ %d와 FAQ %d는 중복으로 판정되었으므로 유지·통합 대상을 관리자가 결정".formatted(
-								targetFaqId, material.id());
+			recommendation.append("- **FAQ ").append(material.id()).append("**: ");
+			recommendation.append(switch (result) {
+				case DUPLICATE -> "중복 판정입니다. 질문·답변을 보고 통합할 FAQ를 선택해 주세요.";
 				case NEEDS_DISTINCTION ->
-						"FAQ %d와 FAQ %d의 질문 범위를 명확히 구분".formatted(targetFaqId, material.id());
-				case NOT_DUPLICATE ->
-						"FAQ %d와 FAQ %d를 각각 유지".formatted(targetFaqId, material.id());
+						"구분이 필요합니다. 적용 범위가 구분되도록 질문·답변 내용을 수정해 주세요.";
+				case NOT_DUPLICATE -> "별개의 FAQ 판정입니다. 조치가 필요하지 않습니다.";
 				case INSUFFICIENT_EVIDENCE ->
-						"FAQ %d와 FAQ %d의 중복 판단 근거를 추가로 확인".formatted(targetFaqId, material.id());
-			});
+						"판단 근거가 부족합니다. 함께 검색된 질문과 FAQ 내용을 추가로 확인해 주세요.";
+			}).append('\n');
 		}
-		return String.join("하고, ", actionClauses) + "하세요.";
+		return recommendation.toString().stripTrailing();
 	}
 
 	private String buildFaqRecommendation(
@@ -314,7 +310,8 @@ public class AiReviewService {
 
 	private AiReviewResponse generateLowRagQualityReview(
 			Faq faq,
-			List<FaqLowRagQualityQuestion> questions
+			List<FaqLowRagQualityQuestion> questions,
+			List<FaqLowRagQualityQuestion> recentQuestions
 	) {
 		List<LowRagQualityQuestionMaterial> materials = new ArrayList<>(questions.size());
 		for (int index = 0; index < questions.size(); index++) {
@@ -343,7 +340,8 @@ public class AiReviewService {
 			variantAssessment = aiReviewLlmService.generateLowRagQualityVariantAssessment(
 					variantPrompt, questions.size());
 		}
-		return toLowRagQualityResponse(faq, questions, representativeAssessment, variantAssessment);
+		return toLowRagQualityResponse(
+				faq, questions, recentQuestions, representativeAssessment, variantAssessment);
 	}
 
 	private String buildRepresentativeQuestionPrompt() {
@@ -381,6 +379,7 @@ public class AiReviewService {
 	private AiReviewResponse toLowRagQualityResponse(
 			Faq faq,
 			List<FaqLowRagQualityQuestion> questions,
+			List<FaqLowRagQualityQuestion> recentQuestions,
 			LowRagQualityRepresentativeAssessment representativeAssessment,
 			LowRagQualityVariantAssessment variantAssessment
 	) {
@@ -406,6 +405,7 @@ public class AiReviewService {
 				questionNeedsUpdate,
 				representativeAssessment.reason().strip(),
 				suggestedQuestion,
+				recentQuestions,
 				variantCandidates
 		);
 		return new AiReviewResponse(recommendation, details);
@@ -435,6 +435,7 @@ public class AiReviewService {
 			boolean questionNeedsUpdate,
 			String representativeQuestionReason,
 			String suggestedQuestion,
+			List<FaqLowRagQualityQuestion> recentQuestions,
 			List<FaqLowRagQualityQuestion> variantCandidates
 	) {
 		StringBuilder details = new StringBuilder("""
@@ -443,15 +444,29 @@ public class AiReviewService {
 				- **판단 결과**: **%s**
 				- **판단 근거**: %s
 				- **대표 질문 수정안**: %s
-				### 변형 질문 검토
-				- **판단 결과**: **%s**
-				#### 추가할 변형 질문
 				""".formatted(
 				questionNeedsUpdate ? "대표 질문 수정 필요" : "대표 질문 수정 불필요",
 				representativeQuestionReason,
-				suggestedQuestion,
-				variantCandidates.isEmpty() ? "변형 질문 추가 불필요" : "변형 질문 추가 필요"
+				suggestedQuestion
 		));
+		details.append("### 최근 이 FAQ가 검색 결과에 포함된 질문(임베딩 유사도)\n");
+		if (recentQuestions.isEmpty()) {
+			details.append("- 해당 없음\n");
+		} else {
+			for (int index = 0; index < recentQuestions.size(); index++) {
+				FaqLowRagQualityQuestion recentQuestion = recentQuestions.get(index);
+				details.append("- **질문 ").append(index + 1).append("**: ")
+						.append(recentQuestion.question())
+						.append('(')
+						.append(String.format(Locale.ROOT, "%.4f", recentQuestion.similarity()))
+						.append(")\n");
+			}
+		}
+		details.append("### 변형 질문 검토\n");
+		details.append("- **판단 결과**: **")
+				.append(variantCandidates.isEmpty() ? "변형 질문 추가 불필요" : "변형 질문 추가 필요")
+				.append("**\n");
+		details.append("#### 추가할 변형 질문\n");
 		if (variantCandidates.isEmpty()) {
 			details.append("- 해당 없음\n");
 		} else {

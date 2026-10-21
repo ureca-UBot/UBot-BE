@@ -25,6 +25,9 @@ public class AiReviewProperties implements InitializingBean {
 	private int maxLowRagQualityQuestions = 20;
 
 	@Min(1)
+	private int maxDisplayedQuestionsForLowRagQuality = 5;
+
+	@Min(1)
 	private long maxLlmQueueWaitMillis = 5_000;
 
 	@Override
