@@ -37,7 +37,8 @@ public final class LowRagQualityReviewFormat {
 	public static LowRagQualityRepresentativeAssessment parseRepresentative(String output) {
 		LowRagQualityRepresentativeAssessment assessment = read(
 				output, LowRagQualityRepresentativeAssessment.class);
-		if (!StringUtils.hasText(assessment.reason())
+		if (assessment.needsUpdate() == null
+				|| !StringUtils.hasText(assessment.reason())
 				|| isNotApplicable(assessment.reason())
 				|| !StringUtils.hasText(assessment.suggestedQuestion())
 				|| assessment.needsUpdate() == isNotApplicable(assessment.suggestedQuestion())) {
@@ -61,6 +62,7 @@ public final class LowRagQualityReviewFormat {
 		for (LowRagQualityQuestionAssessment question : assessment.questionAssessments()) {
 			if (question == null || question.questionNumber() < 1
 					|| question.questionNumber() > expectedQuestionCount
+					|| question.answerableByCurrentFaq() == null
 					|| !questionNumbers.add(question.questionNumber())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 			}

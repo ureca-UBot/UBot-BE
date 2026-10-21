@@ -6,6 +6,9 @@ import com.ubot.faq.entity.Faq;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqRepository;
+import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateCandidateAssessment;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateEvidence;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqLowRagQualityQuestion;
@@ -39,21 +42,13 @@ public class AiReviewService {
 	private final FaqRepository faqRepository;
 	private final FaqMonitoringImprovementQueryRepository improvementQueryRepository;
 	private final AiReviewLlmService aiReviewLlmService;
+	private final AiReviewProperties aiReviewProperties;
 
 	@Value("${faq-monitoring.improvement.low-gap-threshold}")
 	private double lowGapThreshold;
 
 	@Value("${faq-monitoring.improvement.top-k}")
 	private int improvementTopK;
-
-	@Value("${faq-monitoring.ai-review.max-duplicate-candidates}")
-	private int maxDuplicateCandidates;
-
-	@Value("${faq-monitoring.ai-review.max-questions-per-duplicate-candidate}")
-	private int maxQuestionsPerDuplicateCandidate;
-
-	@Value("${faq-monitoring.ai-review.max-low-rag-quality-questions}")
-	private int maxLowRagQualityQuestions;
 
 	public AiReviewResponse reviewDuplicateSuspected(
 			Long faqId,
@@ -81,7 +76,8 @@ public class AiReviewService {
 		try {
 			Faq faq = findActiveFaq(faqId);
 			List<FaqLowRagQualityQuestion> questions = improvementQueryRepository.findLowRagQualityQuestions(
-					faq.getId(), LocalDateTime.now(SERVICE_ZONE), improvementTopK, maxLowRagQualityQuestions);
+					faq.getId(), LocalDateTime.now(SERVICE_ZONE), improvementTopK,
+					aiReviewProperties.getMaxLowRagQualityQuestions());
 			AiReviewResponse response = generateLowRagQualityReview(faq, questions);
 			logReviewCompleted(faqId, FaqImprovementType.LOW_RAG_QUALITY, startedAt);
 			return response;
@@ -100,13 +96,18 @@ public class AiReviewService {
 			Faq faq,
 			DuplicateSuspectedReviewRequest request
 	) {
+		List<DuplicateCandidateMaterial> materials = findDuplicateCandidateMaterials(faq.getId(), request);
 		String basePrompt = buildBasePrompt(faq);
-		String prompt = basePrompt + buildDuplicateSection(faq.getId(), request);
+		String prompt = basePrompt + buildDuplicateSection(materials);
 		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 검토태그={}, 입력문자수={}",
 				faq.getId(), FaqImprovementType.DUPLICATE_SUSPECTED, prompt.length());
 		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}, 검토태그={}",
 				faq.getId(), FaqImprovementType.DUPLICATE_SUSPECTED);
-		return aiReviewLlmService.generateDuplicateSuspectedReview(prompt);
+		DuplicateSuspectedAssessment assessment = aiReviewLlmService.generateDuplicateSuspectedReview(
+				prompt,
+				materials.stream().map(DuplicateCandidateMaterial::id).toList()
+		);
+		return toDuplicateSuspectedResponse(faq.getId(), materials, assessment);
 	}
 
 	private String buildBasePrompt(Faq faq) {
@@ -143,21 +144,31 @@ public class AiReviewService {
 		}
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
 		Set<Long> uniqueCandidateIds = new HashSet<>(candidateIds);
-		if (candidateIds.isEmpty() || candidateIds.size() > maxDuplicateCandidates
+		if (candidateIds.isEmpty() || candidateIds.size() > aiReviewProperties.getMaxDuplicateCandidates()
 				|| uniqueCandidateIds.size() != candidateIds.size()
 				|| uniqueCandidateIds.contains(faqId) || candidateIds.stream().anyMatch(id -> id <= 0)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
 		}
 	}
 
-	private String buildDuplicateSection(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
+	private List<DuplicateCandidateMaterial> findDuplicateCandidateMaterials(
+			Long faqId,
+			DuplicateSuspectedReviewRequest duplicateRequest
+	) {
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 		Map<Long, Faq> activeFaqs = faqRepository.findAllById(candidateIds).stream()
 				.filter(faq -> faq.getDeletedAt() == null)
 				.collect(Collectors.toMap(Faq::getId, Function.identity()));
+		if (activeFaqs.isEmpty()) {
+			throw new FaqException(FaqErrorCode.FAQ_REVIEW_CANDIDATE_NOT_FOUND);
+		}
+		List<Long> activeCandidateIds = candidateIds.stream()
+				.filter(activeFaqs::containsKey)
+				.toList();
 		List<FaqDuplicateEvidence> evidence = improvementQueryRepository.findDuplicateEvidence(
-				faqId, candidateIds, evaluatedAt, lowGapThreshold, maxQuestionsPerDuplicateCandidate);
+				faqId, activeCandidateIds, evaluatedAt, lowGapThreshold,
+				aiReviewProperties.getMaxQuestionsPerDuplicateCandidate());
 		Map<Long, FaqDuplicateEvidence> evidenceByCandidate = evidence.stream()
 				.collect(Collectors.toMap(FaqDuplicateEvidence::candidateFaqId, Function.identity()));
 
@@ -173,9 +184,10 @@ public class AiReviewService {
 			materials.add(new DuplicateCandidateMaterial(
 					faq.getId(), faq.getQuestion(), faq.getAnswer(), pairCount, questionMaterials));
 		}
-		if (materials.isEmpty()) {
-			return "[FAQ 중복 의심]\n현재 비교할 수 있는 활성 후보 FAQ가 없습니다. 중복이라고 단정하지 마세요.\n\n";
-		}
+		return List.copyOf(materials);
+	}
+
+	private String buildDuplicateSection(List<DuplicateCandidateMaterial> materials) {
 		return """
 				[FAQ 중복 의심]
 				다음 후보를 각각 독립적으로 검토하세요. 각 검색 질문에 대상 FAQ와 후보 FAQ의 답변이
@@ -200,25 +212,46 @@ public class AiReviewService {
 				- 중복 아님: 각각 유지할 이유와 각 FAQ의 수정 필요 여부를 적으세요.
 				- 판단 근거 부족: 단정적인 수정안을 만들지 말고 추가로 확인할 자료를 적으세요.
 				판단 근거 안에서 선택한 판단 결과를 뒤집거나 서로 다른 결론을 함께 쓰지 마세요.
-				details의 이 태그 부분은 반드시 다음 Markdown 구조를 사용하세요.
-				## 중복 의심 FAQ 판정 결과
-				### 후보 {순번}: FAQ {후보 FAQ ID}
-				#### 후보 FAQ 정보
-				- **질문**: {후보 질문}
-				- **답변**: {후보 답변}
-				- **함께 검색된 횟수**: {pairCount}
-				- **대표 유저 질문**: {함께 검색된 질문 중 판단에 가장 적합한 질문 정확히 1개}
-				#### 판정
-				- **판단 결과**: **{중복, 구분 필요, 중복 아님, 판단 근거 부족 중 하나}**
-				- **판단 근거**: {대상 FAQ와 후보 FAQ가 대표 질문에 적용되는지를 비교한 근거}
-				#### 조치 권고
-				- **대상 FAQ {대상 FAQ ID}**: {유지, 수정, 통합, 삭제 검토 등 구체적인 조치}
-				- **후보 FAQ {후보 FAQ ID}**: {유지, 수정, 통합, 삭제 검토 등 구체적인 조치}
 				대표 유저 질문에는 질문을 정확히 한 개만 쓰고, 여러 질문을 쉼표나 목록으로 나열하지 마세요.
-				후보마다 위 항목을 빠짐없이 한 번씩 작성하세요.
+				후보마다 구조화 응답의 모든 항목을 빠짐없이 한 번씩 작성하세요.
 				후보 FAQ 자료(JSON): %s
 
-				""".formatted(maxQuestionsPerDuplicateCandidate, JSON_MAPPER.writeValueAsString(materials));
+				""".formatted(
+				aiReviewProperties.getMaxQuestionsPerDuplicateCandidate(),
+				JSON_MAPPER.writeValueAsString(materials)
+		);
+	}
+
+	private AiReviewResponse toDuplicateSuspectedResponse(
+			Long targetFaqId,
+			List<DuplicateCandidateMaterial> materials,
+			DuplicateSuspectedAssessment assessment
+	) {
+		Map<Long, DuplicateCandidateAssessment> assessmentByCandidate = assessment.candidateAssessments().stream()
+				.collect(Collectors.toMap(DuplicateCandidateAssessment::candidateFaqId, Function.identity()));
+		StringBuilder details = new StringBuilder("## 중복 의심 FAQ 판정 결과\n");
+		for (int index = 0; index < materials.size(); index++) {
+			DuplicateCandidateMaterial material = materials.get(index);
+			DuplicateCandidateAssessment candidate = assessmentByCandidate.get(material.id());
+			details.append("### 후보 ").append(index + 1).append(": FAQ ").append(material.id()).append('\n');
+			details.append("#### 후보 FAQ 정보\n");
+			details.append("- **질문**: ").append(material.question()).append('\n');
+			details.append("- **답변**: ").append(material.answer()).append('\n');
+			details.append("- **함께 검색된 횟수**: ").append(material.pairCount()).append('\n');
+			details.append("- **대표 유저 질문**: ").append(candidate.representativeQuestion().strip()).append('\n');
+			details.append("#### 판정\n");
+			details.append("- **판단 결과**: **").append(candidate.result()).append("**\n");
+			details.append("- **판단 근거**: ").append(candidate.reason().strip()).append('\n');
+			details.append("#### 조치 권고\n");
+			details.append("- **대상 FAQ ").append(targetFaqId).append("**: ")
+					.append(candidate.targetFaqRecommendation().strip()).append('\n');
+			details.append("- **후보 FAQ ").append(material.id()).append("**: ")
+					.append(candidate.candidateFaqRecommendation().strip());
+			if (index < materials.size() - 1) {
+				details.append("\n\n");
+			}
+		}
+		return new AiReviewResponse(assessment.recommendation().strip(), details.toString());
 	}
 
 	private record DuplicateCandidateMaterial(
@@ -288,7 +321,7 @@ public class AiReviewService {
 
 				""".formatted(
 				improvementTopK,
-				maxLowRagQualityQuestions,
+				aiReviewProperties.getMaxLowRagQualityQuestions(),
 				JSON_MAPPER.writeValueAsString(questions)
 		);
 	}
@@ -311,7 +344,7 @@ public class AiReviewService {
 			}
 		}
 
-		boolean questionNeedsUpdate = representativeAssessment.needsUpdate();
+		boolean questionNeedsUpdate = Boolean.TRUE.equals(representativeAssessment.needsUpdate());
 		String suggestedQuestion = questionNeedsUpdate
 				? representativeAssessment.suggestedQuestion().strip()
 				: "해당 없음";
