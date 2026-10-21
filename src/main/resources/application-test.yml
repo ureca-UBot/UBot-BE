@@ -27,6 +27,10 @@ kakao:
   local:
     api-key: test-key
 
+unanswered:
+  naming:
+    enabled: false
+
 app:
   counsel:
     embedding-worker:

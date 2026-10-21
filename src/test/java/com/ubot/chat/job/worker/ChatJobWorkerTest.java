@@ -701,6 +701,32 @@ class ChatJobWorkerTest {
 		verify(stream).ack("message-1");
 	}
 
+	@Test
+	void cancellationBeforeFutureBindingIsNotLostAndNeverStartsTheModel() throws Exception {
+		queueJobs(1);
+		var beforeBinding = new CountDownLatch(1);
+		var resume = new CountDownLatch(1);
+		when(attempts.findById(1L)).thenAnswer(call -> {
+			beforeBinding.countDown();
+			assertThat(resume.await(5, TimeUnit.SECONDS)).isTrue();
+			return Optional.of(AnswerAttemptsHistory.builder()
+					.id(1L).userId(1L).question("질문").attemptCount(1).status("PENDING").build());
+		});
+		worker = worker(1, Duration.ofSeconds(20));
+		worker.start();
+		try {
+			assertThat(beforeBinding.await(4, TimeUnit.SECONDS)).isTrue();
+			storedJobs.get(1L).fail();
+			worker.cancelJob(1L);
+			resume.countDown();
+			verify(stream, timeout(2_000)).ack("message-1");
+			verifyNoInteractions(processor, completion);
+			assertThat(worker.isRunning()).isTrue();
+		} finally {
+			resume.countDown();
+		}
+	}
+
 	// QUEUED 작업 count개의 메시지를 스트림에 넣음. 선점은 STARTED_AT으로 성공함
 	private List<ReceivedChatJob> queueJobs(int count) {
 		unread.addAll(storeJobs(count));

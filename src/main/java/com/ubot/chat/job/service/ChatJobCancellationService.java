@@ -6,7 +6,7 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.dto.response.ChatJobCancellationResponseDto;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.repository.ChatJobRepository;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.stream.ChatJobCancellationPublisher;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.service.ChatAttemptsService;
 import jakarta.persistence.EntityManager;
@@ -24,17 +24,20 @@ public class ChatJobCancellationService {
 	private final ChatJobRepository jobs;
 	private final AnswerAttemptsHistoryRepository attempts;
 	private final ChatAttemptsService chatAttemptsService;
-	private final ChatJobWorker worker;
+	private final ChatJobCancellationPublisher cancellations;
+	private final ChatJobQueryService jobQueries;
 	private final EntityManager entityManager;
 	private final TransactionTemplate transaction;
 
 	public ChatJobCancellationService(ChatJobRepository jobs, AnswerAttemptsHistoryRepository attempts,
-			ChatAttemptsService chatAttemptsService, ChatJobWorker worker, PlatformTransactionManager manager,
+			ChatAttemptsService chatAttemptsService, ChatJobCancellationPublisher cancellations,
+			ChatJobQueryService jobQueries, PlatformTransactionManager manager,
 			EntityManager entityManager) {
 		this.jobs = jobs;
 		this.attempts = attempts;
 		this.chatAttemptsService = chatAttemptsService;
-		this.worker = worker;
+		this.cancellations = cancellations;
+		this.jobQueries = jobQueries;
 		this.entityManager = entityManager;
 		this.transaction = new TransactionTemplate(manager);
 		this.transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -48,7 +51,7 @@ public class ChatJobCancellationService {
 					cancelLatest(jobId, userId, guestConversationId));
 			if (result.isEmpty()) continue;
 			ChatJobCancellationResponseDto response = result.get();
-			if (response.cancelled()) worker.cancelJob(response.jobId());
+			if (response.cancelled()) cancellations.publish(response.jobId());
 			return response;
 		}
 	}
@@ -57,7 +60,7 @@ public class ChatJobCancellationService {
 			Long jobId, Long userId, Optional<Long> guestConversationId) {
 		ChatJob anchor = jobs.findById(jobId).orElseThrow(this::notFound);
 		AnswerAttemptsHistory original = attempts.findById(anchor.getAttemptId())
-				.filter(attempt -> ChatJobQueryService.isOwner(attempt, userId, guestConversationId))
+				.filter(attempt -> jobQueries.isOwner(attempt, userId, guestConversationId))
 				.orElseThrow(this::notFound);
 		AnswerAttemptsHistory latest = latest(original);
 		ChatJob job = jobs.findByAttemptId(latest.getId()).flatMap(found -> jobs.findJobForLock(found.getId()))
@@ -72,7 +75,7 @@ public class ChatJobCancellationService {
 		AnswerAttemptsHistory attempt = attempts.findAttemptForLock(latest.getId()).orElseThrow(this::notFound);
 		// 잠금 전에 읽어 둔 JPA 객체가 완료 이전 상태를 보관하고 있을 수 있습니다.
 		entityManager.refresh(attempt);
-		if (!ChatJobQueryService.isOwner(attempt, userId, guestConversationId)) throw notFound();
+		if (!jobQueries.isOwner(attempt, userId, guestConversationId)) throw notFound();
 		if (attempt.getErrorCode() == ChatErrorCode.USER_CANCELLED) return result(job, true);
 		if ("SUCCESS".equals(attempt.getStatus())) return result(job, false);
 		if (job.getStatus().isFinished() && chatAttemptsService.validateRetryAttempt(attempt).isPresent()) {

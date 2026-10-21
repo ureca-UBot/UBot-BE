@@ -19,7 +19,10 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.repository.ChatJobRepository;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.stream.ChatJobCancellationPublisher;
+import com.ubot.chat.job.stream.ChatJobResultStore;
+import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.service.ChatAttemptsService;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -37,7 +40,8 @@ class ChatJobCancellationServiceTest {
 	private final ChatJobRepository jobs = mock(ChatJobRepository.class);
 	private final AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
 	private final ChatAttemptsService retryPolicy = mock(ChatAttemptsService.class);
-	private final ChatJobWorker worker = mock(ChatJobWorker.class);
+	private final ChatJobCancellationPublisher cancellations = mock(ChatJobCancellationPublisher.class);
+	private final ConversationRepository conversations = mock(ConversationRepository.class);
 	private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
 	private final EntityManager entityManager = mock(EntityManager.class);
 	private final AnswerAttemptsHistory first = attempt(1L, 7L, 40L, 1);
@@ -47,7 +51,10 @@ class ChatJobCancellationServiceTest {
 	@BeforeEach
 	void setup() {
 		when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
-		service = new ChatJobCancellationService(jobs, attempts, retryPolicy, worker, transactions, entityManager);
+		var queries = new ChatJobQueryService(jobs, attempts, mock(QuestionLogRepository.class),
+				retryPolicy, mock(ChatJobResultStore.class), conversations);
+		service = new ChatJobCancellationService(jobs, attempts, retryPolicy, cancellations, queries, transactions, entityManager);
+		when(conversations.existsByIdAndDeletedAtIsNull(40L)).thenReturn(true);
 		when(jobs.findById(11L)).thenReturn(Optional.of(firstJob));
 		when(jobs.findByAttemptId(1L)).thenReturn(Optional.of(firstJob));
 		when(jobs.findJobForLock(11L)).thenReturn(Optional.of(firstJob));
@@ -63,13 +70,13 @@ class ChatJobCancellationServiceTest {
 	void cancelsOnlyOwnedQueuedJobAndSignalsAfterCommit() {
 		AtomicBoolean committed = new AtomicBoolean();
 		doAnswer(call -> { committed.set(true); return null; }).when(transactions).commit(any());
-		doAnswer(call -> { assertThat(committed).isTrue(); return null; }).when(worker).cancelJob(11L);
+		doAnswer(call -> { assertThat(committed).isTrue(); return null; }).when(cancellations).publish(11L);
 		var response = service.cancel(11L, 7L, Optional.empty());
 		assertThat(response.cancelled()).isTrue();
 		assertThat(firstJob.getStatus()).isEqualTo(ChatJobStatus.FAILED);
 		assertThat(first.getErrorCode()).isEqualTo(ChatErrorCode.USER_CANCELLED);
-		verify(worker).cancelJob(11L);
-		verify(worker, times(1)).cancelJob(anyLong());
+		verify(cancellations).publish(11L);
+		verify(cancellations, times(1)).publish(anyLong());
 	}
 
 	@Test
@@ -77,7 +84,7 @@ class ChatJobCancellationServiceTest {
 		ReflectionTestUtils.setField(firstJob, "status", ChatJobStatus.RUNNING);
 		assertThat(service.cancel(11L, 7L, Optional.empty()).cancelled()).isTrue();
 		assertThat(service.cancel(11L, 7L, Optional.empty()).cancelled()).isTrue();
-		verify(worker, times(2)).cancelJob(11L);
+		verify(cancellations, times(2)).publish(11L);
 	}
 
 	@Test
@@ -85,7 +92,7 @@ class ChatJobCancellationServiceTest {
 		assertThatThrownBy(() -> service.cancel(11L, 8L, Optional.empty()))
 				.isInstanceOfSatisfying(ChatException.class,
 						error -> assertThat(error.getErrorCode()).isEqualTo(ChatErrorCode.JOB_NOT_FOUND));
-		verifyNoInteractions(worker);
+		verifyNoInteractions(cancellations);
 		verify(jobs, never()).findJobForLock(any());
 		assertThat(first.getStatus()).isEqualTo("PENDING");
 	}
@@ -93,7 +100,7 @@ class ChatJobCancellationServiceTest {
 	@Test
 	void guestCannotCancelMemberJob() {
 		assertThatThrownBy(() -> service.cancel(11L, null, Optional.of(40L))).isInstanceOf(ChatException.class);
-		verifyNoInteractions(worker);
+		verifyNoInteractions(cancellations);
 	}
 
 	@Test
@@ -107,12 +114,22 @@ class ChatJobCancellationServiceTest {
 	}
 
 	@Test
+	void deletedConversationCannotCancelOrDiscoverTheJob() {
+		when(conversations.existsByIdAndDeletedAtIsNull(40L)).thenReturn(false);
+		assertThatThrownBy(() -> service.cancel(11L, 7L, Optional.empty()))
+				.isInstanceOfSatisfying(ChatException.class,
+						error -> assertThat(error.getErrorCode()).isEqualTo(ChatErrorCode.JOB_NOT_FOUND));
+		verifyNoInteractions(cancellations);
+		verify(jobs, never()).findJobForLock(any());
+	}
+
+	@Test
 	void completedAnswerWinsAndIsNeverOverwritten() {
 		first.succeed();
 		firstJob.succeed();
 		assertThat(service.cancel(11L, 7L, Optional.empty()).cancelled()).isFalse();
 		assertThat(first.getStatus()).isEqualTo("SUCCESS");
-		verifyNoInteractions(worker);
+		verifyNoInteractions(cancellations);
 	}
 
 	@Test
@@ -122,7 +139,7 @@ class ChatJobCancellationServiceTest {
 		assertThat(service.cancel(11L, 7L, Optional.empty()).cancelled()).isFalse();
 		assertThat(first.getStatus()).isEqualTo("SUCCESS");
 		verify(entityManager).refresh(firstJob);
-		verifyNoInteractions(worker);
+		verifyNoInteractions(cancellations);
 	}
 
 	@Test
@@ -132,7 +149,7 @@ class ChatJobCancellationServiceTest {
 		when(retryPolicy.validateRetryAttempt(first)).thenReturn(Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED));
 		assertThat(service.cancel(11L, 7L, Optional.empty()).cancelled()).isFalse();
 		assertThat(first.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED);
-		verifyNoInteractions(worker);
+		verifyNoInteractions(cancellations);
 	}
 
 	@Test
@@ -155,8 +172,8 @@ class ChatJobCancellationServiceTest {
 		assertThat(service.cancel(11L, 7L, Optional.empty()).jobId()).isEqualTo(12L);
 		assertThat(first.getStatus()).isEqualTo("PENDING");
 		assertThat(retry.getErrorCode()).isEqualTo(ChatErrorCode.USER_CANCELLED);
-		verify(worker).cancelJob(12L);
-		verify(worker, never()).cancelJob(11L);
+		verify(cancellations).publish(12L);
+		verify(cancellations, never()).publish(11L);
 	}
 
 	@Test
@@ -170,14 +187,14 @@ class ChatJobCancellationServiceTest {
 		when(attempts.findAttemptForLock(2L)).thenReturn(Optional.of(retry));
 		assertThat(service.cancel(11L, 7L, Optional.empty()).jobId()).isEqualTo(12L);
 		verify(transactions, times(2)).commit(any());
-		verify(worker, times(1)).cancelJob(12L);
+		verify(cancellations, times(1)).publish(12L);
 	}
 
 	@Test
 	void failedCommitDoesNotSignalWorker() {
 		doThrow(new IllegalStateException("commit failed")).when(transactions).commit(any());
 		assertThatThrownBy(() -> service.cancel(11L, 7L, Optional.empty())).isInstanceOf(IllegalStateException.class);
-		verifyNoInteractions(worker);
+		verifyNoInteractions(cancellations);
 	}
 
 	private static AnswerAttemptsHistory attempt(long id, Long userId, long conversationId, int count) {
