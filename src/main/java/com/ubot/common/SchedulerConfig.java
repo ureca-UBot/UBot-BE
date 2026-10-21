@@ -7,8 +7,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @Configuration
+@ConditionalOnProperty(name = "counsel.seed-only", havingValue = "false", matchIfMissing = true)
 @EnableScheduling
 @EnableSchedulerLock(defaultLockAtMostFor = "PT10M")
 public class SchedulerConfig {

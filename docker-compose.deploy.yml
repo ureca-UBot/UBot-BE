@@ -8,6 +8,8 @@ services:
     environment:
       # 질문 접수·상태 조회와 나머지 API. 답변은 ai-worker가 만듭니다.
       APP_ROLE: api
+      # CD가 워커 준비 후 일회성 색인을 실행한다. API 기동 시 중복 실행하지 않는다.
+      COUNSEL_SEED_ON_START: "false"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       REDIS_HOST: redis

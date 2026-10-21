@@ -28,6 +28,10 @@ kakao:
     api-key: test-key
 
 app:
+  counsel:
+    embedding-worker:
+      # Worker tests start their own consumer; shared integration contexts must not consume its queue.
+      enabled: false
   chat:
     worker:
       # Tests run queued jobs explicitly with ChatJobWorker.processAvailableJobs().
