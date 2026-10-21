@@ -84,8 +84,6 @@ ranking:
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
 faq-monitoring:
-  ai-review:
-    max-input-chars: ${FAQ_AI_REVIEW_MAX_INPUT_CHARS:12000}
   improvement:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}

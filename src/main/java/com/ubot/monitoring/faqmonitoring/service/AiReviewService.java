@@ -53,19 +53,13 @@ public class AiReviewService {
 			Long faqId,
 			DuplicateSuspectedReviewRequest request
 	) {
+		validateDuplicateRequest(faqId, request);
 		long startedAt = System.nanoTime();
-		int candidateCount = request == null || request.candidateFaqIds() == null
-				? 0 : request.candidateFaqIds().size();
 		log.info("FAQ AI 검토를 시작합니다: faqId={}, 검토태그={}, 중복후보수={}",
-				faqId, FaqImprovementType.DUPLICATE_SUSPECTED, candidateCount);
+				faqId, FaqImprovementType.DUPLICATE_SUSPECTED, request.candidateFaqIds().size());
 		try {
-			validateDuplicateRequest(faqId, request);
 			Faq faq = findActiveFaq(faqId);
-			AiReviewResponse response = generateReview(
-					faq,
-					FaqImprovementType.DUPLICATE_SUSPECTED,
-					buildDuplicateSection(faqId, request)
-			);
+			AiReviewResponse response = generateDuplicateSuspectedReview(faq, request);
 			logReviewCompleted(faqId, FaqImprovementType.DUPLICATE_SUSPECTED, startedAt);
 			return response;
 		} catch (RuntimeException exception) {
@@ -96,26 +90,17 @@ public class AiReviewService {
 				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
 	}
 
-	private AiReviewResponse generateReview(
+	private AiReviewResponse generateDuplicateSuspectedReview(
 			Faq faq,
-			FaqImprovementType improvementType,
-			String section
+			DuplicateSuspectedReviewRequest request
 	) {
 		String basePrompt = buildBasePrompt(faq);
-		if (!aiReviewLlmService.fits(basePrompt)) {
-			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, "FAQ 내용이 AI 검토 입력 한도를 초과했습니다.");
-		}
-
-		String prompt = basePrompt + section;
-		if (!aiReviewLlmService.fits(prompt)) {
-			log.warn("FAQ AI 검토의 LLM 호출을 생략했습니다: faqId={}, 검토태그={}, 사유=입력 한도 초과",
-					faq.getId(), improvementType);
-			return inputLimitResponse();
-		}
+		String prompt = basePrompt + buildDuplicateSection(faq.getId(), request);
 		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 검토태그={}, 입력문자수={}",
-				faq.getId(), improvementType, prompt.length());
-		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}, 검토태그={}", faq.getId(), improvementType);
-		return aiReviewLlmService.generateReview(prompt);
+				faq.getId(), FaqImprovementType.DUPLICATE_SUSPECTED, prompt.length());
+		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}, 검토태그={}",
+				faq.getId(), FaqImprovementType.DUPLICATE_SUSPECTED);
+		return aiReviewLlmService.generateDuplicateSuspectedReview(prompt);
 	}
 
 	private String buildBasePrompt(Faq faq) {
@@ -128,12 +113,6 @@ public class AiReviewService {
 				인텐트: %s
 				
 				""".formatted(faq.getId(), faq.getVersion(), faq.getQuestion(), faq.getAnswer(), faq.getIntent());
-	}
-
-	private AiReviewResponse inputLimitResponse() {
-		return new AiReviewResponse(
-				"검토 입력을 줄인 뒤 AI 검토를 다시 요청하세요.",
-				"검토 입력 한도를 초과해 AI 검토를 진행하지 못했습니다.");
 	}
 
 	private void logReviewCompleted(Long faqId, FaqImprovementType improvementType, long startedAt) {
@@ -158,7 +137,8 @@ public class AiReviewService {
 		}
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
 		Set<Long> uniqueCandidateIds = new HashSet<>(candidateIds);
-		if (candidateIds.size() > MAX_DUPLICATE_CANDIDATES || uniqueCandidateIds.size() != candidateIds.size()
+		if (candidateIds.isEmpty() || candidateIds.size() > MAX_DUPLICATE_CANDIDATES
+				|| uniqueCandidateIds.size() != candidateIds.size()
 				|| uniqueCandidateIds.contains(faqId) || candidateIds.stream().anyMatch(id -> id <= 0)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
 		}
@@ -166,9 +146,6 @@ public class AiReviewService {
 
 	private String buildDuplicateSection(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
-		if (candidateIds.isEmpty()) {
-			return "[FAQ 중복 의심]\n전달된 중복 후보 FAQ가 없습니다. 중복 여부를 단정하지 마세요.\n\n";
-		}
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 		Map<Long, Faq> activeFaqs = faqRepository.findAllById(candidateIds).stream()
 				.filter(faq -> faq.getDeletedAt() == null)
@@ -258,12 +235,6 @@ public class AiReviewService {
 		String basePrompt = buildBasePrompt(faq);
 		String representativePrompt = basePrompt + buildRepresentativeQuestionPrompt();
 		String variantPrompt = basePrompt + buildVariantQuestionPrompt(materials);
-		if (!aiReviewLlmService.fitsLowRagQualityRepresentative(representativePrompt)
-				|| !aiReviewLlmService.fitsLowRagQualityVariant(variantPrompt)) {
-			log.warn("FAQ AI 검토의 LLM 호출을 생략했습니다: faqId={}, 검토태그={}, 사유=입력 한도 초과",
-					faq.getId(), FaqImprovementType.LOW_RAG_QUALITY);
-			return inputLimitResponse();
-		}
 		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 검토태그={}, 대표질문입력문자수={}, 변형질문입력문자수={}",
 				faq.getId(), FaqImprovementType.LOW_RAG_QUALITY,
 				representativePrompt.length(), variantPrompt.length());
