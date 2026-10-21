@@ -67,6 +67,7 @@ class AnswerAttemptErrorCodeConverterTest {
 				Arguments.of("LLM-003", LlmErrorCode.LLM_SERVICE_UNAVAILABLE),
 				Arguments.of("LLM-004", LlmErrorCode.LLM_TIMEOUT),
 				Arguments.of("LLM-005", LlmErrorCode.LLM_RESPONSE_INVALID),
+				Arguments.of("LLM-006", LlmErrorCode.LLM_OUTPUT_REJECTED),
 				Arguments.of("CHAT-014", ChatErrorCode.PROMPT_NOT_READY),
 				Arguments.of("PROMPT-001", PromptErrorCode.PROMPT_NOT_READY),
 				Arguments.of("PROMPT-002", PromptErrorCode.PROMPT_INPUT_MISSING),

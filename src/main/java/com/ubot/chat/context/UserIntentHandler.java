@@ -16,8 +16,8 @@ import org.springframework.util.StringUtils;
 @Component
 @RequiredArgsConstructor
 public class UserIntentHandler implements IntentHandler {
-	static final String SECTION_TITLE = "사용자 정보";
-	static final String NOT_FOUND_CONTENT = "사용자 정보를 찾을 수 없습니다.";
+	public static final String SECTION_TITLE = "사용자 정보";
+	public static final String NOT_FOUND_CONTENT = "사용자 정보를 찾을 수 없습니다.";
 	// DB에 없는 값을 LLM이 지어내지 않고 ABSTAIN하도록 알립니다.
 	static final String UNAVAILABLE_NOTICE = "요금, 데이터 사용량, 미납 정보는 제공되지 않습니다.";
 

@@ -217,8 +217,7 @@ class ChatAnswerProcessorIntentValidationTest {
         assertThat(result.answer().abstained()).isTrue();
         assertThat(capturedMaterials().sections()).extracting(ContextSection::content)
                 .containsExactly("사용자 정보를 찾을 수 없습니다.");
-        assertThat(unanswered).contains(new UnansweredCandidate(
-                1, QUESTION, QUESTION, UnansweredReason.LLM_ABSTAIN, 10L, 1.0, UnansweredSource.RETRIEVAL));
+        assertThat(unanswered).isEmpty();
         verifyNoInteractions(embeddings, stores, reranker);
     }
 
@@ -244,7 +243,7 @@ class ChatAnswerProcessorIntentValidationTest {
         SubQuestionPlanner planner = mock(SubQuestionPlanner.class);
         AnswerAttemptsHistory attempt = attempt(null);
         List<ConversationTurn> history = List.of(new ConversationTurn("안녕하세요", "무엇을 도와드릴까요?"));
-        when(planner.plan(attempt)).thenReturn(new SubQuestionPlan(List.of(
+        when(planner.plan(attempt, QUESTION)).thenReturn(new SubQuestionPlan(List.of(
                 new SubQuestionPlan.SubQuestion(generalQuestion, generalQuestion),
                 new SubQuestionPlan.SubQuestion(userQuestion, userQuestion),
                 new SubQuestionPlan.SubQuestion(storeQuestion, storeQuestion)),
@@ -293,10 +292,7 @@ class ChatAnswerProcessorIntentValidationTest {
         cacheProperties.setEnabled(cacheEnabled);
         ChatContextCollector collector = new ChatContextCollector(List.of(
                 new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
-        ChatAnswerProcessor processor = new ChatAnswerProcessor(
-                new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3),
-                ai, collector, planner, new FaqSemanticCacheService(cacheProperties),
-                new FaqSentenceFilterService(embeddings, 0.6));
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3), ai, collector, planner, new FaqSemanticCacheService(cacheProperties), new FaqSentenceFilterService(embeddings, 0.6), ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

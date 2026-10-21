@@ -55,7 +55,8 @@ class SubQuestionPlannerTest {
 	}
 
 	private SubQuestionPlanner planner(boolean enabled) {
-		return new SubQuestionPlanner(enabled, turns, prompts, llm, guard, router, detector);
+		return new SubQuestionPlanner(enabled, turns, prompts, llm, guard, router, detector,
+				ChatTestFixtures.passthroughInputGuard());
 	}
 
 	private static SubQuestionGuard.Result result(List<String> subQuestions, boolean fallback,
@@ -109,7 +110,7 @@ class SubQuestionPlannerTest {
 		when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto("{\"sub_questions\": [\"해외 로밍 신청 방법\"]}"));
 		AnswerAttemptsHistory attempt = attempt(10L, 7L, "해외 로밍은 어떻게 신청하나요?");
 
-		SubQuestionPlan first = planner(true).plan(attempt);
+		SubQuestionPlan first = planner(true).plan(attempt, attempt.getQuestion());
 
 		assertThat(first.searchFirst()).isTrue();
 		assertThat(first.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL_SEARCH_FIRST);
@@ -195,7 +196,7 @@ class SubQuestionPlannerTest {
 	@DisplayName("판정을 끄면 판정 LLM과 이전 대화를 쓰지 않고 원문 하나로 먼저 검색하며, 원문 검색이 실패해도 판정하지 않는다")
 	void skipsJudgeWhenDisabled() {
 		var attempt = attempt(10L, 7L, "유심 재발급");
-		SubQuestionPlan plan = planner(false).plan(attempt);
+		SubQuestionPlan plan = planner(false).plan(attempt, attempt.getQuestion());
 
 		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
 		// 원문 먼저 검색 경로를 타야 FAQ 시맨틱 캐시를 봅니다.
@@ -244,7 +245,8 @@ class SubQuestionPlannerTest {
 	void keepsPhasesMovingForwardAcrossJudgment(boolean judgeInitially) {
 		var client = mock(LlmClient.class);
 		var realLlm = new LlmService(client, 1);
-		var realPlanner = new SubQuestionPlanner(true, turns, prompts, realLlm, guard, router, detector);
+		var realPlanner = new SubQuestionPlanner(true, turns, prompts, realLlm, guard, router, detector,
+				ChatTestFixtures.passthroughInputGuard());
 		var attempt = attempt(10L, null, "로밍 신청과 요금 알려줘");
 		var judgmentRequest = new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.USER, "하위 질문을 정리하세요.")));
@@ -261,7 +263,7 @@ class SubQuestionPlannerTest {
 
 		LlmResponseDto answer = AnswerProgress.observe(phases::add, () -> {
 			AnswerProgress.report(Phase.SEARCHING);
-			SubQuestionPlan plan = realPlanner.plan(attempt);
+			SubQuestionPlan plan = realPlanner.plan(attempt, attempt.getQuestion());
 			if (plan.searchFirst()) {
 				plan = realPlanner.judge(attempt, plan);
 			}
