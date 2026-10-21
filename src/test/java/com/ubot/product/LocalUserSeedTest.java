@@ -36,6 +36,15 @@ class LocalUserSeedTest {
             var dataSource = new DriverManagerDataSource(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
             var jdbc = new JdbcTemplate(dataSource);
+            // 상품 시드(V43): 홈 결합은 모두 같은 속도의 인터넷 상품에 연결된다.
+            assertThat(jdbc.queryForList("""
+                    SELECT b.code FROM bundle_products b
+                    LEFT JOIN home_products h ON h.home_product_id = b.home_product_id
+                    WHERE b.bundle_type = 'HOME'
+                      AND (h.home_product_id IS NULL OR h.product_type <> 'INTERNET'
+                           OR b.name NOT LIKE '%' || CASE h.speed_mbps WHEN 1000 THEN '기가' ELSE h.speed_mbps::TEXT END || '%')
+                    """, String.class)).isEmpty();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM home_products", Integer.class)).isEqualTo(5);
             // seed-baseline.sql이 만드는 기본 사용자입니다.
             jdbc.update("INSERT INTO users (email, password_hash, name) VALUES ('user@user.com', 'hash', 'Default User')");
 
