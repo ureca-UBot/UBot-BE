@@ -12,6 +12,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.conversation.repository.ConversationRepository;
+import com.ubot.conversation.entity.Conversation;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqLogRepository;
@@ -32,9 +33,10 @@ class ChatAttemptsServiceMaskingTest {
 	private static final String KEY = "k".repeat(64);
 
 	private final AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
+	private final ConversationRepository conversations = mock(ConversationRepository.class);
 	private final ChatAttemptsService service = new ChatAttemptsService(
 			attempts, mock(QuestionLogService.class), mock(FaqLogRepository.class), mock(FaqRepository.class),
-			mock(ConversationRepository.class), mock(GuestChatSettingsRepository.class), mock(LlmService.class),
+			conversations, mock(GuestChatSettingsRepository.class), mock(LlmService.class),
 			mock(EmbeddingService.class), mock(PlatformTransactionManager.class));
 
 	{
@@ -45,6 +47,7 @@ class ChatAttemptsServiceMaskingTest {
 	@Test
 	@DisplayName("새 질문은 마스킹해서 저장한다")
 	void masksNewQuestion() {
+		when(conversations.findConversationForLock(10L)).thenReturn(Optional.of(Conversation.createMember(1L)));
 		assertThat(service.createAnswerAttempt(1L, 10L, RAW).getQuestion()).isEqualTo(MASKED);
 	}
 

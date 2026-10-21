@@ -17,7 +17,16 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 	@Query("select c from Conversation c where c.id = :conversationId")
 	Optional<Conversation> findConversationForLock(@Param("conversationId") Long conversationId);
 
-	Optional<Conversation> findByPublicIdAndUserId(UUID publicId, Long userId);
+	Optional<Conversation> findByPublicIdAndUserIdAndDeletedAtIsNull(UUID publicId, Long userId);
+
+	Optional<Conversation> findByIdAndDeletedAtIsNull(Long conversationId);
+
+	boolean existsByIdAndDeletedAtIsNull(Long conversationId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select c from Conversation c where c.publicId = :publicId and c.userId = :userId")
+	Optional<Conversation> findMemberConversationForLock(
+			@Param("publicId") UUID publicId, @Param("userId") Long userId);
 
 	@Query(
 			value = """
@@ -30,6 +39,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 					       c.updated_at AS lastQuestionAt
 					  FROM conversations c
 					 WHERE c.user_id = :userId
+					   AND c.deleted_at IS NULL
 					   AND EXISTS (SELECT 1 FROM question_log q WHERE q.conversation_id = c.conversation_id)
 					 ORDER BY c.updated_at DESC, c.conversation_id DESC
 					""",
@@ -37,6 +47,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 					SELECT count(*)
 					  FROM conversations c
 					 WHERE c.user_id = :userId
+					   AND c.deleted_at IS NULL
 					   AND EXISTS (SELECT 1 FROM question_log q WHERE q.conversation_id = c.conversation_id)
 					""",
 			nativeQuery = true)

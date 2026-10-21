@@ -37,7 +37,7 @@ public class ConversationService {
 	@Transactional
 	public boolean claimGuestConversation(Long conversationId, Long userId) {
 		Conversation conversation = conversationRepository.findConversationForLock(conversationId).orElse(null);
-		if (conversation == null || !conversation.isGuest()) {
+		if (conversation == null || conversation.isDeleted() || !conversation.isGuest()) {
 			return false;
 		}
 		conversation.assignToMember(userId);
@@ -52,14 +52,29 @@ public class ConversationService {
 		if (conversationId == null) {
 			return conversationRepository.save(Conversation.createMember(userId));
 		}
-		Conversation conversation = findMemberConversation(userId, conversationId);
+		Conversation conversation = conversationRepository.findMemberConversationForLock(conversationId, userId)
+				.filter(found -> !found.isDeleted())
+				.orElseThrow(() -> new ConversationException(ConversationErrorCode.CONVERSATION_NOT_FOUND));
 		conversation.touch();
 		return conversation;
 	}
 
 	@Transactional(readOnly = true)
 	public UUID getPublicId(Long conversationId) {
-		return conversationRepository.findById(conversationId).map(Conversation::getPublicId).orElse(null);
+		return conversationRepository.findByIdAndDeletedAtIsNull(conversationId).map(Conversation::getPublicId).orElse(null);
+	}
+
+	@Transactional
+	public void deleteConversation(Long userId, UUID conversationId) {
+		Conversation conversation = conversationRepository.findMemberConversationForLock(conversationId, userId)
+				.orElseThrow(() -> new ConversationException(ConversationErrorCode.CONVERSATION_NOT_FOUND));
+		if (conversation.isDeleted()) {
+			return;
+		}
+		if (answerAttemptsHistoryRepository.existsByConversationIdAndStatus(conversation.getId(), "PENDING")) {
+			throw new ConversationException(ConversationErrorCode.CONVERSATION_IN_PROGRESS);
+		}
+		conversation.delete();
 	}
 
 	@Transactional(readOnly = true)
@@ -83,7 +98,7 @@ public class ConversationService {
 	}
 
 	private Conversation findMemberConversation(Long userId, UUID conversationId) {
-		return conversationRepository.findByPublicIdAndUserId(conversationId, userId)
+		return conversationRepository.findByPublicIdAndUserIdAndDeletedAtIsNull(conversationId, userId)
 				.orElseThrow(() -> new ConversationException(ConversationErrorCode.CONVERSATION_NOT_FOUND));
 	}
 }

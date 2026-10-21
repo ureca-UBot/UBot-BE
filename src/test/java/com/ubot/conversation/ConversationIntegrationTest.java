@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -223,6 +224,109 @@ class ConversationIntegrationTest {
 		mvc.perform(get("/conversations/me").header("Authorization", bearer(member)))
 				.andExpect(jsonPath("$.data.totalElements").value(1))
 				.andExpect(jsonPath("$.data.content[0].title").value("다시 질문"));
+	}
+
+	@Test
+	@DisplayName("대화를 소프트 삭제하면 목록에서 제외하고 질문·답변·FAQ 로그·작업은 보존한다")
+	void deletesConversationWithoutDeletingHistory() throws Exception {
+		UUID deleted = askAsMember(member, "첫 질문", null);
+		UUID remaining = askAsMember(member, "두 번째 대화", null);
+		long questionCount = questions.count();
+		long attemptCount = attempts.count();
+		long faqLogCount = faqLogs.count();
+		Long jobCount = jdbc.queryForObject("select count(*) from chat_jobs", Long.class);
+
+		mvc.perform(delete("/conversations/{id}", deleted).header("Authorization", bearer(member)))
+				.andExpect(status().isNoContent());
+
+		LocalDateTime deletedAt = jdbc.queryForObject("select deleted_at from conversations where public_id = ?",
+				LocalDateTime.class, deleted);
+		assertThat(deletedAt).isNotNull();
+		assertThat(questions.count()).isEqualTo(questionCount);
+		assertThat(attempts.count()).isEqualTo(attemptCount);
+		assertThat(faqLogs.count()).isEqualTo(faqLogCount).isPositive();
+		assertThat(jdbc.queryForObject("select count(*) from chat_jobs", Long.class)).isEqualTo(jobCount);
+		assertThat(jdbc.queryForObject("select count(*) from conversations", Long.class)).isEqualTo(2);
+		mvc.perform(get("/conversations/me").header("Authorization", bearer(member)))
+				.andExpect(jsonPath("$.data.totalElements").value(1))
+				.andExpect(jsonPath("$.data.content.length()").value(1))
+				.andExpect(jsonPath("$.data.content[0].conversationId").value(remaining.toString()));
+
+		mvc.perform(delete("/conversations/{id}", deleted).header("Authorization", bearer(member)))
+				.andExpect(status().isNoContent());
+		assertThat(jdbc.queryForObject("select deleted_at from conversations where public_id = ?",
+				LocalDateTime.class, deleted)).isEqualTo(deletedAt);
+	}
+
+	@Test
+	@DisplayName("다른 회원의 대화나 없는 대화는 삭제할 수 없으며 인증 없이 삭제할 수 없다")
+	void requiresConversationOwnershipToDelete() throws Exception {
+		UUID conversationId = askAsMember(other, "다른 회원 질문", null);
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		mvc.perform(delete("/conversations/{id}", UUID.randomUUID()).header("Authorization", bearer(member)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		mvc.perform(delete("/conversations/{id}", conversationId)).andExpect(status().isUnauthorized());
+		assertThat(jdbc.queryForObject("select deleted_at from conversations where public_id = ?",
+				LocalDateTime.class, conversationId)).isNull();
+	}
+
+	@Test
+	@DisplayName("삭제된 대화의 메시지·작업 조회와 이어 질문·재시도·의도 재검색을 차단한다")
+	void blocksAllUserAccessToDeletedConversation() throws Exception {
+		JsonNode submitted = submitAsMember("첫 질문");
+		UUID conversationId = UUID.fromString(submitted.path("conversationId").asString());
+		String jobId = submitted.path("jobId").asString();
+		String key = submitted.path("idempotencyKey").asString();
+		worker.processAvailableJobs();
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isNoContent());
+
+		mvc.perform(get("/conversations/{id}/messages", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		mvc.perform(question("추가 질문", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		mvc.perform(post("/chat/questions/retries").header("Authorization", bearer(member))
+				.header("Idempotency-Key", key))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		mvc.perform(post("/chat/questions/research").header("Authorization", bearer(member))
+				.header("Idempotency-Key", key).contentType("application/json").content("{\"intent\":\"GENERAL\"}"))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONV-001"));
+		mvc.perform(get("/chat/jobs/{id}", jobId).header("Authorization", bearer(member)))
+				.andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CHAT-020"));
+		assertThat(attempts.count()).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("대기 중인 답변이 있으면 삭제를 거절하고 답변이 끝나면 삭제할 수 있다")
+	void rejectsDeletionWhileAnswerIsQueued() throws Exception {
+		JsonNode submitted = submitAsMember("첫 질문");
+		UUID conversationId = UUID.fromString(submitted.path("conversationId").asString());
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONV-002"));
+		assertThat(jdbc.queryForObject("select deleted_at from conversations where public_id = ?",
+				LocalDateTime.class, conversationId)).isNull();
+
+		worker.processAvailableJobs();
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isNoContent());
+	}
+
+	@Test
+	@DisplayName("실행 중인 답변이 있으면 대화를 삭제할 수 없다")
+	void rejectsDeletionWhileAnswerIsRunning() throws Exception {
+		JsonNode submitted = submitAsMember("첫 질문");
+		UUID conversationId = UUID.fromString(submitted.path("conversationId").asString());
+		jdbc.update("update chat_jobs set execution_status = 'RUNNING', started_at = localtimestamp, "
+				+ "heartbeat_at = localtimestamp where job_id = ?", submitted.path("jobId").asLong());
+		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
+				.andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONV-002"));
+	}
+
+	private JsonNode submitAsMember(String question) throws Exception {
+		String body = mvc.perform(question(question, null).header("Authorization", bearer(member)))
+				.andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+		return objectMapper.readTree(body).path("data");
 	}
 
 	private UUID askAsMember(User user, String question, UUID conversationId) throws Exception {
