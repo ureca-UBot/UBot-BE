@@ -84,6 +84,10 @@ ranking:
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
 faq-monitoring:
+  ai-review:
+    max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
+    max-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_QUESTIONS_PER_DUPLICATE_CANDIDATE:20}
+    max-low-rag-quality-questions: ${FAQ_AI_REVIEW_MAX_LOW_RAG_QUALITY_QUESTIONS:20}
   improvement:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}

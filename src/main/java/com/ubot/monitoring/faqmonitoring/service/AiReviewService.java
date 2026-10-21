@@ -35,9 +35,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Slf4j
 public class AiReviewService {
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
-	private static final int MAX_DUPLICATE_CANDIDATES = 5;
-	private static final int MAX_QUESTIONS_PER_CANDIDATE = 20;
-	private static final int MAX_LOW_RAG_QUALITY_QUESTIONS = 20;
 	private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 	private final FaqRepository faqRepository;
 	private final FaqMonitoringImprovementQueryRepository improvementQueryRepository;
@@ -48,6 +45,15 @@ public class AiReviewService {
 
 	@Value("${faq-monitoring.improvement.top-k}")
 	private int improvementTopK;
+
+	@Value("${faq-monitoring.ai-review.max-duplicate-candidates}")
+	private int maxDuplicateCandidates;
+
+	@Value("${faq-monitoring.ai-review.max-questions-per-duplicate-candidate}")
+	private int maxQuestionsPerDuplicateCandidate;
+
+	@Value("${faq-monitoring.ai-review.max-low-rag-quality-questions}")
+	private int maxLowRagQualityQuestions;
 
 	public AiReviewResponse reviewDuplicateSuspected(
 			Long faqId,
@@ -75,7 +81,7 @@ public class AiReviewService {
 		try {
 			Faq faq = findActiveFaq(faqId);
 			List<FaqLowRagQualityQuestion> questions = improvementQueryRepository.findLowRagQualityQuestions(
-					faq.getId(), LocalDateTime.now(SERVICE_ZONE), improvementTopK, MAX_LOW_RAG_QUALITY_QUESTIONS);
+					faq.getId(), LocalDateTime.now(SERVICE_ZONE), improvementTopK, maxLowRagQualityQuestions);
 			AiReviewResponse response = generateLowRagQualityReview(faq, questions);
 			logReviewCompleted(faqId, FaqImprovementType.LOW_RAG_QUALITY, startedAt);
 			return response;
@@ -137,7 +143,7 @@ public class AiReviewService {
 		}
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
 		Set<Long> uniqueCandidateIds = new HashSet<>(candidateIds);
-		if (candidateIds.isEmpty() || candidateIds.size() > MAX_DUPLICATE_CANDIDATES
+		if (candidateIds.isEmpty() || candidateIds.size() > maxDuplicateCandidates
 				|| uniqueCandidateIds.size() != candidateIds.size()
 				|| uniqueCandidateIds.contains(faqId) || candidateIds.stream().anyMatch(id -> id <= 0)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
@@ -151,7 +157,7 @@ public class AiReviewService {
 				.filter(faq -> faq.getDeletedAt() == null)
 				.collect(Collectors.toMap(Faq::getId, Function.identity()));
 		List<FaqDuplicateEvidence> evidence = improvementQueryRepository.findDuplicateEvidence(
-				faqId, candidateIds, evaluatedAt, lowGapThreshold, MAX_QUESTIONS_PER_CANDIDATE);
+				faqId, candidateIds, evaluatedAt, lowGapThreshold, maxQuestionsPerDuplicateCandidate);
 		Map<Long, FaqDuplicateEvidence> evidenceByCandidate = evidence.stream()
 				.collect(Collectors.toMap(FaqDuplicateEvidence::candidateFaqId, Function.identity()));
 
@@ -212,7 +218,7 @@ public class AiReviewService {
 				후보마다 위 항목을 빠짐없이 한 번씩 작성하세요.
 				후보 FAQ 자료(JSON): %s
 
-				""".formatted(MAX_QUESTIONS_PER_CANDIDATE, JSON_MAPPER.writeValueAsString(materials));
+				""".formatted(maxQuestionsPerDuplicateCandidate, JSON_MAPPER.writeValueAsString(materials));
 	}
 
 	private record DuplicateCandidateMaterial(
@@ -282,7 +288,7 @@ public class AiReviewService {
 
 				""".formatted(
 				improvementTopK,
-				MAX_LOW_RAG_QUALITY_QUESTIONS,
+				maxLowRagQualityQuestions,
 				JSON_MAPPER.writeValueAsString(questions)
 		);
 	}
