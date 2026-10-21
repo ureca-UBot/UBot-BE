@@ -8,14 +8,16 @@ import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateEvidence;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
-import com.ubot.monitoring.faqmonitoring.dto.request.AiReviewRequest;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqLowRagQualityQuestion;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityQuestionAssessment;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityRepresentativeAssessment;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityVariantAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.request.DuplicateSuspectedReviewRequest;
 import com.ubot.monitoring.faqmonitoring.dto.response.AiReviewResponse;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringImprovementQueryRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,13 +37,8 @@ public class AiReviewService {
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int MAX_DUPLICATE_CANDIDATES = 5;
 	private static final int MAX_QUESTIONS_PER_CANDIDATE = 20;
+	private static final int MAX_LOW_RAG_QUALITY_QUESTIONS = 20;
 	private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
-	private static final List<FaqImprovementType> PRIORITY_ORDER = List.of(
-			FaqImprovementType.DUPLICATE_SUSPECTED,
-			FaqImprovementType.LOW_RAG_QUALITY,
-			FaqImprovementType.LOW_USAGE
-	);
-
 	private final FaqRepository faqRepository;
 	private final FaqMonitoringImprovementQueryRepository improvementQueryRepository;
 	private final AiReviewLlmService aiReviewLlmService;
@@ -49,40 +46,99 @@ public class AiReviewService {
 	@Value("${faq-monitoring.improvement.low-gap-threshold}")
 	private double lowGapThreshold;
 
-	public AiReviewResponse review(Long faqId, AiReviewRequest request) {
+	@Value("${faq-monitoring.improvement.top-k}")
+	private int improvementTopK;
+
+	public AiReviewResponse reviewDuplicateSuspected(
+			Long faqId,
+			DuplicateSuspectedReviewRequest request
+	) {
 		long startedAt = System.nanoTime();
-		List<FaqImprovementType> requestedTypes = request == null ? null : request.improvementTypes();
-		int duplicateCandidateCount = request == null || request.duplicateSuspected() == null
-				|| request.duplicateSuspected().candidateFaqIds() == null
-				? 0 : request.duplicateSuspected().candidateFaqIds().size();
-		log.info("FAQ AI 검토를 시작합니다: faqId={}, 요청태그={}, 중복후보수={}",
-				faqId, requestedTypes, duplicateCandidateCount);
+		int candidateCount = request == null || request.candidateFaqIds() == null
+				? 0 : request.candidateFaqIds().size();
+		log.info("FAQ AI 검토를 시작합니다: faqId={}, 검토태그={}, 중복후보수={}",
+				faqId, FaqImprovementType.DUPLICATE_SUSPECTED, candidateCount);
 		try {
-			AiReviewResponse response = reviewInternal(faqId, request);
-			log.info("FAQ AI 검토를 완료했습니다: faqId={}, 요청태그={}, 처리시간={}ms",
-					faqId, requestedTypes, elapsedMillis(startedAt));
+			validateDuplicateRequest(faqId, request);
+			Faq faq = findActiveFaq(faqId);
+			AiReviewResponse response = generateReview(
+					faq,
+					FaqImprovementType.DUPLICATE_SUSPECTED,
+					buildDuplicateSection(faqId, request)
+			);
+			logReviewCompleted(faqId, FaqImprovementType.DUPLICATE_SUSPECTED, startedAt);
 			return response;
 		} catch (RuntimeException exception) {
-			log.warn("FAQ AI 검토에 실패했습니다: faqId={}, 요청태그={}, 처리시간={}ms, 사유={}",
-					faqId, requestedTypes, elapsedMillis(startedAt), exception.getMessage());
+			logReviewFailed(faqId, FaqImprovementType.DUPLICATE_SUSPECTED, startedAt, exception);
 			throw exception;
 		}
 	}
 
-	private AiReviewResponse reviewInternal(Long faqId, AiReviewRequest request) {
-		List<FaqImprovementType> improvementTypes = request.improvementTypes();
-		if (improvementTypes == null || improvementTypes.isEmpty() || improvementTypes.contains(null)) {
-			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
+	public AiReviewResponse reviewLowRagQuality(Long faqId) {
+		long startedAt = System.nanoTime();
+		log.info("FAQ AI 검토를 시작합니다: faqId={}, 검토태그={}",
+				faqId, FaqImprovementType.LOW_RAG_QUALITY);
+		try {
+			Faq faq = findActiveFaq(faqId);
+			List<FaqLowRagQualityQuestion> questions = improvementQueryRepository.findLowRagQualityQuestions(
+					faq.getId(), LocalDateTime.now(SERVICE_ZONE), improvementTopK, MAX_LOW_RAG_QUALITY_QUESTIONS);
+			AiReviewResponse response = generateLowRagQualityReview(faq, questions);
+			logReviewCompleted(faqId, FaqImprovementType.LOW_RAG_QUALITY, startedAt);
+			return response;
+		} catch (RuntimeException exception) {
+			logReviewFailed(faqId, FaqImprovementType.LOW_RAG_QUALITY, startedAt, exception);
+			throw exception;
 		}
-		EnumSet<FaqImprovementType> requested = EnumSet.copyOf(improvementTypes);
-		if (requested.contains(FaqImprovementType.DUPLICATE_SUSPECTED)) {
-			validateDuplicateRequest(faqId, request.duplicateSuspected());
-		}
-		Faq faq = faqRepository.findActiveById(faqId)
-				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
-		List<FaqImprovementType> orderedTypes = PRIORITY_ORDER.stream().filter(requested::contains).toList();
+	}
 
-		StringBuilder prompt = new StringBuilder("""
+	public AiReviewResponse reviewLowUsage(Long faqId) {
+		long startedAt = System.nanoTime();
+		log.info("FAQ AI 검토를 시작합니다: faqId={}, 검토태그={}",
+				faqId, FaqImprovementType.LOW_USAGE);
+		try {
+			Faq faq = findActiveFaq(faqId);
+			AiReviewResponse response = generateReview(
+					faq,
+					FaqImprovementType.LOW_USAGE,
+					buildLowUsageSection()
+			);
+			logReviewCompleted(faqId, FaqImprovementType.LOW_USAGE, startedAt);
+			return response;
+		} catch (RuntimeException exception) {
+			logReviewFailed(faqId, FaqImprovementType.LOW_USAGE, startedAt, exception);
+			throw exception;
+		}
+	}
+
+	private Faq findActiveFaq(Long faqId) {
+		return faqRepository.findActiveById(faqId)
+				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+	}
+
+	private AiReviewResponse generateReview(
+			Faq faq,
+			FaqImprovementType improvementType,
+			String section
+	) {
+		String basePrompt = buildBasePrompt(faq);
+		if (!aiReviewLlmService.fits(basePrompt)) {
+			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, "FAQ 내용이 AI 검토 입력 한도를 초과했습니다.");
+		}
+
+		String prompt = basePrompt + section;
+		if (!aiReviewLlmService.fits(prompt)) {
+			log.warn("FAQ AI 검토의 LLM 호출을 생략했습니다: faqId={}, 검토태그={}, 사유=입력 한도 초과",
+					faq.getId(), improvementType);
+			return inputLimitResponse();
+		}
+		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 검토태그={}, 입력문자수={}",
+				faq.getId(), improvementType, prompt.length());
+		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}, 검토태그={}", faq.getId(), improvementType);
+		return aiReviewLlmService.generateReview(prompt);
+	}
+
+	private String buildBasePrompt(Faq faq) {
+		return """
 				[검토 대상 FAQ]
 				FAQ ID: %d
 				버전: %d
@@ -90,37 +146,28 @@ public class AiReviewService {
 				답변: %s
 				인텐트: %s
 				
-				""".formatted(faq.getId(), faq.getVersion(), faq.getQuestion(), faq.getAnswer(), faq.getIntent()));
-		if (!aiReviewLlmService.fits(prompt.toString())) {
-			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER, "FAQ 내용이 AI 검토 입력 한도를 초과했습니다.");
-		}
+				""".formatted(faq.getId(), faq.getVersion(), faq.getQuestion(), faq.getAnswer(), faq.getIntent());
+	}
 
-		List<FaqImprovementType> reviewedTypes = new ArrayList<>();
-		for (FaqImprovementType type : orderedTypes) {
-			String section = switch (type) {
-				case DUPLICATE_SUSPECTED -> buildDuplicateSection(faqId, request.duplicateSuspected());
-				case LOW_RAG_QUALITY -> buildLowRagQualitySection(faqId);
-				case LOW_USAGE -> buildLowUsageSection(faqId);
-			};
-			if (!aiReviewLlmService.fits(prompt.toString() + section)) {
-				break;
-			}
-			prompt.append(section);
-			reviewedTypes.add(type);
-		}
+	private AiReviewResponse inputLimitResponse() {
+		return new AiReviewResponse(
+				"검토 입력을 줄인 뒤 AI 검토를 다시 요청하세요.",
+				"검토 입력 한도를 초과해 AI 검토를 진행하지 못했습니다.");
+	}
 
-		List<FaqImprovementType> skippedTypes = orderedTypes.subList(reviewedTypes.size(), orderedTypes.size());
-		if (reviewedTypes.isEmpty()) {
-			log.warn("FAQ AI 검토의 LLM 호출을 생략했습니다: faqId={}, 사유=입력 한도 초과, 제외태그={}",
-					faqId, skippedTypes);
-			return withSkippedNotice(new AiReviewResponse(
-					"검토 입력을 줄인 뒤 AI 검토를 다시 요청하세요.",
-					"검토 입력 한도를 초과해 AI 검토를 진행하지 못했습니다."), skippedTypes);
-		}
-		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 포함태그={}, 제외태그={}, 입력문자수={}",
-				faqId, reviewedTypes, skippedTypes, prompt.length());
-		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}", faqId);
-		return withSkippedNotice(aiReviewLlmService.generateReview(prompt.toString()), skippedTypes);
+	private void logReviewCompleted(Long faqId, FaqImprovementType improvementType, long startedAt) {
+		log.info("FAQ AI 검토를 완료했습니다: faqId={}, 검토태그={}, 처리시간={}ms",
+				faqId, improvementType, elapsedMillis(startedAt));
+	}
+
+	private void logReviewFailed(
+			Long faqId,
+			FaqImprovementType improvementType,
+			long startedAt,
+			RuntimeException exception
+	) {
+		log.warn("FAQ AI 검토에 실패했습니다: faqId={}, 검토태그={}, 처리시간={}ms, 사유={}",
+				faqId, improvementType, elapsedMillis(startedAt), exception.getMessage());
 	}
 
 	private void validateDuplicateRequest(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
@@ -134,16 +181,6 @@ public class AiReviewService {
 				|| uniqueCandidateIds.contains(faqId) || candidateIds.stream().anyMatch(id -> id <= 0)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
 		}
-	}
-
-	private AiReviewResponse withSkippedNotice(AiReviewResponse response, List<FaqImprovementType> skippedTypes) {
-		if (skippedTypes.isEmpty()) {
-			return response;
-		}
-		String names = String.join(", ", skippedTypes.stream()
-				.map(FaqImprovementType::getDescription).toList());
-		return new AiReviewResponse(response.recommendation(),
-				response.details() + "\n\n입력 한도로 인해 다음 태그는 AI 검토에 포함되지 않았습니다: " + names);
 	}
 
 	private String buildDuplicateSection(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
@@ -226,12 +263,183 @@ public class AiReviewService {
 	) {
 	}
 
-	private String buildLowRagQualitySection(Long faqId) {
-		// 낮은 유사도로 검색된 실제 질문 자료는 후속 단계에서 추가합니다.
-		return "[검색 품질 낮음]\n실제 검색 질문과 유사도 자료는 아직 제공되지 않았습니다. 원인을 단정하지 마세요.\n\n";
+	private AiReviewResponse generateLowRagQualityReview(
+			Faq faq,
+			List<FaqLowRagQualityQuestion> questions
+	) {
+		List<LowRagQualityQuestionMaterial> materials = new ArrayList<>(questions.size());
+		for (int index = 0; index < questions.size(); index++) {
+			FaqLowRagQualityQuestion question = questions.get(index);
+			materials.add(new LowRagQualityQuestionMaterial(
+					index + 1, question.question(), question.similarity()));
+		}
+
+		String basePrompt = buildBasePrompt(faq);
+		String representativePrompt = basePrompt + buildRepresentativeQuestionPrompt();
+		String variantPrompt = basePrompt + buildVariantQuestionPrompt(materials);
+		if (!aiReviewLlmService.fitsLowRagQualityRepresentative(representativePrompt)
+				|| !aiReviewLlmService.fitsLowRagQualityVariant(variantPrompt)) {
+			log.warn("FAQ AI 검토의 LLM 호출을 생략했습니다: faqId={}, 검토태그={}, 사유=입력 한도 초과",
+					faq.getId(), FaqImprovementType.LOW_RAG_QUALITY);
+			return inputLimitResponse();
+		}
+		log.info("FAQ AI 검토 프롬프트를 구성했습니다: faqId={}, 검토태그={}, 대표질문입력문자수={}, 변형질문입력문자수={}",
+				faq.getId(), FaqImprovementType.LOW_RAG_QUALITY,
+				representativePrompt.length(), variantPrompt.length());
+		log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}, 검토태그={}, 검토항목=대표 질문",
+				faq.getId(), FaqImprovementType.LOW_RAG_QUALITY);
+		LowRagQualityRepresentativeAssessment representativeAssessment =
+				aiReviewLlmService.generateLowRagQualityRepresentativeAssessment(representativePrompt);
+
+		LowRagQualityVariantAssessment variantAssessment;
+		if (questions.isEmpty()) {
+			variantAssessment = new LowRagQualityVariantAssessment(List.of());
+		} else {
+			log.info("FAQ AI 검토 LLM 호출을 시작합니다: faqId={}, 검토태그={}, 검토항목=변형 질문",
+					faq.getId(), FaqImprovementType.LOW_RAG_QUALITY);
+			variantAssessment = aiReviewLlmService.generateLowRagQualityVariantAssessment(
+					variantPrompt, questions.size());
+		}
+		return toLowRagQualityResponse(faq, questions, representativeAssessment, variantAssessment);
 	}
 
-	private String buildLowUsageSection(Long faqId) {
+	private String buildRepresentativeQuestionPrompt() {
+		return """
+				[대표 질문 검토]
+				검토 대상 FAQ의 대표 질문과 답변만 비교하세요. 검색 질문은 제공되지 않으며 판단에 사용해서도 안 됩니다.
+				답변이 제공하는 주요 대상, 조건, 기간 또는 기능을 대표 질문이 충분히 나타내는지 판단하세요.
+				대표 질문이 답변 범위를 충분히 나타내지 못하면 needsUpdate를 true로 설정하고 수정안을 한 개 제시하세요.
+				대표 질문이 답변 범위를 충분히 나타내면 needsUpdate를 false로 설정하세요.
+				수정 여부와 관계없이 reason에는 질문과 답변의 범위를 비교한 구체적인 판단 근거를 작성하세요.
+				needsUpdate가 false일 때만 suggestedQuestion에 '해당 없음'을 작성하세요.
+
+				""";
+	}
+
+	private String buildVariantQuestionPrompt(List<LowRagQualityQuestionMaterial> questions) {
+		return """
+				[변형 질문 검토]
+				- 검색 질문은 현재 FAQ 버전 이후 이 FAQ가 검색 결과 상위 %d개 안에 등장한 서로 다른 질문이며,
+				  유사도 오름차순으로 최대 %d개입니다.
+				- 각 질문이 요구하는 정보에 현재 FAQ 답변이 직접적이고 완전하게 답할 때만 answerableByCurrentFaq를 true로 설정하세요.
+				- 답변에 요구 정보가 없거나 일부만 답하거나 추론해야 하면 false로 설정하세요.
+				- 예: 답변이 사용 가능한 포인트 잔액만 안내한다면 잔액 질문은 true이지만, 포인트 초기화 시점,
+				  유효기간 또는 적립 방법 질문은 false입니다.
+				- 질문 내용과 유사도를 응답에 복사하지 말고 모든 questionNumber와 boolean 판정만 반환하세요.
+				검색 품질 검토 질문(JSON): %s
+
+				""".formatted(
+				improvementTopK,
+				MAX_LOW_RAG_QUALITY_QUESTIONS,
+				JSON_MAPPER.writeValueAsString(questions)
+		);
+	}
+
+	private AiReviewResponse toLowRagQualityResponse(
+			Faq faq,
+			List<FaqLowRagQualityQuestion> questions,
+			LowRagQualityRepresentativeAssessment representativeAssessment,
+			LowRagQualityVariantAssessment variantAssessment
+	) {
+		Map<Integer, Boolean> answerableByQuestionNumber = variantAssessment.questionAssessments().stream()
+				.collect(Collectors.toMap(
+						LowRagQualityQuestionAssessment::questionNumber,
+						LowRagQualityQuestionAssessment::answerableByCurrentFaq
+				));
+		List<FaqLowRagQualityQuestion> variantCandidates = new ArrayList<>();
+		for (int index = 0; index < questions.size(); index++) {
+			if (Boolean.TRUE.equals(answerableByQuestionNumber.get(index + 1))) {
+				variantCandidates.add(questions.get(index));
+			}
+		}
+
+		boolean questionNeedsUpdate = representativeAssessment.needsUpdate();
+		String suggestedQuestion = questionNeedsUpdate
+				? representativeAssessment.suggestedQuestion().strip()
+				: "해당 없음";
+		String recommendation = buildLowRagQualityRecommendation(
+				faq.getId(), questionNeedsUpdate, suggestedQuestion, variantCandidates.size());
+		String details = buildLowRagQualityDetails(
+				questionNeedsUpdate,
+				representativeAssessment.reason().strip(),
+				suggestedQuestion,
+				variantCandidates
+		);
+		return new AiReviewResponse(recommendation, details);
+	}
+
+	private String buildLowRagQualityRecommendation(
+			Long faqId,
+			boolean questionNeedsUpdate,
+			String suggestedQuestion,
+			int variantCandidateCount
+	) {
+		if (questionNeedsUpdate && variantCandidateCount > 0) {
+			return "FAQ %d의 대표 질문을 '%s'(으)로 수정하고 검색 질문 %d개를 변형 질문으로 추가하세요."
+					.formatted(faqId, suggestedQuestion, variantCandidateCount);
+		}
+		if (questionNeedsUpdate) {
+			return "FAQ %d의 대표 질문을 '%s'(으)로 수정하세요.".formatted(faqId, suggestedQuestion);
+		}
+		if (variantCandidateCount > 0) {
+			return "FAQ %d에 답변 가능한 검색 질문 %d개를 변형 질문으로 추가하세요."
+					.formatted(faqId, variantCandidateCount);
+		}
+		return "FAQ %d는 대표 질문 수정이나 변형 질문 추가가 필요하지 않습니다.".formatted(faqId);
+	}
+
+	private String buildLowRagQualityDetails(
+			boolean questionNeedsUpdate,
+			String representativeQuestionReason,
+			String suggestedQuestion,
+			List<FaqLowRagQualityQuestion> variantCandidates
+	) {
+		StringBuilder details = new StringBuilder("""
+				## 검색 품질 낮음 FAQ 판정 결과
+				### 대표 질문 검토
+				- **판단 결과**: **%s**
+				- **판단 근거**: %s
+				- **대표 질문 수정안**: %s
+				### 변형 질문 검토
+				- **판단 결과**: **%s**
+				#### 추가할 변형 질문
+				""".formatted(
+				questionNeedsUpdate ? "대표 질문 수정 필요" : "대표 질문 수정 불필요",
+				representativeQuestionReason,
+				suggestedQuestion,
+				variantCandidates.isEmpty() ? "변형 질문 추가 불필요" : "변형 질문 추가 필요"
+		));
+		if (variantCandidates.isEmpty()) {
+			details.append("- 해당 없음\n");
+		} else {
+			for (int index = 0; index < variantCandidates.size(); index++) {
+				FaqLowRagQualityQuestion candidate = variantCandidates.get(index);
+				details.append("- **질문 ").append(index + 1).append("**: ")
+						.append(candidate.question()).append('\n');
+				details.append("- **질문 ").append(index + 1).append(" 유사도**: ")
+						.append(candidate.similarity()).append('\n');
+			}
+		}
+		details.append("- **판단 근거**: ");
+		if (variantCandidates.isEmpty()) {
+			details.append("검토한 검색 질문 중 현재 FAQ 답변으로 완전히 처리할 수 있는 질문이 확인되지 않았습니다.\n");
+			details.append("- **조치 권고**: 변형 질문 추가 불필요");
+		} else {
+			details.append("위 질문들은 현재 FAQ 답변으로 완전히 처리할 수 있어 변형 질문 후보에 해당합니다.\n");
+			details.append("- **조치 권고**: 위 검색 질문 ")
+					.append(variantCandidates.size()).append("개를 변형 질문으로 추가");
+		}
+		return details.toString();
+	}
+
+	private record LowRagQualityQuestionMaterial(
+			int questionNumber,
+			String question,
+			double similarity
+	) {
+	}
+
+	private String buildLowUsageSection() {
 		// 사용 추이와 관련 사용자 질문 자료는 후속 단계에서 추가합니다.
 		return "[사용도 낮음]\n사용 추이와 관련 질문 자료는 아직 제공되지 않았습니다. 수요가 없다고 단정하지 마세요.\n\n";
 	}

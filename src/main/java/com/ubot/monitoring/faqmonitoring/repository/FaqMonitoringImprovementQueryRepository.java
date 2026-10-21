@@ -6,6 +6,7 @@ import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCand
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateEvidence;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementItem;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqLowRagQualityQuestion;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -268,5 +269,45 @@ public class FaqMonitoringImprovementQueryRepository {
 							List.copyOf(questions.getOrDefault(entry.getKey(), List.of()))))
 					.toList();
 		});
+	}
+
+	/** 현재 FAQ 버전 이후 이 FAQ가 검색된 서로 다른 질문을 최저 유사도 순으로 조회합니다. */
+	public List<FaqLowRagQualityQuestion> findLowRagQualityQuestions(
+			Long faqId,
+			LocalDateTime evaluatedAt,
+			int topK,
+			int limit
+	) {
+		String sql = """
+				WITH matched_questions AS (
+					SELECT COALESCE(
+							NULLIF(BTRIM(ql.sub_question), ''),
+							NULLIF(BTRIM(ql.user_question), '')
+						) AS question,
+						fl.similarity
+					FROM faq f
+					JOIN faq_log fl ON fl.faq_id = f.id AND fl.rank <= :topK
+					JOIN question_log ql ON ql.id = fl.question_log_id
+						AND ql.created_at >= f.updated_at
+						AND ql.created_at < :evaluatedAt
+					WHERE f.id = :faqId
+						AND f.deleted_at IS NULL
+						AND fl.similarity IS NOT NULL
+				)
+				SELECT question, MIN(similarity) AS similarity
+				FROM matched_questions
+				WHERE question IS NOT NULL
+				GROUP BY question
+				ORDER BY MIN(similarity) ASC, question ASC
+				LIMIT :limit
+				""";
+		MapSqlParameterSource parameters = new MapSqlParameterSource()
+				.addValue("faqId", faqId)
+				.addValue("evaluatedAt", evaluatedAt)
+				.addValue("topK", topK)
+				.addValue("limit", limit);
+		return jdbcTemplate.query(sql, parameters, (rs, rowNum) -> new FaqLowRagQualityQuestion(
+				rs.getString("question"), rs.getDouble("similarity")
+		));
 	}
 }
