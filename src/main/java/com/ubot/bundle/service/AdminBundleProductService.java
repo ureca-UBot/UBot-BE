@@ -17,9 +17,13 @@ import com.ubot.bundle.dto.request.AdminBundleProductCreateRequestDto;
 import com.ubot.bundle.dto.request.AdminBundleProductUpdateRequestDto;
 import com.ubot.bundle.dto.response.AdminBundleProductResponseDto;
 import com.ubot.bundle.entity.BundleProduct;
+import com.ubot.bundle.enums.BundleType;
 import com.ubot.bundle.exception.BundleProductErrorCode;
 import com.ubot.bundle.exception.BundleProductException;
 import com.ubot.bundle.repository.BundleProductRepository;
+import com.ubot.home.entity.HomeProduct;
+import com.ubot.home.enums.HomeProductType;
+import com.ubot.home.repository.HomeProductRepository;
 import com.ubot.user.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -34,6 +38,7 @@ public class AdminBundleProductService {
     private final BundleProductRepository productRepository;
     private final UserRepository userRepository;
     private final ProductSubscriptionRepository subscriptionRepository;
+    private final HomeProductRepository homeProductRepository;
 
     public AdminBundleProductResponseDto createBundleProduct(Long administratorId, AdminBundleProductCreateRequestDto request) {
         if (productRepository.existsByCode(request.code())) {
@@ -44,7 +49,10 @@ public class AdminBundleProductService {
                 request.code(),
                 request.name().trim(),
                 normalizeDescription(request.description()),
-                request.discountAmount()
+                request.discountAmount(),
+                request.bundleType() == null ? BundleType.ETC : request.bundleType(),
+                request.lineCount(),
+                getInternetProduct(request.homeProductId())
         );
         BundleProduct savedProduct = ProductWriteSupport.saveUnique(
                 () -> productRepository.saveAndFlush(product),
@@ -81,7 +89,10 @@ public class AdminBundleProductService {
                 userRepository.getReferenceById(administratorId),
                 request.name().trim(),
                 normalizeDescription(request.description()),
-                request.discountAmount()
+                request.discountAmount(),
+                request.bundleType() == null ? product.getBundleType() : request.bundleType(),
+                request.lineCount() == null ? product.getLineCount() : request.lineCount(),
+                request.homeProductId() == null ? product.getHomeProduct() : getInternetProduct(request.homeProductId())
         );
         log.info("결합 상품을 수정했습니다: 상품ID={}", bundleProductId);
         return AdminBundleProductResponseDto.from(product);
@@ -109,12 +120,26 @@ public class AdminBundleProductService {
                 .orElseThrow(() -> new BundleProductException(BundleProductErrorCode.PRODUCT_NOT_FOUND));
     }
 
+    // 홈 결합에는 삭제되지 않은 인터넷 상품만 연결한다.
+    private HomeProduct getInternetProduct(Long homeProductId) {
+        if (homeProductId == null) {
+            return null;
+        }
+        return homeProductRepository.findById(homeProductId)
+                .filter(homeProduct -> homeProduct.getDeletedAt() == null)
+                .filter(homeProduct -> homeProduct.getProductType() == HomeProductType.INTERNET)
+                .orElseThrow(() -> new BundleProductException(BundleProductErrorCode.INVALID_PRODUCT));
+    }
+
     private String normalizeDescription(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
     private boolean changesConditions(BundleProduct product, AdminBundleProductUpdateRequestDto request) {
         return !Objects.equals(product.getDescription(), normalizeDescription(request.description()))
-                || !Objects.equals(product.getDiscountAmount(), request.discountAmount());
+                || !Objects.equals(product.getDiscountAmount(), request.discountAmount())
+                || (request.lineCount() != null && !Objects.equals(product.getLineCount(), request.lineCount()))
+                || (request.homeProductId() != null && (product.getHomeProduct() == null
+                        || !Objects.equals(product.getHomeProduct().getHomeProductId(), request.homeProductId())));
     }
 }
