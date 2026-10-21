@@ -10,5 +10,6 @@ public record ConversationTimelineResponseDto(
 		String role,
 		String content,
 		String source,
-		Instant createdAt
+		Instant createdAt,
+		String cursor
 ) {}

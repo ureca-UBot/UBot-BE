@@ -11,7 +11,7 @@ public record Message(long messageId, UUID sessionId, Long senderId, String send
 	public MessageReceiptResponseDto receipt() {
 		return new MessageReceiptResponseDto(messageId, clientMessageId, status, deliverySequence);
 	}
-	public MessageResponseDto delivery() {
-		return new MessageResponseDto(messageId, senderId, senderRole, content, deliverySequence, createdAt);
+	public MessageResponseDto delivery(long viewerId) {
+		return new MessageResponseDto(messageId, senderId != null && senderId == viewerId, senderRole, content, deliverySequence, createdAt);
 	}
 }

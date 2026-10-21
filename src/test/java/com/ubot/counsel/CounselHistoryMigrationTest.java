@@ -1,12 +1,12 @@
 package com.ubot.counsel;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -14,17 +14,31 @@ import org.testcontainers.utility.DockerImageName;
 
 class CounselHistoryMigrationTest {
 	@Test
-	void createsFinalCounselSchemaWithOneMigrationFromV38() {
+	void createsCounselSchemaAndFaqSelectionWithOneMigrationFromV38() {
 		try (var database = database()) {
 			database.start();
 			var dataSource = new DriverManagerDataSource(database.getJdbcUrl(), database.getUsername(), database.getPassword());
 			Flyway.configure().dataSource(dataSource).target("38").load().migrate();
 			var jdbc = new JdbcTemplate(dataSource);
 			assertThat(jdbc.queryForObject("SELECT to_regclass('counseling.sessions')", String.class)).isNull();
+			assertThat(jdbc.queryForObject("SELECT to_regclass('public.conversation_faq_selections')", String.class)).isNull();
+			long customer = createUser(jdbc, "customer", "USER");
+			long conversation = jdbc.queryForObject("INSERT INTO conversations(public_id,user_id,type) VALUES (?,?,'MEMBER') RETURNING conversation_id",
+					Long.class, UUID.randomUUID(), customer);
+			var before = jdbc.queryForList("SELECT * FROM conversations");
 
 			var flyway = Flyway.configure().dataSource(dataSource).load();
 			assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
 			flyway.validate();
+			assertThat(jdbc.queryForList("SELECT * FROM conversations")).isEqualTo(before);
+			// FAQ 선택은 같은 ID로 두 번 저장되지 않고 대화와 함께 삭제됨
+			UUID selection = UUID.randomUUID();
+			jdbc.update("INSERT INTO conversation_faq_selections(selection_id,conversation_id,faq_id,question,answer) VALUES (?,?,999,'질문 원문','답변 원문')",
+					selection, conversation);
+			assertThatThrownBy(() -> jdbc.update("INSERT INTO conversation_faq_selections(selection_id,conversation_id,faq_id,question,answer) VALUES (?,?,999,'중복','중복')",
+					selection, conversation)).isInstanceOf(DataIntegrityViolationException.class);
+			jdbc.update("DELETE FROM conversations WHERE conversation_id=?", conversation);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM conversation_faq_selections", Integer.class)).isZero();
 			assertThat(jdbc.queryForObject("""
 					SELECT is_nullable FROM information_schema.columns
 					WHERE table_schema='counseling' AND table_name='sessions' AND column_name='conversation_id'
@@ -46,90 +60,64 @@ class CounselHistoryMigrationTest {
 	}
 
 	@Test
-	void adoptsStandaloneV4AndPreservesHistoryVectorsAndAuditInOneMigration() throws Exception {
+	void preservesMessagesAndAuditWhenCounselorIsDeletedAndCascadesCustomerDeletion() {
 		try (var database = database()) {
 			database.start();
 			var dataSource = new DriverManagerDataSource(database.getJdbcUrl(), database.getUsername(), database.getPassword());
-			Flyway.configure().dataSource(dataSource).target("38").load().migrate();
+			Flyway.configure().dataSource(dataSource).load().migrate();
 			var jdbc = new JdbcTemplate(dataSource);
-			var legacy = new ClassPathResource("fixtures/counsel-v4.sql");
-			jdbc.execute(new String(legacy.getContentAsByteArray(), StandardCharsets.UTF_8));
-			long customer = jdbc.queryForObject("""
-					INSERT INTO users(email,password_hash,name,role) VALUES ('migration@example.test','fixture','fixture','USER')
-					RETURNING user_id
-					""", Long.class);
+			long customer = createUser(jdbc, "customer", "USER");
+			long counselor = createUser(jdbc, "counselor", "COUNSELOR");
 			UUID conversation = UUID.randomUUID();
 			jdbc.update("INSERT INTO conversations(public_id,user_id,type) VALUES (?,?,'MEMBER')", conversation, customer);
-			UUID first = UUID.randomUUID();
-			UUID second = UUID.randomUUID();
-			UUID unlinked = UUID.randomUUID();
-			UUID orphan = UUID.randomUUID();
+			UUID session = UUID.randomUUID();
 			jdbc.update("""
-					INSERT INTO counseling.sessions(id,customer_id,status,conversation_id,created_at,ended_at)
-					VALUES (?,?,'ENDED',?,now()-interval '2 days',now()-interval '1 day'),
-					       (?,?,'ENDED',?,now()-interval '12 hours',now()),
-					       (?,?,'ENDED',NULL,now(),now()),
-					       (?,?,'ENDED',?,now(),now())
-					""", first, customer, conversation, second, customer, conversation,
-					unlinked, customer, orphan, customer, UUID.randomUUID());
-			for (UUID session : new UUID[]{first, second}) {
-				jdbc.update("""
-						INSERT INTO counseling.session_history(session_id,sequence,role,content,source)
-						VALUES (?,1,'USER','같은 질문','SCREEN'),(?,2,'USER','같은 질문','SCREEN')
-						""", session, session);
-			}
-			jdbc.update("""
-					INSERT INTO counseling.session_history(session_id,sequence,role,content,source)
-					VALUES (?,1,'AI','원본 대화가 없어진 AI 답변','SAVED'),(?,2,'COUNSELOR','이전 상담 인계 기록','COUNSEL')
-					""", orphan, orphan);
-			long messageId = jdbc.queryForObject("""
+					INSERT INTO counseling.sessions(id,customer_id,counselor_id,status,conversation_id,ended_at)
+					VALUES (?,?,?,'ENDED',?,now())
+					""", session, customer, counselor, conversation);
+			long message = jdbc.queryForObject("""
 					INSERT INTO counseling.messages(session_id,sender_id,sender_role,assignment_version,client_message_id,content,status,delivery_sequence,decided_at)
-					VALUES (?,?,'USER',0,?,'기존 상담 메시지','ALLOWED',1,now())
-					RETURNING id
-					""", Long.class, unlinked, customer, UUID.randomUUID());
-			jdbc.execute("""
-					INSERT INTO counseling.guard_profiles(profile_version,model_name,preprocessing_version,dataset_sha256)
-					VALUES ('legacy-v4','ubot-embedding','nfkc-space-v1',repeat('a',64));
-					INSERT INTO counseling.safety_filter_vectors(id,category,example_text,embedding,severity,model_name,profile_version)
-					VALUES (41,'INSULT','보존할 금지 문장',array_fill(1::real,ARRAY[1024])::vector,1,'ubot-embedding','legacy-v4');
-					INSERT INTO counseling.safety_sentences(id,profile_version,model_name,content,normalized_sha256,severity,indexed_revision,indexed_vector_id)
-					VALUES (51,'legacy-v4','ubot-embedding','보존할 금지 문장',repeat('b',64),1,1,41);
-					INSERT INTO counseling.safety_sentence_audit(sentence_id,action,revision,content,severity,enabled,vector_id)
-					VALUES (51,'SEED',1,'보존할 금지 문장',1,true,41);
-					""");
+					VALUES (?,?,'COUNSELOR',0,?,'보존할 상담 답변','ALLOWED',1,now()) RETURNING id
+					""", Long.class, session, counselor, UUID.randomUUID());
 			jdbc.update("""
-					INSERT INTO counseling.safety_filter_events(message_id,decision,matched_vector_id,score,threshold,model_name,profile_version,rule_version)
-					VALUES (?,'ALLOWED',41,0.1,0.95,'ubot-embedding','legacy-v4','v1')
-					""", messageId);
-			var vectorsBefore = jdbc.queryForList("SELECT id,embedding::text,active FROM counseling.safety_filter_vectors");
-			var sentencesBefore = jdbc.queryForList("SELECT * FROM counseling.safety_sentences");
-			var auditBefore = jdbc.queryForList("SELECT * FROM counseling.safety_sentence_audit");
+					INSERT INTO counseling.session_history(session_id,sequence,role,content,source,origin_session_id,origin_sequence)
+					VALUES (?,1,'AI','이전 AI 답변','SAVED',?,1)
+					""", session, session);
+			jdbc.update("""
+					INSERT INTO counseling.safety_filter_events(message_id,decision,threshold,model_name,profile_version,rule_version)
+					VALUES (?,'ALLOWED',0.95,'ubot-embedding','test','v1')
+					""", message);
+			jdbc.update("""
+					INSERT INTO counseling.role_audit(admin_id,user_id,previous_role,new_role)
+					VALUES (?,?,'USER','COUNSELOR')
+					""", counselor, counselor);
+			jdbc.update("INSERT INTO counseling.counselor_presence(user_id,status,last_heartbeat_at) VALUES (?,'OFFLINE',now())", counselor);
+			jdbc.update("INSERT INTO counseling.rate_buckets(user_id) VALUES (?)", counselor);
 
-			var flyway = Flyway.configure().dataSource(dataSource).load();
-			assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
-			flyway.validate();
-			assertThat(jdbc.queryForList("SELECT id,embedding::text,active FROM counseling.safety_filter_vectors")).isEqualTo(vectorsBefore);
-			assertThat(jdbc.queryForList("SELECT * FROM counseling.safety_sentences")).isEqualTo(sentencesBefore);
-			assertThat(jdbc.queryForList("SELECT * FROM counseling.safety_sentence_audit")).isEqualTo(auditBefore);
-			assertThat(jdbc.queryForObject("SELECT matched_vector_id FROM counseling.safety_filter_events WHERE message_id=?",
-					Long.class, messageId)).isEqualTo(41L);
-			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.sessions WHERE conversation_id IS NULL", Integer.class)).isZero();
-			assertThat(jdbc.queryForObject("SELECT count(*) FROM conversations WHERE user_id=?", Integer.class, customer)).isEqualTo(3);
-			assertThat(jdbc.queryForList("SELECT origin_session_id FROM counseling.session_history WHERE session_id=? ORDER BY sequence",
-					UUID.class, second)).containsExactly(first, first);
-			assertThat(jdbc.queryForList("SELECT origin_sequence FROM counseling.session_history WHERE session_id=? ORDER BY sequence",
-					Long.class, second)).containsExactly(1L, 2L);
-			assertThat(jdbc.queryForObject("SELECT content FROM counseling.messages WHERE session_id=?", String.class, unlinked))
-					.isEqualTo("기존 상담 메시지");
-			UUID recovered = jdbc.queryForObject("SELECT conversation_id FROM counseling.sessions WHERE id=?", UUID.class, orphan);
-			var timeline = new com.ubot.counsel.history.repository.ConversationTimelineRepository(jdbc);
-			assertThat(timeline.findTimeline(recovered, 0, 100).stream().map(item -> item.content()).toList())
-					.contains("원본 대화가 없어진 AI 답변", "이전 상담 인계 기록");
+			jdbc.update("DELETE FROM users WHERE user_id=?", counselor);
+			assertThat(jdbc.queryForObject("SELECT counselor_id FROM counseling.sessions WHERE id=?", Long.class, session)).isNull();
+			assertThat(jdbc.queryForObject("SELECT sender_id FROM counseling.messages WHERE id=?", Long.class, message)).isNull();
+			assertThat(jdbc.queryForObject("SELECT content FROM counseling.messages WHERE id=?", String.class, message)).isEqualTo("보존할 상담 답변");
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.session_history", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.safety_filter_events", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.role_audit WHERE admin_id IS NULL AND user_id IS NULL", Integer.class)).isEqualTo(1);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.counselor_presence", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.rate_buckets", Integer.class)).isZero();
+
 			jdbc.update("DELETE FROM users WHERE user_id=?", customer);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM conversations", Integer.class)).isZero();
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.sessions", Integer.class)).isZero();
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.messages", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.session_history", Integer.class)).isZero();
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.safety_filter_events", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.role_audit", Integer.class)).isEqualTo(1);
 		}
+	}
+
+	private long createUser(JdbcTemplate jdbc, String name, String role) {
+		return jdbc.queryForObject("""
+				INSERT INTO users(email,password_hash,name,role) VALUES (?,'fixture',?,?) RETURNING user_id
+				""", Long.class, name + "@example.test", name, role);
 	}
 
 	private PostgreSQLContainer database() {

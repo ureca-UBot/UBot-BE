@@ -42,8 +42,8 @@ app:
   role: ${APP_ROLE:all}
   counsel:
     embedding-worker:
-      # 상담 전용 큐를 소비할 Worker 한 인스턴스에서만 켭니다. 기존 채팅 Worker와 별도 실행합니다.
-      enabled: ${COUNSEL_EMBEDDING_WORKER_ENABLED:false}
+      # worker/all 역할에서 기본 실행하며 api 역할에서는 실행하지 않습니다.
+      enabled: ${COUNSEL_EMBEDDING_WORKER_ENABLED:true}
   chat:
     worker:
       concurrency: ${CHAT_WORKER_CONCURRENCY:4}

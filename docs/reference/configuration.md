@@ -100,10 +100,12 @@ src/main/resources/
 | `VLLM_RERANKER_GPU_MEMORY_UTILIZATION` | Docker Compose: Reranker 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
 | `APP_ROLE` | `AppRole`(`app.role`): 프로세스 역할. `api`는 접수·상태 조회와 나머지 API·스케줄러, `worker`는 답변 Worker만(랭킹·보관 기간 삭제 스케줄러 없음, HTTP는 `/actuator`만 받고 나머지는 `404 G-004`), `all`은 둘 다. 배포 Compose는 `backend=api`, `ai-worker=worker`로 정함 | `all` | `all`. 다른 값이면 기동되지 않음 |
 | `CHAT_WORKER_CONCURRENCY` | `ChatJobWorker`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
-| `COUNSEL_EMBEDDING_WORKER_ENABLED` | `CounselEmbeddingWorker`: 상담 전용 Redis 큐의 임베딩만 처리. `worker/all` 역할의 한 인스턴스에서만 활성화. 별도 스레드 1개이며 기존 채팅 큐·실행 풀·DB를 사용하지 않음 | `false` | `false` |
+| `COUNSEL_EMBEDDING_WORKER_ENABLED` | `CounselEmbeddingWorker`: 상담 전용 Redis 큐의 임베딩만 처리. `worker/all` 역할에서 기본 실행하며 `api`에서는 실행하지 않음. 별도 스레드 1개이며 기존 채팅 큐·실행 풀·DB를 사용하지 않음. 필요하면 `false`로 비활성화 | `true` | `true` (`test` 프로필은 `false`) |
 | `COUNSEL_ENABLED` | 기존 BE 상담 API·배정/미완료 메시지 복구 활성화 | `true` | `true` |
 | `COUNSEL_EMBEDDING_TRANSPORT` | 상담 임베딩 경로. 기본 `worker`는 기존 ai-worker에 위임. 자동 HTTP 우회 없음 | `worker` | `worker` |
-| `COUNSEL_SEED_ON_START` | API/all 시작 시 50개 상담 예시 색인. 워커·vLLM 준비 후 최초 1회 사용 | `false` | `false` |
+| `COUNSEL_SEED_ON_START` | 로컬 API/all 시작 시 50개 상담 예시 색인. CD에서는 API의 이 값을 false로 고정하고 워커 준비 후 일회성 프로세스의 실행 인자로 색인·준비 상태를 검증. 동일 프로필은 재색인하지 않음 | `false` | `false` |
+| `--counsel.seed-only=true` (실행 인자) | `--counsel.seed-on-start=true`와 함께 사용. Flyway migrate·스케줄러 없이 실행하며, 미적용 마이그레이션은 종료 코드 3, 성공은 0, 실패는 1. CD는 코드 3이면 API·워커 교체와 FAQ 벡터 확인이 끝난 뒤 색인 | 지정하지 않음 | `false` |
+| `--counsel.seed-check-only=true` (실행 인자) | 위 두 인자와 함께 워커 교체 전 사전 검사에 사용. 체크섬·미적용 마이그레이션만 확인하며 색인·워커 호출 없이 종료 | 지정하지 않음 | `false` |
 | `COUNSEL_GUARD_MODEL` / `COUNSEL_GUARD_PROFILE` | 상담 벡터 모델명 / 불변 검색 프로필 | `ubot-embedding` / `insult-v1` | 동일 |
 | `COUNSEL_BLOCK_THRESHOLD` | 상담 문장 코사인 유사도 후보 기준 | `0.95` | `0.95` |
 | `CHAT_WORKER_READ_BLOCK` | 새 메시지가 없을 때 다음 읽기까지 쉬는 간격. 실행 슬롯은 반환함 | `2s` | `2s` |

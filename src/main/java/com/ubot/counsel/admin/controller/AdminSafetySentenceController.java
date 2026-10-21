@@ -1,5 +1,7 @@
 package com.ubot.counsel.admin.controller;
 
+import com.ubot.auth.config.CustomUserDetails;
+import com.ubot.common.ApiResponse;
 import com.ubot.counsel.admin.dto.request.SafetySentenceCreateRequestDto;
 import com.ubot.counsel.admin.dto.request.SafetySentenceIndexRequestDto;
 import com.ubot.counsel.admin.dto.request.SafetySentenceUpdateRequestDto;
@@ -7,27 +9,24 @@ import com.ubot.counsel.admin.dto.response.SafetySentenceResponseDto;
 import com.ubot.counsel.admin.dto.response.SafetySentencesResponseDto;
 import com.ubot.counsel.admin.service.AdminSafetySentenceService;
 import com.ubot.counsel.auth.model.Caller;
-import com.ubot.common.ApiResponse;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import com.ubot.auth.config.CustomUserDetails;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/counsel/admin/safety/sentences")
+@RequestMapping("/admin/counsel/safety/sentences")
+@RequiredArgsConstructor
 public class AdminSafetySentenceController {
 	private final AdminSafetySentenceService service;
-	public AdminSafetySentenceController(AdminSafetySentenceService service) {
-		this.service = service;
-	}
 	@GetMapping
 	ApiResponse<SafetySentencesResponseDto> getSentences(@AuthenticationPrincipal CustomUserDetails principal,
 			@RequestParam(defaultValue = "") String keyword, @RequestParam(defaultValue = "0") int page) {

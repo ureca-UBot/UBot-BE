@@ -1,17 +1,18 @@
 package com.ubot.counsel.session.repository;
 
 import com.ubot.counsel.session.dto.response.HistoryMessageResponseDto;
-import java.util.List;
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@RequiredArgsConstructor
 public class HistoryRepository {
 	private final JdbcTemplate jdbc;
-	public HistoryRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 	public void save(UUID session, List<HistoryMessageResponseDto> history) {
 		jdbc.batchUpdate("""
 				INSERT INTO counseling.session_history(session_id,sequence,role,content,source,origin_session_id,origin_sequence)
@@ -34,21 +35,25 @@ public class HistoryRepository {
 						r.getObject(5, UUID.class), r.getObject(6, Long.class)),
 				session, after, limit);
 	}
-	public List<HistoryMessageResponseDto> reuseScreenOrigins(UUID conversation, List<HistoryMessageResponseDto> snapshot) {
-		record Key(String role, String content) {}
-		var origins = new HashMap<Key, ArrayDeque<HistoryMessageResponseDto>>();
-		jdbc.query("""
+	public List<HistoryMessageResponseDto> previousSaved(UUID conversation) {
+		if (conversation == null) return List.of();
+		return jdbc.query("""
 				SELECT h.* FROM counseling.session_history h JOIN counseling.sessions s ON s.id=h.session_id
-				WHERE s.conversation_id=? AND h.source='SCREEN'
+				WHERE s.conversation_id=? AND h.source='SAVED'
 				  AND h.session_id=h.origin_session_id AND h.sequence=h.origin_sequence
 				ORDER BY s.created_at,s.id,h.sequence
 				""", (r, n) -> new HistoryMessageResponseDto(r.getLong("sequence"), r.getString("role"),
-						r.getString("content"), "SCREEN", r.getObject("origin_session_id", UUID.class),
-						r.getLong("origin_sequence")), conversation)
+						r.getString("content"), "SAVED", r.getObject("origin_session_id", UUID.class),
+						r.getLong("origin_sequence")), conversation);
+	}
+	public List<HistoryMessageResponseDto> reuseSavedOrigins(UUID conversation, List<HistoryMessageResponseDto> snapshot) {
+		record Key(String role, String content) {}
+		var origins = new HashMap<Key, ArrayDeque<HistoryMessageResponseDto>>();
+		previousSaved(conversation)
 				.forEach(item -> origins.computeIfAbsent(new Key(item.role(), item.content()), ignored -> new ArrayDeque<>()).add(item));
 		return snapshot.stream().map(item -> {
 			var matches = origins.get(new Key(item.role(), item.content()));
-			if (!item.source().equals("SCREEN") || item.originSessionId() != null || matches == null || matches.isEmpty()) return item;
+			if (!item.source().equals("SAVED") || item.originSessionId() != null || matches == null || matches.isEmpty()) return item;
 			var origin = matches.removeFirst();
 			return new HistoryMessageResponseDto(item.sequence(), item.role(), item.content(), item.source(),
 					origin.originSessionId(), origin.originSequence());

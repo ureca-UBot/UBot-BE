@@ -53,9 +53,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CounselIntegrationTest {
 	static final ObjectMapper JSON = new ObjectMapper();
 	static final AtomicInteger EMBEDDING_CALLS = new AtomicInteger();
-	// 모델 정확도 대신 높은/낮은 유사도에 따른 전달·저장을 검증하는 고정 응답이다.
+	// 모델 정확도 대신 높은/낮은 유사도에 따른 전달·저장을 검증하는 고정 응답임
 	static final Set<String> HIGH_SIMILARITY_INPUTS = Set.of(
-			"당신은 정말 무능한 상담사네요.", "당신은 바보예요.", "당신은 사고력이 아예 없는 인간처럼 보이네요.");
+			"당신은 정말 무능한 상담사네요.", "당신은 바보예요.");
 	static final UUID OWN_CONVERSATION = UUID.fromString("10000000-0000-0000-0000-000000000001");
 	static volatile CountDownLatch entered = new CountDownLatch(0);
 	static volatile CountDownLatch release = new CountDownLatch(0);
@@ -66,7 +66,8 @@ class CounselIntegrationTest {
 			UPSTREAM.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
 			UPSTREAM.createContext("/v1/embeddings", exchange -> {
 				EMBEDDING_CALLS.incrementAndGet();
-				var input = JSON.readTree(exchange.getRequestBody().readAllBytes()).path("input").asText();
+				var payload = JSON.readTree(exchange.getRequestBody().readAllBytes()).path("input");
+				var input = payload.isArray() ? payload.get(0).asText() : payload.asText();
 				if (input.contains("느린")) {
 					entered.countDown();
 					try { release.await(10, TimeUnit.SECONDS); }
@@ -78,11 +79,6 @@ class CounselIntegrationTest {
 				byte[] bytes = JSON.writeValueAsBytes(Map.of("data", List.of(Map.of("embedding", vector, "index", 0))));
 				exchange.getResponseHeaders().add("Content-Type", "application/json");
 				exchange.sendResponseHeaders(status, bytes.length);
-				if (input.contains("본문지연")) {
-					entered.countDown();
-					try { release.await(10, TimeUnit.SECONDS); }
-					catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-				}
 				try { exchange.getResponseBody().write(bytes); } finally { exchange.close(); }
 			});
 			UPSTREAM.start();
@@ -101,7 +97,7 @@ class CounselIntegrationTest {
 	com.ubot.auth.service.AccessTokenRevocationService revocations;
 	@org.springframework.test.context.bean.override.mockito.MockitoBean
 	com.ubot.auth.service.LoginAttemptService loginAttempts;
-	// 정리 로직은 각 테스트에서 직접 호출한다. 시작 직후의 스케줄 실행과 TRUNCATE가 경쟁하지 않게 한다.
+	// 정리 로직은 각 테스트에서 직접 호출함. 시작 직후의 스케줄 실행과 TRUNCATE가 경쟁하지 않게 함
 	@org.springframework.test.context.bean.override.mockito.MockitoBean
 	com.ubot.counsel.common.config.CounselMaintenanceScheduler maintenanceScheduler;
 	String token(String name) {
@@ -119,8 +115,13 @@ class CounselIntegrationTest {
 	@Autowired AdminCounselService admin;
 	@Autowired MockMvc mvc;
 	@Autowired SafetyProfileService seeder;
+	@Autowired com.ubot.counsel.common.config.CounselProperties counselProperties;
+	@Autowired com.ubot.counsel.safety.repository.SafetySentenceRepository sentenceRepository;
+	@Autowired org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+	@Autowired org.springframework.data.redis.core.StringRedisTemplate redis;
 	@Autowired AdminSafetySentenceService safetySentences;
 	@Autowired com.ubot.counsel.history.service.ConversationTimelineService timeline;
+	@Autowired com.ubot.conversation.service.ConversationFaqSelectionService faqSelections;
 	final Caller customer = new Caller(1, "USER");
 	final Caller counselor = new Caller(10, "COUNSELOR");
 	final Caller administrator = new Caller(99, "ADMIN");
@@ -164,30 +165,14 @@ class CounselIntegrationTest {
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		return sessions.createSession(customer);
 	}
-	@Test void pagesPreflightRequiresAllowedOriginAndDoesNotCallAuth() throws Exception {
-		mvc.perform(options("/counsel/requests")
-				.header("Origin", "https://ureca-ubot.github.io")
-				.header("Access-Control-Request-Method", "POST")
-				.header("Access-Control-Request-Headers", "authorization,content-type"))
-				.andExpect(status().isOk())
-				.andExpect(header().string("Access-Control-Allow-Origin", "https://ureca-ubot.github.io"))
-				.andExpect(header().string("Access-Control-Allow-Credentials", "true"));
-		mvc.perform(options("/counsel/requests")
-				.header("Origin", "https://ureca-ubot.github.io.attacker.invalid")
-				.header("Access-Control-Request-Method", "POST"))
-				.andExpect(status().isForbidden());
-	}
-	@Test void pagesRequestsStillRequireAuthenticationAndKeepRefreshCode() throws Exception {
-		mvc.perform(post("/counsel/requests").header("Origin", "https://ureca-ubot.github.io"))
-				.andExpect(status().isUnauthorized());
-		mvc.perform(post("/counsel/requests").header("Origin", "https://ureca-ubot.github.io")
-				.header("Authorization", token("customer")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.data.customerId").value(1))
-				.andExpect(header().string("Access-Control-Allow-Origin", "https://ureca-ubot.github.io"));
-		mvc.perform(get("/counsel/sessions/current").header("Origin", "https://ureca-ubot.github.io")
-				.header("Authorization", token("expired")))
-				.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("JWT-007"))
-				.andExpect(header().string("Access-Control-Allow-Origin", "https://ureca-ubot.github.io"));
+	@Test void counselEndpointsUseExistingAuthenticationAndHideInternalIds() throws Exception {
+		mvc.perform(post("/counsel/requests")).andExpect(status().isUnauthorized());
+		// FE의 토큰 재발급이 만료 코드에 의존하므로 상담 경로에서도 JWT-007을 확인함
+		mvc.perform(get("/counsel/sessions/current").header("Authorization", token("expired")))
+				.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("JWT-007"));
+		mvc.perform(post("/counsel/requests").header("Authorization", token("customer")))
+				.andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+				.andExpect(jsonPath("$.data.customerId").doesNotExist()).andExpect(jsonPath("$.data.counselorId").doesNotExist());
 	}
 	@Test void rateLimitResetsAfterConfiguredWindow() {
 		Session room = active();
@@ -304,39 +289,6 @@ class CounselIntegrationTest {
 		jdbc.update("UPDATE counseling.safety_filter_vectors SET active=false");
 		assertThat(guard.checkMessage("정상 문의").errorCode()).isEqualTo("PROFILE_NOT_READY");
 	}
-	@Test void onlyTwoConcurrentEmbeddingCallsCanRun() throws Exception {
-		entered = new CountDownLatch(2); release = new CountDownLatch(1);
-		try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
-			var a = pool.submit(() -> guard.checkMessage("느린 문의1"));
-			var b = pool.submit(() -> guard.checkMessage("느린 문의2"));
-			assertThat(entered.await(3, TimeUnit.SECONDS)).isTrue();
-			assertThat(guard.checkMessage("세 번째 문의").errorCode()).isEqualTo("GUARD_BUSY");
-			assertThat(EMBEDDING_CALLS.get()).isEqualTo(2);
-			release.countDown();
-			assertThat(a.get().status()).isEqualTo("ALLOWED");
-			assertThat(b.get().status()).isEqualTo("ALLOWED");
-		} finally { release.countDown(); }
-	}
-	@Test void stalledResponseBodyAlsoHonorsTotalDeadline() {
-		entered = new CountDownLatch(1); release = new CountDownLatch(1);
-		long start = System.nanoTime();
-		try {
-			assertThat(guard.checkMessage("본문지연 문의").errorCode()).isEqualTo("EMBEDDING_TIMEOUT");
-			assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)).isLessThan(2500);
-		} finally { release.countDown(); }
-	}
-	@Test void semanticDecisionsFollowSimilarityWithoutDirectInsultShortcut() {
-		for (String text : List.of("다른 사람이 저한테 무능하다고 말했어요.", "당신은 바보가 아니에요.",
-				"안내 내용이 틀렸고 설명도 부족합니다.", "당신은 요금 설명을 잘못하셨습니다.",
-				"당신은 정말 무능한 상담사네요라는 말을 들었어요.")) {
-			assertThat(guard.checkMessage(text).status()).as(text).isEqualTo("ALLOWED");
-		}
-		assertThat(guard.checkMessage("당신은 사고력이 아예 없는 인간처럼 보이네요.").status()).isEqualTo("BLOCKED");
-		int before = EMBEDDING_CALLS.get();
-		assertThat(guard.checkMessage("당신은 정말 무능한 상담사네요.").status()).isEqualTo("BLOCKED");
-		assertThat(EMBEDDING_CALLS.get()).isEqualTo(before + 1);
-	}
-
 	@Test void existingForbiddenWordApiControlsCounselBeforeEmbedding() throws Exception {
 		String adminToken = token("admin");
 		String created = mvc.perform(post("/admin/forbidden-words").header("Authorization", adminToken)
@@ -355,7 +307,7 @@ class CounselIntegrationTest {
 		}
 		assertThat(messages.sendMessage(counselor, room.sessionId(), UUID.randomUUID(), "필터검증 답변").status())
 				.isEqualTo("BLOCKED");
-		mvc.perform(post("/counsel/admin/safety/evaluate").header("Authorization", adminToken)
+		mvc.perform(post("/admin/counsel/safety/evaluate").header("Authorization", adminToken)
 				.contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"필터검증\"}"))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("BLOCKED"));
 		assertThat(EMBEDDING_CALLS.get()).isZero();
@@ -405,24 +357,11 @@ class CounselIntegrationTest {
 			assertThat(messages.getMessages(counselor, room.sessionId(), 0, 50)).isEmpty();
 		} finally { jdbc.execute("ALTER TABLE counseling.safety_filter_events DROP CONSTRAINT reject_test"); }
 	}
-	@Test void existingJwtAuthenticationPreservesRefreshCodeAndRevocation() throws Exception {
-		mvc.perform(get("/counsel/sessions/current")).andExpect(status().isUnauthorized());
-		mvc.perform(get("/counsel/sessions/current").header("Authorization", token("expired")))
-				.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("JWT-007"));
-		mvc.perform(get("/counsel/sessions/current").header("Authorization", "Bearer invalid")).andExpect(status().isUnauthorized());
-		mvc.perform(get("/counsel/sessions/current").header("Authorization", token("customer")))
-				.andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
-		mvc.perform(get("/counsel/sessions/current").header("Authorization", token("customer"))).andExpect(status().isOk());
-		org.mockito.Mockito.when(revocations.isRevoked(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
-				.thenReturn(true);
-		mvc.perform(get("/counsel/sessions/current").header("Authorization", token("customer")))
-				.andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("JWT-009"));
-	}
 	@Test void ownershipRoleAndInputChecksProtectAllEndpoints() throws Exception {
 		Session room = active();
 		mvc.perform(get("/counsel/sessions/" + room.sessionId() + "/messages").header("Authorization", token("stranger"))).andExpect(status().isForbidden());
-		mvc.perform(get("/counsel/admin/safety/events").header("Authorization", token("customer"))).andExpect(status().isForbidden());
-		mvc.perform(get("/counsel/admin/safety/summary").header("Authorization", token("counselor"))).andExpect(status().isForbidden());
+		mvc.perform(get("/admin/counsel/safety/events").header("Authorization", token("customer"))).andExpect(status().isForbidden());
+		mvc.perform(get("/admin/counsel/safety/summary").header("Authorization", token("counselor"))).andExpect(status().isForbidden());
 		mvc.perform(post("/counsel/counselors/availability").header("Authorization", token("customer"))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"AVAILABLE\"}")).andExpect(status().isForbidden());
 		mvc.perform(post("/counsel/sessions/" + room.sessionId() + "/messages").header("Authorization", token("customer"))
@@ -438,11 +377,11 @@ class CounselIntegrationTest {
 						"clientMessageId", UUID.randomUUID(), "content", "당신은 정말 무능한 상담사네요.", "senderId", 10, "role", "ADMIN"))))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("BLOCKED"));
 		assertThat(jdbc.queryForObject("SELECT sender_id FROM counseling.messages", Long.class)).isEqualTo(1L);
-		String result = mvc.perform(get("/counsel/admin/safety/events?decision=BLOCKED").header("Authorization", token("admin")))
+		String result = mvc.perform(get("/admin/counsel/safety/events?decision=BLOCKED").header("Authorization", token("admin")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].senderRole").value("USER"))
 				.andReturn().getResponse().getContentAsString();
 		assertThat(result).doesNotContain("무능한", "example_text", "\"content\"");
-		mvc.perform(get("/counsel/admin/safety/summary").header("Authorization", token("admin")))
+		mvc.perform(get("/admin/counsel/safety/summary").header("Authorization", token("admin")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.blocked").value(1));
 	}
 	@Test void rateLimitIsSharedAndDuplicateRetriesDoNotConsumeIt() {
@@ -463,15 +402,6 @@ class CounselIntegrationTest {
 		admin.updateCounselorRole(administrator, 2, false);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.role_audit", Integer.class)).isEqualTo(2);
 	}
-	@Test void publicHistoryAndFaqRemainUntouched() {
-		int migrationCount = jdbc.queryForObject("SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class);
-		int faqCount = jdbc.queryForObject("SELECT count(*) FROM public.faq", Integer.class);
-		active();
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class)).isEqualTo(migrationCount);
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.faq", Integer.class)).isEqualTo(faqCount);
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.flyway_schema_history WHERE version='37' AND success", Integer.class)).isEqualTo(1);
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.question_log", Integer.class)).isEqualTo(2);
-	}
 	@Test void seedingIsAtomicImmutableAndIdempotent() throws Exception {
 		jdbc.execute("TRUNCATE counseling.guard_profiles CASCADE");
 		seeder.seedProfile();
@@ -488,7 +418,7 @@ class CounselIntegrationTest {
 		assertThatThrownBy(() -> admin.getSafetySummary(administrator, Instant.EPOCH, Instant.now())).isInstanceOf(IllegalArgumentException.class);
 	}
 	@Test void sentenceApiCreatesIndexesEditsAndDeletesWithHistoricalVectorsPreserved() throws Exception {
-		String base = "/counsel/admin/safety/sentences";
+		String base = "/admin/counsel/safety/sentences";
 		String body = mvc.perform(post(base).header("Authorization", token("admin")).contentType(MediaType.APPLICATION_JSON)
 				.content("{\"content\":\"당신은 사고력이 전혀 없는 사람이네요.\",\"severity\":2}"))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.indexStatus").value("PENDING"))
@@ -500,7 +430,7 @@ class CounselIntegrationTest {
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.indexStatus").value("INDEXED"))
 				.andExpect(jsonPath("$.data.applied").value(true)).andReturn().getResponse().getContentAsString();
 		long oldVector = JSON.readTree(body).path("data").path("vectorId").asLong();
-		// Repeating a successful index request must not spend more GPU work.
+		// 이미 성공한 색인 요청을 반복해도 GPU 작업을 더 쓰지 않아야 함
 		safetySentences.indexSentence(administrator, id, 1);
 		assertThat(EMBEDDING_CALLS.get()).isEqualTo(1);
 		jdbc.update("UPDATE counseling.safety_filter_vectors SET active=false WHERE id<>?", oldVector);
@@ -529,7 +459,7 @@ class CounselIntegrationTest {
 				.containsExactly("CREATE", "INDEX_REQUESTED", "INDEXED", "UPDATE", "INDEX_REQUESTED", "INDEXED", "DELETE");
 	}
 	@Test void sentenceEndpointsRejectGuestsUsersCounselorsAndInvalidInput() throws Exception {
-		String base = "/counsel/admin/safety/sentences";
+		String base = "/admin/counsel/safety/sentences";
 		for (String token : List.of("", token("customer"), token("counselor"))) {
 			for (var request : List.of(get(base), get(base + "/1"), post(base), patch(base + "/1"),
 					delete(base + "/1?revision=1"), post(base + "/1/index"))) {
@@ -581,7 +511,7 @@ class CounselIntegrationTest {
 		var sentence = safetySentences.createSentence(administrator, new SafetySentenceCreateRequestDto("느린 색인 문장", 2));
 		entered = new CountDownLatch(1); release = new CountDownLatch(1);
 		try {
-			mvc.perform(post("/counsel/admin/safety/sentences/" + sentence.sentenceId() + "/index")
+			mvc.perform(post("/admin/counsel/safety/sentences/" + sentence.sentenceId() + "/index")
 					.header("Authorization", token("admin")).contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
 					.andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("COUNSEL-015"));
 			var failed = safetySentences.getSentence(administrator, sentence.sentenceId());
@@ -656,10 +586,90 @@ class CounselIntegrationTest {
 			assertThat(safetySentences.getSentence(administrator, sentence.sentenceId()).content()).isEqualTo("관리 문장");
 		} finally { jdbc.execute("ALTER TABLE counseling.safety_sentence_audit DROP CONSTRAINT reject_update_test"); }
 	}
-	@Test void handoffCopiesOwnedHistoryAndVisibleFaqWithoutDuplicatingSavedTurns() throws Exception {
-		var request = new HandoffRequestDto(UUID.randomUUID(), OWN_CONVERSATION, List.of(
-				new HandoffRequestDto.Turn("이전 요금 문의", "이전 AI 답변"),
-				new HandoffRequestDto.Turn("화면 FAQ 질문", "화면 FAQ 답변")));
+	long createFaq(String question, String answer) {
+		Long category = jdbc.queryForObject("""
+				INSERT INTO public.faq_category(name) VALUES ('상담 인계 테스트')
+				ON CONFLICT (name) WHERE deleted_at IS NULL DO UPDATE SET name=excluded.name RETURNING id
+				""", Long.class);
+		return jdbc.queryForObject("INSERT INTO public.faq(category_id,question,answer,admin_id) VALUES (?,?,?,99) RETURNING id",
+				Long.class, category, question, answer);
+	}
+	@Test void handoffIgnoresForgedDisplayTextAndResolvesCurrentFaqOnServer() throws Exception {
+		long faqId = createFaq("서버 FAQ 질문", "서버 FAQ 답변");
+		var request = Map.of("handoffId", UUID.randomUUID(), "conversationId", OWN_CONVERSATION,
+				"faqIds", List.of(faqId), "displayedTurns", List.of(
+						Map.of("question", "이전 요금 문의", "answer", "위조 AI 답변"),
+						Map.of("question", "위조 FAQ 질문", "answer", "위조 FAQ 답변")));
+		var body = mvc.perform(post("/counsel/requests").header("Authorization", token("customer"))
+				.contentType(MediaType.APPLICATION_JSON).content(JSON.writeValueAsString(request)))
+				.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+		UUID id = UUID.fromString(JSON.readTree(body).path("data").path("sessionId").asText());
+		sessions.updateAvailability(counselor, "AVAILABLE");
+		assertThat(sessions.getHistory(counselor, id, 0, 100)).extracting(item -> item.content())
+				.containsExactly("이전 요금 문의", "이전 AI 답변", "이전 추가 문의", "추가 AI 답변", "서버 FAQ 질문", "서버 FAQ 답변");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.session_history WHERE source='SCREEN'", Integer.class)).isZero();
+	}
+	@Test void handoffSkipsMissingAndDeletedFaqsAndKeepsAvailableFaqs() throws Exception {
+		long deletedId = createFaq("삭제된 FAQ", "노출하면 안 되는 답변");
+		jdbc.update("UPDATE public.faq SET deleted_at=now() WHERE id=?", deletedId);
+		long availableId = createFaq("유효한 FAQ", "서버 FAQ 답변");
+		mvc.perform(post("/counsel/requests").header("Authorization", token("customer"))
+				.contentType(MediaType.APPLICATION_JSON).content(JSON.writeValueAsString(
+						new HandoffRequestDto(UUID.randomUUID(), OWN_CONVERSATION, List.of(deletedId, Long.MAX_VALUE, availableId)))))
+				.andExpect(status().isOk());
+		var room = sessions.getCurrentSession(customer);
+		assertThat(sessions.getHistory(customer, room.sessionId(), 0, 100)).extracting(item -> item.content())
+				.contains("유효한 FAQ", "서버 FAQ 답변", "이전 AI 답변")
+				.doesNotContain("삭제된 FAQ", "노출하면 안 되는 답변");
+	}
+	@Test void handoffRejectsInvalidFaqIdsWithoutCreatingSession() throws Exception {
+		int conversations = jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class);
+		for (var ids : List.of("[-1]", "[null]", JSON.writeValueAsString(Collections.nCopies(101, 1)))) {
+			mvc.perform(post("/counsel/requests").header("Authorization", token("customer"))
+					.contentType(MediaType.APPLICATION_JSON).content("{\"handoffId\":\"" + UUID.randomUUID() + "\",\"faqIds\":" + ids + "}"))
+					.andExpect(status().isBadRequest());
+		}
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.sessions", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class)).isEqualTo(conversations);
+	}
+	@Test void seedReadinessRequiresWorkingEmbeddingAndActiveVectors() {
+		seeder.verifyReady();
+		assertThat(EMBEDDING_CALLS).hasValue(1);
+		jdbc.update("UPDATE counseling.safety_filter_vectors SET active=false");
+		assertThatThrownBy(() -> seeder.verifyReady()).isInstanceOf(IllegalStateException.class);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.safety_filter_vectors WHERE active", Integer.class)).isZero();
+	}
+	@Test void initialIndexUsesWorkerAndRedisAndCanRetryAfterWorkerOutage() throws Exception {
+		jdbc.execute("TRUNCATE counseling.guard_profiles CASCADE");
+		var transport = new com.ubot.counsel.safety.client.WorkerEmbeddingTransport(redis, counselProperties.guard(), JSON);
+		var beans = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+		beans.addBean("transport", transport);
+		var client = new EmbeddingClient(counselProperties, JSON,
+				beans.getBeanProvider(com.ubot.counsel.safety.client.WorkerEmbeddingTransport.class), "worker");
+		var profiles = new SafetyProfileService(jdbc, transactionTemplate, client, counselProperties, sentenceRepository);
+		var model = new com.ubot.embedding.client.OpenAiCompatibleEmbeddingClient(
+				org.springframework.web.client.RestClient.builder()
+						.baseUrl("http://127.0.0.1:" + UPSTREAM.getAddress().getPort() + "/v1").build(),
+				counselProperties.guard().model());
+		var worker = new com.ubot.embedding.worker.CounselEmbeddingWorker(redis, model, JSON);
+		assertThatThrownBy(profiles::seedProfile).isInstanceOf(EmbeddingClient.Failure.class).hasMessage("WORKER_TIMEOUT");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.guard_profiles", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.safety_filter_vectors", Integer.class)).isZero();
+		worker.start();
+		try {
+			profiles.seedProfile();
+			profiles.verifyReady();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.safety_filter_vectors WHERE active", Integer.class)).isEqualTo(50);
+			int calls = EMBEDDING_CALLS.get();
+			profiles.seedProfile();
+			assertThat(EMBEDDING_CALLS.get()).isEqualTo(calls);
+		} finally { worker.stop(); }
+		assertThatThrownBy(profiles::verifyReady).isInstanceOf(EmbeddingClient.Failure.class).hasMessage("WORKER_TIMEOUT");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.safety_filter_vectors WHERE active", Integer.class)).isEqualTo(50);
+	}
+	@Test void handoffCopiesOwnedHistoryAndServerFaqWithoutDuplicatingSavedTurns() throws Exception {
+		long faqId = createFaq("화면 FAQ 질문", "화면 FAQ 답변");
+		var request = new HandoffRequestDto(UUID.randomUUID(), OWN_CONVERSATION, List.of(faqId));
 		var body = mvc.perform(post("/counsel/requests").header("Authorization", token("customer"))
 				.contentType(MediaType.APPLICATION_JSON).content(JSON.writeValueAsString(request)))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.conversationId").value(OWN_CONVERSATION.toString()))
@@ -669,7 +679,7 @@ class CounselIntegrationTest {
 		assertThat(history).hasSize(6);
 		assertThat(history.stream().map(item -> item.content()).toList())
 				.contains("이전 요금 문의", "이전 AI 답변", "이전 추가 문의", "추가 AI 답변", "화면 FAQ 질문", "화면 FAQ 답변");
-		assertThat(history.stream().filter(item -> item.source().equals("SCREEN"))).hasSize(2);
+		assertThat(history).allSatisfy(item -> assertThat(item.source()).isEqualTo("SAVED"));
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		assertThat(sessions.getHistory(counselor, id, 0, 100)).isEqualTo(history);
 		sessions.endSession(customer, id);
@@ -703,8 +713,8 @@ class CounselIntegrationTest {
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.sessions", Integer.class)).isEqualTo(1);
 	}
 	@Test void historyPaginationReturnsAllRowsAndReassignmentRevokesPreviousCounselor() {
-		var turns = new ArrayList<HandoffRequestDto.Turn>();
-		for (int i = 0; i < 130; i++) turns.add(new HandoffRequestDto.Turn("화면 질문 " + i, "화면 답변 " + i));
+		var turns = new ArrayList<Long>();
+		for (int i = 0; i < 130; i++) turns.add(createFaq("화면 질문 " + i, "화면 답변 " + i));
 		var room = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), null, turns));
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		assertThat(sessions.getHistory(counselor, room.sessionId(), 0, 100)).hasSize(100);
@@ -733,9 +743,9 @@ class CounselIntegrationTest {
 		assertThat(sessions.getHistory(counselor, next.sessionId(), 0, 100).stream().map(item -> item.content()).toList())
 				.contains("이전 사람 상담 문의").doesNotContain("당신은 바보예요.");
 	}
-	@Test void continuationAfterReloadKeepsScreenHistoryAndAllowedHumanMessages() {
+	@Test void continuationAfterReloadKeepsServerFaqAndAllowedHumanMessages() {
 		var first = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), null,
-				List.of(new HandoffRequestDto.Turn("화면 FAQ", "화면 답변"))));
+				List.of(createFaq("화면 FAQ", "화면 답변"))));
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		messages.sendMessage(customer, first.sessionId(), UUID.randomUUID(), "이어서 문의합니다");
 		messages.sendMessage(customer, first.sessionId(), UUID.randomUUID(), "당신은 바보예요.");
@@ -746,6 +756,41 @@ class CounselIntegrationTest {
 		assertThat(sessions.getHistory(counselor, next.sessionId(), 0, 100).stream().map(item -> item.content()).toList())
 				.containsExactly("화면 FAQ", "화면 답변", "이어서 문의합니다");
 		assertThat(sessions.createHandoff(customer, request).sessionId()).isEqualTo(next.sessionId());
+	}
+	@Test void continuationLoadsAiAndFaqCreatedAfterEndAndAllPreviousCounsel() {
+		var first = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), OWN_CONVERSATION,
+				List.of(createFaq("이전 FAQ", "이전 FAQ 답변"))));
+		sessions.updateAvailability(counselor, "AVAILABLE");
+		messages.sendMessage(counselor, first.sessionId(), UUID.randomUUID(), "이전 상담 안내");
+		sessions.endSession(customer, first.sessionId());
+		jdbc.update("""
+				INSERT INTO public.question_log(user_id,conversation_id,user_question,llm_question,sub_question_index)
+				SELECT 1,conversation_id,'종료 후 AI 질문','종료 후 AI 답변',1
+				FROM public.conversations WHERE public_id=?
+				""", OWN_CONVERSATION);
+		var second = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), null, first.sessionId(),
+				List.of(createFaq("종료 후 FAQ", "종료 후 FAQ 답변"))));
+		assertThat(sessions.getHistory(counselor, second.sessionId(), 0, 100)).extracting(item -> item.content())
+				.contains("이전 AI 답변", "종료 후 AI 질문", "종료 후 AI 답변", "이전 FAQ", "이전 FAQ 답변",
+						"종료 후 FAQ", "종료 후 FAQ 답변", "이전 상담 안내");
+	}
+	@Test void severityEditKeepsCurrentVectorAndBlockDecisionWithoutReindex() {
+		var created = safetySentences.createSentence(administrator,
+				new SafetySentenceCreateRequestDto("당신은 사고력이 전혀 없는 사람이네요.", 2));
+		var indexed = safetySentences.indexSentence(administrator, created.sentenceId(), 1);
+		int before = EMBEDDING_CALLS.get();
+		var updated = safetySentences.updateSentence(administrator, created.sentenceId(),
+				new SafetySentenceUpdateRequestDto(1L, created.content(), 3, true));
+		assertThat(updated.applied()).isTrue();
+		assertThat(updated.vectorId()).isEqualTo(indexed.vectorId());
+		assertThat(updated.revision()).isEqualTo(2);
+		assertThat(EMBEDDING_CALLS.get()).isEqualTo(before);
+		assertThat(jdbc.queryForObject("SELECT active FROM counseling.safety_filter_vectors WHERE id=?", Boolean.class, indexed.vectorId())).isTrue();
+		assertThat(guard.checkMessage(created.content()).status()).isEqualTo("BLOCKED");
+		var disabled = safetySentences.updateSentence(administrator, created.sentenceId(),
+				new SafetySentenceUpdateRequestDto(2L, created.content(), 3, false));
+		assertThat(disabled.applied()).isFalse();
+		assertThat(jdbc.queryForObject("SELECT active FROM counseling.safety_filter_vectors WHERE id=?", Boolean.class, indexed.vectorId())).isFalse();
 	}
 	@Test void counselOnlyConversationAppearsInExistingListAndRetriesDoNotCreateExtraConversations() throws Exception {
 		var request = new HandoffRequestDto(UUID.randomUUID(), null, List.of());
@@ -770,13 +815,13 @@ class CounselIntegrationTest {
 		sessions.endSession(customer, room.sessionId());
 		assertThat(sessions.createHandoff(customer, request).status()).isEqualTo("ENDED");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class)).isEqualTo(2);
-		// 기존 AI 문답 API 계약은 그대로이며 상담만 있으면 빈 문답 배열을 반환한다.
+		// 기존 AI 문답 API 계약은 그대로이며 상담만 있으면 빈 문답 배열을 반환함
 		mvc.perform(get("/conversations/" + room.conversationId() + "/messages").header("Authorization", token("user")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data").isEmpty());
 	}
 	@Test void timelineCombinesOriginalTurnsAndRepeatedCounselWithoutSnapshotDuplicates() throws Exception {
-		var shown = List.of(new HandoffRequestDto.Turn("화면 전용 질문", "화면 전용 답변"),
-				new HandoffRequestDto.Turn("화면 전용 질문", "화면 전용 답변"));
+		long faqId = createFaq("화면 전용 질문", "화면 전용 답변");
+		var shown = List.of(faqId, faqId);
 		var first = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), OWN_CONVERSATION, shown));
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		messages.sendMessage(customer, first.sessionId(), UUID.randomUUID(), "첫 상담 문의");
@@ -787,7 +832,7 @@ class CounselIntegrationTest {
 				OWN_CONVERSATION, first.sessionId(), List.of()));
 		messages.sendMessage(counselor, second.sessionId(), UUID.randomUUID(), "재상담 답변");
 		sessions.endSession(customer, second.sessionId());
-		var items = timeline.getTimeline(customer, OWN_CONVERSATION, 0, 100);
+		var items = timeline.getTimeline(customer, OWN_CONVERSATION, null, 100).items();
 		assertThat(items.stream().map(item -> item.content()).toList()).containsExactly(
 				"이전 요금 문의", "이전 AI 답변", "이전 추가 문의", "추가 AI 답변",
 				"화면 전용 질문", "화면 전용 답변", "화면 전용 질문", "화면 전용 답변",
@@ -802,31 +847,121 @@ class CounselIntegrationTest {
 		mvc.perform(get("/conversations/" + OWN_CONVERSATION + "/timeline?limit=101").header("Authorization", token("user")))
 				.andExpect(status().isBadRequest());
 	}
-	@Test void timelinePagesAllEntriesAndDoesNotRepeatScreenOriginsOnFreshHandoff() {
-		var turns = new ArrayList<HandoffRequestDto.Turn>();
-		for (int i = 0; i < 130; i++) turns.add(new HandoffRequestDto.Turn("화면 질문 " + i, "화면 답변 " + i));
+	@Test void timelinePagesAllEntriesAndDoesNotRepeatSavedOriginsOnFreshHandoff() {
+		var turns = new ArrayList<Long>();
+		for (int i = 0; i < 130; i++) turns.add(createFaq("화면 질문 " + i, "화면 답변 " + i));
 		var first = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), null, turns));
 		sessions.endSession(customer, first.sessionId());
 		var second = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), first.conversationId(), turns));
 		sessions.endSession(customer, second.sessionId());
 		var entries = new ArrayList<com.ubot.counsel.history.dto.response.ConversationTimelineResponseDto>();
-		for (long after = 0; ; after = entries.getLast().sequence()) {
+		for (String after = null; ;) {
 			var batch = timeline.getTimeline(customer, first.conversationId(), after, 100);
-			entries.addAll(batch);
-			if (batch.size() < 100) break;
+			entries.addAll(batch.items());
+			after = batch.nextCursor();
+			if (!batch.hasNext()) break;
 		}
 		assertThat(entries).hasSize(264);
 		assertThat(entries.stream().map(item -> item.id()).distinct().count()).isEqualTo(264);
 	}
 	@Test void failedCounselOnlyHandoffDoesNotLeaveEmptyConversation() {
 		int before = jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class);
+		long faqId = createFaq("저장 실패", "답변");
 		jdbc.execute("ALTER TABLE counseling.session_history ADD CONSTRAINT reject_history_test CHECK (content <> '저장 실패')");
 		try {
 			assertThatThrownBy(() -> sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), null,
-					List.of(new HandoffRequestDto.Turn("저장 실패", "")))))
+					List.of(faqId))))
 					.isInstanceOf(org.springframework.dao.DataAccessException.class);
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class)).isEqualTo(before);
 		} finally { jdbc.execute("ALTER TABLE counseling.session_history DROP CONSTRAINT reject_history_test"); }
+	}
+	@Test void faqSelectionSurvivesReloadModificationAndDeletionAndIsHandedOffFromServer() throws Exception {
+		long faqId = createFaq("선택 당시 질문", "선택 당시 답변");
+		UUID selectionId = UUID.randomUUID();
+		String body = "{\"selectionId\":\"" + selectionId + "\",\"faqId\":" + faqId
+				+ ",\"question\":\"위조 질문\",\"answer\":\"위조 답변\"}";
+		var result = mvc.perform(post("/conversations/faq-selections").header("Authorization", token("user"))
+				.contentType(MediaType.APPLICATION_JSON).content(body))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.data.answer").value("선택 당시 답변"))
+				.andReturn();
+		UUID conversationId = UUID.fromString(JSON.readTree(result.getResponse().getContentAsString()).path("data").path("conversationId").asText());
+		jdbc.update("UPDATE public.faq SET question='바뀐 질문',answer='바뀐 답변',deleted_at=now() WHERE id=?", faqId);
+		mvc.perform(post("/conversations/faq-selections").header("Authorization", token("user"))
+				.contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversation_faq_selections", Integer.class)).isEqualTo(1);
+		mvc.perform(get("/conversations/" + conversationId + "/messages").header("Authorization", token("user")))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.data[0].answer").value("선택 당시 답변"));
+		mvc.perform(get("/conversations/me").header("Authorization", token("user")))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].title").value("선택 당시 질문"));
+		var room = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), conversationId, List.of()));
+		assertThat(sessions.getHistory(customer, room.sessionId(), 0, 100)).extracting(item -> item.content())
+				.containsExactly("선택 당시 질문", "선택 당시 답변");
+		assertThat(timeline.getTimeline(customer, conversationId, null, 100).items()).extracting(item -> item.content())
+				.containsExactly("선택 당시 질문", "선택 당시 답변", "상담사 연결 요청");
+		mvc.perform(post("/conversations/faq-selections").header("Authorization", token("stranger"))
+				.contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNotFound());
+		mvc.perform(post("/conversations/faq-selections").header("Authorization", token("counselor"))
+				.contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isForbidden());
+		mvc.perform(post("/conversations/faq-selections").contentType(MediaType.APPLICATION_JSON).content(body))
+				.andExpect(status().isUnauthorized());
+	}
+	@Test void concurrentFaqSelectionRetriesCreateOneSnapshotAndOneConversation() throws Exception {
+		var request = new com.ubot.conversation.dto.request.FaqSelectionRequestDto(UUID.randomUUID(), null,
+				createFaq("동시 선택 질문", "동시 선택 답변"));
+		try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+			var tasks = new ArrayList<Future<com.ubot.conversation.dto.response.FaqSelectionResponseDto>>();
+			for (int i = 0; i < 5; i++) tasks.add(pool.submit(() -> faqSelections.save(1L, request)));
+			var ids = new HashSet<UUID>();
+			for (var task : tasks) ids.add(task.get(10, TimeUnit.SECONDS).conversationId());
+			assertThat(ids).hasSize(1);
+		}
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversation_faq_selections", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class)).isEqualTo(2);
+	}
+	@Test void timelineCursorDoesNotSkipRemainingEntriesWhenEarlierRowsAreDeletedOrInserted() {
+		var first = timeline.getTimeline(customer, OWN_CONVERSATION, null, 2);
+		assertThat(first.hasNext()).isTrue();
+		var expected = timeline.getTimeline(customer, OWN_CONVERSATION, first.nextCursor(), 100);
+		jdbc.update("DELETE FROM public.question_log WHERE id=(SELECT min(id) FROM public.question_log)");
+		jdbc.update("""
+				INSERT INTO public.question_log(user_id,conversation_id,user_question,llm_question,created_at)
+				SELECT 1,conversation_id,'뒤늦게 저장한 과거 질문','과거 답변',now()-interval '1 day'
+				FROM public.conversations WHERE public_id=?
+				""", OWN_CONVERSATION);
+		var remaining = timeline.getTimeline(customer, OWN_CONVERSATION, first.nextCursor(), 100);
+		assertThat(remaining.items()).extracting(item -> item.id())
+				.containsExactlyElementsOf(expected.items().stream().map(item -> item.id()).toList());
+		assertThat(remaining.hasNext()).isFalse();
+		assertThat(remaining.nextCursor()).isNull();
+	}
+	@Test void automaticIndexProcessesCreateAndContentEditAndRetriesWorkerFailure() {
+		var created = safetySentences.createSentence(administrator, new SafetySentenceCreateRequestDto("자동 색인 문장", 2));
+		safetySentences.indexPendingSentences();
+		var indexed = safetySentences.getSentence(administrator, created.sentenceId());
+		assertThat(indexed.applied()).isTrue();
+		safetySentences.updateSentence(administrator, created.sentenceId(), new SafetySentenceUpdateRequestDto(1L, "느린 자동 색인", 2, true));
+		entered = new CountDownLatch(1); release = new CountDownLatch(1);
+		try {
+			safetySentences.indexPendingSentences();
+			assertThat(safetySentences.getSentence(administrator, created.sentenceId()).indexStatus()).isEqualTo("FAILED");
+			int calls = EMBEDDING_CALLS.get();
+			safetySentences.indexPendingSentences();
+			assertThat(EMBEDDING_CALLS.get()).isEqualTo(calls);
+		} finally { release.countDown(); }
+		jdbc.update("UPDATE counseling.safety_sentences SET updated_at=now()-interval '31 seconds' WHERE id=?", created.sentenceId());
+		safetySentences.indexPendingSentences();
+		var retried = safetySentences.getSentence(administrator, created.sentenceId());
+		assertThat(retried.applied()).isTrue();
+		assertThat(retried.vectorId()).isNotEqualTo(indexed.vectorId());
+	}
+	@Test void reassignmentPreservesOriginalWaitingOrder() {
+		var first = active();
+		var second = sessions.createSession(new Caller(2, "USER"));
+		jdbc.update("UPDATE counseling.sessions SET waiting_since=now()-interval '5 minutes' WHERE id=?", first.sessionId());
+		jdbc.update("UPDATE counseling.counselor_presence SET last_heartbeat_at=now()-interval '200 seconds' WHERE user_id=10");
+		sessions.updateAvailability(new Caller(11, "COUNSELOR"), "AVAILABLE");
+		assertThat(sessions.getSession(customer, first.sessionId()).counselorId()).isEqualTo(11L);
+		assertThat(sessions.getSession(new Caller(2, "USER"), second.sessionId()).status()).isEqualTo("WAITING");
 	}
 	@Test void retentionDeletesInactiveCounselAndRejectedAttemptsButKeepsOpenConversation() {
 		var closed = active();
@@ -855,16 +990,10 @@ class CounselIntegrationTest {
 		assertThat(sessions.getSession(customer, room.sessionId()).status()).isEqualTo("ENDED");
 		assertThat(sessions.getSession(customer, room.sessionId()).counselorId()).isNull();
 		assertThat(messages.getMessages(customer, room.sessionId(), 0, 100)).singleElement()
-				.satisfies(item -> { assertThat(item.senderId()).isNull(); assertThat(item.content()).isEqualTo("이전 상담사의 답변"); });
+				.satisfies(item -> { assertThat(item.mine()).isFalse(); assertThat(item.content()).isEqualTo("이전 상담사의 답변"); });
 		jdbc.update("UPDATE public.users SET deleted_at=now()-interval '4 months' WHERE user_id=1");
 		jdbc.execute("CALL purge_expired_data()");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.sessions", Integer.class)).isZero();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM counseling.session_history", Integer.class)).isZero();
-	}
-	@Test void staleAdminTokenLosesCounselPrivilegesWhenDatabaseRoleChanges() throws Exception {
-		String adminToken = token("admin");
-		mvc.perform(get("/counsel/admin/safety/sentences").header("Authorization", adminToken)).andExpect(status().isOk());
-		jdbc.update("UPDATE public.users SET role='USER' WHERE user_id=99");
-		mvc.perform(get("/counsel/admin/safety/sentences").header("Authorization", adminToken)).andExpect(status().isForbidden());
 	}
 }

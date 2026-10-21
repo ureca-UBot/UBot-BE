@@ -7,11 +7,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@RequiredArgsConstructor
 public class SessionRepository {
 	private final JdbcTemplate jdbc;
 	private static final RowMapper<Session> MAPPER = (r, n) -> new Session(r.getObject("id", UUID.class),
@@ -19,15 +21,12 @@ public class SessionRepository {
 			r.getLong("assignment_version"), r.getLong("last_delivered_seq"),
 			instant(r, "created_at"), instant(r, "paused_at"), instant(r, "ended_at"),
 			r.getObject("conversation_id", UUID.class), r.getObject("handoff_id", UUID.class));
-	public SessionRepository(JdbcTemplate jdbc) {
-		this.jdbc = jdbc;
-	}
 	private static Instant instant(ResultSet r, String column) throws SQLException {
 		var t = r.getTimestamp(column);
 		return t == null ? null : t.toInstant();
 	}
-	// All lifecycle writers acquire this transaction-scoped lock before any session/presence lock.
-	// Small MVP queue: one shared PostgreSQL lock works across multiple service instances.
+	// 상담 상태 변경은 세션·상담사 행 잠금 전에 트랜잭션 범위의 큐 잠금을 획득함
+	// 여러 API 인스턴스도 같은 PostgreSQL 잠금으로 배정 순서를 보장함
 	public void lockQueue() { jdbc.execute("SELECT pg_advisory_xact_lock(2001020)"); }
 	public Session get(UUID id, boolean lock) {
 		var rows = jdbc.query("SELECT * FROM counseling.sessions WHERE id = ?" + (lock ? " FOR UPDATE" : ""), MAPPER, id);
@@ -72,7 +71,7 @@ public class SessionRepository {
 		jdbc.update("UPDATE counseling.counselor_presence SET last_heartbeat_at=now() WHERE user_id=?", user);
 	}
 	public void maintain(int heartbeatSeconds, int reconnectSeconds) {
-		// Deleted/demoted counselors cannot be assigned, even if an old browser keeps running.
+		// 기존 브라우저가 실행 중이어도 삭제·권한 회수된 상담사에게 배정하지 않음
 		jdbc.update("""
 				UPDATE counseling.counselor_presence p SET status='OFFLINE'
 				WHERE NOT EXISTS (SELECT 1 FROM public.users u WHERE u.user_id=p.user_id
@@ -87,7 +86,7 @@ public class SessionRepository {
 				""", heartbeatSeconds, heartbeatSeconds);
 		jdbc.update("""
 				UPDATE counseling.sessions SET status='WAITING', counselor_id=NULL, paused_at=NULL,
-				  assignment_version=assignment_version+1, waiting_since=now()
+				  assignment_version=assignment_version+1
 				WHERE status='PAUSED' AND paused_at <= now()-(? * interval '1 second')
 				""", reconnectSeconds);
 		jdbc.update("""

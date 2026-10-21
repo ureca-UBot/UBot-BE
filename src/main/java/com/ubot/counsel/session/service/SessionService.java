@@ -1,73 +1,55 @@
 package com.ubot.counsel.session.service;
 
+import com.ubot.conversation.service.ConversationService;
 import com.ubot.counsel.auth.model.Caller;
 import com.ubot.counsel.common.config.CounselProperties;
 import com.ubot.counsel.common.exception.CounselException;
-import com.ubot.conversation.service.ConversationService;
 import com.ubot.counsel.session.dto.request.HandoffRequestDto;
 import com.ubot.counsel.session.dto.response.HistoryMessageResponseDto;
 import com.ubot.counsel.session.entity.Session;
 import com.ubot.counsel.session.repository.HistoryRepository;
 import com.ubot.counsel.session.repository.SessionRepository;
+import com.ubot.user.enums.UserRole;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class SessionService {
 	private final SessionRepository repository;
 	private final TransactionTemplate tx;
 	private final CounselProperties config;
 	private final ConversationService conversations;
 	private final HistoryRepository history;
-	public SessionService(SessionRepository repository, TransactionTemplate tx, CounselProperties config,
-			ConversationService conversations, HistoryRepository history) {
-		this.repository = repository;
-		this.tx = tx; this.config = config;
-		this.conversations = conversations; this.history = history;
-	}
+	private final HandoffHistoryService handoffHistory;
 	public Session createHandoff(Caller caller, HandoffRequestDto request) {
-		caller.require("USER");
+		caller.require(UserRole.USER);
 		Session retry = existingHandoff(caller, request);
 		if (retry != null) return retry;
 		if (request.previousSessionId() != null) {
-			return lifecycle(() -> {
-				var previous = repository.get(request.previousSessionId(), true);
-				if (previous.customerId() != caller.id()) throw CounselException.forbidden();
-				if (!previous.status().equals("ENDED") || (request.conversationId() != null
-						&& !Objects.equals(previous.conversationId(), request.conversationId()))) {
-					throw CounselException.conflict("종료된 같은 대화에서만 상담을 이어갈 수 있습니다.");
-				}
-				var snapshot = new ArrayList<>(history.get(previous.sessionId(), 0, Integer.MAX_VALUE));
-				snapshot.addAll(history.delivered(previous.sessionId()));
-				return createWithHistory(caller, new HandoffRequestDto(request.handoffId(), previous.conversationId(),
-						request.previousSessionId(), request.displayedTurns()), snapshot);
-			});
-		}
-		// Fetch the complete owned conversation before taking any DB/assignment lock.
-		var saved = new ArrayList<HandoffRequestDto.Turn>();
-		if (request.conversationId() != null) {
-			for (var turn : conversations.getConversationMessageList(caller.id(), request.conversationId())) {
-				saved.add(new HandoffRequestDto.Turn(turn.question(), turn.answer() == null ? "" : turn.answer()));
+			var previous = repository.get(request.previousSessionId(), false);
+			if (previous.customerId() != caller.id()) throw CounselException.forbidden();
+			if (!previous.status().equals("ENDED") || (request.conversationId() != null
+					&& !Objects.equals(previous.conversationId(), request.conversationId()))) {
+				throw CounselException.conflict("종료된 같은 대화에서만 상담을 이어갈 수 있습니다.");
 			}
+			request = new HandoffRequestDto(request.handoffId(), previous.conversationId(),
+					request.previousSessionId(), request.faqIds());
 		}
-		List<HistoryMessageResponseDto> snapshot = new ArrayList<>();
-		for (var turn : request.displayedTurns()) {
-			int match = saved.indexOf(turn);
-			if (match < 0) appendTurn(snapshot, turn, "SCREEN");
-			else {
-				for (int i = 0; i <= match; i++) appendTurn(snapshot, saved.get(i), "SAVED");
-				saved.subList(0, match + 1).clear();
-			}
-		}
-		for (var turn : saved) appendTurn(snapshot, turn, "SAVED");
+		// 소유권을 확인한 저장 문답과 서버에서 조회한 FAQ만 인계함
+		var snapshot = handoffHistory.load(caller.id(), request.conversationId(), request.faqIds());
+		var resolved = request;
 		return lifecycle(() -> {
-			snapshot.addAll(history.previousCounsel(caller.id(), request.conversationId()));
-			return createWithHistory(caller, request, snapshot);
+			snapshot.addAll(history.previousCounsel(caller.id(), resolved.conversationId()));
+			return createWithHistory(caller, resolved, snapshot);
 		});
 	}
 	private Session createWithHistory(Caller caller, HandoffRequestDto request, List<HistoryMessageResponseDto> snapshot) {
@@ -75,7 +57,7 @@ public class SessionService {
 		if (existing != null) return existing;
 		UUID conversationId = conversations.getOrCreateMemberConversation(caller.id(), request.conversationId()).getPublicId();
 		List<HistoryMessageResponseDto> numbered = new ArrayList<>();
-		for (var item : history.reuseScreenOrigins(conversationId, snapshot)) {
+		for (var item : history.reuseSavedOrigins(conversationId, snapshot)) {
 			numbered.add(new HistoryMessageResponseDto(numbered.size() + 1L,
 					item.role(), item.content(), item.source(), item.originSessionId(), item.originSequence()));
 		}
@@ -99,12 +81,8 @@ public class SessionService {
 		}
 		return current;
 	}
-	private void appendTurn(List<HistoryMessageResponseDto> target, HandoffRequestDto.Turn turn, String source) {
-		target.add(new HistoryMessageResponseDto(0, "USER", turn.question(), source));
-		if (!turn.answer().isEmpty()) target.add(new HistoryMessageResponseDto(0, "AI", turn.answer(), source));
-	}
 	public Session getConversationSession(Caller caller, UUID conversationId) {
-		caller.require("USER");
+		caller.require(UserRole.USER);
 		return repository.latest(caller.id(), conversationId);
 	}
 	public List<HistoryMessageResponseDto> getHistory(Caller caller, UUID sessionId, long after, int limit) {
@@ -119,8 +97,8 @@ public class SessionService {
 		return createHandoff(caller, new HandoffRequestDto(UUID.randomUUID(), null, List.of()));
 	}
 	public Session getCurrentSession(Caller caller) {
-		if (!caller.role().equals("USER")) caller.require("COUNSELOR");
-		return repository.current(caller.id(), caller.role().equals("COUNSELOR"));
+		if (!(caller.role() == UserRole.USER)) caller.require(UserRole.COUNSELOR);
+		return repository.current(caller.id(), (caller.role() == UserRole.COUNSELOR));
 	}
 	public Session getSession(Caller caller, UUID id) {
 		var session = repository.get(id, false);
@@ -128,7 +106,7 @@ public class SessionService {
 		return session;
 	}
 	public String updateAvailability(Caller caller, String status) {
-		caller.require("COUNSELOR");
+		caller.require(UserRole.COUNSELOR);
 		if (!status.equals("AVAILABLE") && !status.equals("OFFLINE")) throw new IllegalArgumentException();
 		return lifecycle(() -> {
 			repository.presence(caller.id(), status);
@@ -138,7 +116,7 @@ public class SessionService {
 		});
 	}
 	public String updateHeartbeat(Caller caller) {
-		caller.require("COUNSELOR");
+		caller.require(UserRole.COUNSELOR);
 		return lifecycle(() -> {
 			repository.heartbeat(caller.id());
 			repository.maintain(config.heartbeatSeconds(), config.reconnectSeconds());
@@ -166,8 +144,8 @@ public class SessionService {
 		if (!config.enabled()) return;
 		try {
 			lifecycle(() -> { repository.assign(config.heartbeatSeconds()); return null; });
-		} catch (org.springframework.dao.DataAccessException ignored) {
-			// No SQL or message content in logs. Health endpoint reports DB outage.
+		} catch (org.springframework.dao.DataAccessException exception) {
+			log.error("상담 배정 정리 실패 code=COUNSEL-011 exception={}", exception.getClass().getSimpleName());
 		}
 	}
 }

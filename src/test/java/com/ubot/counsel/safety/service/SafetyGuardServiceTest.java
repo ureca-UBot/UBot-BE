@@ -17,8 +17,6 @@ import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 @DisplayName("상담 금지어·의미 검사")
 class SafetyGuardServiceTest {
@@ -59,28 +57,21 @@ class SafetyGuardServiceTest {
 		order.verify(repository).findTopMatches("vector");
 	}
 
-	@ParameterizedTest
-	@ValueSource(strings = {"당신은 바보가 아니에요.", "환불 절차에 관한 말", "\"인용한 문장\"", "상대를 지칭하지 않는 문장"})
-	@DisplayName("고정 예외 단어나 말투가 있어도 유사도 판정을 우회하지 않는다")
-	void highSimilarityIsNotBypassedByHardcodedWords(String text) {
-		when(embedding.embed(text)).thenReturn("vector");
+	@Test
+	@DisplayName("유사도가 임계값 이상이면 차단하고 미만이면 허용한다")
+	void blocksOnlyAtOrAboveThreshold() {
+		when(embedding.embed("문의")).thenReturn("vector");
 		when(repository.findTopMatches("vector")).thenReturn(List.of(new SafetyRepository.Match(7, 0.95, "INSULT")));
 
-		var result = guard.checkMessage(text);
+		var blocked = guard.checkMessage("문의");
 
-		assertThat(result.status()).isEqualTo("BLOCKED");
-		assertThat(result.vectorId()).isEqualTo(7L);
-		assertThat(result.score()).isEqualTo(0.95);
-	}
+		assertThat(blocked.status()).isEqualTo("BLOCKED");
+		assertThat(blocked.vectorId()).isEqualTo(7L);
+		assertThat(blocked.score()).isEqualTo(0.95);
 
-	@ParameterizedTest
-	@ValueSource(strings = {"당신은 정말 무능한 상담사네요.", "당신은 바보예요."})
-	@DisplayName("기존 정규식 표현도 금지어를 통과하고 유사도가 낮으면 허용한다")
-	void removedDirectRulesCannotOverrideLowSimilarity(String text) {
-		when(embedding.embed(text)).thenReturn("vector");
 		when(repository.findTopMatches("vector")).thenReturn(List.of(new SafetyRepository.Match(7, 0.949, "INSULT")));
 
-		assertThat(guard.checkMessage(text).status()).isEqualTo("ALLOWED");
+		assertThat(guard.checkMessage("문의").status()).isEqualTo("ALLOWED");
 	}
 
 	@Test

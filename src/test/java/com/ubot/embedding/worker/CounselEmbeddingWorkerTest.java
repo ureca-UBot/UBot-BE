@@ -1,6 +1,7 @@
 package com.ubot.embedding.worker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.pgvector.PGvector;
 import com.ubot.embedding.client.EmbeddingClient;
@@ -17,6 +18,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -132,12 +135,32 @@ class CounselEmbeddingWorkerTest {
 		assertThat(calls).hasValue(2);
 	}
 
-	@Test void featureIsAbsentByDefaultAndCannotRunOnApiRole() {
+	@ParameterizedTest
+	@ValueSource(strings = {"worker", "all"})
+	void featureStartsByDefaultOnWorkerRoles(String role) {
 		new ApplicationContextRunner().withUserConfiguration(CounselEmbeddingWorkerConfig.class)
-				.withPropertyValues("app.role=worker").run(context ->
-						assertThat(context).doesNotHaveBean(CounselEmbeddingWorker.class));
+				.withBean(StringRedisTemplate.class, () -> redis)
+				.withBean(EmbeddingClient.class, () -> mock(EmbeddingClient.class))
+				.withBean(ObjectMapper.class, () -> JSON)
+				.withPropertyValues("app.role=" + role).run(context -> {
+					assertThat(context).hasNotFailed().hasSingleBean(CounselEmbeddingWorker.class);
+					assertThat(context.getBean(CounselEmbeddingWorker.class).isRunning()).isTrue();
+				});
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"worker", "all"})
+	void featureCanBeExplicitlyDisabled(String role) {
 		new ApplicationContextRunner().withUserConfiguration(CounselEmbeddingWorkerConfig.class)
-				.withPropertyValues("app.role=api", "app.counsel.embedding-worker.enabled=true").run(context ->
-						assertThat(context).doesNotHaveBean(CounselEmbeddingWorker.class));
+				.withPropertyValues("app.role=" + role, "app.counsel.embedding-worker.enabled=false").run(context ->
+						assertThat(context).hasNotFailed().doesNotHaveBean(CounselEmbeddingWorker.class));
+	}
+
+	@Test void featureCannotRunOnApiRoleEvenWhenEnabled() {
+		var runner = new ApplicationContextRunner().withUserConfiguration(CounselEmbeddingWorkerConfig.class)
+				.withPropertyValues("app.role=api");
+		runner.run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(CounselEmbeddingWorker.class));
+		runner.withPropertyValues("app.counsel.embedding-worker.enabled=true").run(context ->
+				assertThat(context).hasNotFailed().doesNotHaveBean(CounselEmbeddingWorker.class));
 	}
 }

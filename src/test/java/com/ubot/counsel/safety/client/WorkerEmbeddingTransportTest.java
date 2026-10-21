@@ -1,24 +1,16 @@
-package com.ubot.counsel;
+package com.ubot.counsel.safety.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.pgvector.PGvector;
 import com.ubot.counsel.common.config.CounselProperties;
-import com.ubot.counsel.safety.client.EmbeddingClient;
-import com.ubot.counsel.safety.client.WorkerEmbeddingTransport;
-import com.ubot.counsel.safety.repository.SafetyRepository;
-import com.ubot.counsel.safety.service.SafetyGuardService;
-import com.ubot.embedding.worker.CounselEmbeddingWorker;
-import com.ubot.forbiddenword.entity.ForbiddenWord;
-import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
-import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
-import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -30,9 +22,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.ObjectMapper;
@@ -40,6 +33,8 @@ import tools.jackson.databind.ObjectMapper;
 class WorkerEmbeddingTransportTest {
 	static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:8-alpine")).withExposedPorts(6379);
 	static final ObjectMapper JSON = new ObjectMapper();
+	static final CounselProperties.Guard GUARD =
+			new CounselProperties.Guard("http://unused", "test-model", "test-v1", 0.95, 3, 2, 500, 1000);
 	static LettuceConnectionFactory connection;
 	static StringRedisTemplate redis;
 	WorkerEmbeddingTransport transport;
@@ -53,8 +48,7 @@ class WorkerEmbeddingTransportTest {
 	@AfterAll static void stop() { connection.destroy(); REDIS.stop(); }
 	@BeforeEach void reset() {
 		try (var conn = connection.getConnection()) { conn.serverCommands().flushDb(); }
-		transport = new WorkerEmbeddingTransport(redis,
-				new CounselProperties.Guard("http://unused", "test-model", "test-v1", 0.95, 3, 2, 500, 1000), JSON);
+		transport = new WorkerEmbeddingTransport(redis, GUARD, JSON);
 	}
 
 	CompletableFuture<String> reply(Map<String, Object> response) {
@@ -86,42 +80,6 @@ class WorkerEmbeddingTransportTest {
 		assertThat(redis.opsForStream().size("chat:jobs")).isEqualTo(1);
 	}
 
-	@Test void existingFilterPreventsQueueWorkAndOnlyPassedMessagesReachWorker() {
-		var words = mock(ForbiddenWordRepository.class);
-		when(words.findAllByStatus(ForbiddenWordStatus.ACTIVE)).thenReturn(List.of(
-				ForbiddenWord.builder().word("필터검증").status(ForbiddenWordStatus.ACTIVE).build()));
-		var filter = new ForbiddenWordFilterService(words);
-		filter.refreshForbiddenWordCache();
-		var beans = new DefaultListableBeanFactory();
-		beans.registerSingleton("workerTransport", transport);
-		var properties = new CounselProperties(true, 30, 120, 15, 60, 30,
-				new CounselProperties.Guard("http://127.0.0.1:1/unused", "test-model", "test-v1", 0.95, 3, 2, 500, 1000));
-		var embedding = new EmbeddingClient(properties, JSON, beans.getBeanProvider(WorkerEmbeddingTransport.class), "worker");
-		var safety = mock(SafetyRepository.class);
-		when(safety.findTopMatches(anyString())).thenReturn(List.of(new SafetyRepository.Match(1, 0.2, "INSULT")));
-		var guard = new SafetyGuardService(filter, embedding, safety, properties);
-		var model = mock(com.ubot.embedding.client.EmbeddingClient.class);
-		when(model.getModelName()).thenReturn("test-model");
-		float[] values = new float[com.ubot.embedding.client.EmbeddingClient.DIMENSIONS];
-		values[0] = 1;
-		when(model.embed("요금 문의")).thenReturn(new PGvector(values));
-		var worker = new CounselEmbeddingWorker(redis, model, JSON);
-		redis.opsForStream().add("chat:jobs", Map.of("jobId", "untouched"));
-		worker.start();
-		try {
-			assertThat(guard.checkMessage("필터검증 문의").status()).isEqualTo("BLOCKED");
-			verifyNoInteractions(model, safety);
-			assertThat(redis.keys(WorkerEmbeddingTransport.PREFIX + "*")).isEmpty();
-
-			assertThat(guard.checkMessage("  요금　문의  ").status()).isEqualTo("ALLOWED");
-			verify(model).embed("요금 문의");
-			assertThat(redis.keys(WorkerEmbeddingTransport.PREFIX + "*")).isEmpty();
-			assertThat(redis.opsForStream().size("chat:jobs")).isEqualTo(1);
-		} finally {
-			worker.stop();
-		}
-	}
-
 	@Test void noWorkerTimesOutAndRemovesQueuedOriginal() {
 		long start = System.nanoTime();
 		assertThatThrownBy(() -> transport.embed("요금 문의"))
@@ -137,6 +95,20 @@ class WorkerEmbeddingTransportTest {
 				.isInstanceOf(EmbeddingClient.Failure.class).hasMessage("WORKER_BUSY");
 		assertThat(redis.opsForList().range(WorkerEmbeddingTransport.QUEUE, 0, -1)).containsExactlyElementsOf(pending);
 		assertThat(redis.keys(WorkerEmbeddingTransport.PREFIX + "request:*")).isEmpty();
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void temporarilyFullQueueIsRetriedOnceWithinTheOriginalDeadline() {
+		var busyRedis = mock(StringRedisTemplate.class);
+		ValueOperations<String, String> values = mock(ValueOperations.class);
+		when(busyRedis.execute(any(RedisScript.class), anyList(), anyString(), anyString(), anyString())).thenReturn(0L, 1L);
+		when(busyRedis.opsForValue()).thenReturn(values);
+		when(values.get(anyString())).thenReturn(JSON.writeValueAsString(Map.of(
+				"version", 1, "status", "SUCCEEDED", "model", "test-model", "embedding", List.of(1))));
+		var busyTransport = new WorkerEmbeddingTransport(busyRedis, GUARD, JSON);
+		assertThat(busyTransport.embed("문의").size()).isEqualTo(1);
+		verify(busyRedis, times(2)).execute(any(RedisScript.class), anyList(), anyString(), anyString(), anyString());
 	}
 
 	@Test void workerFailureRemainsFailureAndNeverFallsBackToHttp() throws Exception {

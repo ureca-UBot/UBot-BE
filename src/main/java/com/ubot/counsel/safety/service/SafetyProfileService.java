@@ -2,17 +2,18 @@ package com.ubot.counsel.safety.service;
 
 import com.ubot.counsel.common.config.CounselProperties;
 import com.ubot.counsel.safety.client.EmbeddingClient;
-import com.ubot.counsel.safety.util.SafetyTextNormalizer;
 import com.ubot.counsel.safety.repository.SafetySentenceRepository;
-import java.io.InputStreamReader;
+import com.ubot.counsel.safety.util.SafetyTextNormalizer;
 import java.io.ByteArrayInputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,19 +21,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
+@RequiredArgsConstructor
 public class SafetyProfileService {
 	private record Example(String text, int severity, String vector) {}
 	private final JdbcTemplate jdbc;
 	private final TransactionTemplate tx;
 	private final EmbeddingClient embedding;
-	private final CounselProperties.Guard config;
+	private final CounselProperties properties;
 	private final SafetySentenceRepository sentences;
-	public SafetyProfileService(JdbcTemplate jdbc, TransactionTemplate tx, EmbeddingClient embedding, CounselProperties properties,
-			SafetySentenceRepository sentences) {
-		this.jdbc = jdbc;
-		this.tx = tx; this.embedding = embedding; this.config = properties.guard();
-		this.sentences = sentences;
-	}
 	public void seedProfile() throws Exception {
 		byte[] bytes = new ClassPathResource("safety/safety-positive.csv").getContentAsByteArray();
 		String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
@@ -58,24 +54,36 @@ public class SafetyProfileService {
 			jdbc.update("""
 					INSERT INTO counseling.guard_profiles(profile_version,model_name,preprocessing_version,dataset_sha256)
 					VALUES (?,?,?,?)
-					""", config.profile(), config.model(), SafetyTextNormalizer.PREPROCESSING, digest);
+					""", properties.guard().profile(), properties.guard().model(), SafetyTextNormalizer.PREPROCESSING, digest);
 			for (var example : examples) {
 				long vectorId = jdbc.queryForObject("""
 						INSERT INTO counseling.safety_filter_vectors(category,example_text,embedding,severity,model_name,profile_version)
 						VALUES ('INSULT',?,CAST(? AS public.vector),?,?,?) RETURNING id
-						""", Long.class, example.text(), example.vector(), example.severity(), config.model(), config.profile());
+						""", Long.class, example.text(), example.vector(), example.severity(), properties.guard().model(), properties.guard().profile());
 				sentences.registerSeed(vectorId, example.text(), SafetyTextNormalizer.contentHash(example.text()), example.severity());
 			}
 		});
 	}
 	private boolean alreadySeeded(String digest) {
-		var rows = jdbc.queryForList("SELECT * FROM counseling.guard_profiles WHERE profile_version=?", config.profile());
+		var rows = jdbc.queryForList("SELECT * FROM counseling.guard_profiles WHERE profile_version=?", properties.guard().profile());
 		if (rows.isEmpty()) return false;
 		var existing = rows.getFirst();
-		if (!digest.equals(existing.get("dataset_sha256")) || !config.model().equals(existing.get("model_name"))
+		if (!digest.equals(existing.get("dataset_sha256")) || !properties.guard().model().equals(existing.get("model_name"))
 				|| !SafetyTextNormalizer.PREPROCESSING.equals(existing.get("preprocessing_version"))) {
 			throw new IllegalStateException("Profile is immutable; increment counsel.guard.profile and re-embed");
 		}
 		return true;
+	}
+	public void verifyReady() {
+		// 기존 색인이 있어도 이번 배포의 워커·모델 연결과 활성 비교 대상을 다시 확인함
+		embedding.embed("상담 연결 확인");
+		Boolean ready = jdbc.queryForObject("""
+				SELECT EXISTS (
+				    SELECT 1 FROM counseling.safety_filter_vectors v
+				    JOIN counseling.guard_profiles p ON p.profile_version=v.profile_version AND p.model_name=v.model_name
+				    WHERE v.active AND v.model_name=? AND v.profile_version=? AND p.preprocessing_version=?
+				)
+				""", Boolean.class, properties.guard().model(), properties.guard().profile(), SafetyTextNormalizer.PREPROCESSING);
+		if (!Boolean.TRUE.equals(ready)) throw new IllegalStateException("Counsel safety profile has no active indexed sentences");
 	}
 }

@@ -1,33 +1,32 @@
 package com.ubot.counsel.admin.controller;
 
+import com.ubot.auth.config.CustomUserDetails;
+import com.ubot.common.ApiResponse;
 import com.ubot.counsel.admin.dto.request.SafetyEvaluationRequestDto;
 import com.ubot.counsel.admin.dto.response.SafetyEvaluationResponseDto;
 import com.ubot.counsel.admin.dto.response.SafetyEventsResponseDto;
 import com.ubot.counsel.admin.dto.response.SafetySummaryResponseDto;
 import com.ubot.counsel.admin.service.AdminCounselService;
 import com.ubot.counsel.auth.model.Caller;
-import com.ubot.common.ApiResponse;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import com.ubot.auth.config.CustomUserDetails;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/counsel/admin")
+@RequestMapping("/admin/counsel")
+@RequiredArgsConstructor
 public class AdminCounselController {
 	private final AdminCounselService service;
-	public AdminCounselController(AdminCounselService service) {
-		this.service = service;
-	}
 	@GetMapping("/safety/events")
 	ApiResponse<SafetyEventsResponseDto> getSafetyEvents(@AuthenticationPrincipal CustomUserDetails principal, @RequestParam(defaultValue="") String decision,
 			@RequestParam(required=false) Instant from, @RequestParam(required=false) Instant to,

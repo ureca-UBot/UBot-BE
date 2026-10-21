@@ -12,7 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnExpression(AppRole.RUNS_WORKER)
-@ConditionalOnProperty(name = "app.counsel.embedding-worker.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.counsel.embedding-worker.enabled", havingValue = "true", matchIfMissing = true)
 public class CounselEmbeddingWorkerConfig {
 	@Bean
 	public CounselEmbeddingWorker counselEmbeddingWorker(

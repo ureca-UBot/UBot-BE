@@ -14,10 +14,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * 상담 임베딩만 처리합니다. chat:jobs, 채팅 DB, FAQ 검색, LLM 답변 생성은 사용하지 않습니다.
- * 요청 원문과 결과는 짧은 TTL로만 Redis에 보관하며, 실패한 작업을 자동 재실행하지 않습니다.
- */
+// 상담 임베딩만 처리함. chat:jobs, 채팅 DB, FAQ 검색, LLM 답변 생성은 사용하지 않음
+// 요청 원문과 결과는 짧은 TTL로만 Redis에 보관하고, 실패한 작업은 자동 재실행하지 않음
 public class CounselEmbeddingWorker implements SmartLifecycle {
 	public static final String PREFIX = "{counsel-embedding}:v1:";
 	public static final String QUEUE = PREFIX + "queue";
@@ -43,7 +41,7 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 	@Override
 	public synchronized void start() {
 		if (!running.compareAndSet(false, true)) return;
-		// 상담 호출은 한 스레드에서 순차 처리하며 기존 ChatJobWorker의 실행 풀을 빌리지 않습니다.
+		// 상담 호출은 한 스레드에서 순차 처리하며 기존 ChatJobWorker의 실행 풀을 빌리지 않음
 		thread = Thread.ofPlatform().daemon().name("counsel-embedding-worker").start(this::consume);
 	}
 
@@ -53,7 +51,7 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 				String id = redis.opsForList().leftPop(QUEUE, Duration.ofSeconds(1));
 				if (id != null) process(id);
 			} catch (RuntimeException ignored) {
-				// Redis 장애 시 바쁜 반복을 막습니다. 요청 원문·토큰·벡터를 로그에 남기지 않습니다.
+				// Redis 장애 시 바쁜 반복을 막음. 요청 원문·토큰·벡터는 로그에 남기지 않음
 				if (running.get()) {
 					try { Thread.sleep(1000); }
 					catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
@@ -68,7 +66,8 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 		} catch (IllegalArgumentException ignored) { return; }
 		String requestKey = PREFIX + "request:" + id;
 		String raw = redis.opsForValue().get(requestKey);
-		if (raw == null) return; // 대기 중 만료되었거나 호출자가 취소한 작업입니다.
+		// 대기 중 만료됐거나 호출자가 취소한 작업임
+		if (raw == null) return;
 		Map<String, Object> result;
 		try {
 			if (raw.length() > 16000) throw new IllegalArgumentException();
@@ -98,7 +97,7 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 		} catch (RuntimeException error) {
 			result = failed("WORKER_INVALID_RESPONSE");
 		}
-		// 계산 중 요청이 만료/취소되면 늦은 결과를 게시하지 않습니다.
+		// 계산 중 요청이 만료·취소되면 늦은 결과를 게시하지 않음
 		if (running.get()) redis.execute(COMPLETE, List.of(requestKey, PREFIX + "result:" + id),
 				json.writeValueAsString(result));
 	}

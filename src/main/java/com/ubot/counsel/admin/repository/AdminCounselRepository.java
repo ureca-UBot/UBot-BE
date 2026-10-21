@@ -6,15 +6,14 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@RequiredArgsConstructor
 public class AdminCounselRepository {
 	private final JdbcTemplate jdbc;
-	public AdminCounselRepository(JdbcTemplate jdbc) {
-		this.jdbc = jdbc;
-	}
 	public List<SafetyEventResponseDto> events(String decision, Instant from, Instant to, int page) {
 		return jdbc.query("""
 				SELECT e.id, e.created_at AS "createdAt", m.session_id AS "sessionId", m.sender_role AS "senderRole",

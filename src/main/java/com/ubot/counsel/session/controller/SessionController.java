@@ -1,21 +1,22 @@
 package com.ubot.counsel.session.controller;
 
-import com.ubot.counsel.auth.model.Caller;
+import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
+import com.ubot.counsel.auth.model.Caller;
 import com.ubot.counsel.session.dto.request.AvailabilityRequestDto;
-import com.ubot.counsel.session.dto.response.AvailabilityResponseDto;
-import com.ubot.counsel.session.dto.response.SessionResponseDto;
-import com.ubot.counsel.session.dto.response.HistoryMessageResponseDto;
 import com.ubot.counsel.session.dto.request.HandoffRequestDto;
+import com.ubot.counsel.session.dto.response.AvailabilityResponseDto;
+import com.ubot.counsel.session.dto.response.HistoryMessageResponseDto;
+import com.ubot.counsel.session.dto.response.SessionResponseDto;
 import com.ubot.counsel.session.service.SessionService;
 import jakarta.validation.Valid;
-import java.util.UUID;
 import java.util.List;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import com.ubot.auth.config.CustomUserDetails;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,11 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/counsel")
+@RequiredArgsConstructor
 public class SessionController {
 	private final SessionService service;
-	public SessionController(SessionService service) {
-		this.service = service;
-	}
 	@PostMapping("/requests")
 	ApiResponse<SessionResponseDto> createSession(@AuthenticationPrincipal CustomUserDetails principal,
 			@Valid @RequestBody(required = false) HandoffRequestDto body) {

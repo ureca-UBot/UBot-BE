@@ -13,10 +13,14 @@ import com.ubot.counsel.safety.service.SafetyGuardService;
 import com.ubot.counsel.session.repository.SessionRepository;
 import java.util.List;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class MessageService {
 	private record Accepted(Message message, boolean fresh) {}
 	private final MessageRepository messages;
@@ -26,13 +30,6 @@ public class MessageService {
 	private final TransactionTemplate tx;
 	private final CounselProperties config;
 	private final MessageRateLimitService rateLimit;
-	public MessageService(MessageRepository messages, SessionRepository sessions, SafetyGuardService guard,
-			SafetyRepository safety, TransactionTemplate tx, CounselProperties config, MessageRateLimitService rateLimit) {
-		this.messages = messages;
-		this.sessions = sessions; this.guard = guard;
-		this.safety = safety;
-		this.tx = tx; this.config = config; this.rateLimit = rateLimit;
-	}
 	public MessageReceiptResponseDto sendMessage(Caller sender, UUID id, UUID clientId, String content) {
 		Accepted accepted = tx.execute(ignored -> {
 			var session = sessions.get(id, true);
@@ -47,7 +44,7 @@ public class MessageService {
 			return new Accepted(messages.insert(session, sender, clientId, content), true);
 		});
 		if (!accepted.fresh()) return accepted.message().receipt();
-		// PENDING is committed. No transaction, connection, or session lock is held across HTTP.
+		// PENDING 접수 커밋 후 검사하며 기다리는 동안 트랜잭션·연결·세션 잠금을 유지하지 않음
 		GuardDecision decision = guard.checkMessage(content);
 		return complete(accepted.message(), decision);
 	}
@@ -70,10 +67,10 @@ public class MessageService {
 	public List<MessageResponseDto> getMessages(Caller caller, UUID id, long after, int limit) {
 		if (after < 0 || limit < 1 || limit > 100) throw new IllegalArgumentException();
 		return tx.execute(ignored -> {
-			// Serialize this short authorization/read with reassignment so an old counselor cannot race it.
+			// 재배정과 권한 확인·조회를 직렬화해 이전 상담사의 조회 경쟁을 막음
 			var session = sessions.get(id, true);
 			session.requireParticipant(caller);
-			return messages.delivered(id, after, limit);
+			return messages.delivered(id, caller.id(), after, limit);
 		});
 	}
 	public void recoverPending() {
@@ -82,6 +79,8 @@ public class MessageService {
 			for (var pending : messages.stale(config.pendingTimeoutSeconds())) {
 				complete(pending, GuardDecision.failed("PENDING_EXPIRED"));
 			}
-		} catch (org.springframework.dao.DataAccessException ignored) { }
+		} catch (org.springframework.dao.DataAccessException exception) {
+			log.error("상담 대기 메시지 정리 실패 code=COUNSEL-011 exception={}", exception.getClass().getSimpleName());
+		}
 	}
 }

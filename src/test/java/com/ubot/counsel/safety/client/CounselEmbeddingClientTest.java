@@ -30,11 +30,11 @@ class CounselEmbeddingClientTest {
 		beans.registerSingleton("worker", worker);
 		var values = new ArrayList<>(Collections.nCopies(DIMENSIONS, 0.0));
 		values.set(0, 1.0);
-		when(worker.embed("ABC 요금")).thenReturn(json.valueToTree(values));
+		when(worker.embed(org.mockito.ArgumentMatchers.eq("ABC 요금"), org.mockito.ArgumentMatchers.anyLong())).thenReturn(json.valueToTree(values));
 		var client = new EmbeddingClient(properties, json, beans.getBeanProvider(WorkerEmbeddingTransport.class), "worker");
 
 		assertThat(client.embed(" ＡＢＣ　 요금 ")).startsWith("[1.0,").endsWith("]");
-		verify(worker).embed("ABC 요금");
+		verify(worker).embed(org.mockito.ArgumentMatchers.eq("ABC 요금"), org.mockito.ArgumentMatchers.anyLong());
 	}
 
 	@Test
@@ -50,9 +50,46 @@ class CounselEmbeddingClientTest {
 	void workerFailureDoesNotFallBackToHttp() {
 		var worker = mock(WorkerEmbeddingTransport.class);
 		beans.registerSingleton("worker", worker);
-		when(worker.embed("문의")).thenThrow(new EmbeddingClient.Failure("WORKER_TIMEOUT"));
+		when(worker.embed(org.mockito.ArgumentMatchers.eq("문의"), org.mockito.ArgumentMatchers.anyLong())).thenThrow(new EmbeddingClient.Failure("WORKER_TIMEOUT"));
 		var client = new EmbeddingClient(properties, json, beans.getBeanProvider(WorkerEmbeddingTransport.class), "worker");
 
 		assertThatThrownBy(() -> client.embed("문의")).isInstanceOf(EmbeddingClient.Failure.class).hasMessage("WORKER_TIMEOUT");
+	}
+
+	@Test
+	void waitingAndWorkerShareOneDeadline() throws Exception {
+		var worker = mock(WorkerEmbeddingTransport.class);
+		beans.registerSingleton("worker", worker);
+		var entered = new java.util.concurrent.CountDownLatch(2);
+		var release = new java.util.concurrent.CountDownLatch(1);
+		var thirdStarted = new java.util.concurrent.CountDownLatch(1);
+		var remainingMillis = new java.util.concurrent.atomic.AtomicLong();
+		var values = new ArrayList<>(Collections.nCopies(DIMENSIONS, 0.0));
+		values.set(0, 1.0);
+		when(worker.embed(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyLong())).thenAnswer(call -> {
+			if (!"third".equals(call.getArgument(0))) {
+				entered.countDown();
+				release.await();
+				return json.valueToTree(values);
+			}
+			long deadline = call.getArgument(1);
+			remainingMillis.set(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+			java.util.concurrent.TimeUnit.NANOSECONDS.sleep(Math.max(0, deadline - System.nanoTime()));
+			throw new EmbeddingClient.Failure("WORKER_TIMEOUT");
+		});
+		var client = new EmbeddingClient(properties, json, beans.getBeanProvider(WorkerEmbeddingTransport.class), "worker");
+		try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+			var first = pool.submit(() -> client.embed("first"));
+			var second = pool.submit(() -> client.embed("second"));
+			assertThat(entered.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+			var third = pool.submit(() -> { thirdStarted.countDown(); return client.embed("third"); });
+			thirdStarted.await();
+			Thread.sleep(300);
+			release.countDown();
+			first.get(); second.get();
+			assertThatThrownBy(() -> third.get()).hasCauseInstanceOf(EmbeddingClient.Failure.class);
+			assertThat(remainingMillis.get()).isBetween(1L, 850L);
+			assertThat(client.embed("after-timeout")).startsWith("[1.0,");
+		} finally { release.countDown(); }
 	}
 }

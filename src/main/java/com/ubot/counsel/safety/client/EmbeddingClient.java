@@ -1,7 +1,5 @@
 package com.ubot.counsel.safety.client;
 
-import static com.ubot.embedding.client.EmbeddingClient.DIMENSIONS;
-
 import com.ubot.counsel.common.config.CounselProperties;
 import com.ubot.counsel.safety.util.SafetyTextNormalizer;
 import java.net.URI;
@@ -15,9 +13,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import static com.ubot.embedding.client.EmbeddingClient.DIMENSIONS;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -44,22 +43,27 @@ public class EmbeddingClient {
 		this.config = properties.guard();
 		this.json = json;
 		this.worker = transport.equals("worker") ? worker.getObject() : null;
-		slots = new Semaphore(config.concurrency());
+		slots = new Semaphore(config.concurrency(), true);
 		http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(config.connectTimeoutMs()))
 				.followRedirects(HttpClient.Redirect.NEVER).build();
 	}
 	public String embed(String input) {
-		if (!slots.tryAcquire()) throw new Failure("GUARD_BUSY");
+		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(config.responseTimeoutMs());
+		boolean acquired = false;
 		CompletableFuture<HttpResponse<String>> pending = null;
 		try {
-			if (worker != null) return vectorLiteral(worker.embed(SafetyTextNormalizer.normalize(input)));
+			acquired = slots.tryAcquire(config.responseTimeoutMs(), TimeUnit.MILLISECONDS);
+			if (!acquired) throw new Failure("GUARD_BUSY");
+			if (worker != null) return vectorLiteral(worker.embed(SafetyTextNormalizer.normalize(input), deadline));
 			String body = json.writeValueAsString(Map.of("model", config.model(), "input", SafetyTextNormalizer.normalize(input)));
+			long remaining = deadline - System.nanoTime();
+			if (remaining <= 0) throw new Failure("EMBEDDING_TIMEOUT");
 			pending = http.sendAsync(HttpRequest.newBuilder(URI.create(config.embeddingUrl()))
-					.timeout(Duration.ofMillis(config.responseTimeoutMs()))
+					.timeout(Duration.ofNanos(remaining))
 					.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),
 					HttpResponse.BodyHandlers.ofString());
-			// Bound the complete body, not just receipt of the response headers.
-			var response = pending.get(config.responseTimeoutMs(), TimeUnit.MILLISECONDS);
+			// 대기 시간과 응답 본문 수신까지 하나의 제한 시간을 공유함
+			var response = pending.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
 			if (response.statusCode() != 200) throw new Failure("EMBEDDING_HTTP");
 			var root = json.readTree(response.body());
 			var data = root.path("data");
@@ -74,7 +78,7 @@ public class EmbeddingClient {
 		catch (Exception e) { throw new Failure("EMBEDDING_UNAVAILABLE"); }
 		finally {
 			if (pending != null && !pending.isDone()) pending.cancel(true);
-			slots.release();
+			if (acquired) slots.release();
 		}
 	}
 

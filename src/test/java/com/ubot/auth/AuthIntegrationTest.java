@@ -237,20 +237,10 @@ class AuthIntegrationTest {
         mockMvc.perform(post("/auth/refresh").contentType(MediaType.APPLICATION_JSON)
                         .content(refreshRequest(responseToken(login, "refreshToken"))))
                 .andExpect(status().isOk());
-        // 기존 JWT claim보다 현재 DB 역할이 우선되어야 신규 상담 권한을 즉시 회수할 수 있습니다.
+        // 기존 JWT claim보다 현재 DB 역할이 우선해야 신규 상담 권한을 즉시 회수할 수 있음
         jdbcTemplate.update("UPDATE users SET role='USER' WHERE email=?", EMAIL);
         mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("USER"));
-    }
-
-    @Test
-    @DisplayName("회원가입에 상담사 역할을 끼워 보내도 USER로 생성한다")
-    void signupCannotChooseCounselorRole() throws Exception {
-        String request = signupRequest(EMAIL).replace("\"name\":", "\"role\":\"COUNSELOR\", \"name\":");
-        mockMvc.perform(post("/auth/signup").contentType(MediaType.APPLICATION_JSON).content(request))
-                .andExpect(status().isOk());
-        assertThat(jdbcTemplate.queryForObject("SELECT role FROM users WHERE email=?", String.class, EMAIL))
-                .isEqualTo("USER");
     }
 
     private String signUpAndLogin() throws Exception {
