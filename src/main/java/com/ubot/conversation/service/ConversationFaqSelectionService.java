@@ -46,7 +46,7 @@ public class ConversationFaqSelectionService {
 	}
 
 	private FaqSelectionResponseDto response(Long userId, FaqSelectionRequestDto request, ConversationFaqSelection selection) {
-		var conversation = conversations.findById(selection.getConversationId())
+		var conversation = conversations.findByIdAndDeletedAtIsNull(selection.getConversationId())
 				.filter(value -> Objects.equals(value.getUserId(), userId))
 				.orElseThrow(() -> new ConversationException(ConversationErrorCode.CONVERSATION_NOT_FOUND));
 		if (!Objects.equals(selection.getFaqId(), request.faqId())

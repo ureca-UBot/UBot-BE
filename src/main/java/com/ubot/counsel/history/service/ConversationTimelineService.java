@@ -25,7 +25,7 @@ public class ConversationTimelineService {
 	public ConversationTimelinePageResponseDto getTimeline(Caller caller, UUID conversationId, String afterCursor, int limit) {
 		caller.require(UserRole.USER);
 		if (limit < 1 || limit > 100) throw new IllegalArgumentException();
-		conversationRepository.findByPublicIdAndUserId(conversationId, caller.id())
+		conversationRepository.findByPublicIdAndUserIdAndDeletedAtIsNull(conversationId, caller.id())
 				.orElseThrow(() -> new ConversationException(ConversationErrorCode.CONVERSATION_NOT_FOUND));
 		var rows = timelineRepository.findTimeline(conversationId, TimelineCursor.decode(afterCursor), limit + 1);
 		boolean hasNext = rows.size() > limit;
