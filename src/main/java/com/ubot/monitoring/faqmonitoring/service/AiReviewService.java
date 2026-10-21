@@ -91,25 +91,6 @@ public class AiReviewService {
 		}
 	}
 
-	public AiReviewResponse reviewLowUsage(Long faqId) {
-		long startedAt = System.nanoTime();
-		log.info("FAQ AI 검토를 시작합니다: faqId={}, 검토태그={}",
-				faqId, FaqImprovementType.LOW_USAGE);
-		try {
-			Faq faq = findActiveFaq(faqId);
-			AiReviewResponse response = generateReview(
-					faq,
-					FaqImprovementType.LOW_USAGE,
-					buildLowUsageSection()
-			);
-			logReviewCompleted(faqId, FaqImprovementType.LOW_USAGE, startedAt);
-			return response;
-		} catch (RuntimeException exception) {
-			logReviewFailed(faqId, FaqImprovementType.LOW_USAGE, startedAt, exception);
-			throw exception;
-		}
-	}
-
 	private Faq findActiveFaq(Long faqId) {
 		return faqRepository.findActiveById(faqId)
 				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
@@ -437,11 +418,6 @@ public class AiReviewService {
 			String question,
 			double similarity
 	) {
-	}
-
-	private String buildLowUsageSection() {
-		// 사용 추이와 관련 사용자 질문 자료는 후속 단계에서 추가합니다.
-		return "[사용도 낮음]\n사용 추이와 관련 질문 자료는 아직 제공되지 않았습니다. 수요가 없다고 단정하지 마세요.\n\n";
 	}
 
 	private long elapsedMillis(long startedAt) {

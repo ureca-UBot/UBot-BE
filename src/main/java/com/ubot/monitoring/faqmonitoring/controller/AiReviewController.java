@@ -36,10 +36,4 @@ public class AiReviewController {
 		return ApiResponse.success(aiReviewService.reviewLowRagQuality(faqId));
 	}
 
-	@PostMapping("/{faqId}/ai-review/low-usage")
-	public ApiResponse<AiReviewResponse> reviewLowUsage(
-			@PathVariable("faqId") @Positive Long faqId
-	) {
-		return ApiResponse.success(aiReviewService.reviewLowUsage(faqId));
-	}
 }
