@@ -485,12 +485,25 @@ public class ChatJobWorker implements SmartLifecycle {
 		}
 	}
 
+
+	/** 로컬 실행 중 해당 ID 하나만 중단합니다. 다른 Worker는 기존 heartbeat에서 종료 상태를 확인합니다. */
+	public void cancelJob(long jobId) {
+		for (RunningJob job : runningJobs) {
+			if (job.received.message().jobId() == jobId) job.cancel();
+		}
+	}
+
 	private void execute(ReceivedChatJob received, ClaimedJob claimed) {
 		long executionStarted = System.nanoTime();
 		ChatJobMessage message = new ChatJobMessage(received.message().jobId(), claimed.context());
 		RunningJob job = new RunningJob(received, claimed.startedAt());
 		runningJobs.add(job);
 		try {
+			// 선점 직후 사용자 취소가 커밋되었으면 모델을 호출하지 않습니다.
+			if (jobRepository.findById(message.jobId()).map(found -> found.getStatus().isFinished()).orElse(false)) {
+				ackQuietly(received);
+				return;
+			}
 			log.info("답변 작업을 시작합니다: 작업ID={}, 메시지ID={}", message.jobId(), received.messageId());
 			AnswerAttemptsHistory attempt = answerAttemptsHistoryRepository.findById(claimed.attemptId()).orElseThrow();
 			job.computation = computations.submit(() -> AnswerProgress.observe(
@@ -529,7 +542,11 @@ public class ChatJobWorker implements SmartLifecycle {
 			// DB 커밋 뒤에만 ACK함
 			ackQuietly(received);
 		} catch (CancellationException exception) {
-			log.warn("종료 중에 대기열로 돌려놓은 작업이라 결과를 버립니다: 작업ID={}", message.jobId());
+			// 취소가 DB에 확정된 작업만 ACK합니다. 종료·선점 상실의 기존 재발행 흐름은 유지합니다.
+			if (jobRepository.findById(message.jobId()).map(found -> found.getStatus().isFinished()).orElse(false)) {
+				ackQuietly(received);
+			}
+			log.info("중단되었거나 실행 권한을 잃은 답변 작업의 결과를 버립니다: 작업ID={}", message.jobId());
 		} catch (RuntimeException exception) {
 			// DB 장애 등으로 기록 못 함. ACK하지 않아 처리 대기로 남음
 			log.error("답변 작업 결과를 기록하지 못해 메시지를 ACK하지 않았습니다: 작업ID={}", message.jobId(), exception);
