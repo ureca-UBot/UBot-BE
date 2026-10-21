@@ -174,6 +174,23 @@ class UnansweredGroupNamingServiceTest {
     }
 
     @Test
+    @DisplayName("LLM 호출 중 다른 실행이 같은 묶음을 다시 시도하면 먼저 시작한 실행의 결과는 저장하지 않는다")
+    void skipsStaleResultWhenAnotherRunRetried() {
+        Long groupId = group("겹쳐서 처리될 묶음", 2, "PENDING", null, null);
+        given(llmService.generateAnswer(any())).willAnswer(call -> {
+            jdbcTemplate.update(
+                    "UPDATE unanswered_question_groups SET naming_attempted_at = naming_attempted_at + INTERVAL '1 second' WHERE id = ?",
+                    groupId);
+            return answer("{\"topic\": \"오래된 이름\", \"category\": null}");
+        });
+
+        assertThat(namingService.nameGroups()).isZero();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT topic_name FROM unanswered_question_groups WHERE id = ?", String.class, groupId)).isNull();
+    }
+
+    @Test
     @DisplayName("관리자가 상태를 바꿔도 JPA가 네이밍 결과를 옛 값으로 덮어쓰지 않는다")
     void jpaUpdateKeepsNaming() {
         Long groupId = group("상태가 바뀔 묶음", 2, "PENDING", null, null);

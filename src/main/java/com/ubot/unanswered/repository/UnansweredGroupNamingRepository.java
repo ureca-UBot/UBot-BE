@@ -1,5 +1,6 @@
 package com.ubot.unanswered.repository;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,25 +61,29 @@ public class UnansweredGroupNamingRepository {
         return categories;
     }
 
-    public void markAttempted(Long groupId) {
-        jdbcTemplate.update(
-                "UPDATE unanswered_question_groups SET naming_attempted_at = LOCALTIMESTAMP WHERE id = ?",
+    public LocalDateTime markAttempted(Long groupId) {
+        return jdbcTemplate.queryForObject(
+                "UPDATE unanswered_question_groups SET naming_attempted_at = LOCALTIMESTAMP WHERE id = ? RETURNING naming_attempted_at",
+                LocalDateTime.class,
                 groupId
         );
     }
 
-    public boolean saveNaming(Long groupId, String topicName, Long suggestedCategoryId, int questionCount) {
+    public boolean saveNaming(Long groupId, LocalDateTime attemptedAt, String topicName, Long suggestedCategoryId,
+            int questionCount) {
         return jdbcTemplate.update(
                 """
                 UPDATE unanswered_question_groups
                 SET topic_name = ?, suggested_category_id = ?, named_question_count = ?
                 WHERE id = ?
                   AND status IN ('PENDING', 'ON_HOLD')
+                  AND naming_attempted_at = ?
                 """,
                 topicName,
                 suggestedCategoryId,
                 questionCount,
-                groupId
+                groupId,
+                attemptedAt
         ) == 1;
     }
 

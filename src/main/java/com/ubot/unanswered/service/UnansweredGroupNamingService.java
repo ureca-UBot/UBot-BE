@@ -2,6 +2,8 @@ package com.ubot.unanswered.service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,6 +35,7 @@ public class UnansweredGroupNamingService {
     static final int BATCH_SIZE = 10;
     static final int QUESTION_LIMIT = 10;
     static final int TOPIC_MAX_LENGTH = 30;
+    static final Duration BATCH_DEADLINE = Duration.ofMinutes(20);
 
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
     private static final Map<String, Object> SCHEMA = createSchema();
@@ -60,17 +63,22 @@ public class UnansweredGroupNamingService {
         String systemPrompt = readSystemPrompt();
         Map<String, Long> categories = namingRepository.findCategoryIdsByName();
         int named = 0;
+        long deadline = System.nanoTime() + BATCH_DEADLINE.toNanos();
         for (NamingTarget target : targets) {
+            if (System.nanoTime() > deadline) {
+                log.warn("미응답 묶음 이름 작업이 마감 시간을 넘겨 남은 묶음은 다음 실행으로 미룹니다: 남은묶음ID={}", target.id());
+                break;
+            }
             try {
-                namingRepository.markAttempted(target.id());
+                LocalDateTime attemptedAt = namingRepository.markAttempted(target.id());
                 Optional<Naming> naming = parse(callLlm(systemPrompt, categories, target), categories);
                 if (naming.isEmpty()) {
                     log.warn("미응답 묶음 이름을 정하지 못했습니다: 묶음ID={}", target.id());
                     continue;
                 }
-                if (!namingRepository.saveNaming(target.id(), naming.get().topic(), naming.get().categoryId(),
-                        target.questionCount())) {
-                    log.info("이름을 정하는 동안 처리가 끝난 묶음이라 저장하지 않았습니다: 묶음ID={}", target.id());
+                if (!namingRepository.saveNaming(target.id(), attemptedAt, naming.get().topic(),
+                        naming.get().categoryId(), target.questionCount())) {
+                    log.info("이름을 정하는 동안 처리가 끝났거나 다른 실행이 다시 시도한 묶음이라 저장하지 않았습니다: 묶음ID={}", target.id());
                     continue;
                 }
                 named++;
