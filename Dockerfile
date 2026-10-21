@@ -24,6 +24,12 @@ COPY --from=builder /app/app.jar app.jar
 COPY --from=builder /app/.kiwi/model kiwi-model
 ENV KIWI_MODEL_PATH=/app/kiwi-model
 
+# Keep the deployment script and Compose definition at the same commit as the image.
+# SSM extracts this directory before replacing the existing BE containers.
+COPY docker-compose.api.yml docker-compose.worker.yml /opt/ubot-deploy/
+COPY infra/nginx/nginx.api.conf.template /opt/ubot-deploy/infra/nginx/
+COPY tools/deploy/aws-be-deploy.sh /opt/ubot-deploy/tools/deploy/
+
 EXPOSE 8080
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

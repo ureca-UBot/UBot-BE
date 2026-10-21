@@ -5,6 +5,7 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 .env
+.deploy/
 
 # Gradle downloadKiwi 작업이 받는 Kiwi 형태소 분석기 jar와 모델입니다.
 .kiwi/

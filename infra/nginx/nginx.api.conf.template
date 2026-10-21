@@ -1,0 +1,74 @@
+events {}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+
+    upstream backend {
+        server backend:8080;
+    }
+
+    # Only the FE EC2 may supply a client address. Keep the original HTTPS scheme.
+    set_real_ip_from ${FE_PRIVATE_IP};
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+    map $http_x_forwarded_proto $client_proto {
+        default $scheme;
+        https https;
+    }
+
+    # A bearer header alone does not prove authentication, so apply the limit
+    # to every chat submission using the client IP as the key.
+    limit_req_zone $binary_remote_addr zone=chat_guest:10m rate=${CHAT_GUEST_RATE_LIMIT_RATE};
+    limit_req_zone $binary_remote_addr zone=chat_poll:10m rate=20r/s;
+    limit_req_status 429;
+
+    server {
+        listen 80;
+        server_name _;
+
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $client_proto;
+        proxy_read_timeout 180s;
+
+        location = /api/actuator { return 404; }
+        location ^~ /api/actuator/ { return 404; }
+        location = /actuator { return 404; }
+        location ^~ /actuator/ { return 404; }
+
+        location = /api/admin/faqs/embeddings/backfill {
+            proxy_read_timeout 3600s;
+            proxy_pass http://backend/admin/faqs/embeddings/backfill;
+        }
+        location = /api/admin/unanswered-groups/embeddings/backfill {
+            proxy_read_timeout 3600s;
+            proxy_pass http://backend/admin/unanswered-groups/embeddings/backfill;
+        }
+        location /api/chat/jobs/ {
+            limit_req zone=chat_poll burst=40 nodelay;
+            error_page 429 = @chat_rate_limited;
+            proxy_pass http://backend/chat/jobs/;
+        }
+        location /api/chat/ {
+            limit_req zone=chat_guest burst=${CHAT_GUEST_RATE_LIMIT_BURST} nodelay;
+            error_page 429 = @chat_rate_limited;
+            proxy_pass http://backend/chat/;
+        }
+        location /api/ {
+            proxy_pass http://backend/;
+        }
+        location @chat_rate_limited {
+            default_type "application/json; charset=utf-8";
+            return 429 '{"success":false,"code":"RATE-001","message":"요청이 너무 많습니다. 잠시 후 다시 시도해주세요.","data":null}';
+        }
+        location / { return 404; }
+    }
+}
