@@ -41,6 +41,9 @@ public class Conversation {
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
 
+	@Column(name = "deleted_at")
+	private LocalDateTime deletedAt;
+
 	private Conversation(Long userId, ConversationType type) {
 		this.publicId = UUID.randomUUID();
 		this.userId = userId;
@@ -69,5 +72,15 @@ public class Conversation {
 
 	public void touch() {
 		this.updatedAt = LocalDateTime.now();
+	}
+
+	public boolean isDeleted() {
+		return deletedAt != null;
+	}
+
+	public void delete() {
+		if (!isDeleted()) {
+			this.deletedAt = LocalDateTime.now();
+		}
 	}
 }

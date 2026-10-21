@@ -17,7 +17,23 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 	@Query("select c from Conversation c where c.id = :conversationId")
 	Optional<Conversation> findConversationForLock(@Param("conversationId") Long conversationId);
 
-	Optional<Conversation> findByPublicIdAndUserId(UUID publicId, Long userId);
+	Optional<Conversation> findByPublicIdAndUserIdAndDeletedAtIsNull(UUID publicId, Long userId);
+
+	Optional<Conversation> findByIdAndDeletedAtIsNull(Long conversationId);
+
+	boolean existsByIdAndDeletedAtIsNull(Long conversationId);
+
+	@Query(value = """
+			SELECT EXISTS (
+			    SELECT 1 FROM counseling.sessions s WHERE s.conversation_id = :publicId
+			)
+			""", nativeQuery = true)
+	boolean existsCounselSessionByPublicId(@Param("publicId") UUID publicId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select c from Conversation c where c.publicId = :publicId and c.userId = :userId")
+	Optional<Conversation> findMemberConversationForLock(
+			@Param("publicId") UUID publicId, @Param("userId") Long userId);
 
 	@Query(
 			value = """
@@ -47,6 +63,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 					        ) recent ORDER BY recent.occurred_at DESC,recent.priority DESC,recent.id DESC LIMIT 1) AS preview
 					  FROM conversations c
 					 WHERE c.user_id = :userId
+					   AND c.deleted_at IS NULL
 					   AND (EXISTS (SELECT 1 FROM question_log q WHERE q.conversation_id = c.conversation_id)
 					        OR EXISTS (SELECT 1 FROM conversation_faq_selections f WHERE f.conversation_id=c.conversation_id)
 					        OR EXISTS (SELECT 1 FROM counseling.sessions s WHERE s.conversation_id=c.public_id))
@@ -56,6 +73,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 					SELECT count(*)
 					  FROM conversations c
 					 WHERE c.user_id = :userId
+					   AND c.deleted_at IS NULL
 					   AND (EXISTS (SELECT 1 FROM question_log q WHERE q.conversation_id = c.conversation_id)
 					        OR EXISTS (SELECT 1 FROM conversation_faq_selections f WHERE f.conversation_id=c.conversation_id)
 					        OR EXISTS (SELECT 1 FROM counseling.sessions s WHERE s.conversation_id=c.public_id))
