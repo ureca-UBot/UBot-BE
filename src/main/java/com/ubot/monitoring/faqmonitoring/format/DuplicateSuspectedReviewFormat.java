@@ -3,7 +3,6 @@ package com.ubot.monitoring.faqmonitoring.format;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateCandidateAssessment;
-import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewAction;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewResult;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
 import java.util.Collections;
@@ -30,44 +29,57 @@ public final class DuplicateSuspectedReviewFormat {
 		return SCHEMA;
 	}
 
-	public static DuplicateSuspectedAssessment parse(String output, List<Long> expectedCandidateIds) {
+	public static DuplicateSuspectedAssessment parse(
+			String output,
+			Long targetFaqId,
+			List<Long> expectedCandidateIds
+	) {
 		DuplicateSuspectedAssessment assessment = read(output);
-		if (assessment.candidateAssessments() == null
+		if (assessment.canonicalFaqId() == null
+				|| assessment.candidateAssessments() == null
 				|| assessment.candidateAssessments().size() != expectedCandidateIds.size()) {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 
 		Set<Long> expectedIds = new HashSet<>(expectedCandidateIds);
 		Set<Long> actualIds = new HashSet<>();
+		boolean hasDuplicate = false;
 		for (DuplicateCandidateAssessment candidate : assessment.candidateAssessments()) {
 			if (candidate == null || candidate.candidateFaqId() == null
 					|| !expectedIds.contains(candidate.candidateFaqId())
 					|| !actualIds.add(candidate.candidateFaqId())
 					|| candidate.result() == null
-					|| candidate.action() == null
-					|| !isAllowedCombination(candidate.result(), candidate.action())
-					|| !hasText(candidate.reason(),
-						candidate.targetFaqRecommendation(), candidate.candidateFaqRecommendation())) {
+					|| !hasText(candidate.reason())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 			}
+			hasDuplicate |= candidate.result() == DuplicateReviewResult.DUPLICATE;
 		}
-		if (!actualIds.equals(expectedIds)) {
+		if (!actualIds.equals(expectedIds)
+				|| !isValidCanonicalFaqId(assessment, targetFaqId, expectedIds, hasDuplicate)) {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		return assessment;
 	}
 
-	private static boolean isAllowedCombination(
-			DuplicateReviewResult result,
-			DuplicateReviewAction action
+	private static boolean isValidCanonicalFaqId(
+			DuplicateSuspectedAssessment assessment,
+			Long targetFaqId,
+			Set<Long> expectedCandidateIds,
+			boolean hasDuplicate
 	) {
-		return switch (result) {
-			case DUPLICATE -> action == DuplicateReviewAction.MERGE_CANDIDATE_INTO_TARGET
-					|| action == DuplicateReviewAction.MERGE_TARGET_INTO_CANDIDATE;
-			case NEEDS_DISTINCTION -> action == DuplicateReviewAction.CLARIFY_SCOPE;
-			case NOT_DUPLICATE -> action == DuplicateReviewAction.KEEP_SEPARATE;
-			case INSUFFICIENT_EVIDENCE -> action == DuplicateReviewAction.COLLECT_MORE_EVIDENCE;
-		};
+		Long canonicalFaqId = assessment.canonicalFaqId();
+		if (!hasDuplicate) {
+			return canonicalFaqId.equals(0L);
+		}
+		if (canonicalFaqId.equals(targetFaqId)) {
+			return true;
+		}
+		if (!expectedCandidateIds.contains(canonicalFaqId)) {
+			return false;
+		}
+		return assessment.candidateAssessments().stream()
+				.anyMatch(candidate -> candidate.candidateFaqId().equals(canonicalFaqId)
+						&& candidate.result() == DuplicateReviewResult.DUPLICATE);
 	}
 
 	private static boolean hasText(String... values) {
@@ -106,16 +118,11 @@ public final class DuplicateSuspectedReviewFormat {
 				"type", "string",
 				"enum", enumNames(DuplicateReviewResult.values())
 		));
-		candidateProperties.put("action", Map.of(
-				"type", "string",
-				"enum", enumNames(DuplicateReviewAction.values())
-		));
 		candidateProperties.put("reason", Map.of("type", "string"));
-		candidateProperties.put("targetFaqRecommendation", Map.of("type", "string"));
-		candidateProperties.put("candidateFaqRecommendation", Map.of("type", "string"));
 		Map<String, Object> candidateSchema = objectSchema(candidateProperties);
 
 		Map<String, Object> properties = new LinkedHashMap<>();
+		properties.put("canonicalFaqId", Map.of("type", "integer"));
 		properties.put("candidateAssessments", Map.of(
 				"type", "array",
 				"items", candidateSchema

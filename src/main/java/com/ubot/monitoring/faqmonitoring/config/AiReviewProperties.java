@@ -3,6 +3,7 @@ package com.ubot.monitoring.faqmonitoring.config;
 import jakarta.validation.constraints.Min;
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -10,7 +11,7 @@ import org.springframework.validation.annotation.Validated;
 @Setter
 @Validated
 @ConfigurationProperties(prefix = "faq-monitoring.ai-review")
-public class AiReviewProperties {
+public class AiReviewProperties implements InitializingBean {
 	@Min(1)
 	private int maxDuplicateCandidates = 5;
 
@@ -22,4 +23,11 @@ public class AiReviewProperties {
 
 	@Min(1)
 	private int maxLowRagQualityQuestions = 20;
+
+	@Override
+	public void afterPropertiesSet() {
+		if (maxDisplayedQuestionsPerDuplicateCandidate > maxQuestionsPerDuplicateCandidate) {
+			maxDisplayedQuestionsPerDuplicateCandidate = maxQuestionsPerDuplicateCandidate;
+		}
+	}
 }

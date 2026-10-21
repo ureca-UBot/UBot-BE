@@ -24,15 +24,11 @@ public class AiReviewLlmService {
 			candidateAssessments에는 제공된 모든 후보 FAQ를 정확히 한 번씩 포함하세요. candidateFaqId는
 			제공된 ID를 그대로 사용하세요. 제공된 모든 검색 질문을 판정 근거로 검토하되, 질문 내용을 응답에
 			복사하거나 새로 작성하지 마세요.
-			result와 action은 다음 조합만 사용하세요.
-			- DUPLICATE: MERGE_CANDIDATE_INTO_TARGET 또는 MERGE_TARGET_INTO_CANDIDATE
-			- NEEDS_DISTINCTION: CLARIFY_SCOPE
-			- NOT_DUPLICATE: KEEP_SEPARATE
-			- INSUFFICIENT_EVIDENCE: COLLECT_MORE_EVIDENCE
-			reason과 대상·후보 FAQ의 조치 권고는 완전한 문장으로 구체적으로 작성하세요. 구조화된 action과
-			같은 방향의 수정, 유지, 통합 또는 추가 확인 조치를 작성해야 합니다.
-			판단 결과, 판단 근거, 조치 권고는 서로 모순되면 안 됩니다. 판단 근거의 마지막 결론은 반드시
-			판단 결과와 같아야 하며, 조치 권고도 그 판단 결과에 맞아야 합니다.
+			중복으로 판단한 후보가 하나라도 있으면 대상 FAQ와 중복 후보 중 유지할 기준 FAQ 하나를 선택해
+			canonicalFaqId에 작성하세요. 중복으로 판단한 후보가 없으면 canonicalFaqId는 0으로 작성하세요.
+			result는 DUPLICATE, NEEDS_DISTINCTION, NOT_DUPLICATE, INSUFFICIENT_EVIDENCE 중 하나만 사용하세요.
+			reason은 판단 근거가 드러나는 완전한 문장으로 구체적으로 작성하세요. 판단 근거의 마지막 결론은
+			반드시 판단 결과와 같아야 합니다.
 			지정된 JSON 스키마에 맞는 객체만 반환하고 JSON 바깥에는 어떤 문장도 쓰지 마세요.
 			""";
 	private static final String LOW_RAG_QUALITY_REPRESENTATIVE_SYSTEM_PROMPT = """
@@ -57,13 +53,14 @@ public class AiReviewLlmService {
 
 	public DuplicateSuspectedAssessment generateDuplicateSuspectedReview(
 			String prompt,
+			Long targetFaqId,
 			List<Long> candidateFaqIds
 	) {
 		String output = llmService.generateJudgment(new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, DUPLICATE_SUSPECTED_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(DuplicateSuspectedReviewFormat.schema())).answer();
-		return DuplicateSuspectedReviewFormat.parse(output, candidateFaqIds);
+		return DuplicateSuspectedReviewFormat.parse(output, targetFaqId, candidateFaqIds);
 	}
 
 	public LowRagQualityRepresentativeAssessment generateLowRagQualityRepresentativeAssessment(String prompt) {

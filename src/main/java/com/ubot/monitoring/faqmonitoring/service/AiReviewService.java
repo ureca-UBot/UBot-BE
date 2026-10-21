@@ -8,7 +8,7 @@ import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqRepository;
 import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateCandidateAssessment;
-import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewAction;
+import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewResult;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateEvidence;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
@@ -106,6 +106,7 @@ public class AiReviewService {
 				faq.getId(), FaqImprovementType.DUPLICATE_SUSPECTED);
 		DuplicateSuspectedAssessment assessment = aiReviewLlmService.generateDuplicateSuspectedReview(
 				prompt,
+				faq.getId(),
 				materials.stream().map(DuplicateCandidateMaterial::id).toList()
 		);
 		return toDuplicateSuspectedResponse(faq.getId(), materials, assessment);
@@ -182,7 +183,10 @@ public class AiReviewService {
 			FaqDuplicateEvidence candidateEvidence = evidenceByCandidate.get(candidateId);
 			if (candidateEvidence == null || candidateEvidence.pairCount() <= 0
 					|| candidateEvidence.questions() == null || candidateEvidence.questions().isEmpty()) {
-				throw new FaqException(FaqErrorCode.FAQ_DUPLICATE_EVIDENCE_NOT_FOUND);
+				throw new FaqException(
+						FaqErrorCode.FAQ_DUPLICATE_EVIDENCE_NOT_FOUND,
+						"중복 의심 검색 질문 근거가 없습니다: candidateFaqId=" + candidateId
+				);
 			}
 			materials.add(new DuplicateCandidateMaterial(
 					faq.getId(), faq.getQuestion(), faq.getAnswer(),
@@ -197,8 +201,6 @@ public class AiReviewService {
 				다음 후보를 각각 독립적으로 검토하세요. 각 검색 질문에 대상 FAQ와 후보 FAQ의 답변이
 				모두 적용되는지, 한쪽에만 적용되는지, 둘 다 부적절한지, 판단할 수 없는지 구분하세요.
 				질문과 답변의 적용 조건이 다르면 검색에 함께 등장했다는 이유만으로 통합을 제안하지 마세요.
-				대상 FAQ뿐 아니라 후보 FAQ 각각에도 질문 또는 답변 수정이 필요한지 판단하고,
-				필요하다면 무엇을 어떻게 바꿀지 권고하세요. 근거가 없으면 수정안을 만들어내지 마세요.
 				question은 실제 검색에 쓰인 sub_question이며, 없는 과거 로그에서는 user_question입니다.
 				질문은 후보별 최대 %d개입니다. pairCount는 두 FAQ가 함께 검색된 전체 횟수이며,
 				질문 목록에서는 보관 기간에 따라 본문이 지워진 검색 로그를 제외했고, 서로 다른 질문을
@@ -210,13 +212,17 @@ public class AiReviewService {
 				- 중복 아님: 서로 다른 사용자 요구를 해결하며 각각 유지할 이유가 있습니다.
 				- 판단 근거 부족: 제공된 질문과 답변만으로 적용 범위를 판단할 수 없습니다.
 				판단 결과에 따라 다음 조치 규칙을 반드시 지키세요.
-				- 중복: 유지할 FAQ와 통합·삭제 또는 비활성화를 검토할 FAQ를 명시하세요. 대상과 후보 모두에
-				  수정 불필요 또는 현행 유지를 권고하면 안 됩니다.
-				- 구분 필요: 대상 FAQ와 후보 FAQ 각각에서 구분해야 할 조건과 수정 방향을 제안하세요.
-				- 중복 아님: 각각 유지할 이유와 각 FAQ의 수정 필요 여부를 적으세요.
-				- 판단 근거 부족: 단정적인 수정안을 만들지 말고 추가로 확인할 자료를 적으세요.
+				- 중복: 대상 FAQ와 중복 후보 중 질문 범위가 넓고 답변이 충실한 FAQ를 기준 FAQ로 선택하세요.
+				- 구분 필요: 두 FAQ를 유지하되 질문 범위를 명확히 구분해야 합니다.
+				- 중복 아님: 두 FAQ를 각각 유지해야 합니다.
+				- 판단 근거 부족: 수정하지 말고 추가 근거를 확인해야 합니다.
 				판단 근거 안에서 선택한 판단 결과를 뒤집거나 서로 다른 결론을 함께 쓰지 마세요.
-				판단 결과에 대응하는 result와 action 코드는 시스템 지침에 정의된 조합대로 작성하세요.
+				candidateAssessments에서 result를 DUPLICATE로 판정한 후보가 하나 이상이면,
+				검토 대상 FAQ와 DUPLICATE로 판정한 후보 FAQ들 중 최종적으로 유지할 FAQ 하나를 선택하고,
+				그 FAQ의 ID를 canonicalFaqId에 작성하세요.
+				DUPLICATE로 판정된 나머지 FAQ는 모두 canonicalFaqId의 FAQ로 통합합니다.
+				DUPLICATE로 판정한 후보가 없으면 canonicalFaqId는 0으로 작성하세요.
+				판단 결과에 대응하는 result 코드는 시스템 지침에 정의된 값으로 작성하세요.
 				후보마다 구조화 응답의 모든 항목을 빠짐없이 한 번씩 작성하세요.
 				후보 FAQ 자료(JSON): %s
 
@@ -233,7 +239,8 @@ public class AiReviewService {
 	) {
 		Map<Long, DuplicateCandidateAssessment> assessmentByCandidate = assessment.candidateAssessments().stream()
 				.collect(Collectors.toMap(DuplicateCandidateAssessment::candidateFaqId, Function.identity()));
-		String recommendation = buildDuplicateSuspectedRecommendation(targetFaqId, materials, assessmentByCandidate);
+		String recommendation = buildDuplicateSuspectedRecommendation(
+				targetFaqId, assessment.canonicalFaqId(), materials, assessmentByCandidate);
 		StringBuilder details = new StringBuilder("## 중복 의심 FAQ 판정 결과\n");
 		for (int index = 0; index < materials.size(); index++) {
 			DuplicateCandidateMaterial material = materials.get(index);
@@ -254,13 +261,15 @@ public class AiReviewService {
 			}
 			details.append("#### 판정\n");
 			details.append("- **판단 결과**: **").append(candidate.result().getDescription()).append("**\n");
-			details.append("- **권고 조치**: **").append(candidate.action().getDescription()).append("**\n");
 			details.append("- **판단 근거**: ").append(candidate.reason().strip()).append('\n');
 			details.append("#### 조치 권고\n");
 			details.append("- **대상 FAQ ").append(targetFaqId).append("**: ")
-					.append(candidate.targetFaqRecommendation().strip()).append('\n');
+					.append(buildTargetFaqRecommendation(
+							targetFaqId, material.id(), assessment.canonicalFaqId(), candidate.result()))
+					.append('\n');
 			details.append("- **후보 FAQ ").append(material.id()).append("**: ")
-					.append(candidate.candidateFaqRecommendation().strip());
+					.append(buildCandidateFaqRecommendation(
+							targetFaqId, material.id(), assessment.canonicalFaqId(), candidate.result()));
 			if (index < materials.size() - 1) {
 				details.append("\n\n");
 			}
@@ -270,26 +279,89 @@ public class AiReviewService {
 
 	private String buildDuplicateSuspectedRecommendation(
 			Long targetFaqId,
+			Long canonicalFaqId,
 			List<DuplicateCandidateMaterial> materials,
 			Map<Long, DuplicateCandidateAssessment> assessmentByCandidate
 	) {
 		List<String> actionClauses = new ArrayList<>(materials.size());
+		List<Long> duplicateFaqIds = new ArrayList<>();
+		if (!canonicalFaqId.equals(0L)) {
+			duplicateFaqIds.add(targetFaqId);
+		}
 		for (DuplicateCandidateMaterial material : materials) {
-			DuplicateReviewAction action = assessmentByCandidate.get(material.id()).action();
-			actionClauses.add(switch (action) {
-				case MERGE_CANDIDATE_INTO_TARGET ->
-						"FAQ %d를 FAQ %d에 통합".formatted(material.id(), targetFaqId);
-				case MERGE_TARGET_INTO_CANDIDATE ->
-						"FAQ %d를 FAQ %d에 통합".formatted(targetFaqId, material.id());
-				case CLARIFY_SCOPE ->
-						"FAQ %d와 FAQ %d의 질문 범위를 명확히 구분".formatted(targetFaqId, material.id());
-				case KEEP_SEPARATE ->
-						"FAQ %d와 FAQ %d를 각각 유지".formatted(targetFaqId, material.id());
-				case COLLECT_MORE_EVIDENCE ->
-						"FAQ %d와 FAQ %d의 중복 판단 근거를 추가로 확인".formatted(targetFaqId, material.id());
+			DuplicateCandidateAssessment candidate = assessmentByCandidate.get(material.id());
+			if (candidate.result() == DuplicateReviewResult.DUPLICATE) {
+				duplicateFaqIds.add(material.id());
+			}
+		}
+		if (!duplicateFaqIds.isEmpty()) {
+			List<String> mergeSources = duplicateFaqIds.stream()
+					.filter(faqId -> !faqId.equals(canonicalFaqId))
+					.map(faqId -> "FAQ " + faqId)
+					.toList();
+			actionClauses.add("%s를 FAQ %d에 통합".formatted(String.join(", ", mergeSources), canonicalFaqId));
+		}
+
+		Long comparisonBaseFaqId = canonicalFaqId.equals(0L) ? targetFaqId : canonicalFaqId;
+		for (DuplicateCandidateMaterial material : materials) {
+			DuplicateReviewResult result = assessmentByCandidate.get(material.id()).result();
+			if (result == DuplicateReviewResult.DUPLICATE) {
+				continue;
+			}
+			actionClauses.add(switch (result) {
+				case DUPLICATE -> throw new IllegalStateException("중복 판단은 앞에서 처리했습니다.");
+				case NEEDS_DISTINCTION ->
+						"FAQ %d와 FAQ %d의 질문 범위를 명확히 구분".formatted(comparisonBaseFaqId, material.id());
+				case NOT_DUPLICATE ->
+						"FAQ %d와 FAQ %d를 각각 유지".formatted(comparisonBaseFaqId, material.id());
+				case INSUFFICIENT_EVIDENCE ->
+						"FAQ %d와 FAQ %d의 중복 판단 근거를 추가로 확인".formatted(comparisonBaseFaqId, material.id());
 			});
 		}
 		return String.join("하고, ", actionClauses) + "하세요.";
+	}
+
+	private String buildTargetFaqRecommendation(
+			Long targetFaqId,
+			Long candidateFaqId,
+			Long canonicalFaqId,
+			DuplicateReviewResult result
+	) {
+		Long comparisonBaseFaqId = canonicalFaqId.equals(0L) ? targetFaqId : canonicalFaqId;
+		return switch (result) {
+			case DUPLICATE -> targetFaqId.equals(canonicalFaqId)
+					? "기준 FAQ로 유지하세요."
+					: "FAQ %d에 통합하세요.".formatted(canonicalFaqId);
+			case NEEDS_DISTINCTION -> targetFaqId.equals(comparisonBaseFaqId)
+					? "FAQ %d와 적용 범위가 구분되도록 질문을 수정하세요.".formatted(candidateFaqId)
+					: "FAQ %d에 통합할 내용이 FAQ %d와 구분되도록 범위를 정리하세요."
+							.formatted(comparisonBaseFaqId, candidateFaqId);
+			case NOT_DUPLICATE -> targetFaqId.equals(comparisonBaseFaqId)
+					? "FAQ %d와 별도로 유지하세요.".formatted(candidateFaqId)
+					: "FAQ %d에 통합하되 FAQ %d와 별도 범위를 유지하세요."
+							.formatted(comparisonBaseFaqId, candidateFaqId);
+			case INSUFFICIENT_EVIDENCE -> "수정 전에 FAQ %d와 함께 검색된 근거를 추가로 확인하세요."
+					.formatted(candidateFaqId);
+		};
+	}
+
+	private String buildCandidateFaqRecommendation(
+			Long targetFaqId,
+			Long candidateFaqId,
+			Long canonicalFaqId,
+			DuplicateReviewResult result
+	) {
+		Long comparisonBaseFaqId = canonicalFaqId.equals(0L) ? targetFaqId : canonicalFaqId;
+		return switch (result) {
+			case DUPLICATE -> candidateFaqId.equals(canonicalFaqId)
+					? "기준 FAQ로 유지하세요."
+					: "FAQ %d에 통합하세요.".formatted(canonicalFaqId);
+			case NEEDS_DISTINCTION -> "FAQ %d와 적용 범위가 구분되도록 질문을 수정하세요."
+					.formatted(comparisonBaseFaqId);
+			case NOT_DUPLICATE -> "FAQ %d와 별도로 유지하세요.".formatted(comparisonBaseFaqId);
+			case INSUFFICIENT_EVIDENCE -> "수정 전에 FAQ %d와 함께 검색된 근거를 추가로 확인하세요."
+					.formatted(comparisonBaseFaqId);
+		};
 	}
 
 	private record DuplicateCandidateMaterial(
