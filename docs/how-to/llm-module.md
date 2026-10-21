@@ -264,7 +264,8 @@ WHERE f.deleted_at IS NULL;
 ```
 
 - 배포 스크립트는 현재 Profile의 `QUESTION` 벡터만 확인하고 누락분을 백필합니다([배포 주의할 점](../deploy.md#주의할-점)).
-- **FAQ 검색은 HNSW 인덱스를 쓰지 않고 지금 Profile의 활성 `QUESTION` 벡터 전체와 비교합니다.** 검색 쿼리는 유사도로 정렬해 각 FAQ의 최고 점수 variant를 고릅니다. 인덱스는 남아 있지만 FAQ 검색에는 쓰이지 않습니다. 인덱스 관련 종전 FAQ 단위 측정은 [FAQ 검색·답변 테스트 보고서](../FAQ_검색_테스트_보고서.md)에 있습니다.
+- **FAQ 검색은 기존 HNSW cosine 인덱스로 후보를 찾습니다.** 현재 Profile·유형·FAQ 버전·삭제 여부·intent 조건을 후보 조회 안에 적용하고, 거리 오름차순과 LIMIT으로 검색합니다. 후보 안에서 FAQ별 최고 점수 variant를 고르고, 중복 제거 후 topK가 부족하면 후보 수를 두 배로 늘립니다.
+- 검색 트랜잭션에만 `hnsw.ef_search=200`, `hnsw.iterative_scan=strict_order`를 적용합니다. 필터로 초기 후보가 제거되면 추가 탐색하지만, HNSW는 근사 검색이므로 전체 비교와 동일한 결과를 보장하지 않습니다. 탐색·메모리 상한은 pgvector 기본값이며 작은 테이블에서는 DB가 순차 검색을 선택할 수 있습니다. [FAQ HNSW 검색 테스트 보고서](../FAQ_HNSW_검색_테스트_보고서.md)를 참고하세요. 종전 exact 전환 측정은 [FAQ 검색·답변 테스트 보고서](../FAQ_검색_테스트_보고서.md)에 보존합니다.
 
 ### 백필
 

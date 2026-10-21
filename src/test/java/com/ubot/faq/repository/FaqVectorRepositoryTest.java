@@ -467,10 +467,10 @@ class FaqVectorRepositoryTest {
 
     @Test
     @DisplayName("다른 유형의 벡터가 더 가까이 많이 있어도 지정한 유형의 상위 K개를 모두 돌려준다")
-    void getSimilarList_returnsExactTopKWhenOtherVectorTypeIsCloser() {
-        // FAQ 100건의 질문 벡터는 검색 벡터와 거의 같고, 질문+답변 벡터는 그보다 멀다.
-        // 벡터 인덱스는 가까운 후보를 먼저 고른 뒤 유형 조건을 적용하므로, 인덱스를 타면 질문+답변 벡터가 후보에 들지 못한다.
-        for (int offset = 0; offset < 100; offset++) {
+    void getSimilarList_continuesHnswScanWhenOtherVectorTypeIsCloser() {
+        // 초기 탐색 범위 200개보다 많은 질문 벡터가 질문+답변 벡터보다 가까움
+        // 유형 필터로 초기 후보가 제거돼도 iterative scan이 질문+답변 벡터를 계속 찾아야 함
+        for (int offset = 0; offset < 500; offset++) {
             long faqId = 101L + offset;
 
             insertFaq(
@@ -514,6 +514,41 @@ class FaqVectorRepositoryTest {
         assertThat(results)
                 .extracting(FaqSearchResponseDto::faqId)
                 .containsExactly(101L, 102L, 103L);
+    }
+
+    @Test
+    @DisplayName("HNSW 후보 조회는 벡터 인덱스를 사용하고 트랜잭션 밖으로 설정을 남기지 않는다")
+    void searchUsesHnswIndexAndLocalSettings() {
+        String before = jdbcTemplate.queryForObject("SHOW hnsw.ef_search", String.class);
+        String scanBefore = jdbcTemplate.queryForObject("SHOW hnsw.iterative_scan", String.class);
+        transactionTemplate.executeWithoutResult(status -> {
+            jdbcTemplate.execute("SET LOCAL enable_seqscan = off");
+            jdbcTemplate.execute("SET LOCAL enable_sort = off");
+            repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
+            String plan = String.join("\n", jdbcTemplate.queryForList(
+                    "EXPLAIN " + FaqVectorRepository.SEARCH_SQL.formatted(""), String.class,
+                    vectorOf(0), profileId, "QUESTION", vectorOf(0), 40, 2));
+            assertThat(plan).contains("Index Scan using idx_faq_embeddings_vector_hnsw");
+            assertThat(jdbcTemplate.queryForObject("SHOW hnsw.iterative_scan", String.class)).isEqualTo("strict_order");
+        });
+        assertThat(jdbcTemplate.queryForObject("SHOW hnsw.ef_search", String.class)).isEqualTo(before);
+        assertThat(jdbcTemplate.queryForObject("SHOW hnsw.iterative_scan", String.class)).isEqualTo(scanBefore);
+    }
+
+    @Test
+    @DisplayName("같은 FAQ의 표현이 최초 후보 범위를 모두 차지해도 다음 FAQ를 추가 탐색한다")
+    void searchExpandsCandidatesAfterDeduplicatingVariants() {
+        for (long id = 101; id <= 180; id++) {
+            insertVariant(id, 1L, "유사 표현 " + id);
+            repository.saveVectorForVariant(id, profileId, FaqVectorType.QUESTION, 1, vectorOf(0));
+        }
+        List<FaqSearchResponseDto> results = transactionTemplate.execute(status -> {
+            jdbcTemplate.execute("SET LOCAL enable_seqscan = off");
+            jdbcTemplate.execute("SET LOCAL enable_sort = off");
+            return repository.getSimilarList(vectorOf(0), profileId, FaqVectorType.QUESTION, 2);
+        });
+        assertThat(results).extracting(FaqSearchResponseDto::faqId).containsExactly(1L, 2L);
+        assertThat(results.getFirst().variantId()).isEqualTo(1L);
     }
 
     @Test
