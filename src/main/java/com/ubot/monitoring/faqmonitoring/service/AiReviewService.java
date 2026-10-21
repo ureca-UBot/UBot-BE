@@ -180,8 +180,7 @@ public class AiReviewService {
 				continue;
 			}
 			FaqDuplicateEvidence candidateEvidence = evidenceByCandidate.get(candidateId);
-			if (candidateEvidence == null || candidateEvidence.pairCount() <= 0
-					|| candidateEvidence.questions() == null || candidateEvidence.questions().isEmpty()) {
+			if (candidateEvidence == null || candidateEvidence.questions().isEmpty()) {
 				throw new FaqException(
 						FaqErrorCode.FAQ_DUPLICATE_EVIDENCE_NOT_FOUND,
 						"중복 의심 검색 질문 근거가 없습니다: candidateFaqId=" + candidateId
@@ -258,11 +257,11 @@ public class AiReviewService {
 			details.append("- **판단 근거**: ").append(candidate.reason().strip()).append('\n');
 			details.append("#### 조치 권고\n");
 			details.append("- **대상 FAQ ").append(targetFaqId).append("**: ")
-					.append(buildTargetFaqRecommendation(
+					.append(buildFaqRecommendation(
 							material.id(), candidate.result()))
 					.append('\n');
 			details.append("- **후보 FAQ ").append(material.id()).append("**: ")
-					.append(buildCandidateFaqRecommendation(
+					.append(buildFaqRecommendation(
 							targetFaqId, candidate.result()));
 			if (index < materials.size() - 1) {
 				details.append("\n\n");
@@ -294,30 +293,16 @@ public class AiReviewService {
 		return String.join("하고, ", actionClauses) + "하세요.";
 	}
 
-	private String buildTargetFaqRecommendation(
-			Long candidateFaqId,
+	private String buildFaqRecommendation(
+			Long otherFaqId,
 			DuplicateReviewResult result
 	) {
 		return switch (result) {
-			case DUPLICATE -> "FAQ %d와 중복입니다. 유지·통합 대상은 관리자가 결정하세요.".formatted(candidateFaqId);
-			case NEEDS_DISTINCTION -> "FAQ %d와 적용 범위가 구분되도록 질문을 수정하세요.".formatted(candidateFaqId);
-			case NOT_DUPLICATE -> "FAQ %d와 별도로 유지하세요.".formatted(candidateFaqId);
+			case DUPLICATE -> "FAQ %d와 중복입니다. 유지·통합 대상은 관리자가 결정하세요.".formatted(otherFaqId);
+			case NEEDS_DISTINCTION -> "FAQ %d와 적용 범위가 구분되도록 질문을 수정하세요.".formatted(otherFaqId);
+			case NOT_DUPLICATE -> "FAQ %d와 별도로 유지하세요.".formatted(otherFaqId);
 			case INSUFFICIENT_EVIDENCE -> "수정 전에 FAQ %d와 함께 검색된 근거를 추가로 확인하세요."
-					.formatted(candidateFaqId);
-		};
-	}
-
-	private String buildCandidateFaqRecommendation(
-			Long targetFaqId,
-			DuplicateReviewResult result
-	) {
-		return switch (result) {
-			case DUPLICATE -> "FAQ %d와 중복입니다. 유지·통합 대상은 관리자가 결정하세요.".formatted(targetFaqId);
-			case NEEDS_DISTINCTION -> "FAQ %d와 적용 범위가 구분되도록 질문을 수정하세요."
-					.formatted(targetFaqId);
-			case NOT_DUPLICATE -> "FAQ %d와 별도로 유지하세요.".formatted(targetFaqId);
-			case INSUFFICIENT_EVIDENCE -> "수정 전에 FAQ %d와 함께 검색된 근거를 추가로 확인하세요."
-					.formatted(targetFaqId);
+					.formatted(otherFaqId);
 		};
 	}
 

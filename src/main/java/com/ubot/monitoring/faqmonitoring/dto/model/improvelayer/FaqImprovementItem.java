@@ -15,7 +15,6 @@ public record FaqImprovementItem(
 		long reviewableTopKCount,
 		double averageSimilarity,
 		long top1SampleCount,
-		long recentUsageCount,
 		double averageTopGap,
 		double lowGapRate
 ) {

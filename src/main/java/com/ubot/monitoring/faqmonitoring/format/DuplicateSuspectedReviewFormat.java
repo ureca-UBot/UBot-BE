@@ -46,7 +46,7 @@ public final class DuplicateSuspectedReviewFormat {
 					|| !expectedIds.contains(candidate.candidateFaqId())
 					|| !actualIds.add(candidate.candidateFaqId())
 					|| candidate.result() == null
-					|| !hasText(candidate.reason())) {
+					|| !StringUtils.hasText(candidate.reason())) {
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 			}
 		}
@@ -54,15 +54,6 @@ public final class DuplicateSuspectedReviewFormat {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		return assessment;
-	}
-
-	private static boolean hasText(String... values) {
-		for (String value : values) {
-			if (!StringUtils.hasText(value)) {
-				return false;
-			}
-		}
-		return true;
 	}
 
 	private static DuplicateSuspectedAssessment read(String output) {

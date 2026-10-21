@@ -49,10 +49,7 @@ public class FaqMonitoringImprovementQueryRepository {
 						) AS reviewable_top_k_count,
 						COALESCE(AVG(similarity) FILTER (
 							WHERE question_anonymized_at IS NULL
-						), 0.0) AS average_similarity,
-						COUNT(question_log_id) FILTER (
-							WHERE question_created_at >= :unusedCutoffAt
-						) AS recent_usage_count
+						), 0.0) AS average_similarity
 					FROM current_version_logs
 					GROUP BY faq_id, question, intent, faq_version, version_started_at
 				), top1_gaps AS (
@@ -80,7 +77,7 @@ public class FaqMonitoringImprovementQueryRepository {
 					SELECT m.faq_id, m.question, m.intent, m.faq_version, m.version_started_at,
 						m.top_k_count, m.reviewable_top_k_count, m.average_similarity,
 						COALESCE(g.top1_sample_count, 0) AS top1_sample_count,
-						m.recent_usage_count, COALESCE(g.average_top_gap, 0.0) AS average_top_gap,
+						COALESCE(g.average_top_gap, 0.0) AS average_top_gap,
 						COALESCE(g.low_gap_rate, 0.0) AS low_gap_rate,
 						(m.reviewable_top_k_count >= :minimumTopKSampleCount
 							AND m.average_similarity < :lowSimilarityThreshold) AS low_rag_quality,
@@ -145,7 +142,7 @@ public class FaqMonitoringImprovementQueryRepository {
 						rs.getInt("faq_version"), rs.getTimestamp("version_started_at").toLocalDateTime(),
 						improvementTypes, rs.getLong("top_k_count"), rs.getLong("reviewable_top_k_count"),
 						rs.getDouble("average_similarity"),
-						rs.getLong("top1_sample_count"), rs.getLong("recent_usage_count"),
+						rs.getLong("top1_sample_count"),
 						rs.getDouble("average_top_gap"), rs.getDouble("low_gap_rate")
 				));
 			}
