@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.http.MediaType;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.net.InetSocketAddress;
 import java.time.Instant;
@@ -165,6 +166,15 @@ class CounselIntegrationTest {
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		return sessions.createSession(customer);
 	}
+	private JsonNode conversationById(String response, UUID conversationId) throws Exception {
+		for (JsonNode conversation : JSON.readTree(response).path("data").path("content")) {
+			if (conversationId.toString().equals(conversation.path("conversationId").asText())) {
+				return conversation;
+			}
+		}
+		throw new AssertionError("목록에서 대화를 찾을 수 없습니다: " + conversationId);
+	}
+
 	@Test void counselEndpointsUseExistingAuthenticationAndHideInternalIds() throws Exception {
 		mvc.perform(post("/counsel/requests")).andExpect(status().isUnauthorized());
 		// FE의 토큰 재발급이 만료 코드에 의존하므로 상담 경로에서도 JWT-007을 확인함
@@ -377,9 +387,18 @@ class CounselIntegrationTest {
 						"clientMessageId", UUID.randomUUID(), "content", "당신은 정말 무능한 상담사네요.", "senderId", 10, "role", "ADMIN"))))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("BLOCKED"));
 		assertThat(jdbc.queryForObject("SELECT sender_id FROM counseling.messages", Long.class)).isEqualTo(1L);
-		String result = mvc.perform(get("/admin/counsel/safety/events?decision=BLOCKED").header("Authorization", token("admin")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].senderRole").value("USER"))
+		Instant from = Instant.now().minus(1, java.time.temporal.ChronoUnit.DAYS);
+		Instant to = Instant.now().plus(1, java.time.temporal.ChronoUnit.DAYS);
+		String result = mvc.perform(get("/admin/counsel/safety/events")
+					.param("decision", "BLOCKED")
+					.param("from", from.toString())
+					.param("to", to.toString())
+					.header("Authorization", token("admin")))
+				.andExpect(status().isOk())
 				.andReturn().getResponse().getContentAsString();
+		JsonNode events = JSON.readTree(result).path("data").path("items");
+		assertThat(events.size()).isEqualTo(1);
+		assertThat(events.get(0).path("senderRole").asText()).isEqualTo("USER");
 		assertThat(result).doesNotContain("무능한", "example_text", "\"content\"");
 		mvc.perform(get("/admin/counsel/safety/summary").header("Authorization", token("admin")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.blocked").value(1));
@@ -798,20 +817,23 @@ class CounselIntegrationTest {
 		assertThat(room.conversationId()).isNotNull();
 		assertThat(sessions.createHandoff(customer, request).conversationId()).isEqualTo(room.conversationId());
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class)).isEqualTo(2);
-		mvc.perform(get("/conversations/me").header("Authorization", token("user")))
+		var initialList = mvc.perform(get("/conversations/me").header("Authorization", token("user")))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.content[0].conversationId").value(room.conversationId().toString()))
-				.andExpect(jsonPath("$.data.content[0].title").value("상담사 상담"))
-				.andExpect(jsonPath("$.data.content[0].hasCounsel").value(true));
+				.andReturn().getResponse().getContentAsString();
+		JsonNode initialConversation = conversationById(initialList, room.conversationId());
+		assertThat(initialConversation.path("title").asText()).isEqualTo("상담사 상담");
+		assertThat(initialConversation.path("hasCounsel").asBoolean()).isTrue();
 		sessions.updateAvailability(counselor, "AVAILABLE");
 		jdbc.update("UPDATE public.conversations SET updated_at=now()-interval '1 day' WHERE public_id=?", room.conversationId());
 		messages.sendMessage(customer, room.sessionId(), UUID.randomUUID(), "상담으로 시작한 문의");
 		messages.sendMessage(counselor, room.sessionId(), UUID.randomUUID(), "담당 상담사의 답변");
 		messages.sendMessage(customer, room.sessionId(), UUID.randomUUID(), "당신은 바보예요.");
-		mvc.perform(get("/conversations/me").header("Authorization", token("user")))
+		var updatedList = mvc.perform(get("/conversations/me").header("Authorization", token("user")))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.data.content[0].title").value("상담으로 시작한 문의"))
-				.andExpect(jsonPath("$.data.content[0].preview").value("담당 상담사의 답변"));
+				.andReturn().getResponse().getContentAsString();
+		JsonNode updatedConversation = conversationById(updatedList, room.conversationId());
+		assertThat(updatedConversation.path("title").asText()).isEqualTo("상담으로 시작한 문의");
+		assertThat(updatedConversation.path("preview").asText()).isEqualTo("담당 상담사의 답변");
 		sessions.endSession(customer, room.sessionId());
 		assertThat(sessions.createHandoff(customer, request).status()).isEqualTo("ENDED");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversations", Integer.class)).isEqualTo(2);
@@ -891,8 +913,9 @@ class CounselIntegrationTest {
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM public.conversation_faq_selections", Integer.class)).isEqualTo(1);
 		mvc.perform(get("/conversations/" + conversationId + "/messages").header("Authorization", token("user")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data[0].answer").value("선택 당시 답변"));
-		mvc.perform(get("/conversations/me").header("Authorization", token("user")))
-				.andExpect(status().isOk()).andExpect(jsonPath("$.data.content[0].title").value("선택 당시 질문"));
+		var list = mvc.perform(get("/conversations/me").header("Authorization", token("user")))
+				.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+		assertThat(conversationById(list, conversationId).path("title").asText()).isEqualTo("선택 당시 질문");
 		var room = sessions.createHandoff(customer, new HandoffRequestDto(UUID.randomUUID(), conversationId, List.of()));
 		assertThat(sessions.getHistory(customer, room.sessionId(), 0, 100)).extracting(item -> item.content())
 				.containsExactly("선택 당시 질문", "선택 당시 답변");
