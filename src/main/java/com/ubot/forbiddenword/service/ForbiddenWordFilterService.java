@@ -39,6 +39,13 @@ public class ForbiddenWordFilterService {
 	// 갱신 시 새 Set으로 통째로 교체하므로 읽는 쪽은 락 없이 참조만 사용합니다.
 	private volatile Set<String> activeForbiddenWords = Set.of();
 
+	/** 검토용 독립 인스턴스입니다. 운영 캐시와 DB에는 쓰지 않습니다. */
+	public ForbiddenWordFilterService preview(Set<String> words) {
+		ForbiddenWordFilterService preview = new ForbiddenWordFilterService(forbiddenWordRepository);
+		preview.activeForbiddenWords = Set.copyOf(words);
+		return preview;
+	}
+
 	@EventListener(ApplicationReadyEvent.class)
 	public void initializeForbiddenWordCache() {
 		refreshForbiddenWordCache();

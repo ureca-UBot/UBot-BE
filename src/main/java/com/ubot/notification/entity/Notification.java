@@ -34,6 +34,9 @@ public class Notification {
 	@Column(name = "reservation_id")
 	private Long reservationId;
 
+	@Column(name = "guard_review_candidate_id")
+	private Long guardReviewCandidateId;
+
 	@Column(name = "read_at")
 	private LocalDateTime readAt;
 

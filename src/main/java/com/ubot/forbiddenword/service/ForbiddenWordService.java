@@ -34,8 +34,16 @@ public class ForbiddenWordService {
 	private final ForbiddenWordRepository forbiddenWordRepository;
 	private final ApplicationEventPublisher eventPublisher;
 
+	private com.ubot.guardreview.service.ReviewCatalogLock reviewCatalogLock;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	void setReviewCatalogLock(com.ubot.guardreview.service.ReviewCatalogLock lock) { this.reviewCatalogLock = lock; }
+
+	private void lockCatalog() { if (reviewCatalogLock != null) reviewCatalogLock.acquire(); }
+
 	@Transactional
 	public ForbiddenWordResponseDto createForbiddenWord(ForbiddenWordCreateRequestDto requestDto) {
+		lockCatalog();
 		String word = normalizeWord(requestDto.word());
 		if (forbiddenWordRepository.existsByWord(word)) {
 			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST);
@@ -73,6 +81,7 @@ public class ForbiddenWordService {
 
 	@Transactional
 	public ForbiddenWordResponseDto updateForbiddenWord(Long forbiddenWordId, ForbiddenWordUpdateRequestDto requestDto) {
+		lockCatalog();
 		ForbiddenWord forbiddenWord = getForbiddenWordForUpdate(forbiddenWordId);
 
 		String word = normalizeWord(requestDto.word());
@@ -98,6 +107,7 @@ public class ForbiddenWordService {
 	public ForbiddenWordResponseDto updateForbiddenWordStatus(
 			Long forbiddenWordId, ForbiddenWordStatusUpdateRequestDto requestDto
 	) {
+		lockCatalog();
 		ForbiddenWord forbiddenWord = getForbiddenWordForUpdate(forbiddenWordId);
 
 		if (requestDto.status() == null) {
