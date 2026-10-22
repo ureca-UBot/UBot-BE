@@ -11,9 +11,6 @@ on:
       - develop
       - main
 
-  # AWS PoC BE CD calls this for pushes to its test branch.
-  workflow_call:
-
 permissions:
   contents: read
 
