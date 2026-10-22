@@ -34,12 +34,15 @@ import java.util.concurrent.atomic.*;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.context.annotation.*;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.orm.jpa.*;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -85,11 +88,12 @@ class GuardReviewPostgresIntegrationTest {
 	@EnableWebSecurity
 	@EnableTransactionManagement
 	@EnableJpaRepositories(basePackageClasses = {ForbiddenWordRepository.class, NotificationRepository.class})
-	@Import({ReviewRepository.class, ReviewService.class, ReviewCatalogService.class, ReviewCatalogLock.class,
+	@Import({ReviewRepository.class, ReviewService.class, ReviewCatalogService.class, ForbiddenWordCatalogLock.class,
 			ReviewValidationService.class, ReviewWorkService.class, ReviewAlertService.class,
 			ReviewRetentionService.class, ReviewWordCacheRefresh.class, ReviewScheduler.class, ReviewWorker.class,
-			AdminReviewController.class, GlobalExceptionHandler.class, ForbiddenWordService.class,
-			ForbiddenWordFilterService.class, NotificationService.class, ChatPromptInjectionService.class})
+			ReviewLeaseService.class, AdminReviewController.class, GlobalExceptionHandler.class,
+			ForbiddenWordService.class, ForbiddenWordFilterService.class, NotificationService.class,
+			ChatPromptInjectionService.class})
 	static class TestConfig {
 		@Bean
 		DataSource dataSource() {
@@ -153,6 +157,9 @@ class GuardReviewPostgresIntegrationTest {
 			calls.incrementAndGet();
 			var input = JSON.readTree(request.messages().getLast().content());
 			inputs.add(input.toString());
+			if (mode.equals("UNAVAILABLE"))
+				throw new com.ubot.llm.exception.LlmException(
+						com.ubot.llm.exception.LlmErrorCode.LLM_SERVICE_UNAVAILABLE);
 			if (mode.equals("FAIL"))
 				throw new IllegalStateException("synthetic model failure");
 			if (mode.equals("MALFORMED"))
@@ -170,6 +177,9 @@ class GuardReviewPostgresIntegrationTest {
 					if (q.contains(warning))
 						list.add(new Suggestion(Kind.WARNING, "THREAT", warning, "문맥 검토 시험", Stage.INPUT,
 								"HARMFUL_REQUEST"));
+				if (a.contains("두번째위험출력"))
+					list.add(new Suggestion(Kind.WARNING, "ABUSE", "두번째위험출력", "추가 출력 검토 시험", Stage.OUTPUT,
+							"HARMFUL_OUTPUT"));
 				if (a.contains("위험출력문장"))
 					list.add(new Suggestion(Kind.WARNING, "THREAT", "위험출력문장", "출력 검토 시험", Stage.OUTPUT,
 							"HARMFUL_OUTPUT"));
@@ -200,7 +210,7 @@ class GuardReviewPostgresIntegrationTest {
 		Files.writeString(auditFile, "");
 		db = new JdbcTemplate(isolated);
 		assertThat(db.queryForObject("select current_database()", String.class)).isEqualTo(postgres.getDatabaseName());
-		var first = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("41").load();
+		var first = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("47").load();
 		first.migrate();
 		db.update(
 				"INSERT INTO users(user_id,email,password_hash,name,role) VALUES(987,'migration@example.invalid','unused','migration sentinel','ADMIN')");
@@ -208,10 +218,39 @@ class GuardReviewPostgresIntegrationTest {
 				"INSERT INTO forbidden_words(word,status,created_at,updated_at) VALUES('migration-sentinel','ACTIVE',LOCALTIMESTAMP,LOCALTIMESTAMP)");
 		db.update(
 				"INSERT INTO notifications(user_id,type,title,message,created_at) VALUES(987,'BILLING_OVERDUE','sentinel','preserve',LOCALTIMESTAMP)");
+
+		Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("48").load().migrate();
+		String legacyKey = "none:987:legacy-private-key";
+		long legacyRun = db.queryForObject(
+				"INSERT INTO guard_review_runs(kind,analysis_mode) VALUES('ANALYSIS','FULL') RETURNING id", Long.class);
+		long legacyCandidate = db.queryForObject(
+				"INSERT INTO guard_review_candidates(kind,category,expression,reason,intent,normalized_hash) VALUES('WARNING','THREAT','legacy warning','migration check','HARMFUL_REQUEST','legacy-hash') RETURNING id",
+				Long.class);
+		db.update(
+				"INSERT INTO guard_review_items(run_id,source_key,source_fingerprint,answer_snapshot) VALUES(?,?,'legacy-fingerprint','legacy answer')",
+				legacyRun, legacyKey);
+		db.update(
+				"INSERT INTO guard_review_findings(candidate_id,first_run_id,source_key,source_fingerprint,stage,category) VALUES(?,?,?,'legacy-fingerprint','INPUT','THREAT')",
+				legacyCandidate, legacyRun, legacyKey);
+		String alreadyHashed = sourceKeyHash("already hashed");
+		db.update("INSERT INTO guard_review_items(run_id,source_key,source_fingerprint) VALUES(?,?,'already-hashed')",
+				legacyRun, alreadyHashed);
+
 		var flyway = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").load();
 		var migrated = flyway.migrate();
 		flyway.validate();
-		assertThat(flyway.info().current().getVersion().toString()).isEqualTo("42");
+		assertThat(flyway.info().current().getVersion().toString()).isEqualTo("49");
+
+		assertThat(db.queryForObject(
+				"SELECT source_key FROM guard_review_items WHERE source_fingerprint='legacy-fingerprint'",
+				String.class)).isEqualTo(sourceKeyHash(legacyKey));
+		assertThat(db.queryForObject(
+				"SELECT source_key FROM guard_review_items WHERE source_fingerprint='already-hashed'", String.class))
+				.isEqualTo(alreadyHashed);
+		assertThat(db.queryForObject(
+				"SELECT count(*) FROM guard_review_findings f JOIN guard_review_items i ON i.run_id=f.first_run_id AND i.source_key=f.source_key AND i.source_fingerprint=f.source_fingerprint",
+				Integer.class)).isEqualTo(1);
+
 		assertThat(count("users WHERE user_id=987")).isEqualTo(1);
 		assertThat(count("forbidden_words WHERE word='migration-sentinel'")).isEqualTo(1);
 		assertThat(count("notifications WHERE title='sentinel'")).isEqualTo(1);
@@ -220,7 +259,7 @@ class GuardReviewPostgresIntegrationTest {
 				Integer.class)).isEqualTo(6);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
 		Files.writeString(artifacts.resolve("migration-result.json"),
-				JSON.writeValueAsString(Map.of("version", "42", "upgradeMigrations", migrated.migrationsExecuted,
+				JSON.writeValueAsString(Map.of("version", "49", "upgradeMigrations", migrated.migrationsExecuted,
 						"sixTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
 						"extensions", db.queryForList("SELECT extname,extversion FROM pg_extension ORDER BY extname"),
 						"server", db.queryForObject("SHOW server_version", String.class))));
@@ -269,6 +308,14 @@ class GuardReviewPostgresIntegrationTest {
 	int count(String from) {
 		return db.queryForObject("SELECT count(*) FROM " + from, Integer.class);
 	}
+	static String sourceKeyHash(String key) {
+		try {
+			return "sha256:" + HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+					.digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+		} catch (java.security.NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
+	}
 	long source(String key, String question, String answer) {
 		return source(key, question, answer, 1);
 	}
@@ -281,7 +328,11 @@ class GuardReviewPostgresIntegrationTest {
 		return id;
 	}
 	void answer(long id, String q, String a) {
-		db.update("INSERT INTO question_log(user_id,user_question,llm_question,attempt_id) VALUES(1,?,?,?)", q, a, id);
+		if (db.update(
+				"UPDATE question_log SET user_question=?,llm_question=? WHERE attempt_id=? AND sub_question_index=1", q,
+				a, id) == 0)
+			db.update("INSERT INTO question_log(user_id,user_question,llm_question,attempt_id) VALUES(1,?,?,?)", q, a,
+					id);
 	}
 	JsonNode request(MockHttpServletRequestBuilder request, Object body, int expected) throws Exception {
 		return request(request, body, expected, admin);
@@ -499,6 +550,9 @@ class GuardReviewPostgresIntegrationTest {
 		long retry = scheduled();
 		drain(retry);
 		assertThat(repo.run(retry).total()).isZero();
+		long unchanged = scheduled();
+		drain(unchanged);
+		assertThat(repo.run(unchanged).total()).isZero();
 		source("new", "새 정상 질문", "정상 답변");
 		long added = scheduled();
 		drain(added);
@@ -509,7 +563,7 @@ class GuardReviewPostgresIntegrationTest {
 		long id = source("freeze", "원래 질문", "원래 답변");
 		long run = full();
 		db.update("UPDATE answer_attempts_history SET question='변경 질문' WHERE attempt_id=?", id);
-		db.update("UPDATE question_log SET llm_question='변경 답변' WHERE attempt_id=?", id);
+		answer(id, "변경 질문", "변경 답변");
 		drain(run);
 		assertThat(MODEL.inputs.getFirst()).contains("원래 질문", "원래 답변").doesNotContain("변경 질문");
 		long next = scheduled();
@@ -560,6 +614,7 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(count("guard_review_findings")).isEqualTo(1);
 		assertThat(count("notifications")).isEqualTo(2);
 		db.update("UPDATE answer_attempts_history SET question='위험문장A 변경된 질문' WHERE attempt_id=?", id);
+		answer(id, "위험문장A 변경된 질문", "새로 생성한 모델 답변");
 		drain(scheduled());
 		assertThat(count("guard_review_candidates")).isEqualTo(1);
 		assertThat(count("guard_review_findings")).isEqualTo(2);
@@ -579,10 +634,21 @@ class GuardReviewPostgresIntegrationTest {
 		drain(scheduled());
 		assertThat(count("guard_review_candidates")).isEqualTo(3);
 		MODEL.embeddingFails = true;
-		db.update("DELETE FROM guard_review_findings WHERE source_key LIKE '%:c'");
-		source("d", "위험문장B 다른 문맥", null);
+		// Either A or B may represent the first semantic group; exercise a warning without an exact candidate.
+		String withoutExact = List.of("위험문장A", "위험문장B").stream()
+				.filter(expression -> !db.queryForObject(
+						"SELECT EXISTS(SELECT 1 FROM guard_review_candidates WHERE expression=?)", Boolean.class,
+						expression))
+				.findFirst().orElseThrow();
+		source("d", withoutExact + " 다른 문맥", null);
 		drain(scheduled());
 		assertThat(count("guard_review_candidates")).isEqualTo(4);
+		assertThat(db.queryForMap("SELECT embedding_profile,embedding FROM guard_review_candidates WHERE expression=?",
+				withoutExact)).containsEntry("embedding_profile", null).containsEntry("embedding", null);
+		source("d-again", withoutExact + " 추가 문맥", null);
+		drain(scheduled());
+		assertThat(count("guard_review_candidates")).isEqualTo(4);
+		assertThat(count("guard_review_findings")).isEqualTo(6);
 	}
 	@Test
 	void concurrentAnalysisRequestsQueueOnlyOneRun() throws Exception {
@@ -604,6 +670,152 @@ class GuardReviewPostgresIntegrationTest {
 			assertThat(tasks.get(0).get(10, TimeUnit.SECONDS) ^ tasks.get(1).get(10, TimeUnit.SECONDS)).isTrue();
 		}
 		assertThat(count("guard_review_runs")).isEqualTo(1);
+	}
+	// These gates exist only in the disposable PostgreSQL test database, never in application code.
+	void installSnapshotGate(boolean fail) {
+		db.execute("""
+				CREATE FUNCTION guard_review_it_snapshot_gate() RETURNS trigger LANGUAGE plpgsql AS $$
+				BEGIN
+				 IF NEW.run_id IS NOT NULL THEN
+				  PERFORM pg_advisory_xact_lock(674199001);
+				  IF TG_ARGV[0]='fail' THEN RAISE EXCEPTION 'synthetic snapshot failure'; END IF;
+				 END IF;
+				 RETURN NEW;
+				END $$
+				""");
+		db.execute("CREATE TRIGGER guard_review_it_snapshot_gate BEFORE INSERT ON guard_review_items "
+				+ "FOR EACH ROW EXECUTE FUNCTION guard_review_it_snapshot_gate('" + (fail ? "fail" : "pass") + "')");
+	}
+	void removeSnapshotGate() {
+		db.execute("DROP TRIGGER guard_review_it_snapshot_gate ON guard_review_items");
+		db.execute("DROP FUNCTION guard_review_it_snapshot_gate()");
+	}
+	void awaitAdvisoryWait(long key) throws InterruptedException {
+		long waiting = 0;
+		for (int i = 0; i < 200; i++) {
+			waiting = db.queryForObject("SELECT count(*) FROM pg_locks WHERE locktype='advisory' "
+					+ "AND classid=0 AND objid=? AND NOT granted", Long.class, key);
+			if (waiting > 0)
+				break;
+			Thread.sleep(25);
+		}
+		assertThat(waiting).as("transaction must reach the controlled database gate").isEqualTo(1);
+	}
+	ReviewWorkService.Proposal warningProposal() {
+		return new ReviewWorkService.Proposal(
+				new Suggestion(Kind.WARNING, "THREAT", "위험문장A", "테스트 경고", Stage.INPUT, "HARMFUL_REQUEST"), null);
+	}
+	@Test
+	void manualSnapshotAllowsAlertsButPublishesRunAndItemsOnlyAfterCommit() throws Exception {
+		source("snapshot-alert", "위험문장A", "정상 모델 답변");
+		long previous = full();
+		UUID token = UUID.randomUUID();
+		assertThat(repo.claim(token)).isEqualTo(previous);
+		work.finishSource(previous, token, repo.nextSource(previous), List.of(warningProposal()), true);
+		work.release(previous, token);
+		assertThat(count("notifications")).isZero();
+		installSnapshotGate(false);
+		long created;
+		try (var gate = isolated.getConnection(); var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+			gate.setAutoCommit(false);
+			new JdbcTemplate(new SingleConnectionDataSource(gate, true))
+					.execute("SELECT pg_advisory_xact_lock(674199001)");
+			var snapshot = executor.submit(() -> reviews.startAnalysis(99L));
+			try {
+				awaitAdvisoryWait(674199001);
+				assertThat(count("guard_review_runs")).isEqualTo(1);
+				assertThat(count("guard_review_items WHERE run_id IS NOT NULL")).isEqualTo(1);
+				assertThat(repo.claim(UUID.randomUUID())).isNull();
+				executor.submit(() -> workerContext.getBean(ReviewAlertService.class).flush()).get(5, TimeUnit.SECONDS);
+				assertThat(count("notifications")).isEqualTo(2);
+				executor.submit(() -> api.getBean(ReviewAlertService.class).flush()).get(5, TimeUnit.SECONDS);
+				assertThat(count("notifications")).isEqualTo(2);
+				var duplicate = executor.submit(() -> workerContext.getBean(ReviewService.class).startAnalysis(100L));
+				awaitAdvisoryWait(674102233);
+				assertThat(duplicate.isDone()).isFalse();
+				gate.rollback();
+				created = snapshot.get(10, TimeUnit.SECONDS);
+				assertThatThrownBy(() -> duplicate.get(10, TimeUnit.SECONDS))
+						.hasCauseInstanceOf(com.ubot.guardreview.exception.ReviewException.class);
+			} finally {
+				gate.rollback();
+			}
+		} finally {
+			removeSnapshotGate();
+		}
+		assertThat(count("guard_review_runs")).isEqualTo(2);
+		assertThat(repo.run(created).total()).isEqualTo(1);
+		drain(created);
+		assertThat(repo.run(created).status()).isEqualTo("COMPLETED");
+		assertThat(count("notifications")).isEqualTo(2);
+	}
+	@Test
+	void snapshotDoesNotBlockWorkerCompletionOrRetention() throws Exception {
+		source("snapshot-completion", "위험문장A", "동결할 모델 답변");
+		long previous = full();
+		UUID token = UUID.randomUUID();
+		assertThat(repo.claim(token)).isEqualTo(previous);
+		Source pending = repo.nextSource(previous);
+		installSnapshotGate(false);
+		long created;
+		try (var gate = isolated.getConnection(); var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+			gate.setAutoCommit(false);
+			new JdbcTemplate(new SingleConnectionDataSource(gate, true))
+					.execute("SELECT pg_advisory_xact_lock(674199001)");
+			// Deliberately overlap repository operations; the API normally disallows two active analyses.
+			var snapshot = executor
+					.submit(() -> new TransactionTemplate(api.getBean(PlatformTransactionManager.class)).execute(tx -> {
+						repo.analysisEnqueueLock();
+						long id = repo.createRun("ANALYSIS", "{\"analysisMode\":\"FULL\"}", 99L);
+						repo.snapshotSources(id, AnalysisMode.FULL);
+						return id;
+					}));
+			try {
+				awaitAdvisoryWait(674199001);
+				executor.submit(() -> {
+					work.finishSource(previous, token, pending, List.of(warningProposal()), true);
+					work.release(previous, token);
+					workerContext.getBean(ReviewAlertService.class).flush();
+				}).get(5, TimeUnit.SECONDS);
+				assertThat(repo.run(previous).status()).isEqualTo("COMPLETED");
+				assertThat(count("notifications")).isEqualTo(2);
+				executor.submit(() -> api.getBean(ReviewRetentionService.class).cleanup()).get(5, TimeUnit.SECONDS);
+				assertThat(snapshot.isDone()).isFalse();
+				gate.rollback();
+				created = snapshot.get(10, TimeUnit.SECONDS);
+			} finally {
+				gate.rollback();
+			}
+		} finally {
+			removeSnapshotGate();
+		}
+		api.getBean(ReviewRetentionService.class).cleanup();
+		assertThat(db.queryForMap("SELECT question_snapshot,answer_snapshot FROM guard_review_items WHERE run_id=?",
+				created)).containsEntry("question_snapshot", "위험문장A").containsEntry("answer_snapshot", "동결할 모델 답변");
+		drain(created);
+		assertThat(repo.run(created).status()).isEqualTo("COMPLETED");
+		assertThat(count("notifications")).isEqualTo(2);
+	}
+	@Test
+	void snapshotFailureRollsBackRunAndItemsAndReleasesEnqueueLock() throws Exception {
+		source("snapshot-rollback-a", "첫 원문", "첫 응답");
+		source("snapshot-rollback-b", "둘째 원문", "둘째 응답");
+		installSnapshotGate(true);
+		try {
+			assertThatThrownBy(() -> reviews.startAnalysis(99L))
+					.isInstanceOf(org.springframework.dao.DataAccessException.class);
+			assertThat(count("guard_review_runs")).isZero();
+			assertThat(count("guard_review_items WHERE run_id IS NOT NULL")).isZero();
+			assertThat(count("guard_review_items")).isZero();
+			assertThat(repo.claim(UUID.randomUUID())).isNull();
+			assertThat(MODEL.calls.get()).isZero();
+		} finally {
+			removeSnapshotGate();
+		}
+		long retried = workerContext.getBean(ReviewService.class).startAnalysis(99L);
+		assertThat(repo.run(retried).total()).isEqualTo(2);
+		drain(retried);
+		assertThat(repo.run(retried).status()).isEqualTo("COMPLETED");
 	}
 	@Test
 	void concurrentWorkersClaimOnlyOnceAndExpiredLeaseCannotWrite() throws Exception {
@@ -680,7 +892,7 @@ class GuardReviewPostgresIntegrationTest {
 		api.getBean(ReviewRetentionService.class).cleanup();
 		assertThat(db.queryForObject("SELECT request::text FROM guard_review_runs WHERE id=?", String.class, v))
 				.contains("expired");
-		assertThat(count("guard_review_items WHERE question_snapshot IS NOT NULL")).isZero();
+		assertThat(count("guard_review_items WHERE run_id IS NOT NULL AND question_snapshot IS NOT NULL")).isZero();
 		assertThat(count("guard_review_findings")).isEqualTo(2);
 	}
 	@Test
@@ -697,7 +909,7 @@ class GuardReviewPostgresIntegrationTest {
 				"INSERT INTO guard_review_history(candidate_id,revision,action,admin_id,expression,created_at) VALUES(?,1,'REVIEWED',99,'위험문장A',LOCALTIMESTAMP-interval '400 days'),(?,1,'REVIEWED',99,'위험문장A',LOCALTIMESTAMP-interval '399 days')",
 				c, c);
 		api.getBean(ReviewRetentionService.class).cleanup();
-		assertThat(count("guard_review_items")).isEqualTo(1);
+		assertThat(count("guard_review_items WHERE run_id IS NOT NULL")).isEqualTo(1);
 		assertThat(count("guard_review_findings")).isEqualTo(1);
 		assertThat(count("guard_review_history")).isEqualTo(1);
 		long noChange = scheduled();
@@ -807,7 +1019,7 @@ class GuardReviewPostgresIntegrationTest {
 		assertThatThrownBy(() -> work.finishSource(run, token, source, List.of(valid, forged), true))
 				.isInstanceOf(com.ubot.guardreview.exception.ReviewException.class);
 		assertThat(count("guard_review_candidates")).isZero();
-		assertThat(count("guard_review_items WHERE status='PENDING'")).isEqualTo(1);
+		assertThat(count("guard_review_items WHERE run_id IS NOT NULL AND status='PENDING'")).isEqualTo(1);
 		work.finishSource(run, token, source, List.of(valid), true);
 		work.release(run, token);
 		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
@@ -823,5 +1035,476 @@ class GuardReviewPostgresIntegrationTest {
 				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
 		assertThatThrownBy(() -> db.update("INSERT INTO guard_review_runs(kind,analysis_mode) VALUES('ANALYSIS',NULL)"))
 				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void administratorValidationRunsOnNextPollBeforeRemainingAnalysisThenAnalysisContinues() throws Exception {
+		// Any first item must provide the candidate; snapshot insertion order is not part of the queue contract.
+		source("validation-priority-first", "후보:실험금칙표현 첫 번째 질문", "모델 응답 1");
+		source("validation-priority-second", "후보:실험금칙표현 두 번째 질문", "모델 응답 2");
+		source("validation-priority-third", "후보:실험금칙표현 세 번째 질문", "모델 응답 3");
+		long analysis = full();
+		assertThat(repo.run(analysis).total()).isEqualTo(3);
+		worker.poll();
+		assertThat(repo.run(analysis).status()).isEqualTo("RUNNING");
+		assertThat(repo.run(analysis).processed()).isEqualTo(1);
+		assertThat(MODEL.calls.get()).isEqualTo(1);
+
+		// A real administrator request arrives while the earlier analysis still has two items.
+		long validation = validateSelection(selection(word("실험금칙표현")));
+		assertThat(validation).isGreaterThan(analysis);
+		assertThat(repo.run(validation).status()).isEqualTo("QUEUED");
+		worker.poll();
+
+		assertThat(repo.run(validation).status()).isEqualTo("COMPLETED");
+		var result = JSON.readValue(repo.run(validation).result(), Validation.class);
+		assertThat(result.cases()).hasSize(5168);
+		assertThat(result.passed()).isTrue();
+		assertThat(repo.run(analysis).status()).isEqualTo("RUNNING");
+		assertThat(repo.run(analysis).processed()).isEqualTo(1);
+		assertThat(MODEL.calls.get()).isEqualTo(1);
+
+		worker.poll();
+		assertThat(repo.run(analysis).processed()).isEqualTo(2);
+		assertThat(MODEL.calls.get()).isEqualTo(2);
+		drain(analysis);
+		assertThat(repo.run(analysis).status()).isEqualTo("COMPLETED");
+		assertThat(repo.run(analysis).processed()).isEqualTo(3);
+		assertThat(MODEL.calls.get()).isEqualTo(3);
+	}
+
+	@Test
+	void validationPriorityPreservesFifoAndDoesNotStealAnActiveLease() {
+		long analysis = repo.createRun("ANALYSIS", "{\"analysisMode\":\"FULL\"}", 99L);
+		long firstValidation = repo.createRun("VALIDATION", "{}", 99L);
+		long secondValidation = repo.createRun("VALIDATION", "{}", 99L);
+		UUID firstOwner = UUID.randomUUID(), secondOwner = UUID.randomUUID();
+		assertThat(repo.claim(firstOwner)).isEqualTo(firstValidation);
+		assertThat(repo.claim(secondOwner)).isEqualTo(secondValidation);
+		assertThat(repo.claim(UUID.randomUUID())).isEqualTo(analysis);
+		assertThat(repo.claim(UUID.randomUUID())).isNull();
+
+		// Only an expired lease can be reclaimed, preserving the original ownership protection.
+		db.update("UPDATE guard_review_runs SET lease_until=LOCALTIMESTAMP-interval '1 second' WHERE id=?",
+				firstValidation);
+		UUID replacement = UUID.randomUUID();
+		assertThat(repo.claim(replacement)).isEqualTo(firstValidation);
+		assertThat(
+				db.queryForObject("SELECT lease_token FROM guard_review_runs WHERE id=?", UUID.class, firstValidation))
+				.isEqualTo(replacement).isNotEqualTo(firstOwner);
+	}
+
+	@Test
+	void candidateApisOmitEmbeddingValuesAndKeepMetadataAndPaging() throws Exception {
+		float[] values = new float[1024];
+		values[0] = 1;
+		var warning = new Suggestion(Kind.WARNING, "FRAUD", "위험 요청 후보", "검토 이유", Stage.INPUT, "HARMFUL_REQUEST");
+		long warningId = repo.insertCandidate(warning, ReviewService.normalizedHash(warning.expression()),
+				new com.ubot.guardreview.model.ReviewModels.Vector("fake-v1", values));
+		assertThat(db.queryForObject("SELECT vector_dims(embedding) FROM guard_review_candidates WHERE id=?",
+				Integer.class, warningId)).isEqualTo(1024);
+		var page = request(get("/admin/guard-review/candidates").param("kind", "WARNING"), null, 200).path("data");
+		assertThat(page.path("totalElements").asLong()).isEqualTo(1);
+		assertThat(page.path("content").size()).isEqualTo(1);
+		var displayed = page.path("content").get(0);
+		assertThat(displayed.path("id").asLong()).isEqualTo(warningId);
+		assertThat(displayed.path("kind").asString()).isEqualTo("WARNING");
+		assertThat(displayed.path("expression").asString()).isEqualTo(warning.expression());
+		assertThat(displayed.path("reason").asString()).isEqualTo(warning.reason());
+		assertThat(displayed.path("profile").asString()).isEqualTo("fake-v1");
+		assertThat(displayed.path("revision").asLong()).isEqualTo(1);
+		assertThat(displayed.path("occurrences").asLong()).isZero();
+		assertThat(displayed.has("vector")).isFalse();
+		assertThat(displayed.has("embedding")).isFalse();
+
+		var word = new Suggestion(Kind.WORD, "ABUSE", "후보표현", "검토 이유", Stage.OUTPUT, "HARMFUL_OUTPUT");
+		long wordId = repo.insertCandidate(word, ReviewService.normalizedHash(word.expression()), null);
+		var wordPage = request(get("/admin/guard-review/candidates").param("kind", "WORD"), null, 200).path("data");
+		assertThat(wordPage.path("content").get(0).has("vector")).isFalse();
+		var edited = request(patch("/admin/guard-review/candidates/{id}", wordId),
+				Map.of("revision", 1, "expression", "수정후보표현", "reason", "수정 이유"), 200).path("data");
+		assertThat(edited.path("id").asLong()).isEqualTo(wordId);
+		assertThat(edited.path("expression").asString()).isEqualTo("수정후보표현");
+		assertThat(edited.path("revision").asLong()).isEqualTo(2);
+		assertThat(edited.has("vector")).isFalse();
+	}
+
+	@Test
+	void candidateReadsSucceedWithoutPermissionToReadEmbeddingColumn() throws Exception {
+		float[] values = new float[1024];
+		values[0] = 1;
+		var warning = new Suggestion(Kind.WARNING, "FRAUD", "목록 검증 후보", "검토 이유", Stage.INPUT, "HARMFUL_REQUEST");
+		long id = repo.insertCandidate(warning, ReviewService.normalizedHash(warning.expression()),
+				new com.ubot.guardreview.model.ReviewModels.Vector("fake-v1", values));
+		try (var connection = isolated.getConnection()) {
+			connection.setAutoCommit(false);
+			try {
+				var restricted = new JdbcTemplate(new SingleConnectionDataSource(connection, true));
+				restricted.execute("CREATE ROLE guard_review_candidate_reader");
+				restricted.execute(
+						"""
+								GRANT SELECT(id,kind,category,expression,reason,intent,revision,status,word_id,embedding_profile)
+								ON guard_review_candidates TO guard_review_candidate_reader
+								""");
+				restricted.execute(
+						"GRANT SELECT(candidate_id,notified_at) ON guard_review_findings TO guard_review_candidate_reader");
+				restricted.execute("SET LOCAL ROLE guard_review_candidate_reader");
+				var reader = new ReviewRepository(restricted, new ForbiddenWordCatalogLock(restricted));
+				Candidate candidate = reader.candidate(id, false);
+				assertThat(candidate.expression()).isEqualTo(warning.expression());
+				assertThat(candidate.profile()).isEqualTo("fake-v1");
+				var page = reader.getCandidatePage("WARNING", 0, 10);
+				assertThat(page.totalElements()).isEqualTo(1);
+				assertThat(page.content()).containsExactly(candidate);
+				try (var statement = connection.createStatement()) {
+					assertThatThrownBy(() -> statement.executeQuery("SELECT embedding FROM guard_review_candidates"))
+							.isInstanceOf(java.sql.SQLException.class)
+							.satisfies(e -> assertThat(((java.sql.SQLException) e).getSQLState()).isEqualTo("42501"));
+				}
+			} finally {
+				// The temporary role and grants exist only in this isolated test transaction.
+				connection.rollback();
+			}
+		}
+	}
+
+	@Test
+	void analysisFailureKeepsActualProgressAndPendingItemsInsteadOfReportingOneHundredPercent() throws Exception {
+		for (int i = 0; i < 3; i++)
+			source("progress-" + i, "정상 질문 " + i, "정상 응답 " + i);
+		long run = full();
+		UUID token = UUID.randomUUID();
+		assertThat(repo.claim(token)).isEqualTo(run);
+		work.finishSource(run, token, repo.nextSource(run), List.of(), true);
+		work.failAnalysis(run, token);
+		assertThat(repo.run(run).status()).isEqualTo("FAILED");
+		assertThat(repo.run(run).processed()).isEqualTo(1);
+		assertThat(repo.run(run).total()).isEqualTo(3);
+		var result = JSON.readTree(repo.run(run).result());
+		assertThat(result.path("completed").asInt()).isEqualTo(1);
+		assertThat(result.path("failed").asInt()).isZero();
+		assertThat(result.path("pending").asInt()).isEqualTo(2);
+		assertThat(result.path("error").asText()).isEqualTo("REVIEW_FAILED");
+		assertThat(count("guard_review_items WHERE run_id=" + run + " AND status='PENDING'")).isEqualTo(2);
+		assertThatThrownBy(() -> work.failAnalysis(run, token))
+				.isInstanceOf(com.ubot.guardreview.exception.ReviewException.class);
+		reviews.resumeAnalysis(run);
+		assertThat(repo.run(run).processed()).isEqualTo(1);
+		drain(run);
+		assertThat(repo.run(run).processed()).isEqualTo(3);
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+	}
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void modelOutageRetriesSamePendingItemWithDurableDelayWithoutFailingOtherItems(boolean recovery) throws Exception {
+		for (int i = 0; i < 3; i++)
+			source("retry-" + i, "후보:실험금칙표현 질문 " + i, "모델 응답 " + i);
+		long run = full();
+		MODEL.mode = "UNAVAILABLE";
+		long failedItem = 0;
+		for (int failure = 1; failure <= (recovery ? 2 : 3); failure++) {
+			if (failure > 1)
+				db.update("UPDATE guard_review_runs SET lease_until=LOCALTIMESTAMP-interval '1 second' WHERE id=?",
+						run);
+			worker.poll();
+			var result = JSON.readTree(repo.run(run).result());
+			assertThat(result.path("consecutiveFailures").asInt()).isEqualTo(failure);
+			if (failure == 1)
+				failedItem = result.path("lastSourceId").asLong();
+			assertThat(result.path("lastSourceId").asLong()).isEqualTo(failedItem);
+			assertThat(result.path("errorCode").asText()).isEqualTo("LLM-003");
+			assertThat(MODEL.calls.get()).isEqualTo(failure);
+			if (failure < 3) {
+				assertThat(repo.run(run).status()).isEqualTo("RUNNING");
+				assertThat(repo.run(run).processed()).isZero();
+				assertThat(count("guard_review_items WHERE run_id=" + run + " AND status='PENDING'")).isEqualTo(3);
+				double remaining = db.queryForObject(
+						"SELECT extract(epoch FROM lease_until-LOCALTIMESTAMP) FROM guard_review_runs WHERE id=?",
+						Double.class, run);
+				assertThat(remaining).isBetween(failure == 1 ? 7.0 : 27.0, failure == 1 ? 10.1 : 30.1);
+				assertThat(result.has("retryAt")).isTrue();
+				worker.poll();
+				assertThat(MODEL.calls.get()).isEqualTo(failure);
+			}
+		}
+		if (!recovery) {
+			assertThat(repo.run(run).status()).isEqualTo("FAILED");
+			assertThat(repo.run(run).processed()).isEqualTo(1);
+			assertThat(repo.run(run).total()).isEqualTo(3);
+			assertThat(count("guard_review_items WHERE run_id=" + run + " AND status='FAILED'")).isEqualTo(1);
+			assertThat(count("guard_review_items WHERE run_id=" + run + " AND status='PENDING'")).isEqualTo(2);
+			worker.poll();
+			assertThat(MODEL.calls.get()).isEqualTo(3);
+			reviews.resumeAnalysis(run);
+			assertThat(repo.run(run).processed()).isZero();
+			assertThat(JSON.readTree(repo.run(run).result()).has("consecutiveFailures")).isFalse();
+		} else {
+			var suggestion = new Suggestion(Kind.WORD, "ABUSE", "실험금칙표현", "테스트", Stage.INPUT, "HARMFUL_REQUEST");
+			long candidate = repo.insertCandidate(suggestion, ReviewService.normalizedHash(suggestion.expression()),
+					null);
+			long validation = validateSelection(selection(candidate));
+			worker.poll();
+			assertThat(repo.run(validation).status()).isEqualTo("COMPLETED");
+			assertThat(MODEL.calls.get()).isEqualTo(2);
+			db.update("UPDATE guard_review_runs SET lease_until=LOCALTIMESTAMP-interval '1 second' WHERE id=?", run);
+		}
+		MODEL.mode = "OK";
+		drain(run);
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+		assertThat(repo.run(run).processed()).isEqualTo(3);
+		assertThat(count("guard_review_items WHERE run_id=" + run + " AND status='FAILED'")).isZero();
+		assertThat(JSON.readTree(repo.run(run).result()).has("consecutiveFailures")).isFalse();
+		assertThat(repo.run(scheduled()).total()).isZero();
+	}
+	@Test
+	void leaseRenewalCannotReviveExpiredOrReplacedOwnerAndFailedValidationDoesNotForceProgress() {
+		long run = repo.createRun("VALIDATION", "{}", 99L);
+		repo.total(run, 5168);
+		UUID old = UUID.randomUUID(), replacement = UUID.randomUUID();
+		assertThat(repo.claim(old)).isEqualTo(run);
+		db.update("UPDATE guard_review_runs SET lease_until=LOCALTIMESTAMP-interval '1 second' WHERE id=?", run);
+		assertThat(repo.renewLease(run, old)).isFalse();
+		assertThat(repo.claim(replacement)).isEqualTo(run);
+		assertThat(repo.renewLease(run, old)).isFalse();
+		assertThatThrownBy(() -> work.finishValidation(run, old, "{}", true))
+				.isInstanceOf(com.ubot.guardreview.exception.ReviewException.class);
+		assertThat(repo.renewLease(run, replacement)).isTrue();
+		work.finishValidation(run, replacement, "{\"error\":\"REVIEW_FAILED\"}", false);
+		assertThat(repo.run(run).processed()).isZero();
+		assertThat(repo.run(run).total()).isEqualTo(5168);
+		assertThat(repo.run(run).status()).isEqualTo("FAILED");
+		assertThat(repo.renewLease(run, replacement)).isFalse();
+	}
+	@Test
+	void dedicatedHeartbeatRenewsWhileValidationThreadIsBlockedAndPreventsDuplicateClaim() throws Exception {
+		source("heartbeat-validation", "후보:실험금칙표현", "정상 모델 응답");
+		drain(full());
+		long run = validateSelection(selection(word("실험금칙표현")));
+		var entered = new CountDownLatch(1);
+		var release = new CountDownLatch(1);
+		var slow = org.mockito.Mockito.mock(ReviewValidationService.class);
+		org.mockito.Mockito.when(slow.dataset()).thenReturn(validator.dataset());
+		org.mockito.Mockito.when(slow.datasetVersion()).thenReturn(validator.datasetVersion());
+		org.mockito.Mockito.when(slow.baseVersion(org.mockito.ArgumentMatchers.anySet()))
+				.thenAnswer(invocation -> validator.baseVersion(invocation.getArgument(0)));
+		org.mockito.Mockito.when(slow.validate(org.mockito.ArgumentMatchers.anyCollection(),
+				org.mockito.ArgumentMatchers.anySet(), org.mockito.ArgumentMatchers.anyList(),
+				org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(Runnable.class)))
+				.thenAnswer(invocation -> {
+					db.update(
+							"UPDATE guard_review_runs SET lease_until=LOCALTIMESTAMP+interval '45 seconds' WHERE id=?",
+							run);
+					entered.countDown();
+					assertThat(release.await(50, TimeUnit.SECONDS)).isTrue();
+					return validator.validate(invocation.getArgument(0), invocation.getArgument(1),
+							invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4));
+				});
+		var active = new ReviewWorker(repo, workerContext.getBean(ReviewAnalyzer.class),
+				workerContext.getBean(ReviewEmbedding.class), reviews, work, slow,
+				workerContext.getBean(ReviewAlertService.class), workerContext.getBean(ReviewLeaseService.class));
+		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+			var task = executor.submit(active::poll);
+			try {
+				assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+				boolean renewed = false;
+				for (int i = 0; i < 400; i++) {
+					renewed = Boolean.TRUE.equals(db.queryForObject(
+							"SELECT lease_until>LOCALTIMESTAMP+interval '4 minutes' FROM guard_review_runs WHERE id=?",
+							Boolean.class, run));
+					if (renewed)
+						break;
+					Thread.sleep(100);
+				}
+				assertThat(renewed).as("dedicated timer must renew while the validation thread is blocked").isTrue();
+				assertThat(task.isDone()).isFalse();
+				assertThat(workerContext.getBean(ReviewRepository.class).claim(UUID.randomUUID())).isNull();
+				release.countDown();
+				task.get(20, TimeUnit.SECONDS);
+			} finally {
+				release.countDown();
+			}
+		}
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+		assertThat(repo.run(run).processed()).isEqualTo(5168);
+		assertThat(JSON.readValue(repo.run(run).result(), Validation.class).cases()).hasSize(5168);
+		assertThat(MODEL.calls.get()).isEqualTo(1);
+	}
+	@Test
+	void busyForegroundDefersAnalysisWithoutFailedItemOrCheckpointThenResumes() throws Exception {
+		source("capacity-defer", "정상 질문", "정상 모델 응답");
+		long run = full();
+		var foregroundStarted = new CountDownLatch(1);
+		var releaseForeground = new CountDownLatch(1);
+		var analysisCalls = new AtomicInteger();
+		var client = org.mockito.Mockito.mock(LlmClient.class);
+		org.mockito.Mockito.when(client.generateAnswer(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+			LlmRequestDto request = invocation.getArgument(0);
+			if (request.hasResponseSchema()) {
+				analysisCalls.incrementAndGet();
+				return new LlmResponseDto("{\"suggestions\":[]}");
+			}
+			foregroundStarted.countDown();
+			assertThat(releaseForeground.await(10, TimeUnit.SECONDS)).isTrue();
+			return new LlmResponseDto("가짜 채팅 답변");
+		});
+		var shared = new LlmService(client, 2);
+		var background = new ReviewWorker(repo, new LlmReviewAnalyzer(shared),
+				workerContext.getBean(ReviewEmbedding.class), reviews, work, validator,
+				workerContext.getBean(ReviewAlertService.class), workerContext.getBean(ReviewLeaseService.class));
+		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+			var foreground = executor.submit(() -> shared.generateAnswer(new LlmRequestDto(
+					List.of(new com.ubot.llm.dto.request.LlmMessageRequestDto(com.ubot.llm.enums.LlmMessageRole.USER,
+							"가짜 채팅 질문")))));
+			try {
+				assertThat(foregroundStarted.await(5, TimeUnit.SECONDS)).isTrue();
+				background.poll();
+				assertThat(analysisCalls.get()).isZero();
+				assertThat(repo.run(run).status()).isEqualTo("RUNNING");
+				assertThat(repo.run(run).processed()).isZero();
+				assertThat(db.queryForMap("SELECT status,error_code FROM guard_review_items WHERE run_id=?", run))
+						.containsEntry("status", "PENDING").containsEntry("error_code", null);
+				assertThat(db.queryForObject("SELECT lease_token FROM guard_review_runs WHERE id=?", UUID.class, run))
+						.isNull();
+				assertThat(count("guard_review_items WHERE run_id IS NOT NULL AND status='COMPLETED'")).isZero();
+				releaseForeground.countDown();
+				assertThat(foreground.get(5, TimeUnit.SECONDS).answer()).isEqualTo("가짜 채팅 답변");
+				background.poll();
+				assertThat(analysisCalls.get()).isEqualTo(1);
+				assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+				assertThat(repo.run(run).processed()).isEqualTo(1);
+				long incremental = scheduled();
+				drain(incremental);
+				assertThat(repo.run(incremental).total()).isZero();
+			} finally {
+				releaseForeground.countDown();
+			}
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void manualChangesAndReviewApprovalShareLockAcrossContextsUntilCommitOrRollback(boolean rollback) throws Exception {
+		source("catalog-lock", "후보:실험금칙표현", null);
+		drain(full());
+		var selected = selection(word("실험금칙표현"));
+		long validation = validateSelection(selected);
+		drain(validation);
+		var held = new CountDownLatch(1);
+		var release = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var manual = executor.submit(() -> new TransactionTemplate(api.getBean(PlatformTransactionManager.class))
+					.executeWithoutResult(tx -> {
+						api.getBean(ForbiddenWordService.class).createForbiddenWord(
+								new com.ubot.forbiddenword.dto.request.ForbiddenWordCreateRequestDto("수동잠금검증표현"));
+						held.countDown();
+						try {
+							assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+						} catch (InterruptedException e) {
+							Thread.currentThread().interrupt();
+							throw new IllegalStateException(e);
+						}
+						if (rollback)
+							tx.setRollbackOnly();
+					}));
+			try {
+				assertThat(held.await(5, TimeUnit.SECONDS)).isTrue();
+				var approval = executor.submit(() -> {
+					workerContext.getBean(ReviewService.class).approveCandidates(validation, selected, 99);
+					return null;
+				});
+				long waiting = 0;
+				for (int i = 0; i < 200; i++) {
+					waiting = db.queryForObject("""
+							SELECT count(*) FROM pg_locks WHERE locktype='advisory'
+							AND classid=0 AND objid=674102231 AND NOT granted
+							""", Long.class);
+					if (waiting > 0)
+						break;
+					Thread.sleep(25);
+				}
+				assertThat(waiting).as("review approval must wait on the manual catalog transaction").isEqualTo(1);
+				assertThat(approval.isDone()).isFalse();
+				release.countDown();
+				manual.get(10, TimeUnit.SECONDS);
+				if (rollback) {
+					approval.get(10, TimeUnit.SECONDS);
+					assertThat(count("forbidden_words WHERE word='실험금칙표현'")).isEqualTo(1);
+					assertThat(count("forbidden_words WHERE word='수동잠금검증표현'")).isZero();
+				} else {
+					assertThatThrownBy(() -> approval.get(10, TimeUnit.SECONDS))
+							.hasCauseInstanceOf(com.ubot.guardreview.exception.ReviewException.class);
+					assertThat(count("forbidden_words WHERE word='실험금칙표현'")).isZero();
+					assertThat(count("forbidden_words WHERE word='수동잠금검증표현'")).isEqualTo(1);
+				}
+			} finally {
+				release.countDown();
+			}
+		}
+	}
+
+	@Test
+	void sourceKeysAreHashedAndReanalysisKeepsCheckpointAndWarningDedupe() throws Exception {
+		source("private-request-key", "위험문장A", "정상 답변");
+		long run = full();
+		drain(run);
+		String expected = sourceKeyHash("none:1:private-request-key");
+		assertThat(db.queryForObject("SELECT source_key FROM guard_review_items WHERE run_id=?", String.class, run))
+				.isEqualTo(expected);
+		assertThat(expected).matches("^sha256:[0-9a-f]{64}$").doesNotContain("private-request-key");
+		assertThat(db.queryForObject("SELECT source_key FROM guard_review_findings", String.class)).isEqualTo(expected);
+		int findings = count("guard_review_findings"), notifications = count("notifications");
+		long next = full();
+		drain(next);
+		assertThat(count("guard_review_findings")).isEqualTo(findings);
+		assertThat(count("notifications")).isEqualTo(notifications);
+		long incremental = scheduled();
+		assertThat(repo.run(incremental).total()).isZero();
+		drain(incremental);
+		long candidate = word("위험문장A");
+		var details = request(get("/admin/guard-review/candidates/" + candidate + "/findings"), null, 200);
+		assertThat(details.toString()).contains(expected).doesNotContain("private-request-key");
+	}
+
+	@Test
+	void validationRunApiUsesObjectSummaryAndPagesStoredCases() throws Exception {
+		var cases = new ArrayList<CaseResult>();
+		for (int i = 0; i < 23; i++)
+			cases.add(new CaseResult("case-" + i, "NORMAL", Stage.INPUT, "before-" + i, "after-" + i, false, false,
+					false, false));
+		var result = new Validation("rules", "dataset", cases, 0, 0, 0, 0);
+		long id = db.queryForObject("""
+				INSERT INTO guard_review_runs(kind,status,total,processed,result,finished_at)
+				VALUES('VALIDATION','COMPLETED',23,23,?::jsonb,LOCALTIMESTAMP) RETURNING id
+				""", Long.class, JSON.writeValueAsString(result));
+		var summary = request(get("/admin/guard-review/runs/" + id), null, 200).path("data");
+		assertThat(summary.path("result").isObject()).isTrue();
+		assertThat(summary.path("result").has("cases")).isFalse();
+		assertThat(summary.path("result").path("caseCount").asInt()).isEqualTo(23);
+		assertThat(summary.has("request")).isFalse();
+		assertThat(summary.has("leaseToken")).isFalse();
+		for (int page = 0; page < 4; page++) {
+			var response = request(get("/admin/guard-review/runs/" + id + "/cases").param("page", String.valueOf(page))
+					.param("size", "10"), null, 200).path("data");
+			int expected = Math.min(10, Math.max(0, 23 - page * 10));
+			assertThat(response.path("content").size()).isEqualTo(expected);
+			assertThat(response.path("totalElements").asInt()).isEqualTo(23);
+			assertThat(response.path("totalPages").asInt()).isEqualTo(3);
+			for (int index = 0; index < expected; index++)
+				assertThat(response.path("content").get(index).path("id").asText())
+						.isEqualTo("case-" + (page * 10 + index));
+		}
+		request(get("/admin/guard-review/runs/" + id + "/cases").param("size", "11"), null, 400);
+		request(get("/admin/guard-review/runs/" + id + "/cases").param("page", "-1"), null, 400);
+		request(get("/admin/guard-review/runs/" + id + "/cases"), null, 403, normal);
+		db.update("UPDATE guard_review_runs SET finished_at=LOCALTIMESTAMP-interval '31 days' WHERE id=?", id);
+		request(get("/admin/guard-review/runs/" + id + "/cases"), null, 409);
+	}
+	@Test
+	void validationCaseApiRejectsWrongKindAndInProgressOrMissingRuns() throws Exception {
+		long analysis = repo.createRun("ANALYSIS", "{\"analysisMode\":\"FULL\"}", 99L);
+		request(get("/admin/guard-review/runs/" + analysis + "/cases"), null, 400);
+		long validation = repo.createRun("VALIDATION", "{}", 99L);
+		request(get("/admin/guard-review/runs/" + validation + "/cases"), null, 409);
+		request(get("/admin/guard-review/runs/999999999/cases"), null, 404);
 	}
 }

@@ -11,10 +11,12 @@ import static com.ubot.guardreview.model.ReviewModels.Suggestion;
 import static com.ubot.guardreview.model.ReviewModels.Vector;
 import static com.ubot.guardreview.model.ReviewModels.Candidate;
 import static com.ubot.guardreview.model.ReviewModels.Run;
+import static com.ubot.guardreview.model.ReviewModels.CaseResult;
 import static com.ubot.guardreview.model.ReviewModels.AlertSummary;
 import static com.ubot.guardreview.model.ReviewModels.History;
 
 import com.pgvector.PGvector;
+import com.ubot.forbiddenword.service.ForbiddenWordCatalogLock;
 import com.ubot.guardreview.exception.ReviewException;
 import com.ubot.common.PageResponseDto;
 import java.sql.ResultSet;
@@ -22,6 +24,7 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -31,20 +34,37 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class ReviewRepository {
 	private final JdbcTemplate jdbc;
-	private static final String DETAILS_AVAILABLE = "details_retained AND (status NOT IN ('COMPLETED','FAILED')"
+	@NonNull
+	private final ForbiddenWordCatalogLock catalogLock;
+	private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder()
+			.build();
+	private static final String DETAILS_RETAINED = "details_retained AND (status NOT IN ('COMPLETED','FAILED')"
 			+ " OR COALESCE(finished_at,created_at) >= LOCALTIMESTAMP-make_interval(days => " + RETENTION.detailDays()
-			+ ")) AS details_available";
+			+ "))";
+	private static final String DETAILS_AVAILABLE = DETAILS_RETAINED + " AS details_available";
+	private static final String VALIDATION_CASES = "CASE WHEN jsonb_typeof(result->'cases')='array' THEN result->'cases' ELSE '[]'::jsonb END";
+	private static final String RUN_COLUMNS = "id,kind,analysis_mode,status,processed,total,cutoff,created_at,";
+	private static final String RUN_SUMMARY = "SELECT " + RUN_COLUMNS + "((result-'cases')||"
+			+ "CASE WHEN kind='VALIDATION' THEN jsonb_build_object('caseCount',jsonb_array_length(" + VALIDATION_CASES
+			+ ")) ELSE '{}'::jsonb END)::text AS result," + DETAILS_AVAILABLE + " FROM guard_review_runs";
+
 	private static final String CANDIDATE = """
-			SELECT c.*, (SELECT count(*) FROM guard_review_findings f WHERE f.candidate_id=c.id) AS occurrences,
+			SELECT c.id,c.kind,c.category,c.expression,c.reason,c.intent,c.revision,c.status,c.word_id,c.embedding_profile,
+			(SELECT count(*) FROM guard_review_findings f WHERE f.candidate_id=c.id) AS occurrences,
 			(SELECT count(*) FROM guard_review_findings f WHERE f.candidate_id=c.id AND f.notified_at IS NULL) AS unread
 			FROM guard_review_candidates c
 			""";
 
 	public void catalogLock() {
-		jdbc.execute("SELECT pg_advisory_xact_lock(674102231)");
+		catalogLock.acquire();
 	}
+	/** 후보·발견 기록 완료와 알림·보관기간 정리 사이의 짧은 쓰기를 직렬화합니다. */
 	public void analysisLock() {
 		jdbc.execute("SELECT pg_advisory_xact_lock(674102232)");
+	}
+	/** 수동·예약 분석 접수와 재개만 직렬화합니다. 스냅샷이 완료·알림 잠금을 점유하지 않습니다. */
+	public void analysisEnqueueLock() {
+		jdbc.execute("SELECT pg_advisory_xact_lock(674102233)");
 	}
 	public Settings settings(boolean lock) {
 		return jdbc.queryForObject("SELECT * FROM guard_review_settings WHERE id=1" + (lock ? " FOR UPDATE" : ""),
@@ -84,8 +104,8 @@ public class ReviewRepository {
 		jdbc.update(
 				"""
 						WITH latest AS (
-						 SELECT a.attempt_id,a.question,concat_ws(':',coalesce(CAST(a.conversation_id AS text),'none'),
-						 coalesce(CAST(a.user_id AS text),'guest'),a.idempotency_key) AS source_key,
+						 SELECT a.attempt_id,a.question,'sha256:'||encode(sha256(convert_to(concat_ws(':',coalesce(CAST(a.conversation_id AS text),'none'),
+						 coalesce(CAST(a.user_id AS text),'guest'),a.idempotency_key),'UTF8')),'hex') AS source_key,
 						 row_number() OVER (PARTITION BY a.conversation_id,a.user_id,a.idempotency_key
 						  ORDER BY a.attempt_count DESC,a.attempt_id DESC) AS source_rank
 						 FROM answer_attempts_history a
@@ -113,15 +133,34 @@ public class ReviewRepository {
 				"UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,total=(SELECT count(*) FROM guard_review_items WHERE run_id=?) WHERE id=?",
 				runId, runId);
 	}
+	/** 목록과 상태 확인에는 사례 본문과 동결 요청을 읽어 오지 않습니다. */
 	public List<Run> runs() {
-		return jdbc.query(
-				"SELECT id,kind,analysis_mode,status,processed,total,cutoff,created_at,(result-'cases')::text AS result,"
-						+ DETAILS_AVAILABLE + " FROM guard_review_runs ORDER BY id DESC LIMIT 100",
-				this::mapRun);
+		return jdbc.query(RUN_SUMMARY + " ORDER BY id DESC LIMIT 100", this::mapRun);
 	}
+	public Run runSummary(long id) {
+		return jdbc.query(RUN_SUMMARY + " WHERE id=?", this::mapRun, id).stream().findFirst()
+				.orElseThrow(() -> new ReviewException(NOT_FOUND));
+	}
+	/** 승인 판정만 저장된 전체 검사 결과를 읽습니다. 이 내부 모델을 API에 직접 반환하지 않습니다. */
 	public Run run(long id) {
-		return jdbc.query("SELECT *," + DETAILS_AVAILABLE + " FROM guard_review_runs WHERE id=?", this::mapRun, id)
+		return jdbc
+				.query("SELECT " + RUN_COLUMNS + "result::text AS result," + DETAILS_AVAILABLE
+						+ " FROM guard_review_runs WHERE id=?", this::mapRun, id)
 				.stream().findFirst().orElseThrow(() -> new ReviewException(NOT_FOUND));
+	}
+	/** 본문은 요청한 인덱스만 꺼내며, Java에서 전체 cases 배열을 역직렬화하지 않습니다. */
+	public PageResponseDto<CaseResult> getValidationCasePage(long id, int page, int size) {
+		String available = " FROM guard_review_runs WHERE id=? AND kind='VALIDATION' AND status='COMPLETED' AND "
+				+ DETAILS_RETAINED;
+		Integer total = jdbc.queryForObject("SELECT jsonb_array_length(" + VALIDATION_CASES + ")" + available,
+				Integer.class, id);
+		long offset = (long) page * size;
+		var content = jdbc.query("WITH validation AS MATERIALIZED (SELECT " + VALIDATION_CASES + " AS cases" + available
+				+ ") SELECT (v.cases->n::int)::text FROM validation v"
+				+ " CROSS JOIN LATERAL generate_series(?::bigint,LEAST(?::bigint,jsonb_array_length(v.cases)-1)) n"
+				+ " ORDER BY n", (row, index) -> JSON.readValue(row.getString(1), CaseResult.class), id, offset,
+				offset + size - 1);
+		return PageResponseDto.of(content, page, size, total == null ? 0 : total);
 	}
 	private Run mapRun(ResultSet r, int n) throws SQLException {
 		return new Run(r.getLong("id"), r.getString("kind"), r.getString("status"), r.getInt("processed"),
@@ -140,7 +179,8 @@ public class ReviewRepository {
 				.query("""
 						UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,status='RUNNING',lease_token=?,lease_until=LOCALTIMESTAMP+interval '5 minutes'
 						WHERE id=(SELECT id FROM guard_review_runs WHERE status IN ('QUEUED','RUNNING')
-						 AND (lease_until IS NULL OR lease_until < LOCALTIMESTAMP) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
+						 AND (lease_until IS NULL OR lease_until < LOCALTIMESTAMP)
+						 ORDER BY CASE WHEN kind='VALIDATION' THEN 0 ELSE 1 END,id LIMIT 1 FOR UPDATE SKIP LOCKED)
 						RETURNING id
 						""",
 						(r, n) -> r.getLong(1), token)
@@ -168,29 +208,80 @@ public class ReviewRepository {
 				"UPDATE guard_review_items SET updated_at=CURRENT_TIMESTAMP,status=?,error_code=?,finished_at=LOCALTIMESTAMP WHERE id=? AND status='PENDING'",
 				success ? "COMPLETED" : "FAILED", success ? null : "ANALYSIS_FAILED", itemId) == 1;
 	}
+	public boolean renewLease(long id, UUID token) {
+		return jdbc.update(
+				"""
+						UPDATE guard_review_runs SET lease_until=LOCALTIMESTAMP+interval '5 minutes',updated_at=CURRENT_TIMESTAMP
+						WHERE id=? AND status='RUNNING' AND lease_token=? AND lease_until>LOCALTIMESTAMP
+						""",
+				id, token) == 1;
+	}
 	public void releaseAnalysis(long id, UUID token) {
+		finishAnalysis(id, token, false);
+	}
+	public void failAnalysis(long id, UUID token) {
+		finishAnalysis(id, token, true);
+	}
+	private void finishAnalysis(long id, UUID token, boolean failed) {
 		jdbc.update(
 				"""
-						UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,processed=(SELECT count(*) FROM guard_review_items WHERE run_id=? AND status<>'PENDING'),
-						status=CASE WHEN EXISTS(SELECT 1 FROM guard_review_items WHERE run_id=? AND status='PENDING') THEN 'RUNNING'
-						WHEN EXISTS(SELECT 1 FROM guard_review_items WHERE run_id=? AND status='FAILED') THEN 'FAILED' ELSE 'COMPLETED' END,
-						finished_at=CASE WHEN EXISTS(SELECT 1 FROM guard_review_items WHERE run_id=? AND status='PENDING')
-						THEN NULL ELSE LOCALTIMESTAMP END,
-						lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?
+						WITH stats AS (
+						 SELECT count(*) FILTER (WHERE status='COMPLETED')::int AS completed,
+						 count(*) FILTER (WHERE status='FAILED')::int AS failed,
+						 count(*) FILTER (WHERE status='PENDING')::int AS pending FROM guard_review_items WHERE run_id=?)
+						UPDATE guard_review_runs r SET updated_at=CURRENT_TIMESTAMP,processed=s.completed+s.failed,
+						 status=CASE WHEN ? THEN 'FAILED' WHEN s.pending>0 THEN 'RUNNING'
+						 WHEN s.failed>0 THEN 'FAILED' ELSE 'COMPLETED' END,
+						 result=(r.result-'retryAt')||jsonb_build_object('completed',s.completed,'failed',s.failed,'pending',s.pending)
+						 ||CASE WHEN ? THEN '{"error":"REVIEW_FAILED"}'::jsonb ELSE '{}'::jsonb END,
+						 finished_at=CASE WHEN ? OR s.pending=0 THEN LOCALTIMESTAMP ELSE NULL END,
+						 lease_token=NULL,lease_until=NULL FROM stats s WHERE r.id=? AND r.kind='ANALYSIS' AND r.lease_token=?
 						""",
-				id, id, id, id, id, token);
+				id, failed, failed, failed, id, token);
+	}
+	public void clearAnalysisRetry(long id) {
+		jdbc.update("""
+				UPDATE guard_review_runs SET result=result-'consecutiveFailures'-'retryAt'-'errorCode'-'lastSourceId'
+				WHERE id=? AND kind='ANALYSIS'
+				""", id);
+	}
+	/** 일시 장애는 같은 항목을 최대 세 번 시도하며, 대기 상태는 DB에 남겨 다른 Worker도 지킵니다. */
+	public void retryAnalysis(long id, UUID token, Source source, String errorCode) {
+		int failures = jdbc.queryForObject("""
+				SELECT COALESCE((result->>'consecutiveFailures')::int,0)+1 FROM guard_review_runs WHERE id=?
+				""", Integer.class, id);
+		int delay = failures == 1 ? 10 : 30;
+		jdbc.update("""
+				UPDATE guard_review_runs SET result=result||jsonb_build_object('consecutiveFailures',?::int,
+				 'lastSourceId',?::bigint,'errorCode',?::text),updated_at=CURRENT_TIMESTAMP WHERE id=? AND lease_token=?
+				""", failures, source.id(), errorCode, id, token);
+		if (failures >= 3) {
+			jdbc.update("""
+					UPDATE guard_review_items SET status='FAILED',error_code=?,finished_at=LOCALTIMESTAMP,
+					updated_at=CURRENT_TIMESTAMP WHERE id=? AND run_id=? AND status='PENDING'
+					""", errorCode, source.id(), id);
+			failAnalysis(id, token);
+			return;
+		}
+		jdbc.update("""
+				UPDATE guard_review_runs SET lease_token=NULL,lease_until=LOCALTIMESTAMP+make_interval(secs=>?),
+				 result=result||jsonb_build_object('retryAt',LOCALTIMESTAMP+make_interval(secs=>?)),
+				 processed=(SELECT count(*) FROM guard_review_items WHERE run_id=? AND status<>'PENDING'),
+				 updated_at=CURRENT_TIMESTAMP WHERE id=? AND kind='ANALYSIS' AND lease_token=?
+				""", delay, delay, id, id, token);
 	}
 	public void completeRun(long id, UUID token, String result, boolean success) {
 		jdbc.update(
-				"UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,status=?,result=?::jsonb,processed=total,finished_at=LOCALTIMESTAMP,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?",
-				success ? "COMPLETED" : "FAILED", result, id, token);
+				"UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,status=?,result=?::jsonb,processed=CASE WHEN ? THEN total ELSE processed END,finished_at=LOCALTIMESTAMP,lease_token=NULL,lease_until=NULL WHERE id=? AND kind='VALIDATION' AND lease_token=?",
+				success ? "COMPLETED" : "FAILED", result, success, id, token);
 	}
 	public void resume(long id) {
 		if (jdbc.update(
-				"UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,status='QUEUED',finished_at=NULL,lease_token=NULL,lease_until=NULL"
+				"UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,status='QUEUED',finished_at=NULL,lease_token=NULL,lease_until=NULL,"
+						+ " result='{}'::jsonb,processed=(SELECT count(*) FROM guard_review_items WHERE run_id=? AND status='COMPLETED')"
 						+ " WHERE id=? AND kind='ANALYSIS' AND status='FAILED' AND details_retained"
 						+ " AND COALESCE(finished_at,created_at)>=LOCALTIMESTAMP-make_interval(days => ?)",
-				id, RETENTION.detailDays()) != 1)
+				id, id, RETENTION.detailDays()) != 1)
 			throw new ReviewException(CONFLICT);
 		jdbc.update(
 				"UPDATE guard_review_items SET updated_at=CURRENT_TIMESTAMP,status='PENDING',error_code=NULL,finished_at=NULL WHERE run_id=? AND status='FAILED'",
@@ -207,11 +298,10 @@ public class ReviewRepository {
 				.findFirst().orElseThrow(() -> new ReviewException(NOT_FOUND));
 	}
 	private Candidate candidate(ResultSet r, int n) throws SQLException {
-		String vector = r.getString("embedding");
 		return new Candidate(r.getLong("id"), Kind.valueOf(r.getString("kind")), r.getString("category"),
 				r.getString("expression"), r.getString("reason"), r.getString("intent"), r.getLong("revision"),
 				r.getString("status"), r.getObject("word_id", Long.class), r.getString("embedding_profile"),
-				vector == null ? null : new PGvector(vector).toArray(), r.getLong("occurrences"), r.getLong("unread"));
+				r.getLong("occurrences"), r.getLong("unread"));
 	}
 	public Long exact(Suggestion s, String hash) {
 		return jdbc.query(

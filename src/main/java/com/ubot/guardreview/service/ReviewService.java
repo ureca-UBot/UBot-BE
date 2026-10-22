@@ -23,6 +23,9 @@ import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
 import com.ubot.forbiddenword.service.ForbiddenWordService;
 import com.ubot.guardreview.exception.ReviewException;
+import com.ubot.guardreview.dto.response.ReviewRunResponseDto;
+import com.ubot.guardreview.model.ReviewModels.CaseResult;
+import org.springframework.transaction.annotation.Isolation;
 import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.common.PageResponseDto;
 import java.time.LocalDateTime;
@@ -52,8 +55,27 @@ public class ReviewService {
 
 	@Transactional(readOnly = true)
 	public java.util.Map<String, Object> getOverview() {
-		return java.util.Map.of("settings", repository.settings(false), "runs", repository.runs(), "history",
-				repository.history(), "retention", RETENTION);
+		return java.util.Map.of("settings", repository.settings(false), "runs",
+				repository.runs().stream().map(ReviewRunResponseDto::from).toList(), "history", repository.history(),
+				"retention", RETENTION);
+	}
+	@Transactional(readOnly = true)
+	public ReviewRunResponseDto getRun(long id) {
+		return ReviewRunResponseDto.from(repository.runSummary(id));
+	}
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public PageResponseDto<CaseResult> getValidationCasePage(long id, int page, int size) {
+		if (page < 0 || !Set.of(10, 20, 50).contains(size))
+			throw new ReviewException(INVALID);
+		Run summary = repository.runSummary(id);
+		if (!"VALIDATION".equals(summary.kind()))
+			throw new ReviewException(INVALID);
+		if (!summary.detailsRetained())
+			throw new ReviewException(TEST_REQUIRED);
+		if (!"COMPLETED".equals(summary.status()))
+			throw new ReviewException(CONFLICT);
+		// 상태·건수·페이지 본문을 같은 DB 스냅샷에서 읽어 보관기간 정리와의 조회 경합을 막습니다.
+		return repository.getValidationCasePage(id, page, size);
 	}
 	@Transactional(readOnly = true)
 	public PageResponseDto<Candidate> getCandidatePage(Kind kind, int page, int size) {
@@ -73,7 +95,7 @@ public class ReviewService {
 		return enqueueAnalysis(admin, AnalysisMode.FULL);
 	}
 	private long enqueueAnalysis(Long admin, AnalysisMode mode) {
-		repository.analysisLock();
+		repository.analysisEnqueueLock();
 		if (repository.analysisExists())
 			throw new ReviewException(CONFLICT);
 		long id = repository.createRun("ANALYSIS", JSON.writeValueAsString(java.util.Map.of("analysisMode", mode)),
@@ -83,7 +105,7 @@ public class ReviewService {
 	}
 	@Transactional
 	public void scheduleDue() {
-		repository.analysisLock();
+		repository.analysisEnqueueLock();
 		Settings s = repository.settings(true);
 		if (!s.enabled() || s.nextRunAt() == null || s.nextRunAt().isAfter(LocalDateTime.now())
 				|| repository.analysisExists())
@@ -93,7 +115,7 @@ public class ReviewService {
 	}
 	@Transactional
 	public void resumeAnalysis(long id) {
-		repository.analysisLock();
+		repository.analysisEnqueueLock();
 		if (repository.analysisExists())
 			throw new ReviewException(CONFLICT);
 		repository.resume(id);
@@ -106,6 +128,7 @@ public class ReviewService {
 		if (c.kind() != Kind.WORD)
 			throw new ReviewException(WARNING_ONLY);
 		validateText(expression, 100);
+		ReviewWordPolicy.requireEligible(expression);
 		validateText(reason, 2000);
 		Long linkedWord = catalog.linkForEdit(c, expression.strip());
 		try {

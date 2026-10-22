@@ -1,5 +1,6 @@
 package com.ubot.guardreview.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -34,9 +35,10 @@ public final class ReviewModels {
 	}
 	public record Vector(String profile, float[] values) {
 	}
+	/** 기존 대기 검증 요청에 저장된 vector는 읽을 때만 무시합니다. */
+	@JsonIgnoreProperties("vector")
 	public record Candidate(long id, Kind kind, String category, String expression, String reason, String intent,
-			long revision, String status, Long wordId, String profile, float[] vector, long occurrences,
-			long unreadOccurrences) {
+			long revision, String status, Long wordId, String profile, long occurrences, long unreadOccurrences) {
 	}
 	public record Run(long id, String kind, String status, int processed, int total, LocalDateTime cutoff,
 			String result, LocalDateTime createdAt, String analysisMode, boolean detailsRetained) {

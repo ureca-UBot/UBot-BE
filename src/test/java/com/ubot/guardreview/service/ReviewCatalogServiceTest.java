@@ -16,8 +16,7 @@ class ReviewCatalogServiceTest {
 	ForbiddenWordRepository words = mock(ForbiddenWordRepository.class);
 	ReviewCatalogService catalog = new ReviewCatalogService(words);
 	Candidate candidate(String status, Long wordId) {
-		return new Candidate(1, Kind.WORD, "ABUSE", "검토 표현", "이유", "HARMFUL_OUTPUT", 1, status, wordId, null, null, 1,
-				0);
+		return new Candidate(1, Kind.WORD, "ABUSE", "검토 표현", "이유", "HARMFUL_OUTPUT", 1, status, wordId, null, 1, 0);
 	}
 	ForbiddenWord word(String expression, ForbiddenWordStatus status) {
 		return ForbiddenWord.builder().id(55L).word(expression).status(status).build();
@@ -69,4 +68,22 @@ class ReviewCatalogServiceTest {
 		verify(words, never()).save(any());
 		verify(words, never()).delete(any());
 	}
+	@Test
+	void 짧은_연결후보는_비활성_금칙어_재활성화_분기로_우회하지못한다() {
+		var shortWord = new Candidate(1, Kind.WORD, "ABUSE", "요금", "검토", "HARMFUL_OUTPUT", 1, "PENDING", 55L, null, 1,
+				0);
+		when(words.findById(55L)).thenReturn(Optional.of(word("요금", ForbiddenWordStatus.INACTIVE)));
+		assertThatThrownBy(() -> catalog.requireSelectable(shortWord)).isInstanceOfSatisfying(ReviewException.class,
+				e -> assertThat(e.getErrorCode())
+						.isEqualTo(com.ubot.guardreview.exception.ReviewErrorCode.WORD_TOO_SHORT));
+	}
+	@Test
+	void 이미_활성인_짧은_금칙어의_적용해제는_계속_허용한다() {
+		var linked = word("요금", ForbiddenWordStatus.ACTIVE);
+		when(words.findById(55L)).thenReturn(Optional.of(linked));
+		var shortWord = new Candidate(1, Kind.WORD, "ABUSE", "요금", "검토", "HARMFUL_OUTPUT", 1, "APPLIED", 55L, null, 1,
+				0);
+		assertThat(catalog.requireOwnedActive(shortWord)).isSameAs(linked);
+	}
+
 }

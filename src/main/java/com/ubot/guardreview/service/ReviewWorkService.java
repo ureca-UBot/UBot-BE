@@ -26,9 +26,11 @@ public class ReviewWorkService {
 		repository.requireLease(runId, token);
 		if (!repository.finishItem(source.id(), success))
 			return;
+		repository.clearAnalysisRetry(runId);
 		for (Proposal proposal : proposals) {
 			Suggestion s = proposal.suggestion();
 			ReviewService.validateSuggestion(source, s);
+			s = ReviewWordPolicy.forReview(s);
 			Vector vector = ReviewService.usable(proposal.vector()) ? proposal.vector() : null;
 			Long id = s.kind() == Kind.WARNING ? repository.existingWarning(source, s) : null;
 			if (id == null)
@@ -49,6 +51,17 @@ public class ReviewWorkService {
 	public void release(long id, UUID token) {
 		repository.requireLease(id, token);
 		repository.releaseAnalysis(id, token);
+	}
+	@Transactional
+	public void failAnalysis(long id, UUID token) {
+		repository.requireLease(id, token);
+		repository.failAnalysis(id, token);
+	}
+	@Transactional
+	public void retryAnalysis(long id, UUID token, Source source, String errorCode) {
+		repository.analysisLock();
+		repository.requireLease(id, token);
+		repository.retryAnalysis(id, token, source, errorCode);
 	}
 	@Transactional
 	public void finishValidation(long id, UUID token, String json, boolean success) {

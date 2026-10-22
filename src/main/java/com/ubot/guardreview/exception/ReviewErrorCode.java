@@ -10,7 +10,9 @@ public enum ReviewErrorCode implements ErrorCode {
 	TEST_REQUIRED(HttpStatus.CONFLICT, "GUARD-REVIEW-004", "현재 후보 전체에 대한 오차단 검사를 통과해야 합니다."),
 	WARNING_ONLY(HttpStatus.BAD_REQUEST, "GUARD-REVIEW-005", "위험 문장은 경고 전용이며 금칙어로 적용할 수 없습니다."),
 	ALREADY_REGISTERED(HttpStatus.CONFLICT, "GUARD-REVIEW-006", "이미 등록된 금칙어입니다. 기존 금칙어 화면에서 관리하거나 후보를 수정해 주세요."),
-	CATALOG_CHANGED(HttpStatus.CONFLICT, "GUARD-REVIEW-007", "연결된 금칙어가 변경됐습니다. 후보를 수정한 뒤 다시 검사해 주세요.");
+	CATALOG_CHANGED(HttpStatus.CONFLICT, "GUARD-REVIEW-007", "연결된 금칙어가 변경됐습니다. 후보를 수정한 뒤 다시 검사해 주세요."),
+	WORD_TOO_SHORT(HttpStatus.BAD_REQUEST, "GUARD-REVIEW-008",
+			"AI 금칙어 후보는 정규화 후 문자·숫자 3자 이상이어야 합니다. 짧은 표현은 경고로 검토하거나 더 구체적인 표현으로 수정해 주세요.");
 	private final HttpStatus status;
 	private final String code;
 	private final String message;

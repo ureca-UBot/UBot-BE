@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import tools.jackson.databind.json.JsonMapper;
 
 class ReviewServiceTest {
@@ -31,11 +33,11 @@ class ReviewServiceTest {
 	JsonMapper json = JsonMapper.builder().build();
 	static Candidate word(long id, long revision, String status) {
 		return new Candidate(id, Kind.WORD, "ABUSE", "검증용모욕표현", "검토 필요", "HARMFUL_OUTPUT", revision, status,
-				"APPLIED".equals(status) ? 55L : null, null, null, 1, 0);
+				"APPLIED".equals(status) ? 55L : null, null, 1, 0);
 	}
 	static Candidate warning() {
 		return new Candidate(3, Kind.WARNING, "FRAUD", "인증 우회 요구", "검토 필요", "HARMFUL_REQUEST", 1, "PENDING", null, null,
-				null, 1, 0);
+				1, 0);
 	}
 	@BeforeEach
 	void prepare() {
@@ -146,8 +148,8 @@ class ReviewServiceTest {
 	}
 	@Test
 	void 해제했던_같은단어는_재검사후_중복등록없이_재활성화한다() {
-		word = new Candidate(1, Kind.WORD, "ABUSE", "검증용모욕표현", "검토 필요", "HARMFUL_OUTPUT", 2, "PENDING", 55L, null, null,
-				1, 0);
+		word = new Candidate(1, Kind.WORD, "ABUSE", "검증용모욕표현", "검토 필요", "HARMFUL_OUTPUT", 2, "PENDING", 55L, null, 1,
+				0);
 		selection = List.of(new Approval(1, 2));
 		when(repository.candidate(1, true)).thenReturn(word);
 		passedRun(0, 0);
@@ -250,6 +252,16 @@ class ReviewServiceTest {
 		verify(repository).snapshotSources(4, AnalysisMode.FULL);
 	}
 	@Test
+	void 분석접수와_재개는_완료알림_잠금대신_전용잠금을_사용한다() {
+		when(repository.settings(true)).thenReturn(new Settings(true, 60, 1, 1, LocalDateTime.now().minusMinutes(1)));
+		service.startAnalysis(99L);
+		service.scheduleDue();
+		service.resumeAnalysis(4);
+		verify(repository, atLeast(3)).analysisEnqueueLock();
+		verify(repository, never()).analysisLock();
+		verify(repository).resume(4);
+	}
+	@Test
 	void 주기분석은_신규변경분만_접수한다() {
 		when(repository.settings(true)).thenReturn(new Settings(true, 60, 1, 1, LocalDateTime.now().minusMinutes(1)));
 		when(repository.createRun(eq("ANALYSIS"), contains("INCREMENTAL"), isNull())).thenReturn(8L);
@@ -306,4 +318,62 @@ class ReviewServiceTest {
 				new Suggestion(Kind.WARNING, "FRAUD", "피해 신고", "검토", Stage.INPUT, "REPORT")))
 				.isInstanceOf(ReviewException.class);
 	}
+	@ParameterizedTest
+	@EnumSource(Kind.class)
+	void 기존_검증요청의_벡터는_무시하고_후보정보와_검증기준은_유지한다(Kind kind) {
+		String legacy = """
+				{"selection":[{"candidateId":7,"revision":3}],"candidates":[
+				 {"id":7,"kind":"%s","category":"ABUSE","expression":"검토 표현","reason":"검토 이유",
+				  "intent":"HARMFUL_OUTPUT","revision":3,"status":"PENDING","wordId":null,
+				  "profile":"legacy-profile","vector":%s,"occurrences":5,"unreadOccurrences":2}],
+				 "words":["기존금칙어"],"baseVersion":"base","datasetVersion":"dataset"}
+				""".formatted(kind.name(), json.writeValueAsString(new float[1024]));
+		var request = json.readValue(legacy, ReviewService.TestRequest.class);
+		assertThat(request.selection()).containsExactly(new Approval(7, 3));
+		assertThat(request.candidates()).containsExactly(new Candidate(7, kind, "ABUSE", "검토 표현", "검토 이유",
+				"HARMFUL_OUTPUT", 3, "PENDING", null, "legacy-profile", 5, 2));
+		assertThat(request.words()).containsExactly("기존금칙어");
+		assertThat(request.baseVersion()).isEqualTo("base");
+		assertThat(request.datasetVersion()).isEqualTo("dataset");
+		var serialized = json.readTree(json.writeValueAsString(request));
+		assertThat(serialized.path("candidates").get(0).has("vector")).isFalse();
+		assertThat(json.readValue(json.writeValueAsString(request), ReviewService.TestRequest.class))
+				.isEqualTo(request);
+	}
+	@Test
+	void Worker_결과의_규칙버전이_접수시_버전과_다르면_승인하지않는다() {
+		passedRun(0, 0);
+		var result = new Validation("different-worker-rules", "dataset",
+				List.of(new CaseResult("safe", "NORMAL", Stage.INPUT, "정상", "정상", false, false, false, false)), 0, 0, 0,
+				0);
+		when(repository.run(7)).thenReturn(new Run(7, "VALIDATION", "COMPLETED", 1, 1, LocalDateTime.now(),
+				json.writeValueAsString(result), LocalDateTime.now()));
+		assertThatThrownBy(() -> service.approveCandidates(7, selection, 99)).isInstanceOf(ReviewException.class);
+		verifyNoInteractions(wordService);
+	}
+
+	@ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(strings = {"가", "요금", "요 금", "요금!!!", "요\u200B금"})
+	void 짧은_표현으로_후보를_수정해도_실제금칙어나_후보를_갱신하지않는다(String expression) {
+		assertThatThrownBy(() -> service.updateCandidate(1, 1, expression, "검토", 99))
+				.isInstanceOfSatisfying(ReviewException.class, e -> assertThat(e.getErrorCode())
+						.isEqualTo(com.ubot.guardreview.exception.ReviewErrorCode.WORD_TOO_SHORT));
+		verify(repository, never()).edit(anyLong(), anyString(), anyString(), anyString(), any());
+		verifyNoInteractions(wordService);
+	}
+	@Test
+	void 기존에_저장된_짧은_후보도_재검사와_승인을_우회하지못한다() {
+		word = new Candidate(1, Kind.WORD, "ABUSE", "요금", "검토", "HARMFUL_OUTPUT", 1, "PENDING", null, null, 1, 0);
+		when(repository.candidate(1, true)).thenReturn(word);
+		assertThatThrownBy(() -> service.startValidation(selection, 99)).isInstanceOfSatisfying(ReviewException.class,
+				e -> assertThat(e.getErrorCode())
+						.isEqualTo(com.ubot.guardreview.exception.ReviewErrorCode.WORD_TOO_SHORT));
+		passedRun(0, 0);
+		assertThatThrownBy(() -> service.approveCandidates(7, selection, 99))
+				.isInstanceOfSatisfying(ReviewException.class, e -> assertThat(e.getErrorCode())
+						.isEqualTo(com.ubot.guardreview.exception.ReviewErrorCode.WORD_TOO_SHORT));
+		verify(repository, never()).createRun(anyString(), anyString(), any());
+		verifyNoInteractions(wordService);
+	}
+
 }

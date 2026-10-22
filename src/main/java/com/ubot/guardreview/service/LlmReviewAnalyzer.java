@@ -3,6 +3,7 @@ package com.ubot.guardreview.service;
 import static com.ubot.guardreview.model.ReviewModels.Source;
 import static com.ubot.guardreview.model.ReviewModels.Suggestion;
 
+import com.ubot.guardreview.exception.ReviewAnalysisDeferredException;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
@@ -47,7 +48,8 @@ public class LlmReviewAnalyzer implements ReviewAnalyzer {
 				.withResponseSchema(Map.of("type", "object", "properties",
 						Map.of("suggestions", Map.of("type", "array", "items", item, "maxItems", 20)), "required",
 						List.of("suggestions"), "additionalProperties", false));
-		String answer = llm.generateJudgment(request).answer();
+		String answer = llm.tryGenerateBackgroundJudgment(request).orElseThrow(ReviewAnalysisDeferredException::new)
+				.answer();
 		if (answer == null || answer.length() > 64000)
 			throw new IllegalArgumentException("분석 응답 크기를 확인해 주세요.");
 		return List.of(JSON.readValue(JSON.readTree(answer).path("suggestions").toString(), Suggestion[].class));

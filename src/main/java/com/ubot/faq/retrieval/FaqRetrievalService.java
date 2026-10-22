@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,8 @@ import com.ubot.faq.retrieval.rerank.RerankSkippedException;
 import com.ubot.faq.retrieval.rerank.RerankedFaq;
 import com.ubot.faq.service.FaqVectorService;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -36,13 +39,27 @@ public class FaqRetrievalService {
     private final FaqRerankService faqRerankService;
     private final FaqRetrievalProperties.Rerank rerank;
     private final RerankCallGuard rerankCallGuard;
+    // 지표를 보지 않는 테스트는 전역 레지스트리를 씀. 등록된 저장소가 없으면 기록하지 않음
+    private final MeterRegistry metrics;
 
     public FaqRetrievalService(
             FaqVectorService faqVectorService,
             FaqRerankService faqRerankService,
             FaqRetrievalProperties properties,
-            @Value("${CHAT_TOP_K:3}") int chatTopK
+            int chatTopK
     ) {
+        this(faqVectorService, faqRerankService, properties, chatTopK, Metrics.globalRegistry);
+    }
+
+    @Autowired
+    public FaqRetrievalService(
+            FaqVectorService faqVectorService,
+            FaqRerankService faqRerankService,
+            FaqRetrievalProperties properties,
+            @Value("${CHAT_TOP_K:3}") int chatTopK,
+            MeterRegistry metrics
+    ) {
+        this.metrics = metrics;
         this.faqVectorService = faqVectorService;
         this.faqRerankService = faqRerankService;
         this.rerank = properties.getRerank();
@@ -83,7 +100,17 @@ public class FaqRetrievalService {
         }
         // DB·임베딩 오류는 호출한 쪽의 검색 실패 처리로 넘깁니다.
         FaqVectorService.SearchResult dense = faqVectorService.searchWithVector(userQuestion, intent, candidateK);
+        recordTopSimilarity(dense.faqs(), intent);
         return new DenseFaqCandidates(dense.faqs(), elapsedMillis(startedAt), dense.queryVector());
+    }
+
+    // 1위 후보의 코사인 유사도 분포. 구간은 application.yml의 slo 설정을 따름. 후보가 없으면 NO_FAQ로 따로 셈
+    private void recordTopSimilarity(List<FaqSearchResponseDto> candidates, Intent intent) {
+        if (candidates == null || candidates.isEmpty()) {
+            return;
+        }
+        metrics.summary("faq.retrieval.top.similarity", "scope", intent == null ? "all" : "intent")
+                .record(candidates.getFirst().similarityScore());
     }
 
     /**

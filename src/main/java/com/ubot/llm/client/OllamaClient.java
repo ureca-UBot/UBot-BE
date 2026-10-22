@@ -76,6 +76,9 @@ public class OllamaClient implements LlmClient {
                             .chatResponse()
                     : chatModel.call(createPrompt(messages, request));
         } catch (RuntimeException exception) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new java.util.concurrent.CancellationException("LLM request cancelled");
+            }
             throw translateException(exception);
         }
 

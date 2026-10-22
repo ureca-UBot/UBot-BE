@@ -11,7 +11,8 @@ import com.ubot.notification.repository.NotificationRepository;
 import com.ubot.notification.service.NotificationService;
 import java.util.List;
 import java.util.Map;
-import com.ubot.guardreview.model.ReviewModels.Run;
+import com.ubot.guardreview.dto.response.ReviewRunResponseDto;
+import com.ubot.guardreview.model.ReviewModels.CaseResult;
 import com.ubot.guardreview.model.ReviewModels.Settings;
 import com.ubot.notification.dto.response.NotificationResponseDto;
 import lombok.RequiredArgsConstructor;
@@ -57,9 +58,17 @@ public class AdminReviewController {
 		return ApiResponse.success(service.getCandidatePage(kind, page, size));
 	}
 	@GetMapping("/runs/{id}")
-	public ApiResponse<Run> getRun(@AuthenticationPrincipal CustomUserDetails user, @PathVariable long id) {
+	public ApiResponse<ReviewRunResponseDto> getRun(@AuthenticationPrincipal CustomUserDetails user,
+			@PathVariable long id) {
 		admin(user);
-		return ApiResponse.success(repository.run(id));
+		return ApiResponse.success(service.getRun(id));
+	}
+	@GetMapping("/runs/{id}/cases")
+	public ApiResponse<PageResponseDto<CaseResult>> getValidationCasePage(
+			@AuthenticationPrincipal CustomUserDetails user, @PathVariable long id,
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+		admin(user);
+		return ApiResponse.success(service.getValidationCasePage(id, page, size));
 	}
 	@PatchMapping("/settings")
 	public ApiResponse<Settings> updateSettings(@AuthenticationPrincipal CustomUserDetails user,

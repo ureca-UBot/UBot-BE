@@ -100,4 +100,27 @@ class ReviewWorkServiceTest {
 				.isInstanceOf(IllegalStateException.class);
 		verify(repository, never()).finishItem(anyLong(), anyBoolean());
 	}
+	@Test
+	void 실행실패와_백오프도_소유권을_검사한_후에만_저장한다() {
+		doThrow(new IllegalStateException("lost")).when(repository).requireLease(9, token);
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.failAnalysis(9, token))
+				.isInstanceOf(IllegalStateException.class);
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.retryAnalysis(9, token, source, "LLM-003"))
+				.isInstanceOf(IllegalStateException.class);
+		verify(repository, never()).failAnalysis(anyLong(), any());
+		verify(repository, never()).retryAnalysis(anyLong(), any(), any(), anyString());
+	}
+
+	@Test
+	void 저장호출을_직접해도_짧은_WORD만_경고로_바꾸고_다른_후보는_함께_저장한다() {
+		var shortWord = new Suggestion(Kind.WORD, "ABUSE", "위험", "검토", Stage.INPUT, "HARMFUL_REQUEST");
+		var word = new Suggestion(Kind.WORD, "ABUSE", "위험 표현", "검토", Stage.INPUT, "HARMFUL_REQUEST");
+		service.finishSource(9, token, source,
+				List.of(new ReviewWorkService.Proposal(shortWord, null), new ReviewWorkService.Proposal(word, null)),
+				true);
+		verify(repository).insertCandidate(argThat(s -> s.kind() == Kind.WARNING && s.expression().equals("위험")),
+				anyString(), any());
+		verify(repository).insertCandidate(eq(word), anyString(), any());
+	}
+
 }

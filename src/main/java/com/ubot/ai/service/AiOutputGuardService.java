@@ -29,15 +29,16 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /** 파싱된 답변에서 문제 문장만 제거합니다. 자료의 진위나 모든 의미상의 오류를 판정하지는 않습니다. */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiOutputGuardService {
 
     private static final String UNANSWERED_SCOPE_NOTICE = "에 대한 내용은 이번 답변에서 안내하지 못했습니다.";
@@ -664,6 +665,18 @@ public class AiOutputGuardService {
             "찾을\\s*수\\s*없|조회하지\\s*못|제공되지\\s*않|정보[^.!?。！？\\n]{0,24}(?:없|부족)");
 
     private final ForbiddenWordFilterService forbiddenWordFilterService;
+    // 지표를 보지 않는 테스트는 전역 레지스트리를 씀. 등록된 저장소가 없으면 기록하지 않음
+    private final MeterRegistry metrics;
+
+    public AiOutputGuardService(ForbiddenWordFilterService forbiddenWordFilterService) {
+        this(forbiddenWordFilterService, Metrics.globalRegistry);
+    }
+
+    @Autowired
+    public AiOutputGuardService(ForbiddenWordFilterService forbiddenWordFilterService, MeterRegistry metrics) {
+        this.forbiddenWordFilterService = forbiddenWordFilterService;
+        this.metrics = metrics;
+    }
 
     /** 후보 단어 검증 전용입니다. 동일한 문장 분리·금칙어 검사만 재사용하고 FAQ 사실 검사는 실행하지 않습니다. */
     public String previewForbiddenWordStage(String answer) {
@@ -771,6 +784,11 @@ public class AiOutputGuardService {
                 filtered == null ? 0 : filtered.length(), elapsedMillis};
         if ("REJECTED".equals(outcome) || !trace.warnings.isEmpty()) log.warn(message, values);
         else log.info(message, values);
+        // 거절률 = stage=body 중 outcome=rejected 비율. rule은 거절한 규칙(GuardRule)이고 그 밖에는 none
+        metrics.counter("ai.output.guard",
+                "stage", stage.toLowerCase(Locale.ROOT),
+                "outcome", outcome.toLowerCase(Locale.ROOT),
+                "rule", trace.rejection == null ? "none" : trace.rejection.name().toLowerCase(Locale.ROOT)).increment();
     }
 
     /** 본문 검사 결과를 내부에서 읽습니다. 기존 호출 경로·저장·관리자 처리는 연결하지 않습니다. */

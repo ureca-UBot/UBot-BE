@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.ubot.guardreview.repository.ReviewRepository;
+import com.ubot.forbiddenword.service.ForbiddenWordCatalogLock;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -12,7 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /** 외부 DB 없이 실제 저장소가 넘기는 쿼리의 범위·중복키·프로필 조건을 검증합니다. */
 class ReviewRepositoryTest {
 	JdbcTemplate jdbc = mock(JdbcTemplate.class);
-	ReviewRepository repository = new ReviewRepository(jdbc);
+	ReviewRepository repository = new ReviewRepository(jdbc, mock(ForbiddenWordCatalogLock.class));
 	String sql() {
 		return mockingDetails(jdbc).getInvocations().iterator().next().getArgument(0, String.class);
 	}
@@ -34,7 +35,8 @@ class ReviewRepositoryTest {
 	@Test
 	void 동시_작업은_건너뛰고_만료된_lease만_재접수한다() {
 		repository.claim(UUID.randomUUID());
-		assertThat(sql()).contains("FOR UPDATE SKIP LOCKED", "lease_until < LOCALTIMESTAMP", "lease_token=?");
+		assertThat(sql()).contains("FOR UPDATE SKIP LOCKED", "lease_until < LOCALTIMESTAMP", "lease_token=?",
+				"CASE WHEN kind='VALIDATION' THEN 0 ELSE 1 END,id");
 	}
 	@Test
 	void 스냅샷은_재시도와_하위질문을_증식시키지않는다() {

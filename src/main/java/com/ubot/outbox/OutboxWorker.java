@@ -21,7 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnExpression(AppRole.RUNS_WORKER)
 public class OutboxWorker {
 
-    static final int MAX_RETRIES = 5;
+    // 이 횟수를 다 쓴 이벤트는 다시 처리하지 않고 테이블에 남음(적체 지표의 dead)
+    public static final int MAX_RETRIES = 5;
     static final int BATCH_SIZE = 20;
     static final long RETRY_BASE_DELAY_SECONDS = 10;
 

@@ -39,6 +39,8 @@ public class ReviewValidationService {
 	private final ChatPromptInjectionService promptGuard;
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 	private static final String DATASET = "guard-review/golden-cases.json";
+	// 검사 동작이 바뀔 때만 올립니다. 정규화·입력/출력 금칙어 검사·비교 기준의 변경을 포함합니다.
+	private static final String RULES_VERSION = "guard-review-rules-v2";
 
 	public Set<String> currentWords() {
 		return words.findAllByStatus(ForbiddenWordStatus.ACTIVE).stream()
@@ -49,7 +51,8 @@ public class ReviewValidationService {
 		return baseVersion(currentWords());
 	}
 	public String baseVersion(Set<String> snapshot) {
-		return hash(String.join("\n", new TreeSet<>(snapshot)) + engineVersion());
+		// JSON 배열로 경계를 보존하여 줄바꿈을 포함한 표현도 서로 다른 목록과 충돌하지 않게 합니다.
+		return hash(JSON.writeValueAsString(List.of(RULES_VERSION, new TreeSet<>(snapshot))));
 	}
 	public String datasetVersion() {
 		return hash(new String(datasetBytes(), StandardCharsets.UTF_8));
@@ -64,30 +67,24 @@ public class ReviewValidationService {
 			throw new IllegalStateException("검증 자료를 읽지 못했습니다.", e);
 		}
 	}
-	private String engineVersion() {
-		StringBuilder result = new StringBuilder();
-		for (Class<?> type : List.of(ForbiddenWordFilterService.class, ChatInputGuardService.class,
-				ChatPromptInjectionService.class, AiOutputGuardService.class, ReviewValidationService.class)) {
-			try (var in = type.getResourceAsStream("/" + type.getName().replace('.', '/') + ".class")) {
-				if (in == null)
-					throw new IllegalStateException("검사 코드 버전을 읽지 못했습니다.");
-				result.append(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(in.readAllBytes())));
-			} catch (java.security.NoSuchAlgorithmException | IOException e) {
-				throw new IllegalStateException(e);
-			}
-		}
-		return result.toString();
-	}
 	public Validation validate(Collection<Candidate> candidates, Set<String> active, List<GoldenCase> cases,
 			String datasetVersion) {
+		return validate(candidates, active, cases, datasetVersion, () -> {
+		});
+	}
+	public Validation validate(Collection<Candidate> candidates, Set<String> active, List<GoldenCase> cases,
+			String datasetVersion, Runnable checkLease) {
+		checkLease.run();
 		if (candidates.isEmpty() || candidates.stream().anyMatch(c -> c.kind() != Kind.WORD))
 			throw new ReviewException(ReviewErrorCode.WARNING_ONLY);
+		candidates.forEach(c -> ReviewWordPolicy.requireEligible(c.expression()));
 		Set<String> proposed = new TreeSet<>(active);
 		candidates.forEach(c -> proposed.add(c.expression()));
 		var before = filter.preview(active);
 		var after = filter.preview(proposed);
 		List<CaseResult> results = new ArrayList<>();
 		for (GoldenCase c : cases) {
+			checkLease.run();
 			String original = run(c.stage(), c.text(), before);
 			String candidate = run(c.stage(), c.text(), after);
 			boolean baselineFailure = c.preserve().stream().anyMatch(s -> !contains(original, s))
@@ -99,6 +96,7 @@ public class ReviewValidationService {
 					baselineFailure,
 					c.remove().stream().anyMatch(s -> contains(original, s) && !contains(candidate, s))));
 		}
+		checkLease.run();
 		return new Validation(baseVersion(active), datasetVersion, List.copyOf(results),
 				(int) results.stream().filter(CaseResult::falsePositive).count(),
 				(int) results.stream().filter(CaseResult::regression).count(),

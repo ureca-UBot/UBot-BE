@@ -35,7 +35,8 @@ public enum ChatErrorCode implements ErrorCode {
 	JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "CHAT-020", "답변 작업을 찾을 수 없습니다."),
 	TOO_MANY_SUB_QUESTIONS(HttpStatus.BAD_REQUEST, "CHAT-021", "너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요."),
 	PROMPT_INJECTION_DETECTED(HttpStatus.BAD_REQUEST, "CHAT-022", "처리할 수 없는 요청이 포함되어 있습니다. 내용을 수정해서 다시 질문해 주세요."),
-	NO_USABLE_QUESTION(HttpStatus.BAD_REQUEST, "CHAT-023", "처리할 질문이 남아 있지 않습니다. 질문할 내용을 입력하거나 내용을 수정해서 다시 질문해 주세요.");
+	NO_USABLE_QUESTION(HttpStatus.BAD_REQUEST, "CHAT-023", "처리할 질문이 남아 있지 않습니다. 질문할 내용을 입력하거나 내용을 수정해서 다시 질문해 주세요."),
+	USER_CANCELLED(HttpStatus.CONFLICT, "CHAT-024", "답변 생성을 중단했습니다.");
 
 	private final HttpStatus status;
 	private final String code;

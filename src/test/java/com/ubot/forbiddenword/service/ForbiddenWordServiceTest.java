@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ubot.common.ErrorCode;
@@ -41,7 +43,8 @@ import org.springframework.data.domain.Sort;
 class ForbiddenWordServiceTest {
 	private final ForbiddenWordRepository repository = mock(ForbiddenWordRepository.class);
 	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
-	private final ForbiddenWordService service = new ForbiddenWordService(repository, eventPublisher);
+	private final ForbiddenWordCatalogLock catalogLock = mock(ForbiddenWordCatalogLock.class);
+	private final ForbiddenWordService service = new ForbiddenWordService(repository, eventPublisher, catalogLock);
 
 	@Test
 	@DisplayName("금지어를 생성하면 ACTIVE 상태로 저장하고 변경 이벤트를 발행한다")
@@ -54,6 +57,10 @@ class ForbiddenWordServiceTest {
 		assertThat(result.word()).isEqualTo("바보");
 		assertThat(result.status()).isEqualTo(ForbiddenWordStatus.ACTIVE);
 		assertThat(result.updatedAt()).isNotNull();
+		var order = inOrder(catalogLock, repository);
+		order.verify(catalogLock).acquire();
+		order.verify(repository).existsByWord("바보");
+		order.verify(repository).saveAndFlush(any(ForbiddenWord.class));
 		verify(eventPublisher).publishEvent(any(ForbiddenWordChangedEvent.class));
 	}
 
@@ -117,9 +124,9 @@ class ForbiddenWordServiceTest {
 	@DisplayName("금지어 목록은 id 내림차순으로 페이지 조회한다")
 	void getForbiddenWordList_returnsPage() {
 		Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.desc("id")));
-		when(repository.findAll(pageable))
-				.thenReturn(new PageImpl<>(List.of(word(2L, "욕설", ForbiddenWordStatus.INACTIVE),
-						word(1L, "바보", ForbiddenWordStatus.ACTIVE)), pageable, 2));
+		when(repository.findAll(pageable)).thenReturn(new PageImpl<>(
+				List.of(word(2L, "욕설", ForbiddenWordStatus.INACTIVE), word(1L, "바보", ForbiddenWordStatus.ACTIVE)),
+				pageable, 2));
 
 		PageResponseDto<ForbiddenWordResponseDto> result = service.getForbiddenWordList(0, 20);
 
@@ -143,9 +150,8 @@ class ForbiddenWordServiceTest {
 	@ValueSource(ints = {-1, 0, 1, 15, 30, 100})
 	@DisplayName("허용되지 않은 페이지 크기는 예외가 발생한다")
 	void getForbiddenWordList_rejectsSizes(int size) {
-		assertThatThrownBy(() -> service.getForbiddenWordList(0, size))
-				.isInstanceOfSatisfying(GlobalException.class,
-						e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_PARAMETER));
+		assertThatThrownBy(() -> service.getForbiddenWordList(0, size)).isInstanceOfSatisfying(GlobalException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.INVALID_PARAMETER));
 		verify(repository, never()).findAll(any(Pageable.class));
 	}
 
@@ -160,6 +166,9 @@ class ForbiddenWordServiceTest {
 
 		assertThat(result.word()).isEqualTo("멍청이");
 		assertThat(result.status()).isEqualTo(ForbiddenWordStatus.INACTIVE);
+		var order = inOrder(catalogLock, repository);
+		order.verify(catalogLock).acquire();
+		order.verify(repository).findByIdForUpdate(1L);
 		verify(eventPublisher).publishEvent(any(ForbiddenWordChangedEvent.class));
 	}
 
@@ -204,8 +213,8 @@ class ForbiddenWordServiceTest {
 	@EnumSource(ForbiddenWordStatus.class)
 	@DisplayName("상태를 수정하면 상태만 바뀌고 단어는 유지하며 이벤트를 발행한다")
 	void updateForbiddenWordStatus_updatesStatusOnly(ForbiddenWordStatus status) {
-		ForbiddenWord forbiddenWord = word(1L, "바보", status == ForbiddenWordStatus.ACTIVE
-				? ForbiddenWordStatus.INACTIVE : ForbiddenWordStatus.ACTIVE);
+		ForbiddenWord forbiddenWord = word(1L, "바보",
+				status == ForbiddenWordStatus.ACTIVE ? ForbiddenWordStatus.INACTIVE : ForbiddenWordStatus.ACTIVE);
 		when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(forbiddenWord));
 
 		ForbiddenWordResponseDto result = service.updateForbiddenWordStatus(1L,
@@ -213,6 +222,9 @@ class ForbiddenWordServiceTest {
 
 		assertThat(result.status()).isEqualTo(status);
 		assertThat(result.word()).isEqualTo("바보");
+		var order = inOrder(catalogLock, repository);
+		order.verify(catalogLock).acquire();
+		order.verify(repository).findByIdForUpdate(1L);
 		verify(repository, never()).existsByWordAndIdNot(any(), any());
 		verify(eventPublisher).publishEvent(any(ForbiddenWordChangedEvent.class));
 	}
@@ -234,16 +246,34 @@ class ForbiddenWordServiceTest {
 	void updateForbiddenWordStatus_throwsWhenNotFound() {
 		when(repository.findByIdForUpdate(1L)).thenReturn(Optional.empty());
 
-		assertError(() -> service.updateForbiddenWordStatus(1L,
+		assertError(
+				() -> service.updateForbiddenWordStatus(1L,
 						new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.INACTIVE)),
 				ForbiddenWordErrorCode.FORBIDDEN_WORD_NOT_FOUND);
 		verify(eventPublisher, never()).publishEvent(any(Object.class));
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"CREATE", "UPDATE", "STATUS"})
+	@DisplayName("목록 잠금이 실패하면 금칙어 조회·변경과 이벤트 발행을 진행하지 않는다")
+	void catalogLockFailureStopsMutation(String operation) {
+		var failure = new org.springframework.dao.DataAccessResourceFailureException("synthetic lock failure");
+		doThrow(failure).when(catalogLock).acquire();
+		assertThatThrownBy(() -> {
+			switch (operation) {
+				case "CREATE" -> service.createForbiddenWord(new ForbiddenWordCreateRequestDto("새표현"));
+				case "UPDATE" -> service.updateForbiddenWord(1L, new ForbiddenWordUpdateRequestDto("새표현"));
+				case "STATUS" -> service.updateForbiddenWordStatus(1L,
+						new ForbiddenWordStatusUpdateRequestDto(ForbiddenWordStatus.INACTIVE));
+				default -> throw new AssertionError(operation);
+			}
+		}).isSameAs(failure);
+		verifyNoInteractions(repository, eventPublisher);
+	}
+
 	private void assertError(Runnable action, ErrorCode expected) {
-		assertThatThrownBy(action::run)
-				.isInstanceOfSatisfying(GlobalException.class,
-						e -> assertThat(e.getErrorCode()).isEqualTo(expected));
+		assertThatThrownBy(action::run).isInstanceOfSatisfying(GlobalException.class,
+				e -> assertThat(e.getErrorCode()).isEqualTo(expected));
 	}
 
 	private ForbiddenWord word(Long id, String word, ForbiddenWordStatus status) {

@@ -46,7 +46,7 @@ public class ReviewCatalogService {
 			else if (c.wordId() != null || "APPLIED".equals(status))
 				status = "CATALOG_CHANGED";
 			return new Candidate(c.id(), c.kind(), c.category(), c.expression(), c.reason(), c.intent(), c.revision(),
-					status, c.wordId(), c.profile(), c.vector(), c.occurrences(), c.unreadOccurrences());
+					status, c.wordId(), c.profile(), c.occurrences(), c.unreadOccurrences());
 		}).toList();
 	}
 
@@ -63,6 +63,7 @@ public class ReviewCatalogService {
 			throw new ReviewException(WARNING_ONLY);
 		if (!"PENDING".equals(c.status()))
 			throw new ReviewException(CONFLICT);
+		ReviewWordPolicy.requireEligible(c.expression());
 		ForbiddenWord linked = linked(c);
 		if (c.wordId() != null && !owns(c, linked))
 			throw new ReviewException(CATALOG_CHANGED);
