@@ -385,7 +385,7 @@ public class UserDataSummarizer {
         return mb >= 1024 ? String.format(Locale.ROOT, "%.1fGB", mb / 1024.0) : mb + "MB";
     }
 
-    private static String speed(int kbps) {
+    static String speed(int kbps) {
         return kbps >= 1000 && kbps % 1000 == 0 ? kbps / 1000 + "Mbps" : kbps + "Kbps";
     }
 
