@@ -36,6 +36,7 @@ LLM 호출은 대부분 `ai-worker`에서 나오지만, 관리자 기능(미응�
 |---|---|---|---|
 | `llm_requests_seconds` | histogram | `kind`=`answer`·`judgment`, `outcome`=`success`·`timeout`·`unavailable`·`invalid_response`·`cancelled`·`error` | 모델 서버 호출 시간. 동시 호출 차례를 받은 뒤부터 잼. 요청 형식 오류(LLM-001)는 호출 전이라 세지 않음 |
 | `llm_permit_wait_seconds` | histogram | – | 동시 호출 차례를 기다린 시간. 바로 받으면 0 |
+| `llm_permit_rejected_total` | counter | – | 대기 한도(FAQ AI 검토 등) 안에 차례를 얻지 못해 `LLM_BUSY`로 거절한 호출 |
 | `llm_concurrency_limit` | gauge | – | 동시 호출 상한(`LLM_MAX_CONCURRENT`) |
 | `llm_concurrency_in_use` | gauge | – | 지금 모델 서버에 가 있는 호출 수 |
 | `llm_concurrency_waiting` | gauge | – | 차례를 기다리는 호출 수. 계속 0보다 크면 모델 서버 앞에서 줄을 서고 있음 |

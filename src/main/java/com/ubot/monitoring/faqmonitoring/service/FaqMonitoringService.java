@@ -1,6 +1,7 @@
 package com.ubot.monitoring.faqmonitoring.service;
 
 import com.ubot.common.GlobalException;
+import com.ubot.common.PageResponseDto;
 import com.ubot.common.exception.CommonErrorCode;
 import com.ubot.faq.entity.Faq;
 import com.ubot.faq.exception.FaqErrorCode;
@@ -13,19 +14,28 @@ import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrendPoint;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqTrendWindow;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqDuplicateCandidate;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
+import com.ubot.monitoring.faqmonitoring.dto.request.FaqImprovementExclusionRequest;
 import com.ubot.monitoring.faqmonitoring.dto.response.FaqDetailResponse;
 import com.ubot.monitoring.faqmonitoring.dto.response.FaqImprovementResponse;
+import com.ubot.monitoring.faqmonitoring.dto.response.FaqImprovementExclusionResponse;
+import com.ubot.monitoring.faqmonitoring.dto.response.FaqImprovementExclusionHistoryResponse;
 import com.ubot.monitoring.faqmonitoring.dto.response.FaqMonitoringResponse;
+import com.ubot.monitoring.faqmonitoring.entity.FaqImprovementExclusion;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringDetailQueryRepository;
+import com.ubot.monitoring.faqmonitoring.repository.FaqImprovementExclusionRepository;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringImprovementQueryRepository;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringRankingQueryRepository;
 import com.ubot.monitoring.faqmonitoring.repository.FaqImprovementSearchCriteria;
+import com.ubot.user.entity.User;
+import com.ubot.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,8 +47,10 @@ public class FaqMonitoringService {
 	private static final ZoneId SERVICE_ZONE = ZoneId.of("Asia/Seoul");
 	private static final int RANKING_LIMIT = 20;
 	private final FaqRepository faqRepository;
+	private final UserRepository userRepository;
 	private final FaqMonitoringDetailQueryRepository detailQueryRepository;
 	private final FaqMonitoringImprovementQueryRepository improvementQueryRepository;
+	private final FaqImprovementExclusionRepository exclusionRepository;
 	private final FaqMonitoringRankingQueryRepository rankingQueryRepository;
 
 	@Value("${faq-monitoring.improvement.top-k}")
@@ -87,9 +99,9 @@ public class FaqMonitoringService {
 	@Transactional(readOnly = true)
 	public FaqImprovementResponse getFaqImprovements(List<FaqImprovementType> types, int page, int size) {
 		LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
-		LocalDateTime recentUsageStartAt = evaluatedAt.minusMinutes(unusedMinutes);
+		LocalDateTime unusedCutoffAt = evaluatedAt.minusMinutes(unusedMinutes);
 		FaqImprovementSearchCriteria criteria = new FaqImprovementSearchCriteria(
-				evaluatedAt, recentUsageStartAt, improvementTopK, lowGapThreshold,
+				evaluatedAt, unusedCutoffAt, improvementTopK, lowGapThreshold,
 				lowSimilarityThreshold, lowGapRateThreshold, minimumTopKSampleCount,
 				minimumTop1SampleCount, types, page, size
 		);
@@ -114,6 +126,82 @@ public class FaqMonitoringService {
 		return improvementQueryRepository.findDuplicateCandidates(
 				faqId, LocalDateTime.now(SERVICE_ZONE), lowGapThreshold
 		);
+	}
+
+	@Transactional
+	public void excludeFaqImprovement(
+			Long faqId,
+			FaqImprovementExclusionRequest request,
+			Long administratorId
+	) {
+		Faq faq = findActiveFaq(faqId);
+		int inserted = exclusionRepository.insertActiveIfAbsent(
+				faqId,
+				request.improvementType().name(),
+				faq.getVersion(),
+				normalizeMemo(request.memo()),
+				administratorId
+		);
+		if (inserted == 0) {
+			return;
+		}
+		log.info("개선 필요 FAQ를 제외 처리했습니다. faqId={}, faqVersion={}, improvementType={}, administratorId={}",
+				faqId, faq.getVersion(), request.improvementType(), administratorId);
+	}
+
+	@Transactional
+	public void releaseFaqImprovementExclusion(
+			Long exclusionId,
+			Long administratorId
+	) {
+		FaqImprovementExclusion exclusion = exclusionRepository
+				.findByIdAndReleasedAtIsNull(exclusionId)
+				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_IMPROVEMENT_EXCLUSION_NOT_FOUND));
+		exclusion.release(userRepository.getReferenceById(administratorId));
+		log.info("개선 필요 FAQ 제외를 해제했습니다. exclusionId={}, administratorId={}",
+				exclusionId, administratorId);
+	}
+
+	@Transactional
+	public void deleteFaqImprovementExclusion(Long exclusionId) {
+		FaqImprovementExclusion exclusion = exclusionRepository.findById(exclusionId)
+				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_IMPROVEMENT_EXCLUSION_NOT_FOUND));
+		exclusionRepository.delete(exclusion);
+		log.info("개선 필요 FAQ 제외 이력을 삭제했습니다. exclusionId={}", exclusionId);
+	}
+
+	@Transactional(readOnly = true)
+	public PageResponseDto<FaqImprovementExclusionResponse> getFaqImprovementExclusions(int page, int size) {
+		return PageResponseDto.from(exclusionRepository.findAllUnreleased(
+				PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "excludedAt")))
+				.map(exclusion -> new FaqImprovementExclusionResponse(
+						exclusion.getId(),
+						exclusion.getFaq().getId(),
+						exclusion.getFaq().getQuestion(),
+						exclusion.getImprovementType(),
+						exclusion.getMemo(),
+						exclusion.getExcludedBy() == null ? null : exclusion.getExcludedBy().getId(),
+						exclusion.getExcludedAt(),
+						exclusion.getFaq().getVersion() != exclusion.getFaqVersion()
+				)));
+	}
+
+	@Transactional(readOnly = true)
+	public PageResponseDto<FaqImprovementExclusionHistoryResponse> getFaqImprovementExclusionHistory(int page, int size) {
+		return PageResponseDto.from(exclusionRepository.findAllReleased(
+				PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "releasedAt")))
+				.map(exclusion -> new FaqImprovementExclusionHistoryResponse(
+						exclusion.getId(),
+						exclusion.getFaq().getId(),
+						exclusion.getFaq().getQuestion(),
+						exclusion.getImprovementType(),
+						exclusion.getMemo(),
+						exclusion.getExcludedBy() == null ? null : exclusion.getExcludedBy().getId(),
+						exclusion.getExcludedAt(),
+						exclusion.getReleasedBy() == null ? null : exclusion.getReleasedBy().getId(),
+						exclusion.getReleasedAt(),
+						exclusion.getFaq().getVersion() != exclusion.getFaqVersion()
+				)));
 	}
 
 	@Transactional(readOnly = true)
@@ -161,6 +249,19 @@ public class FaqMonitoringService {
 				faq.getId(), faq.getQuestion(), faq.getAnswer(), faq.getFaqCategory().getName(),
 				faq.getIntent(), faq.getVersion(), faq.getCreatedAt(), faq.getUpdatedAt()
 		);
+	}
+
+	private Faq findActiveFaq(Long faqId) {
+		return faqRepository.findActiveById(faqId)
+				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_NOT_FOUND));
+	}
+
+	private String normalizeMemo(String memo) {
+		if (memo == null) {
+			return null;
+		}
+		String normalized = memo.strip();
+		return normalized.isEmpty() ? null : normalized;
 	}
 
 }

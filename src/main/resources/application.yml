@@ -101,6 +101,13 @@ ranking:
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
 faq-monitoring:
+  ai-review:
+    max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
+    max-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_QUESTIONS_PER_DUPLICATE_CANDIDATE:20}
+    max-displayed-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_DISPLAYED_QUESTIONS_PER_DUPLICATE_CANDIDATE:5}
+    max-low-rag-quality-questions: ${FAQ_AI_REVIEW_MAX_LOW_RAG_QUALITY_QUESTIONS:20}
+    max-displayed-questions-for-low-rag-quality: ${FAQ_AI_REVIEW_MAX_DISPLAYED_QUESTIONS_FOR_LOW_RAG_QUALITY:5}
+    max-llm-queue-wait-millis: ${FAQ_AI_REVIEW_MAX_LLM_QUEUE_WAIT_MILLIS:5000}
   improvement:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
