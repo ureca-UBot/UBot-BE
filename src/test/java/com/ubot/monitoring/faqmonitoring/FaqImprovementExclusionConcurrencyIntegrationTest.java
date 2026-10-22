@@ -114,9 +114,19 @@ class FaqImprovementExclusionConcurrencyIntegrationTest {
 				RETURNING id
 				""", Long.class, "concurrency-test-category-" + UUID.randomUUID());
 		faqId = jdbcTemplate.queryForObject("""
-				INSERT INTO faq (category_id, question, answer, intent, version, created_at, updated_at)
-				VALUES (?, 'concurrency test question', 'answer', ?, 1, ?, ?)
+				INSERT INTO faq (id, category_id, question, answer, intent, version, created_at, updated_at)
+				VALUES (?, ?, ?, 'answer', ?, 1, ?, ?)
 				RETURNING id
-				""", Long.class, categoryId, Intent.GENERAL.name(), LocalDateTime.now(), LocalDateTime.now());
+				""", Long.class,
+				uniqueId(),
+				categoryId,
+				"concurrency test question " + UUID.randomUUID(),
+				Intent.GENERAL.name(),
+				LocalDateTime.now(),
+				LocalDateTime.now());
+	}
+
+	private long uniqueId() {
+		return UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
 	}
 }
