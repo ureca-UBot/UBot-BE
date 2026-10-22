@@ -136,6 +136,10 @@ sum(llm_concurrency_in_use{role!="api"}) / sum(llm_concurrency_limit{role!="api"
 - LLM 동시 호출 값은 `api` 역할을 뺀 값입니다.
 - 질의 40여 개를 동시에 보낸 뒤 조합합니다. 하나라도 실패하면 기존과 같이 Prometheus 장애 오류로 응답합니다.
 
+## 장애 알림
+
+Backend·Worker·PostgreSQL·Redis 장애, Chat Job 지연, LLM 시간 초과 비율은 Prometheus 알림 규칙으로 판단해 Discord·Slack으로 보냅니다([장애 알림](../how-to/alerting.md)).
+
 ## 성능 영향
 
 - 요청 경로에서 하는 일은 메모리 안의 counter 증가와 시간 기록뿐입니다. LLM 호출(수 초), 임베딩(수십 ms), 벡터 검색(수 ms)에 비하면 무시할 수준입니다.

@@ -56,10 +56,34 @@ services:
 
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # tools/deploy/render-alert-config.sh가 .env로 만든 알림 규칙. 아직 만들지 않았으면 빈 폴더로 뜹니다.
+      - ./.generated/prometheus:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # 알림을 확인할 때만 띄웁니다: docker compose --profile alerts up -d alertmanager
+  # 먼저 render-alert-config.sh로 Alertmanager 설정과 Webhook secret을 만들어야 합니다.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    profiles:
+      - alerts
+
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+
+    # 외부에는 열지 않습니다.
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-19093}:9093"
+
+    volumes:
+      # Webhook URL을 넣은 채널(Discord·Slack)만 남긴 설정과 채널별 Webhook secret
+      - ./.generated/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./.generated/alertmanager/secrets:/run/secrets/ubot-alerts:ro
+      - alertmanager-data:/alertmanager
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.20.1
@@ -103,3 +127,4 @@ volumes:
   postgres-data:
   redis-data:
   prometheus-data:
+  alertmanager-data:
