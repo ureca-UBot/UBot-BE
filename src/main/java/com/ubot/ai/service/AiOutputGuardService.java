@@ -7,6 +7,8 @@ import com.ubot.ai.dto.OutputGuardResult.Reason;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.UserDataRecorder;
+import com.ubot.ai.tool.UserRecordClaims;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.enums.Intent;
@@ -27,15 +29,16 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /** 파싱된 답변에서 문제 문장만 제거합니다. 자료의 진위나 모든 의미상의 오류를 판정하지는 않습니다. */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiOutputGuardService {
 
     private static final String UNANSWERED_SCOPE_NOTICE = "에 대한 내용은 이번 답변에서 안내하지 못했습니다.";
@@ -662,6 +665,18 @@ public class AiOutputGuardService {
             "찾을\\s*수\\s*없|조회하지\\s*못|제공되지\\s*않|정보[^.!?。！？\\n]{0,24}(?:없|부족)");
 
     private final ForbiddenWordFilterService forbiddenWordFilterService;
+    // 지표를 보지 않는 테스트는 전역 레지스트리를 씀. 등록된 저장소가 없으면 기록하지 않음
+    private final MeterRegistry metrics;
+
+    public AiOutputGuardService(ForbiddenWordFilterService forbiddenWordFilterService) {
+        this(forbiddenWordFilterService, Metrics.globalRegistry);
+    }
+
+    @Autowired
+    public AiOutputGuardService(ForbiddenWordFilterService forbiddenWordFilterService, MeterRegistry metrics) {
+        this.forbiddenWordFilterService = forbiddenWordFilterService;
+        this.metrics = metrics;
+    }
 
     /** 검사에 사용한 기존 규칙의 식별자입니다. FAQ 번호·사용자 문구는 식별자로 쓰지 않습니다. */
     private enum GuardRule {
@@ -762,6 +777,11 @@ public class AiOutputGuardService {
                 filtered == null ? 0 : filtered.length(), elapsedMillis};
         if ("REJECTED".equals(outcome) || !trace.warnings.isEmpty()) log.warn(message, values);
         else log.info(message, values);
+        // 거절률 = stage=body 중 outcome=rejected 비율. rule은 거절한 규칙(GuardRule)이고 그 밖에는 none
+        metrics.counter("ai.output.guard",
+                "stage", stage.toLowerCase(Locale.ROOT),
+                "outcome", outcome.toLowerCase(Locale.ROOT),
+                "rule", trace.rejection == null ? "none" : trace.rejection.name().toLowerCase(Locale.ROOT)).increment();
     }
 
     /** 본문 검사 결과를 내부에서 읽습니다. 기존 호출 경로·저장·관리자 처리는 연결하지 않습니다. */
@@ -804,6 +824,10 @@ public class AiOutputGuardService {
         List<QuantityFact> facts = new ArrayList<>();
         sources.stream().filter(StringUtils::hasText).flatMap(source -> splitSentences(source).stream())
                 .forEach(source -> facts.addAll(readFacts(inspect(source))));
+        // 회원의 청구 금액·데이터량은 일반 수치 검사가 아니라 회선·월·항목을 맞춰 실제 기록과 비교합니다.
+        UserRecordClaims userRecords = userRecords(materials);
+        List<String> faqSources = materials.faqs().stream().map(faq -> faq.answer())
+                .filter(StringUtils::hasText).map(this::inspect).toList();
         // 대상별 근거는 한 번 모아 수치 비교와 뒤의 대상 검사에서 함께 사용합니다.
         List<ScopedAnswerFact> scopeEvidence = new ArrayList<>();
         List<String> payoffGoals = new ArrayList<>();
@@ -873,7 +897,10 @@ public class AiOutputGuardService {
                     continue;
                 }
                 boolean thirdPartyLookup = hasThirdPartyLookup(inspected);
-                boolean quantityConflict = hasQuantityConflict(inspected, facts, materials.question());
+                // 회원 기록과 비교한 값은 지운 문장으로 일반 수치 검사를 해, 같은 값을 두 기준으로 판정하지 않습니다.
+                UserRecordClaims.Verdict recordVerdict = userRecords.check(inspected, faqSources);
+                boolean quantityConflict = recordVerdict.conflict()
+                        || hasQuantityConflict(recordVerdict.unhandled(), facts, materials.question());
                 boolean requirementConflict = hasRequirementConflict(inspected, sources);
                 GuardRule policyRule = findPolicyViolation(sentence, inspected, sources, thirdPartyLookup);
                 boolean policyViolation = policyRule != null;
@@ -1107,7 +1134,8 @@ public class AiOutputGuardService {
                         || storeIntent && STORE_SUBJECT.matcher(section.title()).find()).toList();
         AnswerMaterials scoped = new AnswerMaterials(question.searchQuery(), question.faqs(), sections,
                 storeIntent ? materials.tools() : Set.of(), storeIntent ? storeMap : null,
-                List.of(question), materials.history());
+                List.of(question), materials.history(), userIntent ? materials.userId() : null,
+                userIntent ? materials.userDataSummary() : null, userIntent ? materials.toolRecords() : null);
         if (hasMissingLookupData(question.searchQuery(), scoped, storeIntent ? storeMap : null)) return List.of();
 
         List<String> sources = readSources(scoped);
@@ -1892,8 +1920,11 @@ public class AiOutputGuardService {
     private boolean hasUnsupportedOperation(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
         if (QUESTION_END.matcher(sentence).find()) return false;
         if (hasActualClaim(TRANSACTION_CLAIM, sentence, materials.question())) return true;
-        // 현재 자료에는 개인 청구·계약 조회 결과가 없습니다. FAQ 요금이나 기본 회원 정보로 실제 청구를 단정하지 않습니다.
-        if (hasActualClaim(PERSONAL_BILLING_CLAIM, sentence)) return true;
+        // 문장이 가리키는 청구서(월·회선)가 회원 기록에 없으면 FAQ 요금이나 기본 회원 정보로 실제 청구를 단정하지 않습니다.
+        // 그 청구서가 있으면 실제 조회 결과이므로, 금액은 수치 검사가 그 청구서와 비교합니다.
+        if (hasActualClaim(PERSONAL_BILLING_CLAIM, sentence) && !userRecords(materials).hasReferencedBill(sentence)) {
+            return true;
+        }
         if (hasUnsupportedQueryPromise(sentence, materials, storeMap)) return true;
         boolean storeProgress = STORE_SUBJECT.matcher(sentence).find() && hasActualClaim(STORE_PROGRESS_CLAIM, sentence);
         if (!hasActualClaim(QUERY_CLAIM, sentence) && !storeProgress) return false;
@@ -1985,13 +2016,25 @@ public class AiOutputGuardService {
     }
 
     private boolean isUserDataSection(ContextSection section) {
-        return UserIntentHandler.SECTION_TITLE.equals(section.title());
+        return UserIntentHandler.SECTION_TITLE.equals(section.title())
+                || UserDataRecorder.SECTION_TITLE.equals(section.title());
+    }
+
+    /** 가입 정보 요약의 최근·미납 청구서와 최근 사용량, 도구로 조회한 사용량·청구서입니다. 회선·월·항목으로 비교합니다. */
+    private UserRecordClaims userRecords(AnswerMaterials materials) {
+        return UserRecordClaims.of(materials.userDataSummary(), materials.toolRecords());
+    }
+
+    /** 비회원·없는 회원·조회 실패 안내는 가입 정보가 제공되지 않은 것으로 봅니다. */
+    private boolean isUserDataFailure(String content) {
+        return UserIntentHandler.NOT_FOUND_CONTENT.equals(content) || UserIntentHandler.LOGIN_REQUIRED_CONTENT.equals(content)
+                || UserIntentHandler.LOOKUP_FAILED_CONTENT.equals(content);
     }
 
     private boolean hasUserData(AnswerMaterials materials) {
         // 기존 핸들러가 만든 조회 성공·실패 섹션을 구분합니다. 이름 표기나 필드 순서에는 의존하지 않습니다.
         return materials.sections().stream().filter(this::isUserDataSection)
-                .anyMatch(section -> !UserIntentHandler.NOT_FOUND_CONTENT.equals(section.content()));
+                .anyMatch(section -> !isUserDataFailure(section.content()));
     }
 
     private boolean hasActualClaim(Pattern pattern, String sentence) {
@@ -2442,7 +2485,7 @@ public class AiOutputGuardService {
         boolean previousRemoved = false;
         for (String sentence : availabilitySentences(answer)) {
             boolean missingDataNotice = !hasUserData(materials) && materials.sections().stream().anyMatch(section ->
-                    isUserDataSection(section) && UserIntentHandler.NOT_FOUND_CONTENT.equals(section.content()))
+                    isUserDataSection(section) && isUserDataFailure(section.content()))
                     && sentence.matches("(?s).*(?:정보|자료|데이터)(?:가|이|는|은)?\\s*없(?:어|기\\s*때문|으므로).*제공할\\s*수\\s*없.*");
             boolean unsupported = readRestrictionClaims(sentence, materials.question()).stream()
                     .anyMatch(claim -> !(missingDataNotice && isPersonalDataRestriction(claim))

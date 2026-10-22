@@ -130,7 +130,7 @@ public class UnansweredQuestionVectorRepository {
         return groupId;
     }
 
-    public void saveQuestion(
+    public Long saveQuestion(
             Long attemptId,
             int subQuestionIndex,
             Long groupId,
@@ -184,6 +184,7 @@ public class UnansweredQuestionVectorRepository {
                 profileId,
                 vector
         );
+        return questionId;
     }
 
     public void updateGroupCentroid(

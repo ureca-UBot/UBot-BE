@@ -6,7 +6,7 @@ import java.util.List;
 
 public record FaqImprovementSearchCriteria(
 		LocalDateTime evaluatedAt,
-		LocalDateTime recentUsageStartAt,
+		LocalDateTime unusedCutoffAt,
 		int topK,
 		double lowGapThreshold,
 		double lowSimilarityThreshold,
