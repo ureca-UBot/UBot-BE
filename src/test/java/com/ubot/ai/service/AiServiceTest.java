@@ -20,7 +20,10 @@ import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolFixtures;
+import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.ProductDataRecorder;
+import com.ubot.ai.tool.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.ai.tool.UserDataRecorder;
@@ -155,7 +158,9 @@ class AiServiceTest {
                         recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
                 .hasEntrySatisfying(UserDataTools.RECORDER,
                         recorder -> assertThat(recorder).isInstanceOf(UserDataRecorder.class))
-                .hasSize(3);
+                .hasEntrySatisfying(ProductDataRecorder.CONTEXT_KEY,
+                        recorder -> assertThat(recorder).isInstanceOf(ProductDataRecorder.class))
+                .hasSize(4);
     }
 
     @Test
@@ -347,6 +352,44 @@ class AiServiceTest {
 
         assertThat(answer.userData()).isNull();
         assertThat(answer.abstained()).isTrue();
+    }
+
+    @Test
+    void 상품_도구가_조회한_상품_중_답변에_쓰인_것만_카드로_반환하고_가격을_검사_근거로_쓴다() {
+        var materials = AnswerMaterials.builder("밸런스 요금제 얼마야?").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createPrompt("밸런스 요금제 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 실제 도구 실행 대신, 도구가 요금제 두 개를 돌려주고 모델이 그중 하나만 답변에 쓴 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 59", 59000, "설명"),
+                    "- Ubot 밸런스 59 | 월정액 59,000원 | 약정 할인 적용 시 월 44,250원");
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 69", 69000, "설명"),
+                    "- Ubot 밸런스 69 | 월정액 69,000원 | 약정 할인 적용 시 월 51,750원");
+            return new LlmResponseDto("{\"answer\":\"Ubot 밸런스 59의 월정액은 59,000원입니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        // 59,000원은 프롬프트 자료가 아니라 도구 결과에만 있으므로, 검사 근거에 덧붙이지 않았다면 지워졌을 문장입니다.
+        assertThat(answer.answer()).isEqualTo("Ubot 밸런스 59의 월정액은 59,000원입니다.");
+        assertThat(answer.productData().products()).extracting(ProductCard::name).containsExactly("Ubot 밸런스 59");
+    }
+
+    @Test
+    void 모델이_답을_보류하면_조회한_상품이_있어도_상품_카드를_붙이지_않는다() {
+        var materials = AnswerMaterials.builder("컬러링 얼마야?").enableTool(AiTool.ADDON_SEARCH).build();
+        when(promptService.createPrompt("컬러링 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            ((ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY)).record(
+                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, "통화연결음"), "- Ubot 컬러링 | 월 990원");
+            return new LlmResponseDto("{\"answer\":\"Ubot 컬러링 요금은 확인할 수 없습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
+        });
+
+        assertThat(aiService.generateAnswer(materials).productData()).isNull();
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.ubot.ai.dto.OutputGuardResult.Reason;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.ProductDataRecorder;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserRecordClaims;
 import com.ubot.chat.context.UserIntentHandler;
@@ -242,6 +243,15 @@ public class AiOutputGuardService {
     private static final Pattern USER_SUBJECT = Pattern.compile("회원\\s*정보|사용자\\s*정보|이름|거주\\s*지역|가입일");
     private static final Pattern OTHER_QUERY_SUBJECT = Pattern.compile(
             "요금|사용량|미납|환불|결제|납부|로밍|위약금|가입\\s*상태|신청\\s*상태|처리\\s*상태");
+    /** 상품 조회 도구가 실제로 조회하는 대상입니다. 회원 기록(ACCOUNT_RECORD)과 함께 쓰인 문장은 해당하지 않습니다. */
+    private static final Pattern PRODUCT_SUBJECT = Pattern.compile("요금제|부가\\s*서비스|결합\\s*상품|로밍\\s*상품|상품");
+    /**
+     * 회원 본인의 가입 상품을 가리키는 말입니다. "고객님의 요금제를 조회했습니다"는 카탈로그가 아니라 회원 기록 조회를 말하므로
+     * 상품 조회 결과가 있어도 사실로 보지 않습니다. "제"·"내"는 "제공"·"내용"과 구분하려고 뒤에 공백이 올 때만 봅니다.
+     */
+    private static final Pattern PERSONAL_PRODUCT_OWNER = Pattern.compile(
+            "고객\\s*님|회원\\s*님|(?<![가-힣])(?:내|제|저의|나의)\\s|(?:사용|이용)\\s*(?:중인|하시는|하고\\s*계신)"
+                    + "|가입(?:하신|되어\\s*있는|된)|쓰(?:시는|고\\s*계신)");
     private static final Pattern CONDITION = Pattern.compile(
             "경우|때에는|한해|한정|제외|없으면|이어야"
                     + "|(?:법정대리인|보호자)[^,;.!?。！？\\n]{0,40}(?:함께\\s*방문|같이\\s*방문|동행|동반)"
@@ -1911,6 +1921,10 @@ public class AiOutputGuardService {
         boolean storeProgress = STORE_SUBJECT.matcher(sentence).find() && hasActualClaim(STORE_PROGRESS_CLAIM, sentence);
         if (!hasActualClaim(QUERY_CLAIM, sentence) && !storeProgress) return false;
         if (STATIC_SOURCE.matcher(sentence).find() && !sentence.contains("조회") && !sentence.contains("검색")) return false;
+        // 상품 조회 도구가 실제로 상품을 돌려줬으면 상품을 조회했다는 문장은 사실입니다. 금액은 수치 검사가 도구 결과와 비교합니다.
+        if (hasProductData(materials) && PRODUCT_SUBJECT.matcher(sentence).find()
+                && !ACCOUNT_RECORD.matcher(sentence).find()
+                && !PERSONAL_PRODUCT_OWNER.matcher(sentence).find()) return false;
         if (OTHER_QUERY_SUBJECT.matcher(sentence).find()) return true;
         if (STORE_SUBJECT.matcher(sentence).find()) return storeMap == null;
         return !USER_SUBJECT.matcher(sentence).find() || !hasUserData(materials);
@@ -1995,6 +2009,10 @@ public class AiOutputGuardService {
             if (!conditions.group().equals("경우") && !conditions.group().equals("때에는")) return false;
         }
         return true;
+    }
+
+    private boolean hasProductData(AnswerMaterials materials) {
+        return materials.sections().stream().anyMatch(section -> ProductDataRecorder.SECTION_TITLE.equals(section.title()));
     }
 
     private boolean isUserDataSection(ContextSection section) {

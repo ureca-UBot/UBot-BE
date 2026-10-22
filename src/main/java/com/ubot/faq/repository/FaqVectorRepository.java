@@ -28,11 +28,13 @@ public class FaqVectorRepository {
     static final String SEARCH_SQL = """
             WITH candidates AS MATERIALIZED (
                 SELECT f.id AS faq_id, f.question AS faq_question, f.answer, f.intent, f.cacheable,
+                       c.name AS category_name,
                        v.id AS variant_id, v.question AS variant_question,
                        fe.vector <=> ? AS distance
                 FROM faq_embeddings fe
                 JOIN faq_question_variants v ON v.id = fe.faq_question_variant_id
                 JOIN faq f ON f.id = v.origin_faq_id
+                LEFT JOIN faq_category c ON c.id = f.category_id
                 WHERE f.deleted_at IS NULL
                   AND fe.profile_id = ?
                   AND fe.vector_type = ?
@@ -47,7 +49,7 @@ public class FaqVectorRepository {
                        ) AS faq_rank
                 FROM candidates
             )
-            SELECT faq_id, faq_question, answer, intent, cacheable, variant_id, variant_question,
+            SELECT faq_id, faq_question, answer, intent, cacheable, category_name, variant_id, variant_question,
                    1 - distance AS similarity_score, candidate_count
             FROM ranked
             WHERE faq_rank = 1
@@ -94,7 +96,8 @@ public class FaqVectorRepository {
                     Intent.valueOf(rs.getString("intent")),
                     rs.getLong("variant_id"),
                     rs.getString("variant_question"),
-                    rs.getBoolean("cacheable")
+                    rs.getBoolean("cacheable"),
+                    rs.getString("category_name")
             ), rs.getInt("candidate_count")), params);
             if (candidates.size() >= topK || candidates.isEmpty()
                     || candidates.getFirst().count() < candidateLimit) {

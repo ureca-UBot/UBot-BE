@@ -9,6 +9,7 @@ import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.ProductNameIndex;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import java.util.ArrayList;
@@ -26,7 +27,7 @@ class ChatContextCollectorTest {
 		var general = new RecordingHandler(Intent.GENERAL);
 		var storeHandler = new RecordingHandler(Intent.STORE_DATA);
 		var user = new RecordingHandler(Intent.USER_DATA);
-		var collector = new ChatContextCollector(List.of(general, storeHandler, user));
+		var collector = new ChatContextCollector(List.of(general, storeHandler, user, new RecordingHandler(Intent.PRODUCT_DATA)));
 
 		AnswerMaterials materials = collector.collect(context, List.of(general1, store, general2));
 
@@ -42,7 +43,8 @@ class ChatContextCollectorTest {
 	@Test
 	void 실제_핸들러로_FAQ와_도구를_모은다() {
 		var collector = new ChatContextCollector(List.of(
-				new GeneralIntentHandler(), new StoreIntentHandler(mock(NearbyStoreSearcher.class)), new UserIntentHandler(null)));
+				new GeneralIntentHandler(), new StoreIntentHandler(mock(NearbyStoreSearcher.class)), new UserIntentHandler(null),
+				new ProductIntentHandler(mock(ProductNameIndex.class))));
 
 		AnswerMaterials materials = collector.collect(context, List.of(general1, store));
 
@@ -55,9 +57,11 @@ class ChatContextCollectorTest {
 	void 하위_질문의_FAQ를_합쳐_intent마다_한_번만_핸들러를_실행하고_핸들러가_넣은_FAQ만_질문별로_다시_묶는다() {
 		var general = new RecordingHandler(Intent.GENERAL);
 		var storeHandler = new RecordingHandler(Intent.STORE_DATA);
-		var collector = new ChatContextCollector(List.of(general, storeHandler, new RecordingHandler(Intent.USER_DATA)));
+		var collector = new ChatContextCollector(List.of(general, storeHandler, new RecordingHandler(Intent.USER_DATA),
+				new RecordingHandler(Intent.PRODUCT_DATA)));
 		var forwarding = new ChatContextCollector(List.of(
-				new GeneralIntentHandler(), new StoreIntentHandler(mock(NearbyStoreSearcher.class)), new UserIntentHandler(null)));
+				new GeneralIntentHandler(), new StoreIntentHandler(mock(NearbyStoreSearcher.class)), new UserIntentHandler(null),
+				new ProductIntentHandler(mock(ProductNameIndex.class))));
 		var subQuestions = List.of(
 				new SubQuestionFaqs("유심 재발급 방법", List.of(general1, store), "유심 재발급 방법"),
 				new SubQuestionFaqs("유심 재발급 비용", List.of(general1, general2), "유심 재발급 비용"),
@@ -89,7 +93,8 @@ class ChatContextCollectorTest {
 	void 같은_intent의_핸들러가_중복되면_생성할_수_없다() {
 		assertThatThrownBy(() -> new ChatContextCollector(List.of(
 				new RecordingHandler(Intent.GENERAL), new RecordingHandler(Intent.GENERAL),
-				new RecordingHandler(Intent.STORE_DATA), new RecordingHandler(Intent.USER_DATA))))
+				new RecordingHandler(Intent.STORE_DATA), new RecordingHandler(Intent.USER_DATA),
+				new RecordingHandler(Intent.PRODUCT_DATA))))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("GENERAL");
 	}

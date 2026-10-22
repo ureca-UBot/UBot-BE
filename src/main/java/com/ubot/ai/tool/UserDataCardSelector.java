@@ -34,11 +34,19 @@ public final class UserDataCardSelector {
     }
 
     public static UserDataCards select(String question, String answer, UserDataSummary summary) {
+        return select(question, answer, summary, true);
+    }
+
+    /**
+     * planOnKeyword가 false면 질문에 "요금제"가 있어도 답변에 요금제 이름이 나왔을 때만 요금제 카드를 붙입니다.
+     * "요금제 종류 알려줘"처럼 상품 카드가 함께 나가는 답변에 내 요금제 카드가 섞이지 않게 할 때 씁니다.
+     */
+    public static UserDataCards select(String question, String answer, UserDataSummary summary, boolean planOnKeyword) {
         if (summary == null || !StringUtils.hasText(answer)) {
             return UserDataCards.EMPTY;
         }
         List<SubscriptionSummary> askedSubscriptions = askedSubscriptions(question, summary.subscriptions());
-        boolean askedPlan = question != null && question.contains(PLAN_KEYWORD);
+        boolean askedPlan = planOnKeyword && question != null && question.contains(PLAN_KEYWORD);
 
         List<PlanCard> plans = new ArrayList<>();
         List<UsageCard> usages = new ArrayList<>();

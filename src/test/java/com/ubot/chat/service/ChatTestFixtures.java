@@ -6,9 +6,11 @@ import static org.mockito.Mockito.mock;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.ProductNameIndex;
 import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
+import com.ubot.chat.context.ProductIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.chat.repository.ConversationTurnRepository;
@@ -96,7 +98,12 @@ final class ChatTestFixtures {
 	static ChatContextCollector collector(NearbyStoreSearcher nearbyStoreSearcher) {
 		return new ChatContextCollector(List.of(
 				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
-				new UserIntentHandler(mock(UserDataSummarizer.class))));
+				new UserIntentHandler(mock(UserDataSummarizer.class)), productIntentHandler()));
+	}
+
+	/** 질문 속 상품 이름은 찾지 않는(이름 목록이 빈) 상품 정보 핸들러입니다. */
+	static ProductIntentHandler productIntentHandler() {
+		return new ProductIntentHandler(mock(ProductNameIndex.class));
 	}
 
 	/** 회원 정보는 users로 조회하고 이용 중인 회선은 없는 실제 가입 정보 핸들러입니다. */

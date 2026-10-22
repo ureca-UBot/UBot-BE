@@ -291,7 +291,8 @@ class ChatAnswerProcessorIntentValidationTest {
         FaqCacheProperties cacheProperties = new FaqCacheProperties();
         cacheProperties.setEnabled(cacheEnabled);
         ChatContextCollector collector = new ChatContextCollector(List.of(
-                new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores)));
+                new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores),
+                ChatTestFixtures.productIntentHandler()));
         ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3), ai, collector, planner, new FaqSemanticCacheService(cacheProperties), new FaqSentenceFilterService(embeddings, 0.6), ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
