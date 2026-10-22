@@ -41,4 +41,13 @@ public class SurgingQuestion {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+	public static SurgingQuestion create(QuestionLog questionLog, SurgingCluster cluster, LocalDateTime occurredAt) {
+		SurgingQuestion question = new SurgingQuestion();
+		question.questionLog = questionLog;
+		question.cluster = cluster;
+		question.occurredAt = occurredAt;
+		question.createdAt = LocalDateTime.now();
+		return question;
+	}
 }

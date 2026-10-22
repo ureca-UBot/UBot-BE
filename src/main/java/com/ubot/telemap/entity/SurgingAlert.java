@@ -1,6 +1,7 @@
 package com.ubot.telemap.entity;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.telemap.enums.SurgingAlertStatus;
@@ -20,6 +21,9 @@ import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+import com.ubot.telemap.dto.SurgingQuestionSnapshot;
 
 @Entity
 @Getter
@@ -38,6 +42,10 @@ public class SurgingAlert {
 
     @Column(name = "subject")
     private String subject;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "question_snapshots")
+    private List<SurgingQuestionSnapshot> questionSnapshots;
 
     @Column(name = "question_count")
     private Integer questionCount;
@@ -58,4 +66,20 @@ public class SurgingAlert {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    public static SurgingAlert create(
+            RegionSido region,
+            List<SurgingQuestionSnapshot> questionSnapshots,
+            int windowMinutes
+    ) {
+        SurgingAlert alert = new SurgingAlert();
+        alert.region = region;
+        alert.questionSnapshots = List.copyOf(questionSnapshots);
+        alert.questionCount = questionSnapshots.size();
+        alert.windowMinutes = windowMinutes;
+        alert.status = SurgingAlertStatus.PENDING;
+        alert.createdAt = LocalDateTime.now();
+        alert.updatedAt = alert.createdAt;
+        return alert;
+    }
 }
