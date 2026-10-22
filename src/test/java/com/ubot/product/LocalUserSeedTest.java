@@ -76,6 +76,21 @@ class LocalUserSeedTest {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM home_subscriptions", Integer.class)).isEqualTo(4);
             // 가상 사용자: 친구 3인 15개, 워치 20개, 태블릿 20개 / user 계정: 6개
             assertThat(jdbc.queryForObject("SELECT count(*) FROM bundle_groups", Integer.class)).isEqualTo(55 + 6);
+            // 결합은 본인 명의 회선만 묶는다. 다른 사람 회선이 섞인 친구 3인 15개와 user 계정 3개(가족·청년·친구)는 종료된다.
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM bundle_groups WHERE status = 'ACTIVE'", Integer.class))
+                    .isEqualTo(55 + 6 - 15 - 3);
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM (
+                        SELECT sb.bundle_group_id FROM subscription_bundles sb
+                        JOIN subscriptions s ON s.subscription_id = sb.subscription_id
+                        WHERE sb.status = 'ACTIVE'
+                        GROUP BY sb.bundle_group_id HAVING count(DISTINCT s.user_id) > 1) t
+                    """, Integer.class)).isZero();
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM bundle_groups g
+                    WHERE g.status = 'ENDED' AND EXISTS (SELECT 1 FROM subscription_bundles sb
+                        WHERE sb.bundle_group_id = g.bundle_group_id AND sb.status = 'ACTIVE')
+                    """, Integer.class)).isZero();
 
             // user 계정은 모두 회선·부가서비스·결합·사용량·청구를 가진 채 시작한다.
             assertThat(jdbc.queryForObject("""
