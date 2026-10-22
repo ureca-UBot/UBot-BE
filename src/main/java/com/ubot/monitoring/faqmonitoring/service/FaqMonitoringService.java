@@ -135,13 +135,16 @@ public class FaqMonitoringService {
 			Long administratorId
 	) {
 		Faq faq = findActiveFaq(faqId);
-		if (exclusionRepository.existsByFaqIdAndImprovementTypeAndFaqVersionAndReleasedAtIsNull(
-				faqId, request.improvementType(), faq.getVersion())) {
+		int inserted = exclusionRepository.insertActiveIfAbsent(
+				faqId,
+				request.improvementType().name(),
+				faq.getVersion(),
+				normalizeMemo(request.memo()),
+				administratorId
+		);
+		if (inserted == 0) {
 			return;
 		}
-		User administrator = userRepository.getReferenceById(administratorId);
-		exclusionRepository.save(FaqImprovementExclusion.exclude(
-				faq, request.improvementType(), normalizeMemo(request.memo()), administrator));
 		log.info("개선 필요 FAQ를 제외 처리했습니다. faqId={}, faqVersion={}, improvementType={}, administratorId={}",
 				faqId, faq.getVersion(), request.improvementType(), administratorId);
 	}
