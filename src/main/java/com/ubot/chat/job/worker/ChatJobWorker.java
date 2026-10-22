@@ -34,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -94,8 +95,8 @@ public class ChatJobWorker implements SmartLifecycle {
 				&& System.nanoTime() - lastRecoveryNanos < properties.recoveryInterval().multipliedBy(3).toNanos();
 	}
 
-	private void count(String name) {
-		if (metrics != null) metrics.counter("chat.worker." + name).increment();
+	private void count(String name, String... tags) {
+		if (metrics != null) metrics.counter("chat.worker." + name, tags).increment();
 	}
 
 	public ChatJobWorker(
@@ -265,7 +266,7 @@ public class ChatJobWorker implements SmartLifecycle {
 				.filter(pending -> jobIds.containsKey(pending.messageId())
 						&& isNotRunningLive(jobIds.get(pending.messageId()), silentBefore))
 				.toList();
-		int started = reclaim(silent, properties.heartbeatTimeout());
+		int started = reclaim(silent, properties.heartbeatTimeout(), "heartbeat");
 		if (started > 0) {
 			log.warn("heartbeat가 끊긴 답변 작업의 메시지를 넘겨받아 다시 실행합니다: 작업수={}", started);
 		}
@@ -285,14 +286,15 @@ public class ChatJobWorker implements SmartLifecycle {
 
 	// 상태를 보지 않고 넘겨받는 마지막 안전망. 실행 중 작업은 take에서 heartbeat를 다시 확인해 빼앗지 않음
 	private void reclaimStale() {
-		int started = reclaim(stream.findStale(properties.reclaimIdle(), RECOVERY_BATCH), properties.reclaimIdle());
+		int started = reclaim(stream.findStale(properties.reclaimIdle(), RECOVERY_BATCH), properties.reclaimIdle(), "idle");
 		if (started > 0) {
 			log.warn("오래 처리되지 않은 답변 작업 메시지를 넘겨받아 다시 실행합니다: 작업수={}", started);
 		}
 	}
 
 	// 빈 슬롯 수만큼만 넘겨받고 시작한 수를 반환함. XCLAIM이 minIdle을 다시 확인해 한 Worker만 받음
-	private int reclaim(List<PendingChatJob> stale, Duration minIdle) {
+	// reason: 지표에 남길 넘겨받은 이유(heartbeat 끊김·ACK 지연)
+	private int reclaim(List<PendingChatJob> stale, Duration minIdle, String reason) {
 		failExhausted(stale.stream()
 				.filter(pending -> pending.deliveryCount() >= properties.maxDeliveries())
 				.map(PendingChatJob::messageId)
@@ -309,7 +311,7 @@ public class ChatJobWorker implements SmartLifecycle {
 				Optional<ClaimedJob> claimed = takeQuietly(received, true);
 				if (claimed.isPresent()) {
 					started++;
-					count("reclaimed");
+					count("reclaimed", "reason", reason);
 					startInSlot(received, claimed.get());
 				}
 			}
@@ -330,6 +332,7 @@ public class ChatJobWorker implements SmartLifecycle {
 						|| completionService.failQueued(jobId, ChatErrorCode.INTERNAL_ERROR);
 				if (closed) {
 					failed++;
+					count("terminated", "reason", "exhausted");
 				}
 				if (closed || jobRepository.findById(jobId).map(job -> job.getStatus().isFinished()).orElse(true)) {
 					ackQuietly(received);
@@ -350,6 +353,7 @@ public class ChatJobWorker implements SmartLifecycle {
 		for (Long jobId : queueRepository.findRunningStartedBefore(startedBefore, RECOVERY_BATCH)) {
 			if (completionService.failStuckRunning(jobId, startedBefore, ChatErrorCode.INTERNAL_ERROR)) {
 				failed++;
+				count("terminated", "reason", "orphaned");
 			}
 		}
 		if (failed > 0) {
@@ -447,6 +451,7 @@ public class ChatJobWorker implements SmartLifecycle {
 		}
 		LocalDateTime now = now();
 		Optional<LocalDateTime> startedAt = queueRepository.claim(jobId, now);
+		startedAt.ifPresent(claimedAt -> recordQueueWait(job.get(), claimedAt));
 		if (startedAt.isEmpty() && reclaimed) {
 			startedAt = queueRepository.takeOver(jobId, now, stuckBefore(now));
 			if (startedAt.isEmpty()) {
@@ -462,6 +467,13 @@ public class ChatJobWorker implements SmartLifecycle {
 		}
 		return Optional.of(new ClaimedJob(job.get().getAttemptId(), startedAt.get(),
 				Optional.ofNullable(job.get().getRequestContext()).orElse(received.message().context())));
+	}
+
+	// 접수부터 선점까지 걸린 시간. 실행 시간(chat.worker.execution)과 나눠 대기열 적체를 봄
+	private void recordQueueWait(ChatJob job, LocalDateTime claimedAt) {
+		if (metrics == null || job.getCreatedAt() == null) return;
+		Duration waited = Duration.between(job.getCreatedAt(), claimedAt);
+		if (!waited.isNegative()) metrics.timer("chat.jobs.queue.wait").record(waited);
 	}
 
 	// 잡아 둔 슬롯에서 실행하고 끝나면 반환함. 스트림 읽기를 끈 테스트에서는 호출 스레드에서 실행함
@@ -485,23 +497,41 @@ public class ChatJobWorker implements SmartLifecycle {
 		}
 	}
 
+
+	/** 로컬 실행 중 해당 ID 하나만 중단합니다. 분리된 Worker에는 Redis 취소 알림으로 전달됩니다. */
+	public void cancelJob(long jobId) {
+		for (RunningJob job : runningJobs) {
+			if (job.received.message().jobId() == jobId) job.cancel();
+		}
+	}
+
 	private void execute(ReceivedChatJob received, ClaimedJob claimed) {
 		long executionStarted = System.nanoTime();
 		ChatJobMessage message = new ChatJobMessage(received.message().jobId(), claimed.context());
 		RunningJob job = new RunningJob(received, claimed.startedAt());
 		runningJobs.add(job);
 		try {
+			// 선점 직후 사용자 취소가 커밋되었으면 모델을 호출하지 않습니다.
+			if (jobRepository.findById(message.jobId()).map(found -> found.getStatus().isFinished()).orElse(false)) {
+				ackQuietly(received);
+				return;
+			}
 			log.info("답변 작업을 시작합니다: 작업ID={}, 메시지ID={}", message.jobId(), received.messageId());
 			AnswerAttemptsHistory attempt = answerAttemptsHistoryRepository.findById(claimed.attemptId()).orElseThrow();
-			job.computation = computations.submit(() -> AnswerProgress.observe(
-					phase -> reportPhase(job, phase),
-					() -> jobProcessor.process(attempt, message.context().location(), job::checkActive, job.unanswered)));
+			FutureTask<ChatJobOutcome> computation = new FutureTask<>(() -> {
+				job.checkActive();
+				return AnswerProgress.observe(phase -> reportPhase(job, phase),
+						() -> jobProcessor.process(attempt, message.context().location(), job::checkActive, job.unanswered));
+			});
+			// 실행 전에 Future를 연결합니다. 연결 직전 취소도 기억해 모델을 시작하지 않습니다.
+			job.bindComputation(computation);
+			computations.execute(computation);
 			ChatJobOutcome outcome;
 			try {
 				// 선점 때 안내한 마감까지의 시간만 사용. 단계 전환으로 시간을 연장하지 않음.
 				long remaining = Duration.between(now(), claimed.startedAt().plus(properties.executionTimeout())).toMillis();
 				if (remaining <= 0) throw new TimeoutException("답변 처리 제한 시간이 지났습니다.");
-				outcome = job.computation.get(remaining, TimeUnit.MILLISECONDS);
+				outcome = computation.get(remaining, TimeUnit.MILLISECONDS);
 				job.checkActive();
 			} catch (TimeoutException exception) {
 				count("timeouts");
@@ -521,8 +551,9 @@ public class ChatJobWorker implements SmartLifecycle {
 				// 다른 실행이 넘겨받았거나 정리 작업이 끝냄. 넘겨받은 쪽이 ACK하므로 여기서는 ACK 안 함
 				return;
 			}
-			if (metrics != null) metrics.counter("chat.worker.completed", "status",
-					outcome.isFailed() ? "failed" : "succeeded").increment();
+			if (metrics != null) metrics.counter("chat.worker.completed",
+					"status", outcome.isFailed() ? "failed" : "succeeded",
+					"code", outcome.isFailed() ? outcome.errorCode().getCode() : "none").increment();
 			if (completion.questionLogId() != null) {
 				saveResultQuietly(message.jobId(),
 						new ChatJobResult(completion.questionLogId(), outcome.store(), outcome.userData(),
@@ -531,7 +562,11 @@ public class ChatJobWorker implements SmartLifecycle {
 			// DB 커밋 뒤에만 ACK함
 			ackQuietly(received);
 		} catch (CancellationException exception) {
-			log.warn("종료 중에 대기열로 돌려놓은 작업이라 결과를 버립니다: 작업ID={}", message.jobId());
+			// 취소가 DB에 확정된 작업만 ACK합니다. 종료·선점 상실의 기존 재발행 흐름은 유지합니다.
+			if (jobRepository.findById(message.jobId()).map(found -> found.getStatus().isFinished()).orElse(false)) {
+				ackQuietly(received);
+			}
+			log.info("중단되었거나 실행 권한을 잃은 답변 작업의 결과를 버립니다: 작업ID={}", message.jobId());
 		} catch (RuntimeException exception) {
 			// DB 장애 등으로 기록 못 함. ACK하지 않아 처리 대기로 남음
 			log.error("답변 작업 결과를 기록하지 못해 메시지를 ACK하지 않았습니다: 작업ID={}", message.jobId(), exception);
@@ -675,8 +710,13 @@ public class ChatJobWorker implements SmartLifecycle {
 		for (RunningJob job : runningJobs) {
 			if (job.lost) continue;
 			try {
-				if (queueRepository.heartbeat(job.received.message().jobId(), job.startedAt, now()) == 0) job.cancel();
+				// 갱신된 행이 없으면 다른 실행이 넘겨받은 것임
+				if (queueRepository.heartbeat(job.received.message().jobId(), job.startedAt, now()) == 0) {
+					count("lease.lost");
+					job.cancel();
+				}
 			} catch (RuntimeException exception) {
+				count("heartbeat.failures");
 				log.warn("실행 생존 확인 갱신 실패: 작업ID={}", job.received.message().jobId(), exception);
 			}
 		}
@@ -688,6 +728,12 @@ public class ChatJobWorker implements SmartLifecycle {
 		private volatile boolean lost;
 		private volatile Future<ChatJobOutcome> computation;
 		private final List<UnansweredCandidate> unanswered = new CopyOnWriteArrayList<>();
+
+		private void bindComputation(Future<ChatJobOutcome> future) {
+			computation = future;
+			// cancel()이 Future 연결 전에 실행된 경우에도 중단 신호를 잃지 않습니다.
+			if (lost) future.cancel(true);
+		}
 
 		private void cancel() {
 			lost = true;

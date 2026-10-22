@@ -27,9 +27,23 @@ management:
           - health
           - prometheus
   metrics:
+    # 모든 지표에 프로세스 역할(api·worker·all)을 붙임. 같은 이름의 지표를 역할별로 나눠 볼 때 씀
+    tags:
+      role: ${app.role}
     distribution:
       percentiles-histogram:
         http.server.requests: true
+      # 직접 정한 구간만 histogram 버킷으로 내보내 p95를 계산함. 태그 조합마다 버킷 수만큼 시계열이 생기므로 구간을 늘릴 때 주의
+      slo:
+        "[chat.worker.execution]": 1s,2s,3s,5s,8s,10s,15s,20s,30s,45s,60s,90s,120s,180s
+        "[chat.jobs.queue.wait]": 100ms,500ms,1s,2s,5s,10s,30s,60s,120s,300s,600s
+        "[llm.requests]": 250ms,500ms,1s,2s,3s,5s,8s,10s,15s,20s,30s,45s,60s,90s,120s
+        "[llm.permit.wait]": 10ms,100ms,500ms,1s,2s,5s,10s,30s,60s
+        "[embedding.requests]": 10ms,25ms,50ms,100ms,200ms,300ms,500ms,1s,2s,5s,10s,30s
+        "[faq.vector.search]": 1ms,2ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s
+        "[faq.retrieval.top.similarity]": 0.3,0.4,0.5,0.55,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0
+        # 커넥션을 빌려 쓴 시간. 느린 쿼리·긴 트랜잭션의 대리 지표
+        "[hikaricp.connections.usage]": 5ms,10ms,50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s
 
 operation-monitoring:
   prometheus:
@@ -40,6 +54,9 @@ operation-monitoring:
 app:
   # api: 접수·조회·나머지 API, worker: 답변 Worker만, all: 둘 다(로컬)
   role: ${APP_ROLE:all}
+  metrics:
+    # FAQ 벡터·outbox 적체를 DB에서 다시 세는 주기(api 역할)
+    backlog-refresh: ${METRICS_BACKLOG_REFRESH:5m}
   counsel:
     embedding-worker:
       # worker/all 역할에서 기본 실행하며 api 역할에서는 실행하지 않습니다.
@@ -84,6 +101,13 @@ ranking:
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
 faq-monitoring:
+  ai-review:
+    max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
+    max-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_QUESTIONS_PER_DUPLICATE_CANDIDATE:20}
+    max-displayed-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_DISPLAYED_QUESTIONS_PER_DUPLICATE_CANDIDATE:5}
+    max-low-rag-quality-questions: ${FAQ_AI_REVIEW_MAX_LOW_RAG_QUALITY_QUESTIONS:20}
+    max-displayed-questions-for-low-rag-quality: ${FAQ_AI_REVIEW_MAX_DISPLAYED_QUESTIONS_FOR_LOW_RAG_QUALITY:5}
+    max-llm-queue-wait-millis: ${FAQ_AI_REVIEW_MAX_LLM_QUEUE_WAIT_MILLIS:5000}
   improvement:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
