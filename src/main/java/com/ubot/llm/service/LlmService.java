@@ -15,6 +15,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -41,11 +42,16 @@ public class LlmService {
         this(llmClient, maxConcurrent, Metrics.globalRegistry);
     }
 
+    // 지표 저장소가 없는 설정 테스트 문맥에서도 뜨도록 전역 레지스트리(기록 안 함)로 대신함
     @Autowired
     public LlmService(
             LlmClient llmClient,
             @Value("${LLM_MAX_CONCURRENT:${app.chat.worker.concurrency:4}}") int maxConcurrent,
-            MeterRegistry metrics) {
+            ObjectProvider<MeterRegistry> metrics) {
+        this(llmClient, maxConcurrent, metrics.getIfAvailable(() -> Metrics.globalRegistry));
+    }
+
+    public LlmService(LlmClient llmClient, int maxConcurrent, MeterRegistry metrics) {
         if (maxConcurrent < 1) {
             throw new IllegalStateException("LLM_MAX_CONCURRENT는 1 이상이어야 합니다: " + maxConcurrent);
         }
