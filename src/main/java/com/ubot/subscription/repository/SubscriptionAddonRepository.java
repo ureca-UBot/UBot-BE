@@ -3,6 +3,7 @@ package com.ubot.subscription.repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -37,4 +38,12 @@ public interface SubscriptionAddonRepository extends JpaRepository<SubscriptionA
 			""")
 	Optional<SubscriptionAddon> findActiveBySubscriptionAddonIdAndSubscriptionId(
 			@Param("subscriptionAddonId") Long subscriptionAddonId, @Param("subscriptionId") Long subscriptionId);
+
+	@EntityGraph(attributePaths = "addonService")
+	@Query("""
+			select record from SubscriptionAddon record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.status = com.ubot.subscription.enums.SubscriptionAddonStatus.ACTIVE
+			""")
+	List<SubscriptionAddon> findAllActiveBySubscriptionId(@Param("subscriptionId") Long subscriptionId);
 }

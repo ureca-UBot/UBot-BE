@@ -5,6 +5,10 @@ import java.time.LocalDateTime;
 import java.time.Period;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +23,7 @@ import com.ubot.plan.dto.response.PlanDetailResponseDto;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.exception.PlanErrorCode;
 import com.ubot.plan.exception.PlanException;
+import com.ubot.plan.repository.PlanIncludedAddonRepository;
 import com.ubot.plan.repository.PlanRepository;
 import com.ubot.roaming.entity.RoamingProduct;
 import com.ubot.roaming.exception.RoamingProductErrorCode;
@@ -42,6 +47,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 본인 회선의 요금제 변경과 부가서비스·로밍 가입·해지.
+ * 요금제에 포함된 부가서비스도 subscription_addons에 0원(PLAN_INCLUDED)으로 남겨, 따로 가입한 것과 같은 조건으로 중복을 막는다.
  * 청구(일할 계산)는 반영하지 않고 가입 기록만 남긴다.
  */
 @Service
@@ -56,6 +62,7 @@ public class SubscriptionCommandService {
 	private final SubscriptionAddonRepository subscriptionAddonRepository;
 	private final SubscriptionRoamingRepository subscriptionRoamingRepository;
 	private final PlanRepository planRepository;
+	private final PlanIncludedAddonRepository planIncludedAddonRepository;
 	private final AddonServiceRepository addonServiceRepository;
 	private final RoamingProductRepository roamingProductRepository;
 
@@ -75,6 +82,7 @@ public class SubscriptionCommandService {
 				.orElseThrow(() -> new PlanException(PlanErrorCode.PRODUCT_NOT_FOUND));
 		validateAge(subscription, plan, now.toLocalDate());
 		subscription.changePlan(plan, now);
+		replaceIncludedAddons(subscription, planId, now);
 		log.info("요금제를 바꿨습니다: 회선ID={}, 요금제ID={}", subscriptionId, planId);
 		return PlanDetailResponseDto.from(plan);
 	}
@@ -101,6 +109,9 @@ public class SubscriptionCommandService {
 		SubscriptionAddon record = subscriptionAddonRepository
 				.findActiveBySubscriptionAddonIdAndSubscriptionId(subscriptionAddonId, subscriptionId)
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.ADDON_NOT_FOUND));
+		if (record.isIncludedInPlan()) {
+			throw new SubscriptionException(SubscriptionErrorCode.ADDON_INCLUDED_IN_PLAN);
+		}
 		record.cancel(LocalDateTime.now());
 		log.info("부가서비스를 해지했습니다: 회선ID={}, 가입ID={}", subscriptionId, subscriptionAddonId);
 		return SubscriptionAddonResponseDto.from(record);
@@ -135,6 +146,29 @@ public class SubscriptionCommandService {
 		record.cancel(LocalDateTime.now());
 		log.info("로밍을 취소했습니다: 회선ID={}, 로밍가입ID={}", subscriptionId, subscriptionRoamingId);
 		return SubscriptionRoamingResponseDto.from(record);
+	}
+
+	/**
+	 * 이전 요금제로 들어온 포함 부가서비스는 해지하고, 새 요금제의 포함 부가서비스를 0원으로 넣는다.
+	 * 새 요금제에 포함된 부가서비스를 따로 가입해 두었으면 해지하고 포함으로 바꾼다. 두 요금제에 모두 포함된 것은 그대로 둔다.
+	 */
+	private void replaceIncludedAddons(Subscription subscription, Long planId, LocalDateTime now) {
+		Set<Long> includedIds = new LinkedHashSet<>(planIncludedAddonRepository.findAddonServiceIds(planId));
+		Set<Long> keptIds = new HashSet<>();
+		for (SubscriptionAddon record : subscriptionAddonRepository.findAllActiveBySubscriptionId(subscription.getSubscriptionId())) {
+			Long addonServiceId = record.getAddonService().getAddonServiceId();
+			if (record.isIncludedInPlan() && includedIds.contains(addonServiceId)) {
+				keptIds.add(addonServiceId);
+			} else if (record.isIncludedInPlan() || includedIds.contains(addonServiceId)) {
+				record.cancel(now);
+			}
+		}
+		// 해지를 먼저 반영해야 같은 부가서비스의 새 행이 uq_subscription_addons_active에 걸리지 않는다.
+		subscriptionAddonRepository.flush();
+		List<Long> newIds = includedIds.stream().filter(id -> !keptIds.contains(id)).toList();
+		subscriptionAddonRepository.saveAll(addonServiceRepository.findAllById(newIds).stream()
+				.map(addonService -> SubscriptionAddon.includeInPlan(subscription, addonService, now))
+				.toList());
 	}
 
 	private Subscription getActiveSubscriptionForUpdate(Long userId, Long subscriptionId) {

@@ -24,7 +24,8 @@ public enum SubscriptionErrorCode implements ErrorCode {
 	BUNDLE_GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "SUB-012", "이용 중인 결합을 찾을 수 없습니다."),
 	BUNDLE_MEMBER_NOT_ADDABLE(HttpStatus.BAD_REQUEST, "SUB-013", "추가할 수 없는 번호입니다."),
 	BUNDLE_GROUP_FULL(HttpStatus.CONFLICT, "SUB-014", "이 결합에는 회선을 더 추가할 수 없습니다."),
-	BUNDLE_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "SUB-015", "결합에서 뺄 회선을 찾을 수 없습니다.");
+	BUNDLE_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "SUB-015", "결합에서 뺄 회선을 찾을 수 없습니다."),
+	ADDON_INCLUDED_IN_PLAN(HttpStatus.CONFLICT, "SUB-016", "요금제에 포함된 부가서비스는 해지할 수 없습니다. 요금제를 바꾸면 함께 해지됩니다.");
 
 	private final HttpStatus status;
 	private final String code;

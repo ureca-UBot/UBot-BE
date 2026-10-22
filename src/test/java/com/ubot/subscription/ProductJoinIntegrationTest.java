@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -32,6 +33,8 @@ import com.ubot.user.entity.User;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.repository.UserRepository;
 
+import jakarta.persistence.EntityManager;
+
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -48,6 +51,8 @@ class ProductJoinIntegrationTest {
 	private JdbcTemplate jdbc;
 	@Autowired
 	private UserRepository userRepository;
+	@Autowired
+	private EntityManager entityManager;
 
 	private User owner;
 	private User other;
@@ -315,6 +320,73 @@ class ProductJoinIntegrationTest {
 		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(thirdPhone))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.lineCount").value(3));
+	}
+
+	@Test
+	@DisplayName("요금제에 포함된 부가서비스는 0원으로 들어오고, 따로 가입하거나 해지할 수 없으며 요금제를 바꾸면 함께 바뀐다")
+	void syncsPlanIncludedAddons() throws Exception {
+		long music = productId("addon_services", "addon_service_id", "UBOT_ADDON_MUSIC");
+		long video = productId("addon_services", "addon_service_id", "UBOT_ADDON_VIDEO");
+		long phishing = productId("addon_services", "addon_service_id", "UBOT_ADDON_PHISHING");
+		long nextPlanId = createPlan(null, null);
+		includeAddons(generalPlanId, music, video);
+		includeAddons(nextPlanId, video, phishing);
+
+		// 따로 가입해 둔 부가서비스가 새 요금제에 포함되면 해지하고 0원 포함으로 바꾼다.
+		long paidVideoId = id(send(post(BASE + ownerLine + "/addons"), owner, "{\"addonServiceId\":" + video + "}")
+				.andExpect(status().isCreated()), "subscriptionAddonId");
+		send(patch(BASE + ownerLine + "/plan"), owner, "{\"planId\":" + generalPlanId + "}")
+				.andExpect(status().isOk());
+		mockMvc.perform(get(BASE + ownerLine + "/addons").with(as(owner)))
+				.andExpect(jsonPath("$.data[?(@.subscriptionAddonId == %d)].status".formatted(paidVideoId)).value("CANCELED"))
+				.andExpect(jsonPath("$.data[?(@.addonServiceId == %d && @.status == 'ACTIVE')].monthlyFee".formatted(video)).value(0))
+				.andExpect(jsonPath("$.data[?(@.addonServiceId == %d && @.status == 'ACTIVE')].monthlyFee".formatted(music)).value(0));
+		assertThat(activeAddonSources(ownerLine)).containsExactlyInAnyOrder(
+				music + ":PLAN_INCLUDED", video + ":PLAN_INCLUDED");
+
+		// 포함된 부가서비스는 따로 가입하거나 해지할 수 없다.
+		send(post(BASE + ownerLine + "/addons"), owner, "{\"addonServiceId\":" + music + "}")
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-006"));
+		long includedMusicId = activeAddonId(ownerLine, music);
+		mockMvc.perform(delete(BASE + ownerLine + "/addons/" + includedMusicId).with(as(owner)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-016"));
+
+		// 요금제를 바꾸면 이전 요금제에만 있던 것은 해지되고, 두 요금제에 모두 있는 것은 그대로 남는다.
+		long includedVideoId = activeAddonId(ownerLine, video);
+		// 요청들이 테스트 트랜잭션의 영속성 컨텍스트를 함께 쓰므로, 변경 시각을 직접 고친 뒤 캐시를 비운다.
+		entityManager.flush();
+		jdbc.update("UPDATE subscriptions SET plan_changed_at = plan_changed_at - INTERVAL '2 months' WHERE subscription_id = ?",
+				ownerLine);
+		entityManager.clear();
+		send(patch(BASE + ownerLine + "/plan"), owner, "{\"planId\":" + nextPlanId + "}")
+				.andExpect(status().isOk());
+		mockMvc.perform(get(BASE + ownerLine + "/addons").with(as(owner)))
+				.andExpect(jsonPath("$.data[?(@.subscriptionAddonId == %d)].status".formatted(includedMusicId)).value("CANCELED"));
+		assertThat(activeAddonSources(ownerLine)).containsExactlyInAnyOrder(
+				video + ":PLAN_INCLUDED", phishing + ":PLAN_INCLUDED");
+		assertThat(activeAddonId(ownerLine, video)).isEqualTo(includedVideoId);
+	}
+
+	private void includeAddons(long planId, long... addonServiceIds) {
+		for (long addonServiceId : addonServiceIds) {
+			jdbc.update("INSERT INTO plan_included_addons (plan_id, addon_service_id) VALUES (?, ?)", planId, addonServiceId);
+		}
+	}
+
+	private List<String> activeAddonSources(long subscriptionId) {
+		return jdbc.queryForList("""
+				SELECT addon_service_id || ':' || source FROM subscription_addons
+				WHERE subscription_id = ? AND status = 'ACTIVE'
+				""", String.class, subscriptionId);
+	}
+
+	private long activeAddonId(long subscriptionId, long addonServiceId) {
+		return jdbc.queryForObject("""
+				SELECT subscription_addon_id FROM subscription_addons
+				WHERE subscription_id = ? AND addon_service_id = ? AND status = 'ACTIVE'
+				""", Long.class, subscriptionId, addonServiceId);
 	}
 
 	private ResultActions send(MockHttpServletRequestBuilder request, User actor, String body) throws Exception {

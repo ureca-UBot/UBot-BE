@@ -58,7 +58,19 @@ class LocalUserSeedTest {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_records", Integer.class)).isEqualTo(1440 + 48);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM billing_records", Integer.class)).isEqualTo(1100 + 36);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM subscription_contracts", Integer.class)).isEqualTo(101 + 5);
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM subscription_addons", Integer.class)).isEqualTo(637 + 14);
+            // 따로 가입 637 + 14, 요금제 포함(PLAN_INCLUDED) 36
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM subscription_addons", Integer.class)).isEqualTo(637 + 14 + 36);
+            // 해지되지 않은 회선은 요금제에 포함된 부가서비스를 모두 0원 PLAN_INCLUDED로 이용 중이다.
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM subscriptions s
+                    JOIN plan_included_addons pia ON pia.plan_id = s.plan_id
+                    WHERE s.status <> 'TERMINATED'
+                      AND NOT EXISTS (SELECT 1 FROM subscription_addons sa
+                                      WHERE sa.subscription_id = s.subscription_id
+                                        AND sa.addon_service_id = pia.addon_service_id
+                                        AND sa.status = 'ACTIVE' AND sa.source = 'PLAN_INCLUDED'
+                                        AND sa.monthly_fee_snapshot = 0)
+                    """, Integer.class)).isZero();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM subscription_roamings", Integer.class)).isEqualTo(80 + 3);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM subscription_bundles", Integer.class)).isEqualTo(125 + 12);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM home_subscriptions", Integer.class)).isEqualTo(4);
