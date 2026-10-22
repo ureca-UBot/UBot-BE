@@ -90,12 +90,13 @@ public class PromptService {
 
         // 템플릿의 자리표시자만 한 번 치환합니다.
         // 사용자 질문이나 FAQ 안의 {{faqs}}, $, 역슬래시 등은 다시 해석하지 않습니다.
+        // 템플릿 파일 끝의 줄바꿈이 질문 뒤에 남으면 작은 모델이 도구를 덜 호출하므로, 사용자 메시지 끝의 공백은 지웁니다.
         String userPrompt = INPUT_PLACEHOLDER.matcher(userTemplate).replaceAll(match ->
                 Matcher.quoteReplacement(switch (match.group(1)) {
                     case "question" -> question;
                     case "faqs" -> faqText;
                     default -> contextText;
-                }));
+                })).stripTrailing();
 
         // 시스템 지침이 요구하는 출력 JSON 형식을 스키마로도 함께 넘겨, 모델이 형식을 벗어나지 못하게 합니다.
         List<LlmMessageRequestDto> messages = new ArrayList<>();
@@ -126,8 +127,9 @@ public class PromptService {
 
     private String readPrompt(Resource resource) {
         // 한글 프롬프트를 UTF-8로 읽습니다. 파일 누락도 준비되지 않은 상태로 처리합니다.
+        // Windows에서 git이 줄바꿈을 CRLF로 바꿔 체크아웃하면 모델 입력이 달라지고 도구 호출이 크게 줄어드므로 LF로 맞춥니다.
         try (var input = resource.getInputStream()) {
-            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8).replace("\r\n", "\n");
         } catch (IOException exception) {
             throw new PromptException(PromptErrorCode.PROMPT_NOT_READY, exception);
         }

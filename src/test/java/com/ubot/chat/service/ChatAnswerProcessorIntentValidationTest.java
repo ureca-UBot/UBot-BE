@@ -122,12 +122,12 @@ class ChatAnswerProcessorIntentValidationTest {
         if (hasLocation) {
             assertThat(materials.storeMap()).isSameAs(map);
             assertThat(materials.sections()).hasSize(2);
-            assertThat(materials.tools()).isEmpty();
+            assertThat(materials.tools()).containsExactly(AiTool.USER_DATA_LOOKUP);
             verify(stores).search(LOCATION, null);
         } else {
             assertThat(materials.storeMap()).isNull();
             assertThat(materials.sections()).hasSize(1);
-            assertThat(materials.tools()).containsExactly(AiTool.STORE_SEARCH);
+            assertThat(materials.tools()).containsExactlyInAnyOrder(AiTool.STORE_SEARCH, AiTool.USER_DATA_LOOKUP);
             verifyNoInteractions(stores);
         }
         verify(users).getActiveUser(1L);
@@ -262,7 +262,7 @@ class ChatAnswerProcessorIntentValidationTest {
         assertThat(materials.faqs()).containsExactlyElementsOf(generalPasses ? List.of(general) : List.of());
         assertThat(materials.sections()).singleElement().satisfies(section ->
                 assertThat(section.content()).contains("이름: 테스트회원", "가입일: 2026-09-10"));
-        assertThat(materials.tools()).containsExactly(AiTool.STORE_SEARCH);
+        assertThat(materials.tools()).containsExactlyInAnyOrder(AiTool.STORE_SEARCH, AiTool.USER_DATA_LOOKUP);
         assertThat(materials.history()).containsExactlyElementsOf(history);
         verify(users).getActiveUser(1L);
         verify(embeddings).embedTexts(List.of(general.answer()));
@@ -291,7 +291,7 @@ class ChatAnswerProcessorIntentValidationTest {
         FaqCacheProperties cacheProperties = new FaqCacheProperties();
         cacheProperties.setEnabled(cacheEnabled);
         ChatContextCollector collector = new ChatContextCollector(List.of(
-                new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
+                new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores)));
         ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3), ai, collector, planner, new FaqSemanticCacheService(cacheProperties), new FaqSentenceFilterService(embeddings, 0.6), ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
