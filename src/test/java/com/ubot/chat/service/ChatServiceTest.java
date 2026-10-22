@@ -744,6 +744,7 @@ class ChatServiceTest {
 			task = service.createGuestChat(conversationId, original, null, null);
 		} else if ("memberConversation".equals(route)) {
 			conversationId = 42L;
+			when(conversations.findConversationForLock(conversationId)).thenReturn(Optional.of(Conversation.createMember(userId)));
 			task = service.createChat(userId, conversationId, original, null, null);
 		} else {
 			task = service.createChat(userId, null, original, null, null);
