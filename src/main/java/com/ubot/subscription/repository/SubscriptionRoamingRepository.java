@@ -1,12 +1,14 @@
 package com.ubot.subscription.repository;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -88,4 +90,26 @@ public interface SubscriptionRoamingRepository extends JpaRepository<Subscriptio
 			                        com.ubot.subscription.enums.SubscriptionRoamingStatus.ACTIVE)
 			""")
 	List<SubscriptionRoaming> findAllPendingBySubscriptionId(@Param("subscriptionId") Long subscriptionId);
+
+	// 로밍은 하루(한국 시간 0시~24시)가 한 구간이다. 시작일이 된 예약은 이용 중으로 바꾼다.
+	@Modifying
+	@Query("""
+			update SubscriptionRoaming record
+			set record.status = com.ubot.subscription.enums.SubscriptionRoamingStatus.ACTIVE, record.updatedAt = :now
+			where record.status = com.ubot.subscription.enums.SubscriptionRoamingStatus.SCHEDULED
+			  and record.startDate <= :today
+			  and record.endDate >= :today
+			""")
+	int activateStarted(@Param("today") LocalDate today, @Param("now") LocalDateTime now);
+
+	// 종료일이 지난 예약·이용 중 로밍은 종료로 바꾼다.
+	@Modifying
+	@Query("""
+			update SubscriptionRoaming record
+			set record.status = com.ubot.subscription.enums.SubscriptionRoamingStatus.EXPIRED, record.updatedAt = :now
+			where record.status in (com.ubot.subscription.enums.SubscriptionRoamingStatus.SCHEDULED,
+			                        com.ubot.subscription.enums.SubscriptionRoamingStatus.ACTIVE)
+			  and record.endDate < :today
+			""")
+	int expireEnded(@Param("today") LocalDate today, @Param("now") LocalDateTime now);
 }
