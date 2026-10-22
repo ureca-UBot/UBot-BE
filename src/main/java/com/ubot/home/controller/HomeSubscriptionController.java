@@ -1,8 +1,9 @@
 package com.ubot.home.controller;
 
+import java.net.URI;
 import java.util.List;
 
-import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -34,11 +35,12 @@ public class HomeSubscriptionController {
     }
 
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<HomeSubscriptionResponseDto> subscribe(
+    public ResponseEntity<ApiResponse<HomeSubscriptionResponseDto>> subscribe(
             @AuthenticationPrincipal CustomUserDetails userDetails,
             @Valid @RequestBody HomeSubscribeRequestDto request) {
-        return ApiResponse.success(subscriptionService.subscribe(userDetails.getUserId(), request.homeProductId()));
+        HomeSubscriptionResponseDto response = subscriptionService.subscribe(userDetails.getUserId(), request.homeProductId());
+        return ResponseEntity.created(URI.create("/home-subscriptions/me/" + response.homeSubscriptionId()))
+                .body(ApiResponse.success(response));
     }
 
     @DeleteMapping("/{homeSubscriptionId}")

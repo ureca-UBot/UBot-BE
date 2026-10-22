@@ -1,6 +1,8 @@
 package com.ubot.subscription.controller;
 
-import org.springframework.http.HttpStatus;
+import java.net.URI;
+
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -8,10 +10,10 @@ import org.springframework.web.bind.annotation.*;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
 import com.ubot.plan.dto.response.PlanDetailResponseDto;
-import com.ubot.subscription.dto.request.SubscriptionRequestDtos.AddonSubscribeRequestDto;
-import com.ubot.subscription.dto.request.SubscriptionRequestDtos.BundleJoinRequestDto;
-import com.ubot.subscription.dto.request.SubscriptionRequestDtos.PlanChangeRequestDto;
-import com.ubot.subscription.dto.request.SubscriptionRequestDtos.RoamingScheduleRequestDto;
+import com.ubot.subscription.dto.request.AddonSubscribeRequestDto;
+import com.ubot.subscription.dto.request.BundleJoinRequestDto;
+import com.ubot.subscription.dto.request.PlanChangeRequestDto;
+import com.ubot.subscription.dto.request.RoamingScheduleRequestDto;
 import com.ubot.subscription.dto.response.BundleGroupResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionAddonResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionRoamingResponseDto;
@@ -42,13 +44,15 @@ public class SubscriptionCommandController {
 	}
 
 	@PostMapping("/addons")
-	@ResponseStatus(HttpStatus.CREATED)
-	public ApiResponse<SubscriptionAddonResponseDto> subscribeAddon(
+	public ResponseEntity<ApiResponse<SubscriptionAddonResponseDto>> subscribeAddon(
 			@AuthenticationPrincipal CustomUserDetails userDetails,
 			@PathVariable(name = "subscriptionId") @Positive Long subscriptionId,
 			@Valid @RequestBody AddonSubscribeRequestDto request) {
-		return ApiResponse.success(
-				commandService.subscribeAddon(userDetails.getUserId(), subscriptionId, request.addonServiceId()));
+		SubscriptionAddonResponseDto response =
+				commandService.subscribeAddon(userDetails.getUserId(), subscriptionId, request.addonServiceId());
+		return ResponseEntity.created(URI.create(
+						"/subscriptions/me/" + subscriptionId + "/addons/" + response.subscriptionAddonId()))
+				.body(ApiResponse.success(response));
 	}
 
 	@DeleteMapping("/addons/{subscriptionAddonId}")
@@ -61,13 +65,15 @@ public class SubscriptionCommandController {
 	}
 
 	@PostMapping("/roamings")
-	@ResponseStatus(HttpStatus.CREATED)
-	public ApiResponse<SubscriptionRoamingResponseDto> scheduleRoaming(
+	public ResponseEntity<ApiResponse<SubscriptionRoamingResponseDto>> scheduleRoaming(
 			@AuthenticationPrincipal CustomUserDetails userDetails,
 			@PathVariable(name = "subscriptionId") @Positive Long subscriptionId,
 			@Valid @RequestBody RoamingScheduleRequestDto request) {
-		return ApiResponse.success(commandService.scheduleRoaming(userDetails.getUserId(), subscriptionId,
-				request.roamingProductId(), request.startDate(), request.endDate()));
+		SubscriptionRoamingResponseDto response = commandService.scheduleRoaming(userDetails.getUserId(),
+				subscriptionId, request.roamingProductId(), request.startDate(), request.endDate());
+		return ResponseEntity.created(URI.create(
+						"/subscriptions/me/" + subscriptionId + "/roamings/" + response.subscriptionRoamingId()))
+				.body(ApiResponse.success(response));
 	}
 
 	@DeleteMapping("/roamings/{subscriptionRoamingId}")
@@ -81,12 +87,14 @@ public class SubscriptionCommandController {
 
 	/** 요청한 회선이 대표 회선이 된다. */
 	@PostMapping("/bundles")
-	@ResponseStatus(HttpStatus.CREATED)
-	public ApiResponse<BundleGroupResponseDto> createBundle(
+	public ResponseEntity<ApiResponse<BundleGroupResponseDto>> createBundle(
 			@AuthenticationPrincipal CustomUserDetails userDetails,
 			@PathVariable(name = "subscriptionId") @Positive Long subscriptionId,
 			@Valid @RequestBody BundleJoinRequestDto request) {
-		return ApiResponse.success(
-				bundleGroupService.create(userDetails.getUserId(), subscriptionId, request.bundleProductId()));
+		BundleGroupResponseDto response =
+				bundleGroupService.create(userDetails.getUserId(), subscriptionId, request.bundleProductId());
+		return ResponseEntity.created(URI.create(
+						"/subscriptions/me/" + subscriptionId + "/bundle-groups/" + response.bundleGroupId() + "/members"))
+				.body(ApiResponse.success(response));
 	}
 }

@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.ubot.subscription.entity.SubscriptionBundle;
-import com.ubot.subscription.enums.SubscriptionBundleStatus;
 
 public interface SubscriptionBundleRepository extends JpaRepository<SubscriptionBundle, Long> {
 	@Query("""
@@ -21,7 +20,12 @@ public interface SubscriptionBundleRepository extends JpaRepository<Subscription
 	List<SubscriptionBundle> findAllBySubscriptionIdAndUserId(
 			@Param("subscriptionId") Long subscriptionId, @Param("userId") Long userId);
 
-	boolean existsBySubscription_SubscriptionIdAndStatus(Long subscriptionId, SubscriptionBundleStatus status);
+	@Query("""
+			select count(record) > 0 from SubscriptionBundle record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.status = com.ubot.subscription.enums.SubscriptionBundleStatus.ACTIVE
+			""")
+	boolean existsActiveBySubscriptionId(@Param("subscriptionId") Long subscriptionId);
 
 	// 대표 회선이 가장 먼저 가입하므로 가입 순서로 정렬하면 대표 회선이 맨 앞에 온다.
 	@EntityGraph(attributePaths = { "subscription", "subscription.user", "bundleProduct" })

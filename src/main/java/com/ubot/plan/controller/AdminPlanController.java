@@ -80,10 +80,11 @@ public class AdminPlanController {
 
     @PutMapping("/{planId}/included-addons")
     public ApiResponse<List<AddonServiceResponseDto>> replaceIncludedAddons(
+            @AuthenticationPrincipal CustomUserDetails administrator,
             @PathVariable(name = "planId") @Positive Long planId,
             @Valid @RequestBody AdminPlanIncludedAddonRequestDto request
     ) {
-        return ApiResponse.success(productService.replaceIncludedAddons(planId, request));
+        return ApiResponse.success(productService.replaceIncludedAddons(administrator.getUserId(), planId, request));
     }
 
     @DeleteMapping("/{planId}")

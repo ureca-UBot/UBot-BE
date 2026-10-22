@@ -22,6 +22,8 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -33,7 +35,9 @@ import lombok.NoArgsConstructor;
 @DynamicUpdate
 @Table(name = "bundle_groups")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Builder
 public class BundleGroup extends BusinessEntity {
 
 	@Id
@@ -53,10 +57,10 @@ public class BundleGroup extends BusinessEntity {
 	private LocalDateTime endedAt;
 
 	public static BundleGroup create(Subscription representativeSubscription) {
-		BundleGroup group = new BundleGroup();
-		group.representativeSubscription = representativeSubscription;
-		group.status = BundleGroupStatus.ACTIVE;
-		return group;
+		return BundleGroup.builder()
+				.representativeSubscription(representativeSubscription)
+				.status(BundleGroupStatus.ACTIVE)
+				.build();
 	}
 
 	public boolean isRepresentedBy(Long subscriptionId) {

@@ -16,6 +16,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -24,7 +26,9 @@ import lombok.NoArgsConstructor;
 @DynamicUpdate
 @Table(name = "home_products")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Builder
 public class HomeProduct extends AdminManagedEntity {
 
     @Id
@@ -64,14 +68,15 @@ public class HomeProduct extends AdminManagedEntity {
             Integer speedMbps,
             Integer monthlyFee
     ) {
-        HomeProduct product = new HomeProduct();
-        product.code = code;
-        product.name = name;
-        product.description = description;
-        product.productType = productType;
-        product.speedMbps = speedMbps;
-        product.monthlyFee = monthlyFee;
-        product.status = MasterStatus.ACTIVE;
+        HomeProduct product = HomeProduct.builder()
+                .code(code)
+                .name(name)
+                .description(description)
+                .productType(productType)
+                .speedMbps(speedMbps)
+                .monthlyFee(monthlyFee)
+                .status(MasterStatus.ACTIVE)
+                .build();
         product.initializeMetadata(administrator);
         return product;
     }

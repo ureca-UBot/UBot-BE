@@ -58,6 +58,11 @@ public interface SubscriptionRoamingRepository extends JpaRepository<Subscriptio
 			@Param("statuses") Collection<SubscriptionRoamingStatus> statuses,
 			@Param("subscriptionStatus") SubscriptionStatus subscriptionStatus);
 
-	Optional<SubscriptionRoaming> findBySubscriptionRoamingIdAndSubscription_SubscriptionId(
-			Long subscriptionRoamingId, Long subscriptionId);
+	@Query("""
+			select record from SubscriptionRoaming record
+			where record.subscriptionRoamingId = :subscriptionRoamingId
+			  and record.subscription.subscriptionId = :subscriptionId
+			""")
+	Optional<SubscriptionRoaming> findBySubscriptionRoamingIdAndSubscriptionId(
+			@Param("subscriptionRoamingId") Long subscriptionRoamingId, @Param("subscriptionId") Long subscriptionId);
 }

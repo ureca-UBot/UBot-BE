@@ -14,7 +14,6 @@ import com.ubot.bundle.repository.BundleProductRepository;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.common.repository.ProductWriteSupport;
 import com.ubot.home.enums.HomeProductType;
-import com.ubot.home.enums.HomeSubscriptionStatus;
 import com.ubot.home.repository.HomeSubscriptionRepository;
 import com.ubot.subscription.dto.response.BundleGroupResponseDto;
 import com.ubot.subscription.entity.BundleGroup;
@@ -62,7 +61,7 @@ public class BundleGroupService {
 		BundleProduct product = bundleProductRepository.findByIdForUpdate(bundleProductId)
 				.filter(found -> found.getStatus() == MasterStatus.ACTIVE)
 				.orElseThrow(() -> new BundleProductException(BundleProductErrorCode.PRODUCT_NOT_FOUND));
-		if (subscriptionBundleRepository.existsBySubscription_SubscriptionIdAndStatus(subscriptionId, SubscriptionBundleStatus.ACTIVE)) {
+		if (subscriptionBundleRepository.existsActiveBySubscriptionId(subscriptionId)) {
 			throw new SubscriptionException(SubscriptionErrorCode.ALREADY_IN_BUNDLE);
 		}
 		BundleGroup group = bundleGroupRepository.save(BundleGroup.create(subscription));
@@ -75,8 +74,10 @@ public class BundleGroupService {
 		return toResponse(group);
 	}
 
-	public BundleGroupResponseDto addMember(Long userId, Long bundleGroupId, String phoneNumber) {
+	/** subscriptionId는 요청한 사용자의 대표 회선이어야 한다. */
+	public BundleGroupResponseDto addMember(Long userId, Long subscriptionId, Long bundleGroupId, String phoneNumber) {
 		BundleGroup group = bundleGroupRepository.findActiveForUpdate(bundleGroupId)
+				.filter(found -> found.isRepresentedBy(subscriptionId))
 				.filter(found -> isOwner(found.getRepresentativeSubscription(), userId))
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_GROUP_NOT_FOUND));
 		List<SubscriptionBundle> members = subscriptionBundleRepository.findActiveMembers(bundleGroupId);
@@ -86,8 +87,7 @@ public class BundleGroupService {
 		}
 		// 없는 번호, 정지·해지 회선, 이미 결합된 회선을 같은 오류로 묶어 번호의 상태를 드러내지 않는다.
 		Subscription target = subscriptionRepository.findActiveByPhoneDigits(phoneNumber.replaceAll("\\D", ""))
-				.filter(found -> !subscriptionBundleRepository.existsBySubscription_SubscriptionIdAndStatus(
-						found.getSubscriptionId(), SubscriptionBundleStatus.ACTIVE))
+				.filter(found -> !subscriptionBundleRepository.existsActiveBySubscriptionId(found.getSubscriptionId()))
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_MEMBER_NOT_ADDABLE));
 		ProductWriteSupport.saveUnique(
 				() -> subscriptionBundleRepository.saveAndFlush(
@@ -98,35 +98,42 @@ public class BundleGroupService {
 	}
 
 	/**
-	 * 대표는 아무 구성원이나, 구성원은 자기 회선만 뺄 수 있다.
+	 * subscriptionId는 요청한 사용자의 회선으로, 이 결합의 구성 회선이어야 한다.
+	 * 대표 회선이면 아무 구성원이나, 구성 회선이면 자기 회선만 뺄 수 있다.
 	 * 대표 회선이 빠지면 결합 전체를 종료하고 null을 돌려준다.
 	 */
-	public BundleGroupResponseDto removeMember(Long userId, Long bundleGroupId, Long subscriptionId) {
+	public BundleGroupResponseDto removeMember(
+			Long userId, Long subscriptionId, Long bundleGroupId, Long memberSubscriptionId) {
 		BundleGroup group = bundleGroupRepository.findActiveForUpdate(bundleGroupId)
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_GROUP_NOT_FOUND));
 		List<SubscriptionBundle> members = subscriptionBundleRepository.findActiveMembers(bundleGroupId);
+		members.stream()
+				.map(SubscriptionBundle::getSubscription)
+				.filter(member -> member.getSubscriptionId().equals(subscriptionId) && isOwner(member, userId))
+				.findFirst()
+				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_GROUP_NOT_FOUND));
 		SubscriptionBundle target = members.stream()
-				.filter(member -> member.getSubscription().getSubscriptionId().equals(subscriptionId))
+				.filter(member -> member.getSubscription().getSubscriptionId().equals(memberSubscriptionId))
 				.findFirst()
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_MEMBER_NOT_FOUND));
-		if (!isOwner(group.getRepresentativeSubscription(), userId) && !isOwner(target.getSubscription(), userId)) {
+		if (!group.isRepresentedBy(subscriptionId) && !subscriptionId.equals(memberSubscriptionId)) {
 			throw new SubscriptionException(SubscriptionErrorCode.BUNDLE_MEMBER_NOT_FOUND);
 		}
 		LocalDateTime now = LocalDateTime.now();
-		if (group.isRepresentedBy(subscriptionId)) {
+		if (group.isRepresentedBy(memberSubscriptionId)) {
 			members.forEach(member -> member.end(now));
 			group.end(now);
 			log.info("대표 회선이 빠져 결합을 종료했습니다: 그룹ID={}", bundleGroupId);
 			return null;
 		}
 		target.end(now);
-		log.info("결합에서 회선을 뺐습니다: 그룹ID={}, 회선ID={}", bundleGroupId, subscriptionId);
+		log.info("결합에서 회선을 뺐습니다: 그룹ID={}, 회선ID={}", bundleGroupId, memberSubscriptionId);
 		return toResponse(group);
 	}
 
 	/** 이용 중인 결합 기록의 그룹 정보. 그룹이 없거나 종료됐으면 null이다. */
 	@Transactional(readOnly = true)
-	public BundleGroupResponseDto findGroup(SubscriptionBundle record) {
+	public BundleGroupResponseDto getActiveGroup(SubscriptionBundle record) {
 		if (record.getStatus() != SubscriptionBundleStatus.ACTIVE || record.getBundleGroup() == null) {
 			return null;
 		}
@@ -137,21 +144,23 @@ public class BundleGroupService {
 		List<SubscriptionBundle> members = subscriptionBundleRepository.findActiveMembers(group.getBundleGroupId());
 		BundleProduct product = productOf(members);
 		boolean discountApplied = discountApplied(product, members.size(), group.getRepresentativeSubscription());
-		return new BundleGroupResponseDto(
-				group.getBundleGroupId(),
-				product.getBundleProductId(),
-				product.getName(),
-				product.getBundleType(),
-				members.size(),
-				product.getLineCount(),
-				discountApplied,
-				discountApplied ? product.getDiscountAmount() : 0,
-				members.stream()
-						.map(member -> new BundleGroupResponseDto.Member(
-								member.getSubscription().getSubscriptionId(),
-								BundleGroupResponseDto.maskPhone(member.getSubscription().getPhoneNumber()),
-								group.isRepresentedBy(member.getSubscription().getSubscriptionId())))
-						.toList());
+		return BundleGroupResponseDto.builder()
+				.bundleGroupId(group.getBundleGroupId())
+				.bundleProductId(product.getBundleProductId())
+				.bundleProductName(product.getName())
+				.bundleType(product.getBundleType())
+				.lineCount(members.size())
+				.requiredLineCount(product.getLineCount())
+				.discountApplied(discountApplied)
+				.discountAmount(discountApplied ? product.getDiscountAmount() : 0)
+				.members(members.stream()
+						.map(member -> BundleGroupResponseDto.Member.builder()
+								.subscriptionId(member.getSubscription().getSubscriptionId())
+								.maskedPhoneNumber(maskPhoneNumber(member.getSubscription().getPhoneNumber()))
+								.representative(group.isRepresentedBy(member.getSubscription().getSubscriptionId()))
+								.build())
+						.toList())
+				.build();
 	}
 
 	private int maxLineCount(BundleProduct product) {
@@ -170,8 +179,7 @@ public class BundleGroupService {
 			return true;
 		}
 		return product.getHomeProduct() != null && homeSubscriptionRepository
-				.findByUser_IdAndProductTypeAndStatus(
-						representative.getUser().getId(), HomeProductType.INTERNET, HomeSubscriptionStatus.ACTIVE)
+				.findActiveByUserIdAndProductType(representative.getUser().getId(), HomeProductType.INTERNET)
 				.map(home -> home.getHomeProduct().getHomeProductId().equals(product.getHomeProduct().getHomeProductId()))
 				.orElse(false);
 	}
@@ -186,5 +194,20 @@ public class BundleGroupService {
 
 	private boolean isOwner(Subscription subscription, Long userId) {
 		return subscription != null && subscription.getUser().getId().equals(userId);
+	}
+
+	// 다른 사용자의 회선도 응답에 들어가므로 끝 4자리만 남긴다. 010-1234-5678 → 010-****-5678
+	private String maskPhoneNumber(String phoneNumber) {
+		String digits = phoneNumber == null ? "" : phoneNumber.replaceAll("\\D", "");
+		if (digits.length() == 11) {
+			return digits.substring(0, 3) + "-****-" + digits.substring(7);
+		}
+		if (digits.length() == 10) {
+			return digits.substring(0, 3) + "-***-" + digits.substring(6);
+		}
+		if (digits.length() > 4) {
+			return "*".repeat(digits.length() - 4) + digits.substring(digits.length() - 4);
+		}
+		return "****";
 	}
 }

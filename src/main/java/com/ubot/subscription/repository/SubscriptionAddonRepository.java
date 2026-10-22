@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.ubot.subscription.entity.SubscriptionAddon;
-import com.ubot.subscription.enums.SubscriptionAddonStatus;
 
 public interface SubscriptionAddonRepository extends JpaRepository<SubscriptionAddon, Long> {
 	@Query("""
@@ -21,9 +20,21 @@ public interface SubscriptionAddonRepository extends JpaRepository<SubscriptionA
 	List<SubscriptionAddon> findAllBySubscriptionIdAndUserId(
 			@Param("subscriptionId") Long subscriptionId, @Param("userId") Long userId);
 
-	boolean existsBySubscription_SubscriptionIdAndAddonService_AddonServiceIdAndStatus(
-			Long subscriptionId, Long addonServiceId, SubscriptionAddonStatus status);
+	@Query("""
+			select count(record) > 0 from SubscriptionAddon record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.addonService.addonServiceId = :addonServiceId
+			  and record.status = com.ubot.subscription.enums.SubscriptionAddonStatus.ACTIVE
+			""")
+	boolean existsActiveBySubscriptionIdAndAddonServiceId(
+			@Param("subscriptionId") Long subscriptionId, @Param("addonServiceId") Long addonServiceId);
 
-	Optional<SubscriptionAddon> findBySubscriptionAddonIdAndSubscription_SubscriptionIdAndStatus(
-			Long subscriptionAddonId, Long subscriptionId, SubscriptionAddonStatus status);
+	@Query("""
+			select record from SubscriptionAddon record
+			where record.subscriptionAddonId = :subscriptionAddonId
+			  and record.subscription.subscriptionId = :subscriptionId
+			  and record.status = com.ubot.subscription.enums.SubscriptionAddonStatus.ACTIVE
+			""")
+	Optional<SubscriptionAddon> findActiveBySubscriptionAddonIdAndSubscriptionId(
+			@Param("subscriptionAddonId") Long subscriptionAddonId, @Param("subscriptionId") Long subscriptionId);
 }

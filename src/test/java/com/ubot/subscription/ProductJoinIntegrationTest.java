@@ -185,7 +185,7 @@ class ProductJoinIntegrationTest {
 				.andExpect(status().isCreated());
 		send(post("/home-subscriptions/me"), owner, "{\"homeProductId\":" + internet + "}")
 				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("HOME-006"));
+				.andExpect(jsonPath("$.code").value("HSUB-002"));
 		mockMvc.perform(get("/home-subscriptions/me").with(as(owner)))
 				.andExpect(jsonPath("$.data.length()").value(2));
 		mockMvc.perform(get("/home-subscriptions/me").with(as(other)))
@@ -193,7 +193,7 @@ class ProductJoinIntegrationTest {
 
 		mockMvc.perform(delete("/home-subscriptions/me/" + recordId).with(as(other)))
 				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.code").value("HOME-005"));
+				.andExpect(jsonPath("$.code").value("HSUB-001"));
 		mockMvc.perform(delete("/home-subscriptions/me/" + recordId).with(as(owner)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("ENDED"));
@@ -212,7 +212,8 @@ class ProductJoinIntegrationTest {
 				.andExpect(jsonPath("$.data.requiredLineCount").value(3))
 				.andExpect(jsonPath("$.data.discountApplied").value(false))
 				.andExpect(jsonPath("$.data.discountAmount").value(0)), "bundleGroupId");
-		String members = "/bundle-groups/" + groupId + "/members";
+		String members = BASE + ownerLine + "/bundle-groups/" + groupId + "/members";
+		String otherMembers = BASE + otherLine + "/bundle-groups/" + groupId + "/members";
 
 		send(post(members), owner, phoneBody(hyphenate(otherPhone)))
 				.andExpect(status().isCreated())
@@ -225,6 +226,9 @@ class ProductJoinIntegrationTest {
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("SUB-013"));
 		send(post(members), other, phoneBody(thirdPhone))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("SUB-012"));
+		send(post(otherMembers), other, phoneBody(thirdPhone))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("SUB-012"));
 		send(post(BASE + otherLine + "/bundles"), other, "{\"bundleProductId\":" + family3 + "}")
@@ -252,10 +256,10 @@ class ProductJoinIntegrationTest {
 		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
 				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(15000));
 
-		mockMvc.perform(delete(members + "/" + thirdLine).with(as(other)))
+		mockMvc.perform(delete(otherMembers + "/" + thirdLine).with(as(other)))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("SUB-015"));
-		mockMvc.perform(delete(members + "/" + otherLine).with(as(other)))
+		mockMvc.perform(delete(otherMembers + "/" + otherLine).with(as(other)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.lineCount").value(2))
 				.andExpect(jsonPath("$.data.discountApplied").value(false));
@@ -278,7 +282,7 @@ class ProductJoinIntegrationTest {
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.requiredLineCount").value(1))
 				.andExpect(jsonPath("$.data.discountApplied").value(false)), "bundleGroupId");
-		send(post("/bundle-groups/" + groupId + "/members"), owner, phoneBody(otherPhone))
+		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(otherPhone))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("SUB-014"));
 
@@ -305,10 +309,10 @@ class ProductJoinIntegrationTest {
 		long groupId = id(send(post(BASE + ownerLine + "/bundles"), owner, "{\"bundleProductId\":" + longTerm + "}")
 				.andExpect(jsonPath("$.data.requiredLineCount").doesNotExist())
 				.andExpect(jsonPath("$.data.discountApplied").value(false)), "bundleGroupId");
-		send(post("/bundle-groups/" + groupId + "/members"), owner, phoneBody(otherPhone))
+		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(otherPhone))
 				.andExpect(jsonPath("$.data.discountApplied").value(true))
 				.andExpect(jsonPath("$.data.discountAmount").value(10000));
-		send(post("/bundle-groups/" + groupId + "/members"), owner, phoneBody(thirdPhone))
+		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(thirdPhone))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.lineCount").value(3));
 	}

@@ -6,6 +6,9 @@ import com.ubot.home.entity.HomeSubscription;
 import com.ubot.home.enums.HomeProductType;
 import com.ubot.home.enums.HomeSubscriptionStatus;
 
+import lombok.Builder;
+
+@Builder
 public record HomeSubscriptionResponseDto(
         Long homeSubscriptionId,
         Long homeProductId,
@@ -18,15 +21,15 @@ public record HomeSubscriptionResponseDto(
 ) {
 
     public static HomeSubscriptionResponseDto from(HomeSubscription subscription) {
-        return new HomeSubscriptionResponseDto(
-                subscription.getHomeSubscriptionId(),
-                subscription.getHomeProduct().getHomeProductId(),
-                subscription.getProductType(),
-                subscription.getProductNameSnapshot(),
-                subscription.getMonthlyFeeSnapshot(),
-                subscription.getStatus(),
-                subscription.getJoinedAt(),
-                subscription.getEndedAt()
-        );
+        return HomeSubscriptionResponseDto.builder()
+                .homeSubscriptionId(subscription.getHomeSubscriptionId())
+                .homeProductId(subscription.getHomeProduct().getHomeProductId())
+                .productType(subscription.getProductType())
+                .name(subscription.getProductNameSnapshot())
+                .monthlyFee(subscription.getMonthlyFeeSnapshot())
+                .status(subscription.getStatus())
+                .joinedAt(subscription.getJoinedAt())
+                .endedAt(subscription.getEndedAt())
+                .build();
     }
 }

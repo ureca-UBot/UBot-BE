@@ -53,11 +53,11 @@ public class PlanService {
 
     public List<AddonServiceResponseDto> getIncludedAddonList(Long planId) {
         getPlan(planId);
-        return findIncludedAddons(planId);
+        return getIncludedAddonListIgnoringStatus(planId);
     }
 
     /** 요금제 상태와 관계없이 포함 부가서비스를 돌려준다. 판매 중지된 요금제의 관리·가입자 조회에 쓴다. */
-    public List<AddonServiceResponseDto> findIncludedAddons(Long planId) {
+    public List<AddonServiceResponseDto> getIncludedAddonListIgnoringStatus(Long planId) {
         List<Long> addonServiceIds = includedAddonRepository.findAddonServiceIds(planId);
         Map<Long, AddonService> addons = addonServiceRepository.findAllById(addonServiceIds).stream()
                 .collect(Collectors.toMap(AddonService::getAddonServiceId, Function.identity()));

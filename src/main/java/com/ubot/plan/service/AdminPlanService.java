@@ -71,7 +71,7 @@ public class AdminPlanService {
                 () -> productRepository.saveAndFlush(product),
                 () -> new PlanException(PlanErrorCode.DUPLICATE_CODE)
         );
-        log.info("요금제을 등록했습니다: 상품ID={}", savedProduct.getPlanId());
+        log.info("요금제를 등록했습니다: 상품ID={}", savedProduct.getPlanId());
         return AdminPlanResponseDto.from(savedProduct);
     }
 
@@ -117,7 +117,7 @@ public class AdminPlanService {
                 request.minAge(),
                 request.maxAge()
         );
-        log.info("요금제을 수정했습니다: 상품ID={}", planId);
+        log.info("요금제를 수정했습니다: 상품ID={}", planId);
         return AdminPlanResponseDto.from(product);
     }
 
@@ -135,12 +135,14 @@ public class AdminPlanService {
             throw new PlanException(PlanErrorCode.PRODUCT_IN_USE);
         }
         product.delete(userRepository.getReferenceById(administratorId));
-        log.info("요금제을 삭제했습니다: 상품ID={}", planId);
+        log.info("요금제를 삭제했습니다: 상품ID={}", planId);
     }
 
     // 중복 ID는 한 번만 넣고, 삭제된 부가서비스나 없는 ID가 있으면 바꾸지 않는다.
-    public List<AddonServiceResponseDto> replaceIncludedAddons(Long planId, AdminPlanIncludedAddonRequestDto request) {
-        getUndeletedProduct(planId);
+    public List<AddonServiceResponseDto> replaceIncludedAddons(
+            Long administratorId, Long planId, AdminPlanIncludedAddonRequestDto request
+    ) {
+        Plan plan = getUndeletedProduct(planId);
         List<Long> addonServiceIds = request.addonServiceIds().stream().distinct().toList();
         long undeleted = addonServiceRepository.findAllById(addonServiceIds).stream()
                 .filter(addon -> addon.getDeletedAt() == null)
@@ -149,8 +151,9 @@ public class AdminPlanService {
             throw new PlanException(PlanErrorCode.INVALID_PRODUCT);
         }
         includedAddonRepository.replace(planId, addonServiceIds);
+        plan.markIncludedAddonsUpdated(userRepository.getReferenceById(administratorId));
         log.info("요금제 포함 부가서비스를 바꿨습니다: 상품ID={}, 부가서비스 수={}", planId, addonServiceIds.size());
-        return planService.findIncludedAddons(planId);
+        return planService.getIncludedAddonListIgnoringStatus(planId);
     }
 
     private Plan getUndeletedProduct(Long planId) {

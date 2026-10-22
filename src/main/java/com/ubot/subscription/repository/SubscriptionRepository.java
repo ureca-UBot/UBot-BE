@@ -43,7 +43,10 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
 
 	// 결합에 추가할 회선. 하이픈 유무와 관계없이 숫자만 비교한다.
 	@Query(value = """
-			SELECT s.* FROM subscriptions s
+			SELECT s.subscription_id, s.user_id, s.plan_id, s.phone_number, s.status, s.activated_at, s.terminated_at,
+			       s.sim_type, s.sim_identifier, s.sim_status, s.sim_activated_at, s.sim_deactivated_at, s.plan_changed_at,
+			       s.created_at, s.updated_at
+			FROM subscriptions s
 			JOIN users u ON u.user_id = s.user_id
 			WHERE regexp_replace(s.phone_number, '[^0-9]', '', 'g') = :digits
 			  AND s.status = 'ACTIVE' AND u.deleted_at IS NULL

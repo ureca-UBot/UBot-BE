@@ -10,7 +10,6 @@ import org.springframework.data.repository.query.Param;
 
 import com.ubot.home.entity.HomeSubscription;
 import com.ubot.home.enums.HomeProductType;
-import com.ubot.home.enums.HomeSubscriptionStatus;
 
 public interface HomeSubscriptionRepository extends JpaRepository<HomeSubscription, Long> {
 
@@ -22,10 +21,22 @@ public interface HomeSubscriptionRepository extends JpaRepository<HomeSubscripti
             """)
     List<HomeSubscription> findAllByUserId(@Param("userId") Long userId);
 
-    Optional<HomeSubscription> findByHomeSubscriptionIdAndUser_IdAndStatus(
-            Long homeSubscriptionId, Long userId, HomeSubscriptionStatus status);
+    @Query("""
+            select record from HomeSubscription record
+            where record.homeSubscriptionId = :homeSubscriptionId
+              and record.user.id = :userId
+              and record.status = com.ubot.home.enums.HomeSubscriptionStatus.ACTIVE
+            """)
+    Optional<HomeSubscription> findActiveByHomeSubscriptionIdAndUserId(
+            @Param("homeSubscriptionId") Long homeSubscriptionId, @Param("userId") Long userId);
 
     @EntityGraph(attributePaths = "homeProduct")
-    Optional<HomeSubscription> findByUser_IdAndProductTypeAndStatus(
-            Long userId, HomeProductType productType, HomeSubscriptionStatus status);
+    @Query("""
+            select record from HomeSubscription record
+            where record.user.id = :userId
+              and record.productType = :productType
+              and record.status = com.ubot.home.enums.HomeSubscriptionStatus.ACTIVE
+            """)
+    Optional<HomeSubscription> findActiveByUserIdAndProductType(
+            @Param("userId") Long userId, @Param("productType") HomeProductType productType);
 }

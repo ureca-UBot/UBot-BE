@@ -11,9 +11,10 @@ import com.ubot.common.repository.ProductWriteSupport;
 import com.ubot.home.dto.response.HomeSubscriptionResponseDto;
 import com.ubot.home.entity.HomeProduct;
 import com.ubot.home.entity.HomeSubscription;
-import com.ubot.home.enums.HomeSubscriptionStatus;
 import com.ubot.home.exception.HomeProductErrorCode;
 import com.ubot.home.exception.HomeProductException;
+import com.ubot.home.exception.HomeSubscriptionErrorCode;
+import com.ubot.home.exception.HomeSubscriptionException;
 import com.ubot.home.repository.HomeProductRepository;
 import com.ubot.home.repository.HomeSubscriptionRepository;
 import com.ubot.user.repository.UserRepository;
@@ -43,24 +44,23 @@ public class HomeSubscriptionService {
         HomeProduct product = productRepository.findByIdForUpdate(homeProductId)
                 .filter(found -> found.getStatus() == MasterStatus.ACTIVE)
                 .orElseThrow(() -> new HomeProductException(HomeProductErrorCode.PRODUCT_NOT_FOUND));
-        if (subscriptionRepository.findByUser_IdAndProductTypeAndStatus(
-                userId, product.getProductType(), HomeSubscriptionStatus.ACTIVE).isPresent()) {
-            throw new HomeProductException(HomeProductErrorCode.ALREADY_SUBSCRIBED);
+        if (subscriptionRepository.findActiveByUserIdAndProductType(userId, product.getProductType()).isPresent()) {
+            throw new HomeSubscriptionException(HomeSubscriptionErrorCode.ALREADY_SUBSCRIBED);
         }
         HomeSubscription subscription = HomeSubscription.subscribe(
                 userRepository.getReferenceById(userId), product, LocalDateTime.now());
         // 동시에 같은 종류를 신청하면 DB의 유일 조건이 막는다.
         HomeSubscription saved = ProductWriteSupport.saveUnique(
                 () -> subscriptionRepository.saveAndFlush(subscription),
-                () -> new HomeProductException(HomeProductErrorCode.ALREADY_SUBSCRIBED));
+                () -> new HomeSubscriptionException(HomeSubscriptionErrorCode.ALREADY_SUBSCRIBED));
         log.info("인터넷/IPTV에 가입했습니다: 가입ID={}, 상품ID={}", saved.getHomeSubscriptionId(), homeProductId);
         return HomeSubscriptionResponseDto.from(saved);
     }
 
     public HomeSubscriptionResponseDto end(Long userId, Long homeSubscriptionId) {
         HomeSubscription subscription = subscriptionRepository
-                .findByHomeSubscriptionIdAndUser_IdAndStatus(homeSubscriptionId, userId, HomeSubscriptionStatus.ACTIVE)
-                .orElseThrow(() -> new HomeProductException(HomeProductErrorCode.SUBSCRIPTION_NOT_FOUND));
+                .findActiveByHomeSubscriptionIdAndUserId(homeSubscriptionId, userId)
+                .orElseThrow(() -> new HomeSubscriptionException(HomeSubscriptionErrorCode.SUBSCRIPTION_NOT_FOUND));
         subscription.end(LocalDateTime.now());
         log.info("인터넷/IPTV를 해지했습니다: 가입ID={}", homeSubscriptionId);
         return HomeSubscriptionResponseDto.from(subscription);

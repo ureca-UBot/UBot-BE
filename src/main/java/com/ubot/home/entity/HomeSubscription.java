@@ -23,6 +23,8 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -31,7 +33,9 @@ import lombok.NoArgsConstructor;
 @DynamicUpdate
 @Table(name = "home_subscriptions")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Builder
 public class HomeSubscription extends BusinessEntity {
 
     @Id
@@ -68,15 +72,15 @@ public class HomeSubscription extends BusinessEntity {
     private Integer monthlyFeeSnapshot;
 
     public static HomeSubscription subscribe(User user, HomeProduct homeProduct, LocalDateTime now) {
-        HomeSubscription subscription = new HomeSubscription();
-        subscription.user = user;
-        subscription.homeProduct = homeProduct;
-        subscription.productType = homeProduct.getProductType();
-        subscription.status = HomeSubscriptionStatus.ACTIVE;
-        subscription.joinedAt = now;
-        subscription.productNameSnapshot = homeProduct.getName();
-        subscription.monthlyFeeSnapshot = homeProduct.getMonthlyFee();
-        return subscription;
+        return HomeSubscription.builder()
+                .user(user)
+                .homeProduct(homeProduct)
+                .productType(homeProduct.getProductType())
+                .status(HomeSubscriptionStatus.ACTIVE)
+                .joinedAt(now)
+                .productNameSnapshot(homeProduct.getName())
+                .monthlyFeeSnapshot(homeProduct.getMonthlyFee())
+                .build();
     }
 
     public void end(LocalDateTime now) {

@@ -29,7 +29,6 @@ import com.ubot.subscription.dto.response.SubscriptionRoamingResponseDto;
 import com.ubot.subscription.entity.Subscription;
 import com.ubot.subscription.entity.SubscriptionAddon;
 import com.ubot.subscription.entity.SubscriptionRoaming;
-import com.ubot.subscription.enums.SubscriptionAddonStatus;
 import com.ubot.subscription.enums.SubscriptionRoamingStatus;
 import com.ubot.subscription.enums.SubscriptionStatus;
 import com.ubot.subscription.exception.SubscriptionErrorCode;
@@ -85,8 +84,7 @@ public class SubscriptionCommandService {
 		AddonService addonService = addonServiceRepository.findByIdForUpdate(addonServiceId)
 				.filter(found -> found.getStatus() == MasterStatus.ACTIVE)
 				.orElseThrow(() -> new AddonServiceException(AddonServiceErrorCode.PRODUCT_NOT_FOUND));
-		if (subscriptionAddonRepository.existsBySubscription_SubscriptionIdAndAddonService_AddonServiceIdAndStatus(
-				subscriptionId, addonServiceId, SubscriptionAddonStatus.ACTIVE)) {
+		if (subscriptionAddonRepository.existsActiveBySubscriptionIdAndAddonServiceId(subscriptionId, addonServiceId)) {
 			throw new SubscriptionException(SubscriptionErrorCode.ADDON_ALREADY_SUBSCRIBED);
 		}
 		SubscriptionAddon record = SubscriptionAddon.subscribe(subscription, addonService, LocalDateTime.now());
@@ -101,8 +99,7 @@ public class SubscriptionCommandService {
 	public SubscriptionAddonResponseDto cancelAddon(Long userId, Long subscriptionId, Long subscriptionAddonId) {
 		getActiveSubscriptionForUpdate(userId, subscriptionId);
 		SubscriptionAddon record = subscriptionAddonRepository
-				.findBySubscriptionAddonIdAndSubscription_SubscriptionIdAndStatus(
-						subscriptionAddonId, subscriptionId, SubscriptionAddonStatus.ACTIVE)
+				.findActiveBySubscriptionAddonIdAndSubscriptionId(subscriptionAddonId, subscriptionId)
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.ADDON_NOT_FOUND));
 		record.cancel(LocalDateTime.now());
 		log.info("부가서비스를 해지했습니다: 회선ID={}, 가입ID={}", subscriptionId, subscriptionAddonId);
@@ -130,7 +127,7 @@ public class SubscriptionCommandService {
 	public SubscriptionRoamingResponseDto cancelRoaming(Long userId, Long subscriptionId, Long subscriptionRoamingId) {
 		getOwnedSubscriptionForUpdate(userId, subscriptionId);
 		SubscriptionRoaming record = subscriptionRoamingRepository
-				.findBySubscriptionRoamingIdAndSubscription_SubscriptionId(subscriptionRoamingId, subscriptionId)
+				.findBySubscriptionRoamingIdAndSubscriptionId(subscriptionRoamingId, subscriptionId)
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.ROAMING_NOT_FOUND));
 		if (record.getStatus() != SubscriptionRoamingStatus.SCHEDULED || !record.getStartDate().isAfter(LocalDate.now())) {
 			throw new SubscriptionException(SubscriptionErrorCode.ROAMING_NOT_CANCELABLE);

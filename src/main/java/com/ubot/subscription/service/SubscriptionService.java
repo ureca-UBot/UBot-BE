@@ -45,7 +45,7 @@ public class SubscriptionService {
 	public List<SubscriptionBundleResponseDto> getMyBundleList(Long userId, Long subscriptionId) {
 		subscriptionAccessService.getOwnedSubscription(userId, subscriptionId);
 		return subscriptionBundleRepository.findAllBySubscriptionIdAndUserId(subscriptionId, userId).stream()
-				.map(record -> SubscriptionBundleResponseDto.from(record, bundleGroupService.findGroup(record))).toList();
+				.map(record -> SubscriptionBundleResponseDto.from(record, bundleGroupService.getActiveGroup(record))).toList();
 	}
 
 	public List<SubscriptionAddonResponseDto> getMyAddonList(Long userId, Long subscriptionId) {
