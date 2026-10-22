@@ -80,6 +80,8 @@ services:
 
     command:
       - --redis.addr=redis://redis:6379
+      # 답변 작업 스트림의 길이·처리 대기(PEL)·lag. SCAN 없이 이 키만 조회함
+      - --check-single-streams=chat:jobs
 
     depends_on:
       redis:

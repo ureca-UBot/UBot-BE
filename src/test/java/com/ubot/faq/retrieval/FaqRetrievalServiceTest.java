@@ -267,6 +267,27 @@ class FaqRetrievalServiceTest {
         verifyNoMoreInteractions(faqVectorService);
     }
 
+    @Test
+    @DisplayName("벡터 검색 1위 후보의 유사도를 검색 범위별로 기록하고, 후보가 없으면 기록하지 않는다")
+    void recordsTopSimilarityOfDenseSearch() {
+        List<FaqSearchResponseDto> dense = faqs(3);
+        when(faqVectorService.searchWithVector("질문", null, 3))
+                .thenReturn(new FaqVectorService.SearchResult(dense, QUERY_VECTOR));
+        when(faqVectorService.searchWithVector("질문", Intent.GENERAL, 3))
+                .thenReturn(new FaqVectorService.SearchResult(List.of(), QUERY_VECTOR));
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        FaqRetrievalService service = new FaqRetrievalService(
+                faqVectorService, new FaqRerankService(scores()), properties(false, 3, true), 3, registry);
+
+        service.searchCandidates("질문", null, 3, 0);
+        service.searchCandidates("질문", Intent.GENERAL, 3, 0);
+
+        var similarity = registry.get("faq.retrieval.top.similarity").tag("scope", "all").summary();
+        assertThat(similarity.count()).isEqualTo(1);
+        assertThat(similarity.totalAmount()).isEqualTo(dense.getFirst().similarityScore());
+        assertThat(registry.find("faq.retrieval.top.similarity").tag("scope", "intent").summary()).isNull();
+    }
+
     private RetrievalOutcome searchAndRank(FaqRetrievalService service, Intent intent) {
         DenseFaqCandidates candidates = service.searchCandidates("질문", intent, 3, 0);
         return service.rankCandidates("질문", candidates, 3);
