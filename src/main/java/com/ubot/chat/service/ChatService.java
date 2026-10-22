@@ -7,6 +7,7 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.dto.ChatRequestContext;
 import com.ubot.chat.job.service.ChatSubmissionService;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
+import com.ubot.chat.job.service.ChatSubmissionService.SubmissionType;
 import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.faq.enums.Intent;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +44,7 @@ public class ChatService {
 	public ChatSubmission createChat(Long userId, Long conversationId, String question, Location myLocation, String userIp) {
 		chatRateLimitService.validateMemberRequest(userId);
 		validateQuestion(question);
-		return chatSubmissionService.submit(() -> {
+		return chatSubmissionService.submit(SubmissionType.QUESTION, true, () -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createAnswerAttempt(userId, conversationId, question);
 			log.info("회원 답변 시도를 생성했습니다: 시도ID={}, 사용자ID={}, 대화ID={}", attempt.getId(), userId, conversationId);
 			return attempt;
@@ -53,7 +54,7 @@ public class ChatService {
 	/** myLocation은 사용자가 내 위치 기준으로 다시 요청했을 때만 있습니다. */
 	public ChatSubmission createGuestChat(Long conversationId, String question, Location myLocation, String userIp) {
 		validateQuestion(question);
-		return chatSubmissionService.submit(() -> {
+		return chatSubmissionService.submit(SubmissionType.QUESTION, false, () -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createGuestAnswerAttempt(conversationId, question);
 			log.info("비회원 답변 시도를 생성했습니다: 시도ID={}, 대화ID={}", attempt.getId(), conversationId);
 			return attempt;
@@ -65,7 +66,7 @@ public class ChatService {
 		chatRateLimitService.validateMemberRequest(userId);
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		validateQuestion(chatAttemptsService.getLatestAnswerAttempt(userId, idempotencyKey).getQuestion());
-		return chatSubmissionService.submit(() -> {
+		return chatSubmissionService.submit(SubmissionType.RETRY, true, () -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createRetryAttempt(userId, idempotencyKey);
 			log.info("회원 답변 재시도를 생성했습니다: 시도ID={}, 사용자ID={}, 재시도횟수={}",
 					attempt.getId(), userId, attempt.getAttemptCount());
@@ -76,7 +77,7 @@ public class ChatService {
 	public ChatSubmission retryGuestChat(Long conversationId, String idempotencyKey, String userIp) {
 		validateIdempotencyKey(idempotencyKey, ChatErrorCode.INVALID_CHAT_RETRY_REQUEST);
 		validateQuestion(chatAttemptsService.getLatestGuestAnswerAttempt(conversationId, idempotencyKey).getQuestion());
-		return chatSubmissionService.submit(() -> {
+		return chatSubmissionService.submit(SubmissionType.RETRY, false, () -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createGuestRetryAttempt(conversationId, idempotencyKey);
 			log.info("비회원 답변 재시도를 생성했습니다: 시도ID={}, 대화ID={}, 재시도횟수={}",
 					attempt.getId(), conversationId, attempt.getAttemptCount());
@@ -97,7 +98,7 @@ public class ChatService {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
 		validateQuestion(chatAttemptsService.getLatestAnswerAttempt(userId, idempotencyKey).getQuestion());
-		return chatSubmissionService.submit(() -> {
+		return chatSubmissionService.submit(SubmissionType.RESEARCH, true, () -> {
 			AnswerAttemptsHistory attempt = chatAttemptsService.createResearchAttempt(userId, idempotencyKey, intent);
 			log.info("회원 의도 재검색 시도를 생성했습니다: 시도ID={}, 원본시도ID={}, 사용자ID={}, 의도={}",
 					attempt.getId(), attempt.getSourceAttemptId(), userId, intent);

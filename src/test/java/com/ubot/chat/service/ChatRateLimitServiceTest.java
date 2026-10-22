@@ -37,7 +37,7 @@ class ChatRateLimitServiceTest {
 	}
 
 	@Test
-	@DisplayName("한도를 넘으면 429 CHAT-024로 거절한다")
+	@DisplayName("한도를 넘으면 429 CHAT-025로 거절한다")
 	void rejectsOverLimit() {
 		countIs(31L);
 

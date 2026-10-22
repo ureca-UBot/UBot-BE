@@ -120,10 +120,11 @@ src/main/resources/
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM을 포함한 전체 실행 제한. 초과 시 CHAT-016, 취소 요청 및 늦은 결과 폐기 | `180s` | `180s` |
 | `CHAT_WORKER_SHUTDOWN_WAIT` | Worker 종료 시 실행 중인 작업을 기다리는 시간. 넘기면 대기열에 돌려놓고 다시 발행. 컨테이너 종료 유예 시간(`stop_grace_period`, ECS `stopTimeout`)보다 짧아야 함 | `20s` | `20s` |
 | `CHAT_USER_RATE_LIMIT_ENABLED` | `ChatRateLimitService`: 회원 질문·재시도·의도 재검색 접수를 사용자 ID별로 제한할지 여부. Redis(`chat:rate:user:<사용자ID>`)에 고정 윈도로 세고, Redis 장애 시 제한 없이 접수 | `true` | `true` (`test` 프로필은 `false`) |
-| `CHAT_USER_RATE_LIMIT_MAX` | `ChatRateLimitService`: 윈도 하나에 받는 회원 접수 수. 넘으면 시도·작업을 만들지 않고 `CHAT-024`(429). 1 미만이면 기동 실패 | `30` | `30` |
+| `CHAT_USER_RATE_LIMIT_MAX` | `ChatRateLimitService`: 윈도 하나에 받는 회원 접수 수. 넘으면 시도·작업을 만들지 않고 `CHAT-025`(429). 1 미만이면 기동 실패 | `30` | `30` |
 | `CHAT_USER_RATE_LIMIT_WINDOW` | `ChatRateLimitService`: 회원 접수를 세는 윈도 길이. 1초 미만이면 기동 실패 | `60s` | `60s` |
 | `DB_POOL_MAX_SIZE` | HikariCP(`spring.datasource.hikari.maximum-pool-size`): 프로세스 하나의 DB 연결 수. API와 Worker를 합쳐 PostgreSQL `max_connections`보다 작아야 함 | `10` | `10` |
 | `SCHEDULER_POOL_SIZE` | `spring.task.scheduling.pool.size`: `@Scheduled` 작업을 동시에 실행할 스레드 수. 1이면 한 작업(보관 기간 삭제 재시도, LLM 호출 등)이 끝날 때까지 다른 예약 작업(Outbox 처리 등)이 기다림. 같은 작업은 겹쳐 실행되지 않음 | `4` | `4` |
+| `METRICS_BACKLOG_REFRESH` | `EmbeddingBacklogMetrics`(api 역할): FAQ 벡터 적체(`faq_embeddings_missing`·`_stale`)와 미응답 outbox 적체를 DB에서 다시 세는 주기. 첫 집계는 기동 30초 뒤([운영 지표](metrics.md#embedding-lifecycle)) | `5m` | `5m` |
 | `UNANSWERED_GROUP_THRESHOLD` | `UnansweredQuestionService`: 미응답 질문을 기존 묶음에 넣을지 정하는 묶음 중심 벡터와의 최소 코사인 유사도 | `0.6` | `0.6` |
 | `OUTBOX_POLL_DELAY_MS` | `OutboxWorker`: 공용 대기열(`outbox_events`) 작업을 꺼내 처리하는 주기(밀리초, 이전 처리가 끝난 뒤부터) | `2000` | `2000` |
 | `UNANSWERED_NAMING_INTERVAL_MINUTES` | `UnansweredGroupNamingScheduler`: 처리 대기·보류 미응답 묶음에 LLM으로 주제 이름과 추천 카테고리를 붙이는 주기(분). 이름이 없거나 질문 수가 이름 붙인 때의 2배 이상이 된 묶음을 한 번에 10개까지 처리 | `5` | `5` |
@@ -148,6 +149,13 @@ src/main/resources/
 | `JWT_REFRESH_TOKEN_EXPIRATION_DAYS` | `RefreshTokenService` | `14` | `14` |
 | `CORS_ALLOWED_ORIGINS` | `SecurityConfig` | (빈 값) | (빈 값, 같은 origin만 허용) |
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택. CD는 서버 `.env`의 이 값이 `prod`인지 검사 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
+| `ALERTS_ENABLED` | `render-alert-config.sh`: 알림 규칙을 만들지 여부. `false`면 빈 규칙을 만들고 Alertmanager 설정과 Webhook secret을 지움([장애 알림](../how-to/alerting.md)) | `false` | 렌더러 기본 `false`. Spring에서 읽지 않음 |
+| `ALERT_DISCORD_WEBHOOK_URL`, `ALERT_SLACK_WEBHOOK_URL` | `render-alert-config.sh`: Discord·Slack Webhook URL. 값을 넣은 채널만 Alertmanager 설정에 남고, URL은 `.generated/alertmanager/secrets/<채널>-webhook`(권한 600)에만 씀. 알림을 켜면 하나 이상 필수. Git에 올리지 않음 | 빈 값 | 없음 |
+| `ALERT_WORKER_JOB` | `render-alert-config.sh`: Worker 지표를 내보내는 Prometheus job. 로컬은 백엔드가 Worker도 맡아 `ubot-backend` | `ubot-backend` | 렌더러 기본 `ubot-ai-worker` |
+| `ALERT_BACKEND_DOWN_FOR`, `ALERT_WORKER_DOWN_FOR`, `ALERT_DEPENDENCY_DOWN_FOR` | `render-alert-config.sh`: Backend·Worker·PostgreSQL/Redis 장애로 보기까지 이어져야 하는 시간(`30s`·`1m`·`2h` 형태) | `1m` | `1m` |
+| `ALERT_CHAT_QUEUE_OLDEST_SECONDS`, `ALERT_CHAT_QUEUE_FOR` | `render-alert-config.sh`: 가장 오래 기다린 Chat Job 대기 시간 기준(초)과 이어져야 하는 시간 | `120`, `2m` | `120`, `2m` |
+| `ALERT_LLM_TIMEOUT_RATIO`, `ALERT_LLM_TIMEOUT_WINDOW`, `ALERT_LLM_TIMEOUT_FOR`, `ALERT_LLM_TIMEOUT_MIN_CALLS` | `render-alert-config.sh`: LLM 시간 초과 비율 기준(0~1), 계산 기간, 이어져야 하는 시간, 계산에 필요한 최소 호출 수 | `0.05`, `5m`, `5m`, `10` | `0.05`, `5m`, `5m`, `10` |
+| `ALERTMANAGER_PORT` | Docker Compose(`alerts` 프로필): Alertmanager 호스트 포트(127.0.0.1만) | `19093` | Spring에서 읽지 않음 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.
 
