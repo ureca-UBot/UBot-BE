@@ -61,22 +61,6 @@ public class FaqImprovementExclusion {
 	@Column(name = "released_at")
 	private LocalDateTime releasedAt;
 
-	public static FaqImprovementExclusion exclude(
-			Faq faq,
-			FaqImprovementType improvementType,
-			String memo,
-			User excludedBy
-	) {
-		return FaqImprovementExclusion.builder()
-				.faq(faq)
-				.improvementType(improvementType)
-				.faqVersion(faq.getVersion())
-				.memo(memo)
-				.excludedBy(excludedBy)
-				.excludedAt(LocalDateTime.now())
-				.build();
-	}
-
 	public void release(User releasedBy) {
 		this.releasedBy = releasedBy;
 		this.releasedAt = LocalDateTime.now();

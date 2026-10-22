@@ -300,6 +300,40 @@ class FaqMonitoringIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("LOW_RAG_QUALITY를 제외해도 같은 FAQ의 DUPLICATE_SUSPECTED는 개선 목록에 남는다")
+	void keepsDuplicateSuspectedVisibleWhenLowRagQualityIsExcluded() {
+		long faqId = faqWithLowRagQualityAndDuplicateSuspected();
+
+		monitoringService.excludeFaqImprovement(
+				faqId, new FaqImprovementExclusionRequest(FaqImprovementType.LOW_RAG_QUALITY, null), userId);
+		exclusionRepository.flush();
+
+		assertThat(improvementTypesOf(faqId)).containsExactly(FaqImprovementType.DUPLICATE_SUSPECTED);
+	}
+
+	@Test
+	@DisplayName("DUPLICATE_SUSPECTED를 제외해도 같은 FAQ의 LOW_RAG_QUALITY는 개선 목록에 남는다")
+	void keepsLowRagQualityVisibleWhenDuplicateSuspectedIsExcluded() {
+		long faqId = faqWithLowRagQualityAndDuplicateSuspected();
+
+		monitoringService.excludeFaqImprovement(
+				faqId, new FaqImprovementExclusionRequest(FaqImprovementType.DUPLICATE_SUSPECTED, null), userId);
+		exclusionRepository.flush();
+
+		assertThat(improvementTypesOf(faqId)).containsExactly(FaqImprovementType.LOW_RAG_QUALITY);
+	}
+
+	@Test
+	@DisplayName("현재 버전에서 7일보다 오래된 사용 기록이 있어도 LOW_USAGE로 분류하지 않는다")
+	void doesNotClassifyFaqWithExpiredCurrentVersionUsageAsLowUsage() {
+		LocalDateTime now = LocalDateTime.now();
+		long faqId = faq(category(), "오래된 사용 기록 FAQ", Intent.GENERAL, 1, now.minusDays(10));
+		faqLog(question(now.minusDays(8)), faqId, 1, 0.95);
+
+		assertThat(lowUsageImprovementIds()).doesNotContain(faqId);
+	}
+
+	@Test
 	@DisplayName("중복 후보는 현재 버전의 1위·2위 유사도 차이와 후보별 횟수로 조회한다")
 	void findsDuplicateCandidatesAndCounts() throws Exception {
 		LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
@@ -373,6 +407,27 @@ class FaqMonitoringIntegrationTest {
 		return monitoringService.getFaqImprovements(List.of(FaqImprovementType.LOW_USAGE), 0, 10).items().stream()
 				.map(item -> item.faqId())
 				.toList();
+	}
+
+	private long faqWithLowRagQualityAndDuplicateSuspected() {
+		LocalDateTime now = LocalDateTime.now();
+		long categoryId = category();
+		long faqId = faq(categoryId, "낮은 품질·중복 의심 FAQ", Intent.GENERAL, 1, now.minusDays(1));
+		long competingFaqId = faq(categoryId, "경쟁 FAQ", Intent.GENERAL, 1, now.minusDays(1));
+		for (int index = 0; index < 20; index++) {
+			long questionId = question(now.minusMinutes(index + 1));
+			faqLog(questionId, faqId, 1, 0.70);
+			faqLog(questionId, competingFaqId, 2, 0.68);
+		}
+		return faqId;
+	}
+
+	private List<FaqImprovementType> improvementTypesOf(long faqId) {
+		return monitoringService.getFaqImprovements(null, 0, 10).items().stream()
+				.filter(item -> item.faqId().equals(faqId))
+				.findFirst()
+				.orElseThrow()
+				.improvementTypes();
 	}
 
 	private long faq(long categoryId, String question, Intent intent, int version, LocalDateTime updatedAt) {
