@@ -31,7 +31,8 @@ class UnansweredOutboxHandlerTest {
     private final UnansweredQuestionService gateway = new UnansweredQuestionService(
             embedding, mock(EmbeddingProfileService.class), mock(UnansweredQuestionRepository.class),
             mock(UnansweredQuestionVectorRepository.class), mock(RejectedQuestionDuplicateChecker.class),
-            mock(AnswerAttemptsHistoryRepository.class), outbox, .6);
+            mock(AnswerAttemptsHistoryRepository.class), outbox,
+            mock(com.ubot.unanswered.repository.UnansweredReverifyRepository.class), .6, .75);
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Test
