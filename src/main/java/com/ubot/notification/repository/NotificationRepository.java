@@ -52,4 +52,19 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
             @Param("message") String message,
             @Param("dedupeKey") String dedupeKey,
             @Param("createdAt") LocalDateTime createdAt);
+
+    @Modifying
+    @Query(value = """
+            INSERT INTO notifications (user_id, type, title, message, surging_alert_id, dedupe_key, created_at)
+            VALUES (:userId, :type, :title, :message, :surgingAlertId, :dedupeKey, :createdAt)
+            ON CONFLICT (dedupe_key) DO NOTHING
+            """, nativeQuery = true)
+    int insertSurgingAlertIfAbsent(
+            @Param("userId") Long userId,
+            @Param("type") String type,
+            @Param("title") String title,
+            @Param("message") String message,
+            @Param("surgingAlertId") Long surgingAlertId,
+            @Param("dedupeKey") String dedupeKey,
+            @Param("createdAt") LocalDateTime createdAt);
 }

@@ -105,6 +105,7 @@ telemap:
   count-threshold: ${TELEMAP_COUNT_THRESHOLD:100}
   cluster-threshold: ${TELEMAP_CLUSTER_THRESHOLD:0.6}
   retention-minutes: ${TELEMAP_RETENTION_MINUTES:60}
+  max-questions-for-subject: ${TELEMAP_MAX_QUESTIONS_FOR_SUBJECT:20}
 
 faq-monitoring:
   ai-review:

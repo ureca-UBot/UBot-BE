@@ -82,4 +82,9 @@ public class SurgingAlert {
         alert.updatedAt = alert.createdAt;
         return alert;
     }
+
+    public void updateSubject(String subject) {
+        this.subject = subject;
+        this.updatedAt = LocalDateTime.now();
+    }
 }

@@ -2,6 +2,7 @@ package com.ubot.telemap.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
@@ -10,6 +11,8 @@ import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
+import com.ubot.outbox.OutboxEventRepository;
+import com.ubot.outbox.OutboxEventType;
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.telemap.config.TelemapProperties;
 import com.ubot.telemap.dto.SurgingQuestionSnapshot;
@@ -38,6 +41,7 @@ public class TelemapSurgingQuestionService {
     private final SurgingAlertRepository surgingAlertRepository;
     private final TelemapVectorRepository telemapVectorRepository;
     private final TelemapProperties telemapProperties;
+    private final OutboxEventRepository outboxEventRepository;
 
     public void registerQuestion(long questionLogId) {
         if (surgingQuestionRepository.existsByQuestionLogId(questionLogId)) return;
@@ -81,6 +85,11 @@ public class TelemapSurgingQuestionService {
         if (surgingClusterRepository.claimAlert(clusterId) == 0) return;
         SurgingAlert alert = surgingAlertRepository.save(SurgingAlert.create(
                 region, snapshots, telemapProperties.getWindowMinutes()));
+        outboxEventRepository.enqueue(
+                OutboxEventType.SURGING_ALERT_LABEL,
+                String.valueOf(alert.getId()),
+                Map.of("alertId", alert.getId())
+        );
         log.info("지역 문의 급증을 감지했습니다: alertId={}, clusterId={}, region={}, count={}",
                 alert.getId(), clusterId, region, snapshots.size());
     }

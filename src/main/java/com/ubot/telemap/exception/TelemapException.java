@@ -7,4 +7,8 @@ public class TelemapException extends GlobalException {
     public TelemapException(TelemapErrorCode errorCode) {
         super(errorCode);
     }
+
+    public TelemapException(TelemapErrorCode errorCode, String message) {
+        super(errorCode, message);
+    }
 }
