@@ -131,7 +131,7 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:testcontainers'
 	testImplementation 'org.testcontainers:testcontainers-postgresql'
-	testImplementation 'org.apache.commons:commons-csv:1.11.0'
+	implementation 'org.apache.commons:commons-csv:1.11.0'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
@@ -158,7 +158,7 @@ dependencyManagement {
 tasks.named('test') {
 	useJUnitPlatform()
 
-	maxHeapSize = '1024m'
+	maxHeapSize = '2048m'
 
 	// Tests must never fall back to the local profile and its development database.
 	systemProperty 'spring.profiles.active', 'test'

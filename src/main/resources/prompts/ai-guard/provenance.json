@@ -1,0 +1,42 @@
+{
+  "model": "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16",
+  "input_experiments": [
+    363,
+    300
+  ],
+  "excluded_candidate": "input-ai-integrated-tune-20261023-side (178 cases, not adopted)",
+  "output_experiment": "guard-quick363-20261022-side, whole-answer original prompt; not grounding24 candidate",
+  "resources": {
+    "input-integrated-system.txt": {
+      "source": "work/input-ai-threeway363-20261023-side/joint-system.txt",
+      "sha256": "cadee2a3183e12ddc2fe8e53c0712d915dba51a0921f90a434eb828c6aee4fa4",
+      "source_file_sha256": "19c4eb7e2664867f9ee51a2a844580143c1bb57310fd3e7c005677ee1f07fc4b"
+    },
+    "input-safety-system.txt": {
+      "source": "work/input-ai-threeway363-20261023-side/guard-system.txt",
+      "sha256": "8ffba84082330a25bbdb54913ec71b0c747f969b0b83b873677ab81e6a27303c",
+      "source_file_sha256": "eb75a7ba738290a87e822f98cb260863df45a6a002eb4ad1c710de4a029c66e2"
+    },
+    "input-integrated-schema.json": {
+      "source": "work/input-ai-threeway363-20261023-side/joint-schema.json",
+      "sha256": "78e0aadf8f79b0edef824abe3a639057cc0442fabab1221dba5a5a3d178fbf21",
+      "source_file_sha256": "a720b08eec076a3a1ed24b4559280eefaae7d55dfea96902315c7c4d853c3b09"
+    },
+    "input-safety-schema.json": {
+      "source": "work/input-ai-threeway363-20261023-side/guard-schema.json",
+      "sha256": "ac77d959eedd33a1761bd97b794c13c838306ae92a7b9ef2923d298ef6ea4518",
+      "source_file_sha256": "e5cbd319360018cedaf41c1c8a6dbcc138f488f857ac999d73c67a5e583aba41"
+    },
+    "output-safety-system.txt": {
+      "source": "outputs/guard-quick363-20261022-side/prompt.txt",
+      "sha256": "60a98c8a9b0768e1a7bc25c07bcbe280d7ddcf3aae493febe90eaf04076baf40",
+      "source_file_sha256": "60a98c8a9b0768e1a7bc25c07bcbe280d7ddcf3aae493febe90eaf04076baf40"
+    },
+    "output-safety-schema.json": {
+      "source": "outputs/guard-quick363-20261022-side/schema.json",
+      "sha256": "143808934ea56c40d29f18dc01e5156a9bf5727f8c47cd86be591b3c4d82cae6",
+      "source_file_sha256": "143808934ea56c40d29f18dc01e5156a9bf5727f8c47cd86be591b3c4d82cae6"
+    }
+  },
+  "line_endings": "LF, matching text in frozen experiment requests; no prompt wording changes"
+}

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
@@ -20,6 +21,11 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.pgvector.PGvector;
 import com.ubot.user.service.UserService;
+import com.ubot.billing.service.BillingService;
+import com.ubot.contract.service.ContractService;
+import com.ubot.subscription.service.SubscriptionService;
+import com.ubot.usage.service.UsageService;
+import java.time.Clock;
 import java.util.List;
 
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
@@ -31,9 +37,27 @@ final class ChatTestFixtures {
 			com.ubot.ai.service.AiService ai,
 			ChatContextCollector collector, SubQuestionPlanner planner, FaqSemanticCacheService cache,
 			FaqSentenceFilterService sentenceFilter, ChatInputGuardService inputGuard) {
+		if (org.mockito.Mockito.mockingDetails(ai).isMock() && !org.mockito.Mockito.mockingDetails(ai).isSpy()) {
+			org.mockito.Mockito.lenient().doAnswer(invocation -> new com.ubot.ai.dto.AiAnswer(
+					invocation.getArgument(1), null, false)).when(ai).validateCachedAnswer(
+					org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),
+					org.mockito.ArgumentMatchers.anyString());
+		}
 		var profile = mock(com.ubot.embedding.service.EmbeddingProfileService.class);
 		return new ChatAnswerProcessor(retrieval, ai, collector, planner, cache, sentenceFilter,
 				inputGuard, mock(com.ubot.ai.service.FaqGapCandidateSelector.class), profile);
+	}
+
+	/** 경로·검색어 보호만 검증하는 기존 테스트에서 AI를 모의 처리합니다. 안전 판정은 별도 연결 테스트에서 검증합니다. */
+	static com.ubot.ai.service.AiInputGuardService inputAiGuard(SubQuestionPromptService prompts, LlmService llm) {
+		return mock(com.ubot.ai.service.AiInputGuardService.class, invocation -> {
+			String current = invocation.getArgument(1);
+			boolean planning = invocation.getArgument(3);
+			if (!planning) return List.of(current);
+			List<com.ubot.ai.dto.ConversationTurn> history = invocation.getArgument(2);
+			return com.ubot.prompt.format.SubQuestionFormat.parse(
+					llm.generateJudgment(prompts.createPrompt(current, history)).answer());
+		});
 	}
 
 	private ChatTestFixtures() {
@@ -90,14 +114,19 @@ final class ChatTestFixtures {
 	static ChatContextCollector collector(NearbyStoreSearcher nearbyStoreSearcher) {
 		return new ChatContextCollector(List.of(
 				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
-				new UserIntentHandler(mock(UserService.class))));
+				new UserIntentHandler(mock(UserDataSummarizer.class))));
+	}
+
+	/** 회원 정보는 users로 조회하고 이용 중인 회선은 없는 실제 가입 정보 핸들러입니다. */
+	static UserIntentHandler userIntentHandler(UserService users) {
+		return new UserIntentHandler(new UserDataSummarizer(users, mock(SubscriptionService.class),
+				mock(UsageService.class), mock(BillingService.class), mock(ContractService.class),
+				Clock.systemDefaultZone()));
 	}
 
 	/** 판정 LLM을 부르지 않고 원문을 하위 질문 하나로 쓰는 정리기입니다. */
 	static SubQuestionPlanner originalSubQuestions() {
-		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class),
-				mock(SubQuestionPromptService.class), mock(LlmService.class), mock(SubQuestionGuard.class),
-				mock(QuestionRouter.class), mock(MultiTurnDetector.class), inputGuard());
+		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class), ChatTestFixtures.inputAiGuard(mock(SubQuestionPromptService.class), mock(LlmService.class)), mock(SubQuestionGuard.class), mock(QuestionRouter.class), mock(MultiTurnDetector.class), inputGuard());
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

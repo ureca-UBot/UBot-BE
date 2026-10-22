@@ -1,5 +1,8 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
@@ -52,6 +55,8 @@ import com.ubot.user.repository.UserRepository;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("공식 FAQ 캐시 HTTP 통합 테스트")
 class ChatSemanticCacheIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
     private static final String QUESTION = "이심이 어떤 건지 알려줘";
     private static final String OFFICIAL_ANSWER = "물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.\n";
 
@@ -73,6 +78,7 @@ class ChatSemanticCacheIntegrationTest {
 
     @BeforeEach
     void prepareData() {
+        AiGuardTestSupport.allow(guardModel);
         cacheProperties.setEnabled(true);
         // 공유 Redis라 이전 테스트 작업이 섞이지 않게 비움
         redis.delete(ChatJobStream.STREAM_KEY);

@@ -34,8 +34,6 @@ public class ChatInputGuardService {
 			"(?:그리고|그런데|근데|또|그다음에)[\\p{Zs}\\t]+");
 	private static final Pattern CONVERSATIONAL_BOUNDARY = Pattern.compile(
 			REQUEST_ENDING.pattern() + "(?<gap>[\\p{Zs}\\t]+)(?:" + LEADING_CONNECTOR.pattern() + ")?(?=\\S)");
-	private static final Pattern LEADING_ADDRESS = Pattern.compile(
-			"(?<address>[^\\s.!?;。！？,，]+[야아])[,，]?[\\p{Zs}\\t]+(?=\\S)");
 	private static final Pattern DEPENDENT_REQUEST = Pattern.compile(
 			"(?:그\\s*(?:거|것|내용|정보|조건|대신)|이\\s*(?:것|내용)|위\\s*(?:내용|정보)|앞(?:의|에서)"
 					+ "|그대로|대신|그래서|그러면|하지만|라고|라는|주(?:지|면|는)|줘도)");
@@ -55,37 +53,16 @@ public class ChatInputGuardService {
 	private static final int TEXT_STYLE = 0xFE0E;
 	private static final int KEYCAP = 0x20E3;
 
-	/** 독립된 요청 중 차단된 요청만 제거하며, 경계를 걸쳐 조합된 공격도 기존 검사로 다시 확인합니다. */
+	/** 문장 경계는 검사에만 쓰고 한 요청이라도 탐지되면 질문 전체를 거절합니다. */
 	public String prepareQuestion(String question) {
-		List<String> requests = new ArrayList<>();
-		String previousRequest = null;
-		GlobalException detection = null;
-		for (String candidate : prepareCandidates(question)) {
-			for (String request : splitForbiddenAddress(candidate)) {
-				try {
-					validateRequest(request, previousRequest);
-					requests.add(request);
-					previousRequest = request;
-				} catch (GlobalException exception) {
-					if (!isInputDetection(exception)) {
-						throw exception;
-					}
-					// 원인이 여러 개여도 처음 탐지한 기존 오류를 반환합니다.
-					if (detection == null) {
-						detection = exception;
-					}
-					// 제거된 요청을 건너뛰어 오래된 기기 문맥을 이어 붙이지 않습니다.
-					previousRequest = null;
-				}
-			}
+		List<String> requests = prepareCandidates(question);
+		if (requests.isEmpty()) throw new ChatException(ChatErrorCode.NO_USABLE_QUESTION);
+		String previous = null;
+		for (String request : requests) {
+			validateRequest(request, previous);
+			previous = request;
 		}
-		if (requests.isEmpty()) {
-			if (detection != null) {
-				throw detection;
-			}
-			throw new ChatException(ChatErrorCode.NO_USABLE_QUESTION);
-		}
-		removeCombinedAttacks(requests);
+		validateCombinedRequests(requests);
 		return String.join("\n", requests);
 	}
 
@@ -99,73 +76,13 @@ public class ChatInputGuardService {
 			try {
 				prepared.add(new ConversationTurn(prepareQuestion(turn.question()), turn.answer()));
 			} catch (GlobalException exception) {
-				// 탐지된 요청만 있는 턴은 답변과 함께 제외하며, 검사 기능의 다른 오류는 숨기지 않습니다.
+				// 탐지된 요청을 포함한 턴 전체를 답변과 함께 제외하며, 검사 기능의 다른 오류는 숨기지 않습니다.
 				if (!isInputDetection(exception) && exception.getErrorCode() != ChatErrorCode.NO_USABLE_QUESTION) {
 					throw exception;
 				}
 			}
 		}
 		return List.copyOf(prepared);
-	}
-
-	/** 합쳐야 탐지되는 공격의 구성 요청만 제거하고, 남은 정상 요청을 다시 검사합니다. */
-	private void removeCombinedAttacks(List<String> requests) {
-		while (!requests.isEmpty()) {
-			try {
-				validateCombinedRequests(requests);
-				return;
-			} catch (GlobalException exception) {
-				if (!isInputDetection(exception)) {
-					throw exception;
-				}
-				List<Integer> attackIndexes = new ArrayList<>();
-				for (int index = 0; index < requests.size(); index++) {
-					attackIndexes.add(index);
-				}
-				// 큰 묶음부터 제외해 보며, 공격 탐지에 필요하지 않은 정상 요청은 보존합니다.
-				int partitions = 2;
-				while (attackIndexes.size() > 1) {
-					int partitionSize = (attackIndexes.size() + partitions - 1) / partitions;
-					boolean reduced = false;
-					for (int start = 0; start < attackIndexes.size(); start += partitionSize) {
-						List<Integer> candidateIndexes = new ArrayList<>(attackIndexes);
-						candidateIndexes.subList(start, Math.min(start + partitionSize, attackIndexes.size())).clear();
-						if (!candidateIndexes.isEmpty()
-								&& !isAllowedCombinedRequests(candidateIndexes.stream().map(requests::get).toList())) {
-							attackIndexes = candidateIndexes;
-							partitions = Math.max(2, partitions - 1);
-							reduced = true;
-							break;
-						}
-					}
-					if (!reduced) {
-						if (partitions >= attackIndexes.size()) {
-							break;
-						}
-						partitions = Math.min(attackIndexes.size(), partitions * 2);
-					}
-				}
-				if (attackIndexes.size() == requests.size()) {
-					// 정상 요청이 없으면 기존 탐지 오류로 종료하며 공격 조각은 전달하지 않습니다.
-					throw exception;
-				}
-				for (int index = attackIndexes.size() - 1; index >= 0; index--) {
-					requests.remove(attackIndexes.get(index).intValue());
-				}
-			}
-		}
-	}
-
-	private boolean isAllowedCombinedRequests(List<String> requests) {
-		try {
-			validateCombinedRequests(requests);
-			return true;
-		} catch (GlobalException exception) {
-			if (isInputDetection(exception)) {
-				return false;
-			}
-			throw exception;
-		}
 	}
 
 	private void validateCombinedRequests(List<String> requests) {
@@ -178,28 +95,7 @@ public class ChatInputGuardService {
 				|| exception.getErrorCode() == ChatErrorCode.PROMPT_INJECTION_DETECTED;
 	}
 
-	/** 등록된 금칙어를 포함한 독립 호칭과 그 뒤의 독립 요청만 나눕니다. 일반 문장 중간의 단어는 지우지 않습니다. */
-	private List<String> splitForbiddenAddress(String request) {
-		Matcher connector = LEADING_CONNECTOR.matcher(request);
-		int start = connector.lookingAt() ? connector.end() : 0;
-		Matcher address = LEADING_ADDRESS.matcher(request).region(start, request.length());
-		TextProtection protection = protectContent(request);
-		if (!address.lookingAt() || protection.protectedPositions()[start]
-				|| !hasIndependentRequest(request, address.end(), protection)) {
-			return List.of(request);
-		}
-		try {
-			forbiddenWordFilterService.validateForbiddenWord(address.group("address"));
-		} catch (GlobalException exception) {
-			if (exception.getErrorCode() == ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED) {
-				return List.of(request.substring(start, address.end()).strip(),
-						request.substring(0, start) + request.substring(address.end()));
-			}
-			throw exception;
-		}
-		return List.of(request);
-	}
-
+	/** 정리된 요청을 기존 금칙어·주입 검사로 확인합니다. */
 	private void validateRequest(String request, String previousRequest) {
 		forbiddenWordFilterService.validateForbiddenWord(request);
 		if (previousRequest == null) {

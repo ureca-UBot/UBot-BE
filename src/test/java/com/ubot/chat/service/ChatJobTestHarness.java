@@ -28,6 +28,7 @@ import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.job.worker.ChatWorkerProperties;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
+import com.ubot.conversation.repository.ConversationRepository;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -57,6 +58,7 @@ final class ChatJobTestHarness {
 	final QuestionLogRepository questionLogRepository = mock(QuestionLogRepository.class);
 	final ChatJobStream stream = mock(ChatJobStream.class);
 	final ChatJobResultStore resultStore = mock(ChatJobResultStore.class);
+	final ConversationRepository conversationRepository = mock(ConversationRepository.class);
 	final List<ChatJob> jobs = new ArrayList<>();
 	// 읽힘 여부와 무관하게 발행된 메시지 전부
 	final List<ChatJobMessage> published = new ArrayList<>();
@@ -86,8 +88,9 @@ final class ChatJobTestHarness {
 		submissionService = new ChatSubmissionService(jobRepository, stream, transactionManager);
 		completionService = new ChatJobCompletionService(
 				jobRepository, attemptRepository, attemptsService, unanswered, transactionManager);
+		when(conversationRepository.existsByIdAndDeletedAtIsNull(anyLong())).thenReturn(true);
 		queryService = new ChatJobQueryService(
-				jobRepository, attemptRepository, questionLogRepository, attemptsService, resultStore);
+				jobRepository, attemptRepository, questionLogRepository, attemptsService, resultStore, conversationRepository);
 		worker = new ChatJobWorker(stream, resultStore, queueRepository, jobRepository, completionService,
 				new ChatJobProcessor(processor), attemptRepository, WORKER_PROPERTIES);
 	}

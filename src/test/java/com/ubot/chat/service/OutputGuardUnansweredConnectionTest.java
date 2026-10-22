@@ -47,7 +47,7 @@ class OutputGuardUnansweredConnectionTest {
     @BeforeEach void setUp() {
         var guard = output();
         var input = input();
-        ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard);
+        ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard, org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class));
         processor = new ChatAnswerProcessor(retrieval, ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), input, new FaqGapCandidateSelector(input, guard), profiles);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", .75);

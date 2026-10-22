@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "BLOCK",
+        "REVIEW"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "SAFE",
+        "INJECTION",
+        "FALSE_CLAIM",
+        "PRIVACY",
+        "ABUSE",
+        "HARM",
+        "CONTENT_ACCESS",
+        "UNCERTAIN"
+      ]
+    }
+  },
+  "required": [
+    "decision",
+    "reason"
+  ],
+  "additionalProperties": false
+}

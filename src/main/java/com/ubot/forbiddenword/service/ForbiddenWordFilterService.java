@@ -39,6 +39,11 @@ public class ForbiddenWordFilterService {
 	// 갱신 시 새 Set으로 통째로 교체하므로 읽는 쪽은 락 없이 참조만 사용합니다.
 	private volatile Set<String> activeForbiddenWords = Set.of();
 
+	/** AI 검사도 DB를 다시 조회하지 않고 코드 검사와 같은 불변 캐시를 사용합니다. */
+	public java.util.List<String> getActiveForbiddenWords() {
+		return activeForbiddenWords.stream().sorted().toList();
+	}
+
 	@EventListener(ApplicationReadyEvent.class)
 	public void initializeForbiddenWordCache() {
 		refreshForbiddenWordCache();

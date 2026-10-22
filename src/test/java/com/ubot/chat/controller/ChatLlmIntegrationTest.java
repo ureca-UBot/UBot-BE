@@ -1,5 +1,8 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
@@ -10,6 +13,7 @@ import com.ubot.chat.job.dto.ChatRequestContext;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.repository.ChatJobQueueRepository;
 import com.ubot.chat.job.repository.ChatJobRepository;
+import com.ubot.chat.job.service.ChatSubmissionService.SubmissionType;
 import com.ubot.chat.job.stream.ChatJobMessage;
 import com.ubot.chat.job.stream.ChatJobStream;
 import com.ubot.chat.job.worker.ChatJobWorker;
@@ -83,6 +87,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ChatLlmIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
 	@Autowired MockMvc mvc;
 	@Autowired ChatService service;
 	@Autowired ChatJobWorker worker;
@@ -115,6 +121,7 @@ class ChatLlmIntegrationTest {
 	ChatJobTestFlow flow;
 
 	@BeforeEach void setup() {
+        AiGuardTestSupport.allow(guardModel);
 		FaqSearchMockSupport.bridgeSearch(vector);
 		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);
@@ -707,7 +714,7 @@ class ChatLlmIntegrationTest {
 	void terminalFailuresClearRequestContext(String failure) {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		long id = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
+		long id = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
 				.response().jobId();
 		LocalDateTime started = LocalDateTime.now().minusHours(1).truncatedTo(ChronoUnit.MICROS);
 		if (failure.equals("queue-expiry")) {
@@ -729,7 +736,7 @@ class ChatLlmIntegrationTest {
 	@Test void rolledBackCompletionPreservesContextForRecovery() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		long id = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
+		long id = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
 				.response().jobId();
 		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
 		new org.springframework.transaction.support.TransactionTemplate(transactions).executeWithoutResult(status -> {
@@ -748,7 +755,7 @@ class ChatLlmIntegrationTest {
 	@Test void redisLossRecoveryPreservesCoordinatesAndRegionFromDatabase() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		var submitted = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context);
+		var submitted = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context);
 		long id = submitted.response().jobId();
 		assertThat(jobs.findById(id).orElseThrow().getRequestContext()).isEqualTo(context);
 		redis.delete(ChatJobStream.STREAM_KEY);
@@ -764,10 +771,10 @@ class ChatLlmIntegrationTest {
 	@Test void queuedJobIsRecoveredWhenStreamIsLostButMarksRemain() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(null, null, com.ubot.ranking.enums.RegionSido.SEOUL);
-		long lost = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "잃어버린 질문"), context)
+		long lost = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "잃어버린 질문"), context)
 				.response().jobId();
 		redis.delete(ChatJobStream.STREAM_KEY);
-		long fresh = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "새 질문"), context)
+		long fresh = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "새 질문"), context)
 				.response().jobId();
 		jdbc.update("update chat_jobs set created_at = CURRENT_TIMESTAMP - interval '1 minute' where job_id = ?", lost);
 
@@ -848,7 +855,7 @@ class ChatLlmIntegrationTest {
 	@Test void staleOwnerCannotOverwriteOrFailTakenOverJob() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		var submitted = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "질문"), context);
+		var submitted = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "질문"), context);
 		long id = submitted.response().jobId();
 		LocalDateTime old = LocalDateTime.now().minusHours(1).truncatedTo(ChronoUnit.MICROS);
 		jobQueue.claim(id, old);

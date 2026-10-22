@@ -8,7 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -211,7 +211,7 @@ abstract class LlmClientContractTest {
 	}
 
 	private LlmRequestDto storeQuestion() {
-		var registry = new AiToolRegistry(
+		var registry = AiToolFixtures.registry(
 				new StoreTools(new NearbyStoreSearcher(storeService, 3.0, 5), locationService));
 		return new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, "시스템"),

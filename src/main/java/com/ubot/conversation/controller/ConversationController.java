@@ -11,8 +11,10 @@ import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,5 +42,14 @@ public class ConversationController {
 			@AuthenticationPrincipal CustomUserDetails userDetails
 	){
 		return ApiResponse.success(conversationService.getConversationMessageList(userDetails.getUserId(), conversationId));
+	}
+
+	@DeleteMapping("/{conversationId}")
+	public ResponseEntity<Void> deleteConversation(
+			@PathVariable("conversationId") UUID conversationId,
+			@AuthenticationPrincipal CustomUserDetails userDetails
+	) {
+		conversationService.deleteConversation(userDetails.getUserId(), conversationId);
+		return ResponseEntity.noContent().build();
 	}
 }

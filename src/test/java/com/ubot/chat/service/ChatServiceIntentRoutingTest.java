@@ -15,9 +15,12 @@ import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.service.AiService;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.billing.dto.response.BillingRecordResponseDto;
+import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
@@ -28,6 +31,8 @@ import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ranking.enums.RegionSido;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -153,6 +158,21 @@ class ChatServiceIntentRoutingTest {
 		ChatJobStatusResponseDto response = completeChat();
 
 		assertThat(response.answer()).isEqualTo("답변");
+		assertThat(response.store()).isNull();
+		assertThat(response.userData()).isNull();
+	}
+
+	@Test
+	@DisplayName("답변에 쓰인 가입 정보 카드를 성공 결과의 userData에 담는다")
+	void returnsUserDataCardsInResponse() {
+		var userData = new UserDataCards(List.of(), List.of(), List.of(UserDataCards.BillingCard.of("010-****-5678",
+				new BillingRecordResponseDto(1L, YearMonth.of(2026, 10), 75000, 3000, 0, 0, 0, 78000,
+						LocalDate.of(2026, 10, 25), PaymentStatus.UNPAID, 0, null, null))));
+		when(ai.generateAnswer(any(AnswerMaterials.class))).thenReturn(new AiAnswer("답변", null, false, null, userData));
+
+		ChatJobStatusResponseDto response = completeChat();
+
+		assertThat(response.userData()).isEqualTo(userData);
 		assertThat(response.store()).isNull();
 	}
 

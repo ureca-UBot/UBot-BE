@@ -2,7 +2,9 @@ package com.ubot.faq.service;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
@@ -13,6 +15,8 @@ import com.ubot.faq.enums.FaqVectorType;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.repository.FaqVectorRepository;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -22,15 +26,28 @@ public class FaqVectorService {
     private final EmbeddingService embeddingService;
     private final EmbeddingProfileService embeddingProfileService;
     private final FaqVectorRepository faqVectorRepository;
+    // 지표를 보지 않는 테스트는 전역 레지스트리를 씀. 등록된 저장소가 없으면 기록하지 않음
+    private final MeterRegistry metrics;
 
     public FaqVectorService(
             EmbeddingService embeddingService,
             EmbeddingProfileService embeddingProfileService,
             FaqVectorRepository faqVectorRepository
     ) {
+        this(embeddingService, embeddingProfileService, faqVectorRepository, Metrics.globalRegistry);
+    }
+
+    @Autowired
+    public FaqVectorService(
+            EmbeddingService embeddingService,
+            EmbeddingProfileService embeddingProfileService,
+            FaqVectorRepository faqVectorRepository,
+            MeterRegistry metrics
+    ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.faqVectorRepository = faqVectorRepository;
+        this.metrics = metrics;
     }
 
     public List<FaqSearchResponseDto> getSimilarList(
@@ -53,11 +70,15 @@ public class FaqVectorService {
     public SearchResult searchWithVector(String userQuestion, Intent intent, int topK) {
         PGvector queryVector = embeddingService.embedText(userQuestion);
         Long profileId = embeddingProfileService.getCurrentProfileId();
+        long searchStartedAt = System.nanoTime();
         List<FaqSearchResponseDto> faqs = intent == null
                 ? faqVectorRepository.getSimilarList(
                         queryVector, profileId, FaqVectorType.QUESTION, topK)
                 : faqVectorRepository.getSimilarListByIntent(
                         queryVector, profileId, FaqVectorType.QUESTION, intent, topK);
+        // DB 검색 시간만 셈. 질문 임베딩 시간은 embedding.requests에 따로 남음
+        metrics.timer("faq.vector.search", "scope", intent == null ? "all" : "intent")
+                .record(System.nanoTime() - searchStartedAt, TimeUnit.NANOSECONDS);
         return new SearchResult(faqs, queryVector);
     }
 

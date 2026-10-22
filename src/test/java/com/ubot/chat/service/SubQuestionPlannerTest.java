@@ -55,8 +55,7 @@ class SubQuestionPlannerTest {
 	}
 
 	private SubQuestionPlanner planner(boolean enabled) {
-		return new SubQuestionPlanner(enabled, turns, prompts, llm, guard, router, detector,
-				ChatTestFixtures.passthroughInputGuard());
+		return new SubQuestionPlanner(enabled, turns, ChatTestFixtures.inputAiGuard(prompts, llm), guard, router, detector, ChatTestFixtures.passthroughInputGuard());
 	}
 
 	private static SubQuestionGuard.Result result(List<String> subQuestions, boolean fallback,
@@ -177,7 +176,7 @@ class SubQuestionPlannerTest {
 
 	@ParameterizedTest
 	@ValueSource(strings = {"timeout", "invalid", "db"})
-	@DisplayName("판정 LLM 호출·응답 해석·이전 대화 조회에 실패하면 원문 하나로 진행한다")
+	@DisplayName("AI 판정이나 대화 조회 실패를 원문 검색으로 대체하지 않는다")
 	void fallsBackToOriginalOnFailure(String failure) {
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		switch (failure) {
@@ -186,10 +185,14 @@ class SubQuestionPlannerTest {
 			default -> when(turns.findPreviousTurns(anyLong(), anyInt())).thenThrow(new QueryTimeoutException("db"));
 		}
 
-		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "유심 재발급"));
-
-		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
-		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM_FAILED);
+		com.ubot.common.ErrorCode expected = switch (failure) {
+			case "timeout" -> LlmErrorCode.LLM_TIMEOUT;
+			case "invalid" -> LlmErrorCode.LLM_RESPONSE_INVALID;
+			default -> com.ubot.chat.exception.ChatErrorCode.STORAGE_UNAVAILABLE;
+		};
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> planner(true).plan(attempt(10L, 7L, "유심 재발급")))
+				.isInstanceOfSatisfying(com.ubot.common.GlobalException.class,
+					error -> assertThat(error.getErrorCode()).isEqualTo(expected));
 	}
 
 	@Test
@@ -245,8 +248,7 @@ class SubQuestionPlannerTest {
 	void keepsPhasesMovingForwardAcrossJudgment(boolean judgeInitially) {
 		var client = mock(LlmClient.class);
 		var realLlm = new LlmService(client, 1);
-		var realPlanner = new SubQuestionPlanner(true, turns, prompts, realLlm, guard, router, detector,
-				ChatTestFixtures.passthroughInputGuard());
+		var realPlanner = new SubQuestionPlanner(true, turns, ChatTestFixtures.inputAiGuard(prompts, realLlm), guard, router, detector, ChatTestFixtures.passthroughInputGuard());
 		var attempt = attempt(10L, null, "로밍 신청과 요금 알려줘");
 		var judgmentRequest = new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.USER, "하위 질문을 정리하세요.")));

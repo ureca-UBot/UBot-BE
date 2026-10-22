@@ -2,6 +2,7 @@ package com.ubot.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -15,11 +16,17 @@ import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
+import com.ubot.ai.dto.UserDataCards;
+import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
+import com.ubot.ai.tool.UserDataRecorder;
+import com.ubot.ai.tool.UserDataTools;
+import com.ubot.billing.dto.response.BillingRecordResponseDto;
+import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.forbiddenword.entity.ForbiddenWord;
@@ -38,6 +45,13 @@ import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.store.service.StoreService;
+import com.ubot.subscription.dto.response.SubscriptionResponseDto;
+import com.ubot.subscription.enums.SimStatus;
+import com.ubot.subscription.enums.SimType;
+import com.ubot.subscription.enums.SubscriptionStatus;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,14 +80,14 @@ class AiServiceTest {
 
     @BeforeEach
     void setUp() {
-        var registry = new AiToolRegistry(
+        var registry = AiToolFixtures.registry(
                 new StoreTools(new NearbyStoreSearcher(mock(StoreService.class), 3.0, 5), mock(LocationService.class)));
         var words = mock(ForbiddenWordRepository.class);
         when(words.findAllByStatus(ForbiddenWordStatus.ACTIVE))
                 .thenReturn(List.of(ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
         var wordFilter = new ForbiddenWordFilterService(words);
         wordFilter.refreshForbiddenWordCache();
-        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter));
+        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter), org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class));
     }
 
     @Test
@@ -139,7 +153,54 @@ class AiServiceTest {
                 .containsEntry(StoreTools.QUESTION, "근처 매장 알려줘")
                 .hasEntrySatisfying(StoreTools.RECORDER,
                         recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
-                .hasSize(2);
+                .hasEntrySatisfying(UserDataTools.RECORDER,
+                        recorder -> assertThat(recorder).isInstanceOf(UserDataRecorder.class))
+                .hasSize(3);
+    }
+
+    @Test
+    void 가입_정보_도구가_켜지면_로그인_사용자_ID를_toolContext로만_전달한다() {
+        var materials = AnswerMaterials.builder("지난달 요금").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L).build();
+        when(promptService.createPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolCallbacks())
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactlyInAnyOrder("getUsageByMonth", "getBillingByMonth");
+        assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.USER_ID, 7L)
+                // 요약이 없으면(미리 조회 실패) 도구가 가장 최근 달도 직접 돌려주도록 표시하지 않습니다.
+                .doesNotContainKey(UserDataTools.SUMMARY_PROVIDED);
+    }
+
+    @Test
+    void 가입_정보_요약이_프롬프트에_들어갔으면_toolContext에_표시한다() {
+        var materials = AnswerMaterials.builder("지난달 요금").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolContext()).containsEntry(UserDataTools.SUMMARY_PROVIDED, true);
+    }
+
+    @Test
+    void 비회원이면_toolContext에_사용자_ID를_넣지_않는다() {
+        var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).userId(null).build();
+        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
+
+        aiService.generateAnswer(materials);
+
+        ArgumentCaptor<LlmRequestDto> request = ArgumentCaptor.forClass(LlmRequestDto.class);
+        verify(llmService).generateAnswer(request.capture());
+        assertThat(request.getValue().toolContext()).doesNotContainKey(UserDataTools.USER_ID);
     }
 
     @Test
@@ -195,6 +256,97 @@ class AiServiceTest {
 
         assertThat(answer.answer()).isEqualTo("근처 매장을 지도에 표시했어요.");
         assertThat(answer.storeMap()).isSameAs(storeMap);
+    }
+
+    @Test
+    void 도구가_조회한_청구서와_답변에_쓰인_요약_청구서를_중복_없이_합쳐_카드로_반환한다() {
+        var materials = AnswerMaterials.builder("지난달이랑 이번 달 요금 차이").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("지난달이랑 이번 달 요금 차이", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 실제 도구 실행 대신, 도구가 9월 청구서와 (이미 요약에 있는) 10월 청구서를 recorder에 남기는 상황을 흉내 냅니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 10)));
+            return new LlmResponseDto("{\"answer\":\"2026년 10월 청구서와 9월 청구서는 모두 78,000원으로 같습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData().billings())
+                .extracting(card -> card.billing().billingMonth(), UserDataCards.BillingCard::usageMonth)
+                .containsExactly(tuple(YearMonth.of(2026, 9), 8), tuple(YearMonth.of(2026, 10), 9));
+        assertThat(answer.userData().plans()).isEmpty();
+    }
+
+    @Test
+    void 도구로_조회했지만_답변에_쓰지_않은_달은_카드로_붙이지_않는다() {
+        var materials = AnswerMaterials.builder("8월이랑 9월 요금 비교해줘").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("8월이랑 9월 요금 비교해줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 모델이 7월까지 더 조회했지만 답변에는 8월·9월만 쓴 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 7)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 8)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            return new LlmResponseDto("{\"answer\":\"8월 청구서와 9월 청구서는 모두 78,000원으로 같습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactly(YearMonth.of(2026, 8), YearMonth.of(2026, 9));
+    }
+
+    @Test
+    void 도구를_부르지_않으면_답변에_쓰인_요약_기록만_카드로_반환한다() {
+        var materials = AnswerMaterials.builder("이번 달 요금 얼마야?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("이번 달 요금 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"이번 달 요금은 2026년 10월 청구서 기준 78,000원입니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData().billings()).singleElement().satisfies(card -> {
+            assertThat(card.phoneNumber()).isEqualTo("010-****-5678");
+            assertThat(card.billing().billingMonth()).isEqualTo(YearMonth.of(2026, 10));
+        });
+    }
+
+    @Test
+    void 답변에_쓰인_가입_정보가_없으면_카드는_없다() {
+        var materials = AnswerMaterials.builder("결합 상품 있어?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("결합 상품 있어?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("결합 상품은 없습니다."));
+
+        assertThat(aiService.generateAnswer(materials).userData()).isNull();
+    }
+
+    @Test
+    void 모델이_답을_보류하면_조회한_기록이_있어도_카드를_붙이지_않고_보류_상태는_유지한다() {
+        var materials = AnswerMaterials.builder("요금제 변경할 수 있어?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createPrompt("요금제 변경할 수 있어?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 도구가 청구서를 남기고, 답변에도 요약 청구서가 나오지만 모델은 답을 보류한 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            return new LlmResponseDto("{\"answer\":\"2026년 10월 청구서만으로는 요금제 변경 가능 여부를 확인할 수 없습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.userData()).isNull();
+        assertThat(answer.abstained()).isTrue();
     }
 
     @Test
@@ -255,14 +407,31 @@ class AiServiceTest {
         verifyNoInteractions(llmService);
     }
 
+    /** 회선 하나에 최근 청구서만 있는 가입 정보입니다. */
+    private static UserDataSummary summaryWithLatestBilling(YearMonth month) {
+        var subscription = new SubscriptionResponseDto(1L, "010-1234-5678", SubscriptionStatus.ACTIVE,
+                LocalDateTime.of(2024, 3, 2, 10, 0), null, 1L, "5G 스탠다드", SimType.USIM, "********1234",
+                SimStatus.ACTIVE, LocalDateTime.of(2024, 3, 2, 10, 0), null);
+        return new UserDataSummary(LocalDate.of(2026, 10, 12), new UserDataSummary.Profile("홍길동", 30, "서울", null),
+                List.of(new UserDataSummary.SubscriptionSummary(subscription, null, null, billing(month), List.of(), null,
+                        List.of(), List.of(), List.of())));
+    }
+
+    private static BillingRecordResponseDto billing(YearMonth month) {
+        return new BillingRecordResponseDto(1L, month, 75000, 3000, 0, 0, 0, 78000, month.atDay(25),
+                PaymentStatus.UNPAID, 0, null, null);
+    }
+
     @Test
-    void JSON_파싱_후_문제_문장을_제거하고_남은_본문만_반환한다() {
+    void JSON_파싱_후_문제_내용이_있으면_답변_전체를_차단한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
         when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요. 바보입니다.\",\"evidence_ids\":\"123\",\"status\":\"CLARIFY\"}"));
 
-        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("신분증을 지참해주세요.");
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
         verify(llmService).generateAnswer(prompt);
     }
 
@@ -296,14 +465,16 @@ class AiServiceTest {
     }
 
     @Test
-    void 실제_제공한_FAQ로_수치_충돌을_확인해_문제_문장을_제거한다() {
+    void 실제_제공한_FAQ와_수치가_충돌하면_답변_전체를_차단한다() {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
         when(promptService.createPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\",\"evidence_ids\":[\"1\"]}"));
 
-        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("고객센터에서 자세한 조건을 확인해주세요.");
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
     }
 
     @Test

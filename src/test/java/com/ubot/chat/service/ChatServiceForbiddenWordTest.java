@@ -184,21 +184,15 @@ class ChatServiceForbiddenWordTest {
 
 	@ParameterizedTest
 	@ValueSource(booleans = {false, true})
-	@DisplayName("독립된 금지어 요청을 제거해도 남은 정상 질문은 시작하고 원문은 기록에 전달한다")
-	void startsRemainingQuestionWhileKeepingOriginalWithForbiddenRequest(boolean guest) {
-		ChatService actualService = createServiceWithActiveForbiddenWord();
-		String original = "안녕 😊 바보야. 요금제 알려줘";
-		AnswerAttemptsHistory attempt = mock(AnswerAttemptsHistory.class);
-		if (guest) {
-			when(attempts.createGuestAnswerAttempt(7L, original)).thenReturn(attempt);
-			actualService.createGuestChat(7L, original, null, null);
-			verify(attempts).createGuestAnswerAttempt(7L, original);
-		} else {
-			when(attempts.createAnswerAttempt(1L, null, original)).thenReturn(attempt);
-			actualService.createChat(1L, null, original, null, null);
-			verify(attempts).createAnswerAttempt(1L, null, original);
-		}
-		assertThat(harness.jobs).hasSize(1);
-		verifyNoInteractions(vector, ai);
-	}
+	@DisplayName("금지어와 정상 질문이 섞여도 접수 전에 전체 차단한다")
+	void rejectsMixedForbiddenQuestionBeforeStarting(boolean guest) {
+        ChatService actualService = createServiceWithActiveForbiddenWord();
+        String original = "안녕 😊 바보야. 요금제 알려줘";
+        assertThatThrownBy(() -> {
+            if (guest) actualService.createGuestChat(7L, original, null, null);
+            else actualService.createChat(1L, null, original, null, null);
+        }).isInstanceOf(ForbiddenWordException.class);
+        assertThat(harness.jobs).isEmpty();
+        verifyNoInteractions(attempts, vector, ai);
+    }
 }

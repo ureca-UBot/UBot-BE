@@ -62,7 +62,8 @@ public class ChatContextCollector {
 		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = commonFaqs.stream()
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
 
-		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question());
+		// 사용자 ID는 핸들러가 아니라 수집기가 서버 문맥에서 넣습니다.
+		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question()).userId(context.userId());
 		resultsByIntent.forEach((intent, results) -> handlers.get(intent).contribute(context, results, materials));
 
 		// 핸들러가 넣은 FAQ만 하위 질문별로 남깁니다. 찾은 FAQ가 없는 하위 질문도 남겨 LLM이 그 부분을 답할 수 없다고 알리게 합니다.

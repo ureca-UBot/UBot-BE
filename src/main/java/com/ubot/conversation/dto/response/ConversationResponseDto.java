@@ -7,9 +7,12 @@ import java.util.UUID;
 public record ConversationResponseDto(
 		UUID conversationId,
 		String title,
-		LocalDateTime lastQuestionAt
+		LocalDateTime lastQuestionAt,
+		boolean hasCounsel,
+		String preview
 ) {
 	public static ConversationResponseDto from(ConversationSummary summary){
-		return new ConversationResponseDto(summary.getPublicId(), summary.getTitle(), summary.getLastQuestionAt());
+		return new ConversationResponseDto(summary.getPublicId(), summary.getTitle(), summary.getLastQuestionAt(),
+				summary.getHasCounsel(), summary.getPreview());
 	}
 }
