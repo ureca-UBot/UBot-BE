@@ -15,6 +15,7 @@ import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -27,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -188,6 +190,45 @@ class LlmServiceTest {
     }
 
     @Test
+    @DisplayName("LLM 호출 슬롯을 대기 시간 안에 얻지 못하면 요청 과다 오류를 반환한다")
+    void judgmentReturnsBusyWhenPermitWaitTimeoutExpires() throws Exception {
+        var limited = new LlmService(llmClient, 1);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "AI 검토")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        when(llmClient.generateAnswer(request)).thenAnswer(invocation -> {
+            calls.incrementAndGet();
+            firstStarted.countDown();
+            releaseFirst.await(5, TimeUnit.SECONDS);
+            return new LlmResponseDto("검토 결과");
+        });
+
+        var first = CompletableFuture.supplyAsync(() -> limited.generateJudgment(request));
+        try {
+            assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> limited.generateJudgment(request, 10))
+                    .isInstanceOfSatisfying(LlmException.class,
+                            exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_BUSY));
+            assertThat(calls.get()).isEqualTo(1);
+        } finally {
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("LLM 호출 슬롯 대기 시간이 0 이하면 모델을 호출하기 전에 거절한다")
+    void rejectsNonPositivePermitWaitTimeoutBeforeCallingModel() {
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "AI 검토")));
+
+        assertThatThrownBy(() -> llmService.generateJudgment(request, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(llmClient);
+    }
+
+    @Test
     void cancelledWhileWaitingDoesNotCallModel() throws Exception {
         var limited = new LlmService(llmClient, 1);
         var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
@@ -259,5 +300,100 @@ class LlmServiceTest {
         } finally {
             releaseFirst.countDown();
         }
+    }
+
+    @Test
+    void recordsRequestTimeByKindAndOutcome() {
+        var registry = new SimpleMeterRegistry();
+        var metered = new LlmService(llmClient, 2, registry);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
+        when(llmClient.generateAnswer(request))
+                .thenReturn(new LlmResponseDto("답변"))
+                .thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT))
+                .thenThrow(new LlmException(LlmErrorCode.LLM_SERVICE_UNAVAILABLE));
+
+        metered.generateAnswer(request);
+        assertThatThrownBy(() -> metered.generateJudgment(request)).isInstanceOf(LlmException.class);
+        assertThatThrownBy(() -> metered.generateAnswer(request)).isInstanceOf(LlmException.class);
+
+        assertThat(requests(registry, "answer", "success")).isEqualTo(1);
+        assertThat(requests(registry, "judgment", "timeout")).isEqualTo(1);
+        assertThat(requests(registry, "answer", "unavailable")).isEqualTo(1);
+        assertThat(registry.get("llm.permit.wait").timer().count()).isEqualTo(3);
+    }
+
+    @Test
+    void invalidRequestIsNotCountedAsModelCall() {
+        var registry = new SimpleMeterRegistry();
+        var metered = new LlmService(llmClient, 1, registry);
+
+        assertThatThrownBy(() -> metered.generateAnswer(new LlmRequestDto(List.of())))
+                .isInstanceOf(LlmException.class);
+
+        assertThat(registry.find("llm.requests").timer()).isNull();
+    }
+
+    @Test
+    void concurrencyGaugesShowCallsInUseAndWaiting() throws Exception {
+        var registry = new SimpleMeterRegistry();
+        var metered = new LlmService(llmClient, 1, registry);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        when(llmClient.generateAnswer(request)).thenAnswer(call -> {
+            firstStarted.countDown();
+            releaseFirst.await(5, TimeUnit.SECONDS);
+            return new LlmResponseDto("답변");
+        });
+        try {
+            var first = CompletableFuture.supplyAsync(() -> metered.generateAnswer(request));
+            assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            var second = CompletableFuture.supplyAsync(() -> metered.generateAnswer(request));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (registry.get("llm.concurrency.waiting").gauge().value() < 1 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+
+            assertThat(registry.get("llm.concurrency.limit").gauge().value()).isEqualTo(1);
+            assertThat(registry.get("llm.concurrency.in.use").gauge().value()).isEqualTo(1);
+            assertThat(registry.get("llm.concurrency.waiting").gauge().value()).isEqualTo(1);
+
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+            assertThat(registry.get("llm.concurrency.in.use").gauge().value()).isZero();
+        } finally {
+            releaseFirst.countDown();
+        }
+    }
+
+    @Test
+    void permitWaitTimeoutIsCountedAsRejectedWithoutModelCall() throws Exception {
+        var registry = new SimpleMeterRegistry();
+        var metered = new LlmService(llmClient, 1, registry);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "AI 검토")));
+        var firstStarted = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        when(llmClient.generateAnswer(request)).thenAnswer(invocation -> {
+            firstStarted.countDown();
+            releaseFirst.await(5, TimeUnit.SECONDS);
+            return new LlmResponseDto("검토 결과");
+        });
+        var first = CompletableFuture.supplyAsync(() -> metered.generateJudgment(request));
+        try {
+            assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> metered.generateJudgment(request, 10)).isInstanceOf(LlmException.class);
+
+            assertThat(registry.get("llm.permit.rejected").counter().count()).isEqualTo(1);
+            assertThat(registry.find("llm.requests").tag("outcome", "error").timer()).isNull();
+        } finally {
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    private static double requests(SimpleMeterRegistry registry, String kind, String outcome) {
+        return registry.get("llm.requests").tag("kind", kind).tag("outcome", outcome).timer().count();
     }
 }

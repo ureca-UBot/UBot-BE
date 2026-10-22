@@ -1,0 +1,68 @@
+name: Alert Config
+
+# 알림 규칙 템플릿·렌더러·Alertmanager 설정을 Java 빌드와 따로 검사합니다.
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+
+env:
+  PROMETHEUS_IMAGE: prom/prometheus:v3.15.0
+  ALERTMANAGER_IMAGE: prom/alertmanager:v0.28.1
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Test renderer
+        run: bash tools/deploy/tests/render-alert-config-test.sh
+
+      - name: Shellcheck renderer
+        run: shellcheck tools/deploy/render-alert-config.sh tools/deploy/tests/render-alert-config-test.sh
+
+      # Discord만, Slack만, 둘 다인 Alertmanager 설정을 각각 렌더링해 검사합니다.
+      # 실제 Webhook 대신 형식만 맞는 주소를 씁니다. .generated는 Git에 올리지 않습니다.
+      - name: Check Alertmanager config for each channel
+        run: |
+          discord='ALERT_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/000000000000000000/ci-placeholder'
+          slack='ALERT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T00000000/B00000000/ci-placeholder'
+          check_channels() {
+            printf '%s\n' 'ALERTS_ENABLED=true' "$@" > "${RUNNER_TEMP}/alerts.env"
+            bash tools/deploy/render-alert-config.sh "${RUNNER_TEMP}/alerts.env"
+            docker run --rm \
+              -v "${PWD}/.generated/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+              -v "${PWD}/.generated/alertmanager/secrets:/run/secrets/ubot-alerts:ro" \
+              --entrypoint amtool "${ALERTMANAGER_IMAGE}" check-config /etc/alertmanager/alertmanager.yml
+          }
+          check_channels "${discord}"
+          check_channels "${slack}"
+          check_channels "${discord}" "${slack}"
+
+      - name: Check Prometheus rules
+        run: |
+          docker run --rm -v "${PWD}/.generated/prometheus:/rules:ro" --entrypoint promtool \
+            "${PROMETHEUS_IMAGE}" check rules /rules/ubot-alerts.yml
+
+      # Compose와 같은 경로로 마운트해 rule_files까지 함께 검사합니다.
+      - name: Check Prometheus config
+        run: |
+          docker run --rm \
+            -v "${PWD}/infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "${PWD}/.generated/prometheus:/etc/prometheus/rules:ro" \
+            --entrypoint promtool "${PROMETHEUS_IMAGE}" check config /etc/prometheus/prometheus.yml
+
+      - name: Check Compose config
+        run: docker compose --env-file .env.example --profile alerts config --quiet

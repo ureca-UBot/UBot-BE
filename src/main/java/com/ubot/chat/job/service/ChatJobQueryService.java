@@ -95,7 +95,7 @@ public class ChatJobQueryService {
 		return ChatJobStatusResponseDto.failed(job, attempt, attempt.getErrorCode(), retryable);
 	}
 
-	private boolean isOwner(AnswerAttemptsHistory attempt, Long userId, Optional<Long> guestConversationId) {
+	boolean isOwner(AnswerAttemptsHistory attempt, Long userId, Optional<Long> guestConversationId) {
 		boolean owner;
 		if (userId != null) {
 			owner = userId.equals(attempt.getUserId());

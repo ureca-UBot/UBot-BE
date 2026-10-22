@@ -69,9 +69,14 @@
 
 - `chat_worker_ready`: 소비 스레드와 복구 루프 상태
 - `chat_jobs_queued`, `chat_jobs_oldest_queued_seconds`: 대기 수·최장 대기 시간. 모든 워커가 같은 DB를 보므로 집계에는 `max`를 사용합니다.
-- `chat_worker_active`, `chat_worker_completed_total{status="failed"}`: 실행 수·실행 실패
-- `chat_worker_execution_seconds_*`, `chat_worker_timeouts_total`: 실행 시간·전체 실행 시간 초과
-- `chat_worker_reclaimed_total`, `chat_worker_queue_expired_total`, `chat_worker_discarded_total`: 회수·대기 만료·이전 실행의 폐기
+- `chat_worker_active`, `chat_worker_completed_total{status, code}`: 실행 수·결과. `code`는 실패 코드(성공은 `none`)
+- `chat_worker_execution_seconds_*`, `chat_worker_timeouts_total`: 실행 시간(histogram으로 p95 계산)·전체 실행 시간 초과
+- `chat_jobs_queue_wait_seconds_*`: 접수부터 선점까지 걸린 시간
+- `chat_worker_reclaimed_total{reason}`, `chat_worker_queue_expired_total`, `chat_worker_discarded_total`: 회수(heartbeat 끊김·ACK 지연)·대기 만료·이전 실행의 폐기
+- `chat_worker_terminated_total{reason}`: 전달 횟수 소진·메시지 없는 실행으로 실패 처리한 작업
+- `chat_worker_lease_lost_total`, `chat_worker_heartbeat_failures_total`: 다른 실행에 넘어가 멈춘 실행, heartbeat 갱신 오류
+
+LLM·검색·임베딩·DB·Redis 지표와 운영 개요 API 필드는 [운영 지표 Reference](../reference/metrics.md)를 참고하세요.
 
 조회는 1~2초 간격으로 시작하고 429·5xx·네트워크 오류에는 백오프를 적용합니다. Nginx 조회 전용 한도는 IP당 20회/초, burst 40입니다. 회원 폴링도 DB·Redis 인증 조회를 발생시키므로 워커 증설 시 DB 풀과 모델 서버 용량을 함께 점검합니다.
 

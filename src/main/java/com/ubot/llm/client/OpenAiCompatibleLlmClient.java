@@ -89,6 +89,9 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 					? completeWithTools(messages, request)
 					: complete(messages, List.of(), request.responseSchema());
 		} catch (RuntimeException exception) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new java.util.concurrent.CancellationException("LLM request cancelled");
+            }
 			if (exception instanceof java.util.concurrent.CancellationException cancelled) throw cancelled;
 			if (exception instanceof LlmException llmException) throw llmException;
 			throw translateException(exception);

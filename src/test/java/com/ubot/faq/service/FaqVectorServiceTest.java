@@ -234,6 +234,22 @@ class FaqVectorServiceTest {
                 );
     }
 
+    @Test
+    @DisplayName("DB 검색 시간만 검색 범위(전체·의도)별로 기록한다")
+    void recordsVectorSearchTimeByScope() {
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var metered = new FaqVectorService(embeddingService, embeddingProfileService, repository, registry);
+        when(embeddingService.embedText(anyString())).thenReturn(vector(0));
+        when(embeddingProfileService.getCurrentProfileId()).thenReturn(10L);
+
+        metered.getSimilarList("질문", 3);
+        metered.getSimilarListByIntent("질문", Intent.GENERAL, 3);
+        metered.getSimilarListByIntent("질문", Intent.GENERAL, 3);
+
+        assertThat(registry.get("faq.vector.search").tag("scope", "all").timer().count()).isEqualTo(1);
+        assertThat(registry.get("faq.vector.search").tag("scope", "intent").timer().count()).isEqualTo(2);
+    }
+
     private PGvector vector(int index) {
         float[] values = new float[1024];
         values[index] = 1.0f;
