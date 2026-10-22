@@ -9,7 +9,7 @@ import lombok.Builder;
 /**
  * 결합 그룹의 현재 상태. requiredLineCount는 결합 상품의 회선 수이고 null이면 2회선 이상이다.
  * discountAmount는 할인이 적용될 때 대표 회선에서 빠지는 금액이며, 적용되지 않으면 0이다.
- * 다른 사용자의 회선도 들어 있으므로 번호는 마스킹해서 보여 준다.
+ * 시드로 만든 기존 결합에는 다른 사용자의 회선이 있을 수 있어 번호는 마스킹해서 보여 준다.
  */
 @Builder
 public record BundleGroupResponseDto(

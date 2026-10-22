@@ -32,7 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * 결합 만들기·회선 추가·회선 빼기.
- * 가족 증명이나 동의 없이, 대표 회선 소유자가 전화번호로 다른 사람의 회선도 추가한다.
+ * 대표 회선 소유자가 전화번호로 본인 명의의 다른 회선만 추가한다. 다른 사람의 회선은 추가할 수 없다.
  * 한 회선은 결합 하나에만 들어간다(FAQ 1381, uq_subscription_bundles_active).
  * 결합 상품의 line_count가 회선 수 상한이고, 할인은 회선 수를 채웠을 때 대표 회선에만 적용한다.
  */
@@ -85,8 +85,8 @@ public class BundleGroupService {
 		if (members.size() >= maxLineCount(product)) {
 			throw new SubscriptionException(SubscriptionErrorCode.BUNDLE_GROUP_FULL);
 		}
-		// 없는 번호, 정지·해지 회선, 이미 결합된 회선을 같은 오류로 묶어 번호의 상태를 드러내지 않는다.
-		Subscription target = subscriptionRepository.findActiveByPhoneDigits(phoneNumber.replaceAll("\\D", ""))
+		// 본인 명의가 아닌 번호와 없는 번호를 같은 오류로 묶어 다른 사람 번호의 존재 여부를 드러내지 않는다.
+		Subscription target = subscriptionRepository.findActiveByUserIdAndPhoneDigits(userId, phoneNumber.replaceAll("\\D", ""))
 				.filter(found -> !subscriptionBundleRepository.existsActiveBySubscriptionId(found.getSubscriptionId()))
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_MEMBER_NOT_ADDABLE));
 		ProductWriteSupport.saveUnique(
@@ -129,6 +129,24 @@ public class BundleGroupService {
 		target.end(now);
 		log.info("결합에서 회선을 뺐습니다: 그룹ID={}, 회선ID={}", bundleGroupId, memberSubscriptionId);
 		return toResponse(group);
+	}
+
+	/**
+	 * 회선 해지에 따른 결합 정리. 대표 회선이면 결합 전체를 종료하고, 구성 회선이면 그 회선만 뺀다.
+	 * 호출하는 쪽이 회선을 잠근 상태여야 한다.
+	 */
+	public void leaveOnTermination(Subscription subscription, LocalDateTime now) {
+		subscriptionBundleRepository.findActiveBySubscriptionId(subscription.getSubscriptionId()).ifPresent(record -> {
+			BundleGroup group = record.getBundleGroup() == null ? null
+					: bundleGroupRepository.findActiveForUpdate(record.getBundleGroup().getBundleGroupId()).orElse(null);
+			if (group != null && group.isRepresentedBy(subscription.getSubscriptionId())) {
+				subscriptionBundleRepository.findActiveMembers(group.getBundleGroupId()).forEach(member -> member.end(now));
+				group.end(now);
+				log.info("대표 회선이 해지되어 결합을 종료했습니다: 그룹ID={}", group.getBundleGroupId());
+				return;
+			}
+			record.end(now);
+		});
 	}
 
 	/** 이용 중인 결합 기록의 그룹 정보. 그룹이 없거나 종료됐으면 null이다. */
@@ -196,7 +214,7 @@ public class BundleGroupService {
 		return subscription != null && subscription.getUser().getId().equals(userId);
 	}
 
-	// 다른 사용자의 회선도 응답에 들어가므로 끝 4자리만 남긴다. 010-1234-5678 → 010-****-5678
+	// 시드로 만든 기존 결합에는 다른 사용자의 회선이 있을 수 있어 끝 4자리만 남긴다. 010-1234-5678 → 010-****-5678
 	private String maskPhoneNumber(String phoneNumber) {
 		String digits = phoneNumber == null ? "" : phoneNumber.replaceAll("\\D", "");
 		if (digits.length() == 11) {

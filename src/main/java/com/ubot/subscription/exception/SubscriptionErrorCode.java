@@ -22,11 +22,14 @@ public enum SubscriptionErrorCode implements ErrorCode {
 	ROAMING_NOT_CANCELABLE(HttpStatus.CONFLICT, "SUB-010", "사용 시작 전인 로밍만 취소할 수 있습니다."),
 	ALREADY_IN_BUNDLE(HttpStatus.CONFLICT, "SUB-011", "이미 결합에 들어가 있는 회선입니다."),
 	BUNDLE_GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "SUB-012", "이용 중인 결합을 찾을 수 없습니다."),
-	BUNDLE_MEMBER_NOT_ADDABLE(HttpStatus.BAD_REQUEST, "SUB-013", "추가할 수 없는 번호입니다."),
+	BUNDLE_MEMBER_NOT_ADDABLE(HttpStatus.BAD_REQUEST, "SUB-013", "추가할 수 없는 번호입니다. 본인 명의로 이용 중이고 다른 결합에 들어 있지 않은 회선만 추가할 수 있습니다."),
 	BUNDLE_GROUP_FULL(HttpStatus.CONFLICT, "SUB-014", "이 결합에는 회선을 더 추가할 수 없습니다."),
 	BUNDLE_MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "SUB-015", "결합에서 뺄 회선을 찾을 수 없습니다."),
 	ADDON_INCLUDED_IN_PLAN(HttpStatus.CONFLICT, "SUB-016", "요금제에 포함된 부가서비스는 해지할 수 없습니다. 요금제를 바꾸면 함께 해지됩니다."),
-	ROAMING_PERIOD_OVERLAPPED(HttpStatus.CONFLICT, "SUB-017", "같은 기간에 예약하거나 이용 중인 로밍이 있습니다.");
+	ROAMING_PERIOD_OVERLAPPED(HttpStatus.CONFLICT, "SUB-017", "같은 기간에 예약하거나 이용 중인 로밍이 있습니다."),
+	PHONE_NUMBER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "SUB-018", "전화번호를 배정하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+	PHONE_NUMBER_IN_USE(HttpStatus.CONFLICT, "SUB-019", "이미 사용 중인 전화번호입니다. 다른 번호를 골라 주세요."),
+	SUBSCRIPTION_ALREADY_TERMINATED(HttpStatus.CONFLICT, "SUB-020", "이미 해지된 회선입니다.");
 
 	private final HttpStatus status;
 	private final String code;

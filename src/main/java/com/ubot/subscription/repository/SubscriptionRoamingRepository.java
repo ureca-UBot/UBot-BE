@@ -79,4 +79,13 @@ public interface SubscriptionRoamingRepository extends JpaRepository<Subscriptio
 			@Param("subscriptionId") Long subscriptionId,
 			@Param("startDate") LocalDate startDate,
 			@Param("endDate") LocalDate endDate);
+
+	// 회선을 해지할 때 함께 취소할 예약·이용 중 로밍
+	@Query("""
+			select record from SubscriptionRoaming record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.status in (com.ubot.subscription.enums.SubscriptionRoamingStatus.SCHEDULED,
+			                        com.ubot.subscription.enums.SubscriptionRoamingStatus.ACTIVE)
+			""")
+	List<SubscriptionRoaming> findAllPendingBySubscriptionId(@Param("subscriptionId") Long subscriptionId);
 }

@@ -1,6 +1,7 @@
 package com.ubot.subscription;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -69,6 +70,12 @@ class ProductJoinIntegrationTest {
 	private String otherPhone;
 	private String thirdPhone;
 	private String fourthPhone;
+	private String suspendedPhone;
+	private long ownerSecondLine;
+	private long ownerThirdLine;
+	private String ownerSecondPhone;
+	private String ownerThirdPhone;
+	private String ownerFourthPhone;
 
 	@BeforeEach
 	void createFixtures() {
@@ -81,13 +88,134 @@ class ProductJoinIntegrationTest {
 		youthPlanId = createPlan(19, 34);
 		seniorPlanId = createPlan(65, null);
 		ownerLine = createSubscription(owner.getId(), randomPhone(), "ACTIVE");
-		suspendedLine = createSubscription(owner.getId(), randomPhone(), "SUSPENDED");
+		suspendedPhone = randomPhone();
+		suspendedLine = createSubscription(owner.getId(), suspendedPhone, "SUSPENDED");
+		ownerSecondPhone = randomPhone();
+		ownerSecondLine = createSubscription(owner.getId(), ownerSecondPhone, "ACTIVE");
+		ownerThirdPhone = randomPhone();
+		ownerThirdLine = createSubscription(owner.getId(), ownerThirdPhone, "ACTIVE");
+		ownerFourthPhone = randomPhone();
+		createSubscription(owner.getId(), ownerFourthPhone, "ACTIVE");
 		otherPhone = randomPhone();
 		otherLine = createSubscription(other.getId(), otherPhone, "ACTIVE");
 		thirdPhone = randomPhone();
 		thirdLine = createSubscription(third.getId(), thirdPhone, "ACTIVE");
 		fourthPhone = randomPhone();
 		createSubscription(fourth.getId(), fourthPhone, "ACTIVE");
+	}
+
+	@Test
+	@DisplayName("회선은 판매 중인 요금제로 개통하고, 번호를 배정하며 요금제 포함 부가서비스를 넣는다")
+	void createsSubscription() throws Exception {
+		long music = productId("addon_services", "addon_service_id", "UBOT_ADDON_MUSIC");
+		includeAddons(generalPlanId, music);
+		int before = jdbc.queryForObject("SELECT count(*) FROM subscriptions WHERE user_id = ?", Integer.class, owner.getId());
+
+		ResultActions created = send(post("/subscriptions/me"), owner, "{\"planId\":" + generalPlanId + "}")
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.data.status").value("ACTIVE"))
+				.andExpect(jsonPath("$.data.planId").value(generalPlanId))
+				.andExpect(jsonPath("$.data.phoneNumber").value(matchesPattern("^010-[0-9]{4}-[0-9]{4}$")))
+				.andExpect(jsonPath("$.data.simType").doesNotExist());
+		long lineId = id(created, "subscriptionId");
+		assertThat(created.andReturn().getResponse().getHeader("Location")).isEqualTo("/subscriptions/me/" + lineId);
+
+		mockMvc.perform(get("/subscriptions/me").with(as(owner)))
+				.andExpect(jsonPath("$.data.length()").value(before + 1));
+		entityManager.flush();
+		assertThat(activeAddonSources(lineId)).containsExactly(music + ":PLAN_INCLUDED");
+		// 처음 고른 요금제는 변경 횟수에 들어가지 않는다.
+		send(patch(BASE + lineId + "/plan"), owner, "{\"planId\":" + currentPlanId + "}")
+				.andExpect(status().isOk());
+
+		// 나이 조건을 확인할 수 없거나 판매 중지된 요금제로는 개통할 수 없다.
+		send(post("/subscriptions/me"), other, "{\"planId\":" + youthPlanId + "}")
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("SUB-005"));
+		entityManager.flush();
+		jdbc.update("UPDATE plans SET status = 'INACTIVE' WHERE plan_id = ?", generalPlanId);
+		entityManager.clear();
+		send(post("/subscriptions/me"), owner, "{\"planId\":" + generalPlanId + "}")
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("PLAN-001"));
+	}
+
+	@Test
+	@DisplayName("회선을 개통할 때 원하는 번호를 고를 수 있고, 사용 중인 번호는 막으며 해지된 번호는 다시 쓴다")
+	void createsSubscriptionWithChosenNumber() throws Exception {
+		String digits = "010" + ThreadLocalRandom.current().nextInt(10_000_000, 100_000_000);
+		String hyphenated = hyphenate(digits);
+		long lineId = id(send(post("/subscriptions/me"), owner, lineBody(currentPlanId, digits))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.data.phoneNumber").value(hyphenated)), "subscriptionId");
+
+		// 하이픈 유무와 관계없이 같은 번호로 보고, 다른 사람도 쓸 수 없다.
+		send(post("/subscriptions/me"), other, lineBody(currentPlanId, hyphenated))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-019"));
+		send(post("/subscriptions/me"), owner, lineBody(currentPlanId, "01912345678"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("G-001"));
+
+		mockMvc.perform(delete(BASE + lineId).with(as(owner))).andExpect(status().isOk());
+		send(post("/subscriptions/me"), other, lineBody(currentPlanId, hyphenated))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.data.phoneNumber").value(hyphenated));
+	}
+
+	@Test
+	@DisplayName("회선을 해지하면 부가서비스·로밍을 취소하고 결합에서 빠지며, 대표 회선이면 결합이 끝난다")
+	void terminatesSubscription() throws Exception {
+		long family3 = productId("bundle_products", "bundle_product_id", "UBOT_BUNDLE_FAMILY_3");
+		long video = productId("addon_services", "addon_service_id", "UBOT_ADDON_VIDEO");
+		long japan = productId("roaming_products", "roaming_product_id", "UBOT_ROAM_JP_1G");
+		long groupId = id(send(post(BASE + ownerLine + "/bundles"), owner, "{\"bundleProductId\":" + family3 + "}")
+				.andExpect(status().isCreated()), "bundleGroupId");
+		String members = BASE + ownerLine + "/bundle-groups/" + groupId + "/members";
+		send(post(members), owner, phoneBody(ownerSecondPhone)).andExpect(status().isCreated());
+		send(post(members), owner, phoneBody(ownerThirdPhone)).andExpect(status().isCreated());
+		send(post(BASE + ownerSecondLine + "/addons"), owner, "{\"addonServiceId\":" + video + "}")
+				.andExpect(status().isCreated());
+		LocalDate start = LocalDate.now().plusDays(3);
+		send(post(BASE + ownerSecondLine + "/roamings"), owner, roamingBody(japan, start, start.plusDays(2)))
+				.andExpect(status().isCreated());
+
+		mockMvc.perform(delete(BASE + ownerSecondLine).with(as(other)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("SUB-001"));
+		// 구성 회선을 해지하면 그 회선만 빠지고 결합은 남는다.
+		mockMvc.perform(delete(BASE + ownerSecondLine).with(as(owner)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("TERMINATED"))
+				.andExpect(jsonPath("$.data.terminatedAt").exists());
+		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
+				.andExpect(jsonPath("$.data[0].group.lineCount").value(2));
+		entityManager.flush();
+		assertThat(jdbc.queryForObject("""
+				SELECT count(*) FROM subscription_addons WHERE subscription_id = ? AND status = 'ACTIVE'
+				""", Integer.class, ownerSecondLine)).isZero();
+		assertThat(jdbc.queryForObject("""
+				SELECT status FROM subscription_roamings WHERE subscription_id = ?
+				""", String.class, ownerSecondLine)).isEqualTo("CANCELED");
+
+		// 해지된 회선은 다시 해지하거나 변경할 수 없다.
+		mockMvc.perform(delete(BASE + ownerSecondLine).with(as(owner)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-020"));
+		send(patch(BASE + ownerSecondLine + "/plan"), owner, "{\"planId\":" + generalPlanId + "}")
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-002"));
+
+		// 대표 회선을 해지하면 결합 전체가 끝난다. 정지된 회선도 해지할 수 있다.
+		mockMvc.perform(delete(BASE + ownerLine).with(as(owner))).andExpect(status().isOk());
+		mockMvc.perform(get(BASE + ownerThirdLine + "/bundles").with(as(owner)))
+				.andExpect(jsonPath("$.data[0].status").value("ENDED"));
+		entityManager.flush();
+		assertThat(jdbc.queryForObject("SELECT status FROM bundle_groups WHERE bundle_group_id = ?", String.class, groupId))
+				.isEqualTo("ENDED");
+		mockMvc.perform(delete(BASE + suspendedLine).with(as(owner)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.status").value("TERMINATED"));
 	}
 
 	@Test
@@ -236,7 +364,7 @@ class ProductJoinIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("가족 결합은 대표가 전화번호로 회선을 추가하고, 회선 수를 채우면 대표 회선에 할인한다")
+	@DisplayName("결합은 대표가 전화번호로 본인 명의 회선만 추가하고, 회선 수를 채우면 대표 회선에 할인한다")
 	void managesFamilyBundleByPhoneNumber() throws Exception {
 		long family3 = productId("bundle_products", "bundle_product_id", "UBOT_BUNDLE_FAMILY_3");
 		long groupId = id(send(post(BASE + ownerLine + "/bundles"), owner, "{\"bundleProductId\":" + family3 + "}")
@@ -247,37 +375,38 @@ class ProductJoinIntegrationTest {
 				.andExpect(jsonPath("$.data.discountApplied").value(false))
 				.andExpect(jsonPath("$.data.discountAmount").value(0)), "bundleGroupId");
 		String members = BASE + ownerLine + "/bundle-groups/" + groupId + "/members";
+		String secondMembers = BASE + ownerSecondLine + "/bundle-groups/" + groupId + "/members";
 		String otherMembers = BASE + otherLine + "/bundle-groups/" + groupId + "/members";
 
-		send(post(members), owner, phoneBody(hyphenate(otherPhone)))
+		send(post(members), owner, phoneBody(hyphenate(ownerSecondPhone)))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.lineCount").value(2))
 				.andExpect(jsonPath("$.data.discountApplied").value(false));
-		send(post(members), owner, phoneBody(otherPhone))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("SUB-013"));
-		send(post(members), owner, phoneBody("01900000000"))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("SUB-013"));
+		// 이미 결합된 회선, 없는 번호, 정지 회선, 다른 사람 명의 회선은 같은 오류로 막는다.
+		for (String phone : new String[] {ownerSecondPhone, "01900000000", suspendedPhone, otherPhone}) {
+			send(post(members), owner, phoneBody(phone))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.code").value("SUB-013"));
+		}
 		send(post(members), other, phoneBody(thirdPhone))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("SUB-012"));
 		send(post(otherMembers), other, phoneBody(thirdPhone))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("SUB-012"));
-		send(post(BASE + otherLine + "/bundles"), other, "{\"bundleProductId\":" + family3 + "}")
+		send(post(BASE + ownerSecondLine + "/bundles"), owner, "{\"bundleProductId\":" + family3 + "}")
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("SUB-011"));
-		send(post(members), owner, phoneBody(thirdPhone))
+		send(post(members), owner, phoneBody(ownerThirdPhone))
 				.andExpect(jsonPath("$.data.lineCount").value(3))
 				.andExpect(jsonPath("$.data.discountApplied").value(true))
 				.andExpect(jsonPath("$.data.discountAmount").value(15000));
-		send(post(members), owner, phoneBody(fourthPhone))
+		send(post(members), owner, phoneBody(ownerFourthPhone))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("SUB-014"));
 
-		// 다른 사람이 추가한 결합도 내 회선에서 보이고, 번호는 마스킹된다. 할인액은 대표 회선 기록에만 있다.
-		String otherView = mockMvc.perform(get(BASE + otherLine + "/bundles").with(as(other)))
+		// 구성 회선에서도 결합이 보이고, 번호는 마스킹된다. 할인액은 대표 회선 기록에만 있다.
+		String secondView = mockMvc.perform(get(BASE + ownerSecondLine + "/bundles").with(as(owner)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data[0].status").value("ACTIVE"))
 				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(0))
@@ -286,14 +415,18 @@ class ProductJoinIntegrationTest {
 				.andExpect(jsonPath("$.data[0].group.members[0].subscriptionId").value(ownerLine))
 				.andExpect(jsonPath("$.data[0].group.members[0].representative").value(true))
 				.andReturn().getResponse().getContentAsString();
-		assertThat(otherView).doesNotContain(thirdPhone);
+		assertThat(secondView).doesNotContain(ownerThirdPhone);
 		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
 				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(15000));
 
-		mockMvc.perform(delete(otherMembers + "/" + thirdLine).with(as(other)))
+		// 구성 회선 경로로는 그 회선만 뺄 수 있고, 결합에 없는 사람은 뺄 수 없다.
+		mockMvc.perform(delete(secondMembers + "/" + ownerThirdLine).with(as(owner)))
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("SUB-015"));
-		mockMvc.perform(delete(otherMembers + "/" + otherLine).with(as(other)))
+		mockMvc.perform(delete(members + "/" + ownerThirdLine).with(as(other)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("SUB-012"));
+		mockMvc.perform(delete(secondMembers + "/" + ownerSecondLine).with(as(owner)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.lineCount").value(2))
 				.andExpect(jsonPath("$.data.discountApplied").value(false));
@@ -301,7 +434,7 @@ class ProductJoinIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data").doesNotExist());
 
-		mockMvc.perform(get(BASE + thirdLine + "/bundles").with(as(third)))
+		mockMvc.perform(get(BASE + ownerThirdLine + "/bundles").with(as(owner)))
 				.andExpect(jsonPath("$.data[0].status").value("ENDED"))
 				.andExpect(jsonPath("$.data[0].group").doesNotExist());
 		assertThat(jdbc.queryForObject("SELECT status FROM bundle_groups WHERE bundle_group_id = ?", String.class, groupId))
@@ -316,7 +449,7 @@ class ProductJoinIntegrationTest {
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.requiredLineCount").value(1))
 				.andExpect(jsonPath("$.data.discountApplied").value(false)), "bundleGroupId");
-		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(otherPhone))
+		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(ownerSecondPhone))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("SUB-014"));
 
@@ -343,10 +476,10 @@ class ProductJoinIntegrationTest {
 		long groupId = id(send(post(BASE + ownerLine + "/bundles"), owner, "{\"bundleProductId\":" + longTerm + "}")
 				.andExpect(jsonPath("$.data.requiredLineCount").doesNotExist())
 				.andExpect(jsonPath("$.data.discountApplied").value(false)), "bundleGroupId");
-		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(otherPhone))
+		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(ownerSecondPhone))
 				.andExpect(jsonPath("$.data.discountApplied").value(true))
 				.andExpect(jsonPath("$.data.discountAmount").value(10000));
-		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(thirdPhone))
+		send(post(BASE + ownerLine + "/bundle-groups/" + groupId + "/members"), owner, phoneBody(ownerThirdPhone))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.data.lineCount").value(3));
 	}
@@ -438,6 +571,10 @@ class ProductJoinIntegrationTest {
 	private String roamingBody(long roamingProductId, LocalDate startDate, LocalDate endDate) {
 		return "{\"roamingProductId\":%d,\"startDate\":\"%s\",\"endDate\":\"%s\"}"
 				.formatted(roamingProductId, startDate, endDate);
+	}
+
+	private String lineBody(long planId, String phoneNumber) {
+		return "{\"planId\":%d,\"phoneNumber\":\"%s\"}".formatted(planId, phoneNumber);
 	}
 
 	private String phoneBody(String phoneNumber) {
