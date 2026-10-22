@@ -210,7 +210,7 @@ class GuardReviewPostgresIntegrationTest {
 		Files.writeString(auditFile, "");
 		db = new JdbcTemplate(isolated);
 		assertThat(db.queryForObject("select current_database()", String.class)).isEqualTo(postgres.getDatabaseName());
-		var first = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("47").load();
+		var first = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("45").load();
 		first.migrate();
 		db.update(
 				"INSERT INTO users(user_id,email,password_hash,name,role) VALUES(987,'migration@example.invalid','unused','migration sentinel','ADMIN')");
