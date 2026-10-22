@@ -592,7 +592,8 @@ class ChatJobWorkerTest {
 			worker.start();
 			verify(stream, timeout(3_000)).ack("message-2");
 			assertThat(registry.get("chat.worker.timeouts").counter().count()).isEqualTo(1);
-			assertThat(registry.get("chat.worker.completed").tag("status", "failed").counter().count()).isEqualTo(1);
+			assertThat(registry.get("chat.worker.completed").tag("status", "failed").tag("code", "CHAT-016")
+					.counter().count()).isEqualTo(1);
 			verify(completion).complete(1L, STARTED_AT,
 					ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT), RegionSido.SEOUL);
 		} finally {
@@ -617,6 +618,97 @@ class ChatJobWorkerTest {
 			verify(queue, timeout(2_000).atLeastOnce()).heartbeat(eq(1L), eq(STARTED_AT), any());
 		} finally { release.countDown(); }
 		verify(stream, timeout(2_000)).ack("message-1");
+	}
+
+	@Test
+	@DisplayName("선점까지 기다린 시간과 성공 결과를 코드 없이(none) 센다")
+	void recordsQueueWaitAndSuccessfulCompletion() {
+		queueJobs(1);
+		ReflectionTestUtils.setField(storedJobs.get(1L), "createdAt", STARTED_AT.minusSeconds(3));
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
+		worker = worker(1, Duration.ofSeconds(1));
+		var registry = observe(worker);
+
+		worker.processAvailableJobs();
+
+		var queueWait = registry.get("chat.jobs.queue.wait").timer();
+		assertThat(queueWait.count()).isEqualTo(1);
+		assertThat(queueWait.totalTime(TimeUnit.SECONDS)).isEqualTo(3.0);
+		assertThat(registry.get("chat.worker.completed").tag("status", "succeeded").tag("code", "none")
+				.counter().count()).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("heartbeat가 끊겨 넘겨받은 메시지는 reason=heartbeat로 센다")
+	void heartbeatReclaimIsCountedByReason() {
+		silentJobs(1);
+		ChatJob job = storedJobs.get(1L);
+		ReflectionTestUtils.setField(job, "status", ChatJobStatus.RUNNING);
+		ReflectionTestUtils.setField(job, "heartbeatAt", LocalDateTime.now().minusMinutes(2));
+		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
+		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(STARTED_AT.plusMinutes(2)));
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
+		worker = worker(1, Duration.ofSeconds(20));
+		var registry = observe(worker);
+
+		worker.recover();
+
+		assertThat(registry.get("chat.worker.reclaimed").tag("reason", "heartbeat").counter().count()).isEqualTo(1);
+		assertThat(registry.find("chat.worker.reclaimed").tag("reason", "idle").counter()).isNull();
+	}
+
+	@Test
+	@DisplayName("ACK 없이 오래 남은 메시지를 넘겨받으면 reason=idle로 센다")
+	void idleReclaimIsCountedByReason() {
+		staleJobs(1, 1);
+		ReflectionTestUtils.setField(storedJobs.get(1L), "status", ChatJobStatus.RUNNING);
+		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
+		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(STARTED_AT.plusMinutes(10)));
+		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
+		worker = worker(1, Duration.ofSeconds(20));
+		var registry = observe(worker);
+
+		worker.recover();
+
+		assertThat(registry.get("chat.worker.reclaimed").tag("reason", "idle").counter().count()).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("전달 횟수를 다 써 실패로 끝낸 작업은 terminated(reason=exhausted)로 센다")
+	void exhaustedJobIsCountedAsTerminated() {
+		staleJobs(1, 3);
+		when(completion.failStuckRunning(eq(1L), any(), eq(ChatErrorCode.INTERNAL_ERROR))).thenReturn(true);
+		worker = worker(1, Duration.ofSeconds(20));
+		var registry = observe(worker);
+
+		worker.recover();
+
+		assertThat(registry.get("chat.worker.terminated").tag("reason", "exhausted").counter().count()).isEqualTo(1);
+	}
+
+	@Test
+	@DisplayName("heartbeat 갱신 행이 없으면(다른 실행이 넘겨받음) lease.lost를 세고 실행을 멈춘다")
+	void lostLeaseIsCounted() throws Exception {
+		queueJobs(1);
+		CountDownLatch release = new CountDownLatch(1);
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> { release.await(); return answered(); });
+		when(queue.heartbeat(anyLong(), any(), any())).thenReturn(0);
+		var properties = new ChatWorkerProperties(1, true, Duration.ofMillis(10), "test-worker",
+				Duration.ofMinutes(10), Duration.ofSeconds(30), Duration.ofMillis(90), 3,
+				Duration.ofMinutes(1), Duration.ofHours(24));
+		worker = new ChatJobWorker(stream, results, queue, jobs, completion, processor, attempts, properties);
+		var registry = observe(worker);
+		try {
+			worker.start();
+			waitUntil(() -> registry.find("chat.worker.lease.lost").counter() != null);
+			assertThat(registry.get("chat.worker.lease.lost").counter().count()).isGreaterThanOrEqualTo(1);
+		} finally { release.countDown(); }
+	}
+
+	private static io.micrometer.core.instrument.simple.SimpleMeterRegistry observe(ChatJobWorker worker) {
+		var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		worker.observeWith(registry);
+		return registry;
 	}
 
 	@Test

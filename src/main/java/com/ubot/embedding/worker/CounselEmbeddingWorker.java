@@ -4,8 +4,11 @@ import com.pgvector.PGvector;
 import com.ubot.embedding.client.EmbeddingClient;
 import com.ubot.embedding.exception.EmbeddingErrorCode;
 import com.ubot.embedding.exception.EmbeddingException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -29,13 +32,21 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 	private final StringRedisTemplate redis;
 	private final EmbeddingClient embedding;
 	private final ObjectMapper json;
+	private final MeterRegistry metrics;
 	private final AtomicBoolean running = new AtomicBoolean();
 	private volatile Thread thread;
 
+	// 지표를 보지 않는 테스트용. 전역 레지스트리는 등록된 저장소가 없으면 기록하지 않음
 	public CounselEmbeddingWorker(StringRedisTemplate redis, EmbeddingClient embedding, ObjectMapper json) {
+		this(redis, embedding, json, Metrics.globalRegistry);
+	}
+
+	public CounselEmbeddingWorker(StringRedisTemplate redis, EmbeddingClient embedding, ObjectMapper json,
+			MeterRegistry metrics) {
 		this.redis = redis;
 		this.embedding = embedding;
 		this.json = json;
+		this.metrics = metrics;
 	}
 
 	@Override
@@ -67,7 +78,10 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 		String requestKey = PREFIX + "request:" + id;
 		String raw = redis.opsForValue().get(requestKey);
 		// 대기 중 만료됐거나 호출자가 취소한 작업임
-		if (raw == null) return;
+		if (raw == null) {
+			count("expired", "none");
+			return;
+		}
 		Map<String, Object> result;
 		try {
 			if (raw.length() > 16000) throw new IllegalArgumentException();
@@ -97,9 +111,15 @@ public class CounselEmbeddingWorker implements SmartLifecycle {
 		} catch (RuntimeException error) {
 			result = failed("WORKER_INVALID_RESPONSE");
 		}
+		count(((String) result.get("status")).toLowerCase(Locale.ROOT), (String) result.getOrDefault("errorCode", "none"));
 		// 계산 중 요청이 만료·취소되면 늦은 결과를 게시하지 않음
 		if (running.get()) redis.execute(COMPLETE, List.of(requestKey, PREFIX + "result:" + id),
 				json.writeValueAsString(result));
+	}
+
+	// code는 실패 코드 4종(EMBEDDING_TIMEOUT 등) 또는 none
+	private void count(String status, String code) {
+		metrics.counter("counsel.embedding.jobs", "status", status, "code", code).increment();
 	}
 
 	private Map<String, Object> failed(String code) {
