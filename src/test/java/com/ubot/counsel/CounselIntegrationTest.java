@@ -400,7 +400,10 @@ class CounselIntegrationTest {
 		assertThat(events.size()).isEqualTo(1);
 		assertThat(events.get(0).path("senderRole").asText()).isEqualTo("USER");
 		assertThat(result).doesNotContain("무능한", "example_text", "\"content\"");
-		mvc.perform(get("/admin/counsel/safety/summary").header("Authorization", token("admin")))
+		mvc.perform(get("/admin/counsel/safety/summary")
+					.param("from", from.toString())
+					.param("to", to.toString())
+					.header("Authorization", token("admin")))
 				.andExpect(status().isOk()).andExpect(jsonPath("$.data.blocked").value(1));
 	}
 	@Test void rateLimitIsSharedAndDuplicateRetriesDoNotConsumeIt() {
