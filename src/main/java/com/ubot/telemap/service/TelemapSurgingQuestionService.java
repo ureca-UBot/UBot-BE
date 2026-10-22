@@ -3,7 +3,6 @@ package com.ubot.telemap.service;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.pgvector.PGvector;
@@ -12,6 +11,7 @@ import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.ranking.enums.RegionSido;
+import com.ubot.telemap.config.TelemapProperties;
 import com.ubot.telemap.dto.SurgingQuestionSnapshot;
 import com.ubot.telemap.entity.SurgingAlert;
 import com.ubot.telemap.entity.SurgingQuestion;
@@ -37,18 +37,7 @@ public class TelemapSurgingQuestionService {
     private final SurgingClusterRepository surgingClusterRepository;
     private final SurgingAlertRepository surgingAlertRepository;
     private final TelemapVectorRepository telemapVectorRepository;
-
-    @Value("${TELEMAP_WINDOW_MINUTES:10}")
-    private int windowMinutes;
-
-    @Value("${TELEMAP_COUNT_THRESHOLD:100}")
-    private int countThreshold;
-
-    @Value("${TELEMAP_CLUSTER_THRESHOLD:0.6}")
-    private double clusterThreshold;
-
-    @Value("${TELEMAP_RETENTION_MINUTES:60}")
-    private int retentionMinutes;
+    private final TelemapProperties telemapProperties;
 
     public void registerQuestion(long questionLogId) {
         if (surgingQuestionRepository.existsByQuestionLogId(questionLogId)) return;
@@ -74,8 +63,8 @@ public class TelemapSurgingQuestionService {
                         region,
                         profileId,
                         vector,
-                        clusterThreshold,
-                        now.minusMinutes(retentionMinutes)
+                        telemapProperties.getClusterThreshold(),
+                        now.minusMinutes(telemapProperties.getRetentionMinutes())
                 )
                 .orElseGet(() -> telemapVectorRepository.createCluster(
                         region, question, profileId, vector, occurredAt));
@@ -86,11 +75,12 @@ public class TelemapSurgingQuestionService {
         telemapVectorRepository.updateClusterCentroid(clusterId, profileId, occurredAt);
 
         List<SurgingQuestionSnapshot> snapshots = surgingQuestionRepository.findSnapshotsByClusterIdAndOccurredAtAfter(
-                clusterId, now.minusMinutes(windowMinutes));
-        if (snapshots.size() < countThreshold) return;
+                clusterId, now.minusMinutes(telemapProperties.getWindowMinutes()));
+        if (snapshots.size() < telemapProperties.getCountThreshold()) return;
 
         if (surgingClusterRepository.claimAlert(clusterId) == 0) return;
-        SurgingAlert alert = surgingAlertRepository.save(SurgingAlert.create(region, snapshots, windowMinutes));
+        SurgingAlert alert = surgingAlertRepository.save(SurgingAlert.create(
+                region, snapshots, telemapProperties.getWindowMinutes()));
         log.info("지역 문의 급증을 감지했습니다: alertId={}, clusterId={}, region={}, count={}",
                 alert.getId(), clusterId, region, snapshots.size());
     }

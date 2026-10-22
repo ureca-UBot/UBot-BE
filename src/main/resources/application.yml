@@ -100,6 +100,12 @@ ranking:
   baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:10}
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
+telemap:
+  window-minutes: ${TELEMAP_WINDOW_MINUTES:10}
+  count-threshold: ${TELEMAP_COUNT_THRESHOLD:100}
+  cluster-threshold: ${TELEMAP_CLUSTER_THRESHOLD:0.6}
+  retention-minutes: ${TELEMAP_RETENTION_MINUTES:60}
+
 faq-monitoring:
   ai-review:
     max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
