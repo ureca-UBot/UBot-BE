@@ -158,7 +158,7 @@ public class AiReviewService {
 
 	private void validateDuplicateRequest(Long faqId, DuplicateSuspectedReviewRequest duplicateRequest) {
 		if (duplicateRequest == null || duplicateRequest.candidateFaqIds() == null
-				|| duplicateRequest.candidateFaqIds().contains(null)) {
+				|| duplicateRequest.candidateFaqIds().stream().anyMatch(candidateFaqId -> candidateFaqId == null)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
 		}
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
