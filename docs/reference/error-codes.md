@@ -147,6 +147,7 @@
 | `CHAT-020` | 404 | `JOB_NOT_FOUND` | 답변 작업을 찾을 수 없습니다. |
 | `CHAT-021` | 400 | `TOO_MANY_SUB_QUESTIONS` | 너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요. |
 | `CHAT-024` | 429 | `MEMBER_RATE_LIMITED` | 요청이 너무 많습니다. 잠시 후 다시 시도해주세요. |
+| `CHAT-025` | 409 | `RESPONSE_CANCELLED` | 답변 생성을 중단했습니다. 상태 조회의 FAILED 결과로 반환하며 재시도할 수 없습니다. |
 
 
 - `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다. 의도 재검색으로 만들어진 답변 시도는 재시도할 수 없어 `CHAT-007`을 반환합니다.

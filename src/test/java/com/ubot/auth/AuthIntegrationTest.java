@@ -69,6 +69,22 @@ class AuthIntegrationTest {
     }
 
     @Test
+    @DisplayName("탈퇴한 사용자의 토큰은 프론트가 세션을 종료할 수 있는 JWT-005로 거절한다")
+    void deletedUserAccessTokenIsRejectedAsAuthenticationFailure() throws Exception {
+        mockMvc.perform(post("/auth/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content(signupRequest(EMAIL)))
+                .andExpect(status().isOk());
+        MvcResult loginResult = mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON).content(loginRequest(EMAIL, PASSWORD)))
+                .andExpect(status().isOk()).andReturn();
+        jdbcTemplate.update("update users set deleted_at = CURRENT_TIMESTAMP where email = ?", EMAIL);
+
+        mockMvc.perform(get("/auth/me").header("Authorization", "Bearer " + responseToken(loginResult, "accessToken")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("JWT-005"));
+    }
+
+    @Test
     @DisplayName("회원가입부터 로그아웃까지 access token과 refresh token 흐름을 검증한다")
     void signsUpLogsInRefreshesAndLogsOut() throws Exception {
         mockMvc.perform(post("/auth/signup")

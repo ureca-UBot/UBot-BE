@@ -15,8 +15,6 @@ import com.ubot.auth.exception.MyJwtException;
 import com.ubot.auth.service.AccessTokenRevocationService;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.user.entity.User;
-import com.ubot.user.exception.UserErrorCode;
-import com.ubot.user.exception.UserException;
 import com.ubot.user.repository.UserRepository;
 
 import io.jsonwebtoken.ExpiredJwtException;
@@ -94,7 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 		if (user == null) {
 			log.warn("접근 토큰의 사용자를 찾지 못했습니다: 사용자ID={}, 경로={}", userId, request.getRequestURI());
-			resolveException(request, response, new UserException(UserErrorCode.USER_NOT_FOUND));
+			resolveException(request, response, new MyJwtException(JwtErrorCode.DELETED_USER_TOKEN));
 			return;
 		}
 
