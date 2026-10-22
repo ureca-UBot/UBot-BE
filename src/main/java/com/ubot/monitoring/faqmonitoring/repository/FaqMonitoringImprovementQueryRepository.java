@@ -87,13 +87,38 @@ public class FaqMonitoringImprovementQueryRepository {
 							AND m.top_k_count = 0) AS low_usage
 					FROM metrics m
 					LEFT JOIN gap_metrics g ON g.faq_id = m.faq_id
+				), visible_classified AS (
+					SELECT c.*,
+						(c.low_rag_quality AND low_rag_exclusion.id IS NULL) AS visible_low_rag_quality,
+						(c.duplicate_suspected AND duplicate_exclusion.id IS NULL) AS visible_duplicate_suspected,
+						(c.low_usage AND low_usage_exclusion.id IS NULL) AS visible_low_usage
+					FROM classified c
+					LEFT JOIN faq_improvement_exclusion low_rag_exclusion
+						ON low_rag_exclusion.faq_id = c.faq_id
+						AND low_rag_exclusion.faq_version = c.faq_version
+						AND low_rag_exclusion.improvement_type = 'LOW_RAG_QUALITY'
+						AND low_rag_exclusion.released_at IS NULL
+					LEFT JOIN faq_improvement_exclusion duplicate_exclusion
+						ON duplicate_exclusion.faq_id = c.faq_id
+						AND duplicate_exclusion.faq_version = c.faq_version
+						AND duplicate_exclusion.improvement_type = 'DUPLICATE_SUSPECTED'
+						AND duplicate_exclusion.released_at IS NULL
+					LEFT JOIN faq_improvement_exclusion low_usage_exclusion
+						ON low_usage_exclusion.faq_id = c.faq_id
+						AND low_usage_exclusion.faq_version = c.faq_version
+						AND low_usage_exclusion.improvement_type = 'LOW_USAGE'
+						AND low_usage_exclusion.released_at IS NULL
 				), filtered AS (
-					SELECT *, (low_rag_quality::int + duplicate_suspected::int + low_usage::int) AS type_count
-					FROM classified
-					WHERE (low_rag_quality OR duplicate_suspected OR low_usage)
-						AND (:filterLowRagQuality = FALSE OR low_rag_quality)
-						AND (:filterDuplicateSuspected = FALSE OR duplicate_suspected)
-						AND (:filterLowUsage = FALSE OR low_usage)
+					SELECT *, (
+						visible_low_rag_quality::int
+						+ visible_duplicate_suspected::int
+						+ visible_low_usage::int
+					) AS type_count
+					FROM visible_classified
+					WHERE (visible_low_rag_quality OR visible_duplicate_suspected OR visible_low_usage)
+						AND (:filterLowRagQuality = FALSE OR visible_low_rag_quality)
+						AND (:filterDuplicateSuspected = FALSE OR visible_duplicate_suspected)
+						AND (:filterLowUsage = FALSE OR visible_low_usage)
 				)
 				SELECT totals.total_count, page_rows.*
 				FROM (SELECT COUNT(*) AS total_count FROM filtered) totals
@@ -128,13 +153,13 @@ public class FaqMonitoringImprovementQueryRepository {
 					continue;
 				}
 				List<FaqImprovementType> improvementTypes = new ArrayList<>(3);
-				if (rs.getBoolean("low_rag_quality")) {
+				if (rs.getBoolean("visible_low_rag_quality")) {
 					improvementTypes.add(FaqImprovementType.LOW_RAG_QUALITY);
 				}
-				if (rs.getBoolean("duplicate_suspected")) {
+				if (rs.getBoolean("visible_duplicate_suspected")) {
 					improvementTypes.add(FaqImprovementType.DUPLICATE_SUSPECTED);
 				}
-				if (rs.getBoolean("low_usage")) {
+				if (rs.getBoolean("visible_low_usage")) {
 					improvementTypes.add(FaqImprovementType.LOW_USAGE);
 				}
 				items.add(new FaqImprovementItem(
