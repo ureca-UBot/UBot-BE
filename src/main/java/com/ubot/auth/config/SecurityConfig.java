@@ -97,6 +97,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
 						// 게스트도 자기 작업을 조회함. 소유권은 ChatJobQueryService가 확인함
 						.requestMatchers(HttpMethod.GET, "/chat/jobs/*").permitAll()
+						.requestMatchers(HttpMethod.POST, "/chat/jobs/*/cancel").permitAll()
 						.requestMatchers("/admin/**").hasRole("ADMIN")
 						.requestMatchers("/conversations/faq-selections").hasRole("USER")
 						.anyRequest().authenticated())
