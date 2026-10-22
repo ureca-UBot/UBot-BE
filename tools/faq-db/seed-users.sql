@@ -280,6 +280,27 @@ JOIN legacy_bundle rep ON rep.bundle_product_id = lb.bundle_product_id AND rep.g
 JOIN bundle_groups g ON g.representative_subscription_id = rep.subscription_id AND g.status = 'ACTIVE'
 WHERE sb.subscription_bundle_id = lb.subscription_bundle_id;
 
+-- 결합은 본인 명의 회선만 묶는다. 다른 사람의 회선이 섞인 이용 중 결합(원본 데이터의 친구·가족 결합과
+-- 위 user 계정의 가족·청년·친구 결합)은 초기화 시점에 종료한다. 기록은 ENDED로 남긴다.
+CREATE TEMP TABLE cross_user_group ON COMMIT DROP AS
+SELECT sb.bundle_group_id
+FROM subscription_bundles sb
+JOIN subscriptions s ON s.subscription_id = sb.subscription_id
+JOIN bundle_groups g ON g.bundle_group_id = sb.bundle_group_id AND g.status = 'ACTIVE'
+WHERE sb.status = 'ACTIVE'
+GROUP BY sb.bundle_group_id
+HAVING count(DISTINCT s.user_id) > 1;
+
+UPDATE subscription_bundles sb
+SET status = 'ENDED', ended_at = GREATEST(sb.joined_at, date_trunc('day', now())), updated_at = now()
+FROM cross_user_group c
+WHERE sb.bundle_group_id = c.bundle_group_id AND sb.status = 'ACTIVE';
+
+UPDATE bundle_groups g
+SET status = 'ENDED', ended_at = date_trunc('day', now()), updated_at = now()
+FROM cross_user_group c
+WHERE g.bundle_group_id = c.bundle_group_id;
+
 -- 요금제 포함 부가서비스: 두 시드 파일의 해지되지 않은 회선 모두. 앱의 요금제 변경과 같은 규칙을 따른다.
 -- 포함 부가서비스를 따로 가입해 두었으면 해지하고, 요금제 이용 시작 시점에 0원(PLAN_INCLUDED)으로 넣는다.
 CREATE TEMP TABLE seed_included ON COMMIT DROP AS

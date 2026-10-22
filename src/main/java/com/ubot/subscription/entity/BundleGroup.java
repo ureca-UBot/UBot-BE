@@ -29,7 +29,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * 같은 결합으로 묶인 회선들과 대표 회선. 결합 상품은 구성 회선의 subscription_bundles에서 읽는다.
- * 대표 회선이 정리(purge)되면 representativeSubscription은 null이 된다.
+ * 대표 회선은 항상 있다(NOT NULL). 대표 회선이 결합에서 빠지거나 해지되면 그룹도 함께 종료한다.
  */
 @Entity
 @DynamicUpdate

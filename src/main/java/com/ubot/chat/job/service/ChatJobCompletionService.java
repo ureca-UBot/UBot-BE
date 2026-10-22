@@ -91,7 +91,7 @@ public class ChatJobCompletionService {
 			return finishWithoutRecording(job, attempt);
 		}
 		enqueueUnanswered(attempt, outcome.unanswered());
-		job.succeed(new ChatJobResult(questionLogId.get(), outcome.store()));
+		job.succeed(new ChatJobResult(questionLogId.get(), outcome.store(), outcome.userData()));
 		log.info("답변 작업을 완료했습니다: 작업ID={}, 시도ID={}", job.getId(), attempt.getId());
 		return new Completion(true, questionLogId.get());
 	}

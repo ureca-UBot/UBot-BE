@@ -64,6 +64,12 @@ class ProductCatalogMigrationTest {
                     VALUES (?, ?, CURRENT_TIMESTAMP, '기존 결합', 5000) RETURNING subscription_bundle_id
                     """, Long.class, subscriptionId, bundleId);
 
+            Long subscriptionAddonId = jdbc.queryForObject("""
+                    INSERT INTO subscription_addons (subscription_id, addon_service_id, subscribed_at,
+                        service_name_snapshot, monthly_fee_snapshot)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, '기존 부가서비스', 1000) RETURNING subscription_addon_id
+                    """, Long.class, subscriptionId, addonId);
+
             Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                     .locations("classpath:db/migration").target("42").load().migrate();
 
@@ -86,6 +92,12 @@ class ProductCatalogMigrationTest {
                     .isInstanceOf(DataIntegrityViolationException.class);
             assertThatThrownBy(() -> jdbc.update(
                     "UPDATE addon_services SET category = 'UNKNOWN' WHERE addon_service_id = ?", addonId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+            // 기존 부가서비스 가입은 따로 가입한 것(SUBSCRIBED)으로 본다.
+            assertThat(jdbc.queryForObject("SELECT source FROM subscription_addons WHERE subscription_addon_id = ?",
+                    String.class, subscriptionAddonId)).isEqualTo("SUBSCRIBED");
+            assertThatThrownBy(() -> jdbc.update(
+                    "UPDATE subscription_addons SET source = 'UNKNOWN' WHERE subscription_addon_id = ?", subscriptionAddonId))
                     .isInstanceOf(DataIntegrityViolationException.class);
 
             // home_products: 인터넷은 속도가 있어야 하고 IPTV는 속도가 없어야 한다.
@@ -134,7 +146,7 @@ class ProductCatalogMigrationTest {
                     """, internetSubscriptionId);
             homeSubscription(jdbc, userId, internetId, "INTERNET");
 
-            // bundle_groups: 이용 중인 그룹은 대표 회선이 있어야 하고, 결합 기록에 그룹을 연결한다.
+            // bundle_groups: 그룹은 항상 대표 회선이 있어야 하고, 결합 기록에 그룹을 연결한다.
             assertThatThrownBy(() -> jdbc.update("INSERT INTO bundle_groups (status) VALUES ('ACTIVE')"))
                     .isInstanceOf(DataIntegrityViolationException.class);
             Long groupId = jdbc.queryForObject("""
@@ -142,15 +154,23 @@ class ProductCatalogMigrationTest {
                     """, Long.class, subscriptionId);
             jdbc.update("UPDATE subscription_bundles SET bundle_group_id = ? WHERE subscription_bundle_id = ?",
                     groupId, subscriptionBundleId);
+            assertThatThrownBy(() -> jdbc.update(
+                    "UPDATE bundle_groups SET representative_subscription_id = NULL WHERE bundle_group_id = ?", groupId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
 
-            // 정리(purge) 배치를 막지 않도록: 상품이 지워지면 연결·조건이 함께 지워지고, 대표 회선은 비워진다.
+            // 대표 회선은 그룹이 남아 있는 동안 지울 수 없다. 종료된 그룹도 마찬가지이며, 그룹을 먼저 지워야 한다.
             jdbc.update("DELETE FROM subscription_bundles WHERE subscription_bundle_id = ?", subscriptionBundleId);
+            jdbc.update("DELETE FROM subscription_addons WHERE subscription_addon_id = ?", subscriptionAddonId);
+            assertThatThrownBy(() -> jdbc.update("DELETE FROM subscriptions WHERE subscription_id = ?", subscriptionId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
             jdbc.update("UPDATE bundle_groups SET status = 'ENDED', ended_at = CURRENT_TIMESTAMP WHERE bundle_group_id = ?",
                     groupId);
+            assertThatThrownBy(() -> jdbc.update("DELETE FROM subscriptions WHERE subscription_id = ?", subscriptionId))
+                    .isInstanceOf(DataIntegrityViolationException.class);
+            jdbc.update("DELETE FROM bundle_groups WHERE bundle_group_id = ?", groupId);
             jdbc.update("DELETE FROM subscriptions WHERE subscription_id = ?", subscriptionId);
-            assertThat(jdbc.queryForObject(
-                    "SELECT representative_subscription_id FROM bundle_groups WHERE bundle_group_id = ?",
-                    Object.class, groupId)).isNull();
+
+            // 상품이 지워지면 연결·조건이 함께 지워진다.
             jdbc.update("DELETE FROM plans WHERE plan_id = ?", planId);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM plan_included_addons", Integer.class)).isZero();
 
