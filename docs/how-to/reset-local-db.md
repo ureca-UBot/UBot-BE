@@ -29,7 +29,7 @@ Docker Desktop이 실행 중이고 `.env` 파일이 준비되어 있어야 합�
 - `ubot.demo.001@example.test` ~ `ubot.demo.300@example.test` / `UbotDemo2026!` / `USER` (가상 사용자 300명)
 - `admin@admin.com` / `12345678` / `ADMIN`
 
-상품 카탈로그(요금제·부가서비스·결합·로밍·인터넷/IPTV)는 Flyway `V43`이 넣습니다. 사용자는 다음 두 파일로 회선·부가서비스·결합·로밍과
+상품 카탈로그(요금제·부가서비스·결합·로밍·인터넷/IPTV)는 Flyway `V47`이 넣습니다. 사용자는 다음 두 파일로 회선·부가서비스·결합·로밍과
 사용량·청구·약정 기록을 가진 상태로 만들어집니다. `reset-faq-data.ps1`은 이 데이터를 건드리지 않습니다.
 
 - `tools/faq-db/seed-demo-users.sql`: 가상 사용자 300명. 기록 날짜는 2026년 7~10월로 고정되어 있습니다.

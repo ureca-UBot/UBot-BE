@@ -226,7 +226,7 @@ INSERT INTO roaming_products (
     ('UBOT_ROAM_AU_5G', 'Ubot 로밍 호주 맥스', '호주 전용. 이용 시작 시각부터 24시간마다 5GB 제공, 소진 후 해당 24시간 구간 종료까지 데이터 차단. 다음 구간에서 제공량 초기화, 남은 데이터 이월 불가. 이용한 24시간 구간당 15,000원, 부가세 포함. 음성·문자 요금 미포함. 여러 국가 통합 이용권이나 30일 정액 상품이 아님.', 15000, 5000, '호주', 'ACTIVE')
 ON CONFLICT (code) DO NOTHING;
 
--- V42에서 추가한 컬럼·테이블 채우기 (근거: FAQ tools/faq-db/seed/baseline-faqs.csv)
+-- V46에서 추가한 컬럼·테이블 채우기 (근거: FAQ tools/faq-db/seed/baseline-faqs.csv)
 
 -- 인터넷/IPTV (FAQ 301~303). 500M·1G 요금은 FAQ에 없어 100M과 같은 3년 약정 기준으로 정했다.
 INSERT INTO home_products (code, name, description, product_type, speed_mbps, monthly_fee, status) VALUES

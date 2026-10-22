@@ -14,7 +14,7 @@ import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-@DisplayName("상품 카탈로그·가입 테이블 추가(V42)")
+@DisplayName("상품 카탈로그·가입 테이블 추가(V46)")
 class ProductCatalogMigrationTest {
 
     @Test
@@ -31,11 +31,11 @@ class ProductCatalogMigrationTest {
                 .withReuse(false)) {
             postgres.start();
             Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration").target("41").load().migrate();
+                    .locations("classpath:db/migration").target("45").load().migrate();
             var jdbc = new JdbcTemplate(new DriverManagerDataSource(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
 
-            // V42 이전 형식의 상품과 가입 기록입니다.
+            // V46 이전 형식의 상품과 가입 기록입니다.
             Long userId = jdbc.queryForObject("""
                     INSERT INTO users (email, password_hash, name)
                     VALUES ('catalog-migration@test.com', 'hash', '상품 확장') RETURNING user_id
@@ -71,7 +71,7 @@ class ProductCatalogMigrationTest {
                     """, Long.class, subscriptionId, addonId);
 
             Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration").target("42").load().migrate();
+                    .locations("classpath:db/migration").target("46").load().migrate();
 
             // 추가 컬럼: 기존 행은 기본값 또는 NULL을 받는다.
             assertThat(jdbc.queryForMap(

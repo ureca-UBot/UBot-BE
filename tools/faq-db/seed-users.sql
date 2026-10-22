@@ -1,5 +1,5 @@
 -- 로컬 초기화용 사용자 10명과 가입 상품·이용 기록. reset-local-db.ps1이 seed-demo-users.sql 다음에 실행한다.
--- 상품은 V43 카탈로그를 코드로 찾는다. 비밀번호는 기본 계정과 같은 12345678이다.
+-- 상품은 V47 카탈로그를 코드로 찾는다. 비밀번호는 기본 계정과 같은 12345678이다.
 -- user@user.com은 seed-baseline.sql이 만들고, user2@user.com ~ user10@user.com을 여기서 만든다.
 -- 날짜는 실행일 기준이다. usage_records.billing_month는 사용한 달, billing_records.billing_month는 청구서가 나온 달
 -- (금액은 전월 사용분)이다.

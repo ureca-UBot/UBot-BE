@@ -175,6 +175,8 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 
 미응답 질문은 답변 처리 중에 모아 두었다가, 작업 결과를 확정하는 트랜잭션(`ChatJobCompletionService`) 안에서 공용 대기열 `outbox_events`에 하위 질문마다 `UNANSWERED_QUESTION` 작업으로 한 행씩 넣습니다(`dedup_key`로 같은 `attempt_id`·`sub_question_index`는 한 번만). 작업이 취소되거나 다른 실행에 넘어가 결과가 기록되지 않으면 대기열에도 들어가지 않고, 대기열 등록이 실패하면 결과 확정도 함께 취소됩니다. 임베딩과 묶기는 `OutboxWorker`가 `OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘깁니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘린 뒤 `next_attempt_at`을 10초·20초·40초·80초 뒤로 미뤄 다시 시도하며, 5번 실패한 행은 error 로그를 남기고 더 처리하지 않습니다. 이런 행은 보관 기간 삭제 작업이 마지막 실패 7일 뒤 지웁니다.
 
+FAQ를 등록·수정·삭제·복원하면 같은 트랜잭션에서 공용 대기열에 `FAQ_REVERIFY` 작업이 들어갑니다. `UnansweredReverifyHandler`가 처리 대기·보류 묶음의 미응답 질문 벡터를 그 FAQ의 질문 벡터와 비교해, 유사도가 `CHAT_CONFIDENCE_THRESHOLD` 이상이고 처음 실패할 때의 최고 유사도보다 높아진 질문을 `unanswered_question_reverifications`에 전후 유사도와 함께 기록합니다. 같은 FAQ로 다시 검증하면 이전 기록을 지우고 새로 계산합니다. 관리자 미응답 묶음 목록에는 가장 많은 질문을 해결할 FAQ(`reverifiedFaqId`)와 그 질문 수(`resolvableQuestionCount`)가, 상세에는 질문별 전후 유사도(`reverifications`)가 나옵니다.
+
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.
 3. 상태가 `PENDING`·`ON_HOLD`인 묶음 중, 지금 Profile의 중심 벡터와의 코사인 유사도가 `UNANSWERED_GROUP_THRESHOLD`(기본 `0.6`) 이상인 가장 가까운 묶음에 넣습니다. 없으면 이 질문을 대표 질문으로 새 묶음을 만듭니다. `APPROVED`·`REJECTED` 묶음에는 합류하지 않습니다.
