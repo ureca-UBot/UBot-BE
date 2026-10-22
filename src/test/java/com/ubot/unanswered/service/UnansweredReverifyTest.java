@@ -26,6 +26,7 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.faq.service.FaqService;
 import com.ubot.outbox.OutboxWorker;
 import com.ubot.unanswered.dto.response.UnansweredReverificationResponseDto;
+import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.repository.UnansweredReverifyRepository;
 
 @SpringBootTest(properties = "OUTBOX_POLL_DELAY_MS=3600000")
@@ -42,6 +43,9 @@ class UnansweredReverifyTest {
 
     @Autowired
     private UnansweredReverifyRepository reverifyRepository;
+
+    @Autowired
+    private UnansweredQuestionService questionService;
 
     @Autowired
     private OutboxWorker worker;
@@ -137,6 +141,37 @@ class UnansweredReverifyTest {
         assertThat(groupService.getUnansweredGroup(groupId).reverifications()).isEmpty();
     }
 
+    @Test
+    @DisplayName("FAQ 재검증이 끝난 뒤 저장된 질문도 저장할 때 이미 있는 FAQ로 다시 확인한다")
+    void reverifiesQuestionSavedAfterFaqReverify() {
+        given(embeddingService.embedText(anyString())).willReturn(vector(517));
+        Long faqId = faqService.createFaq(
+                new FaqCreateRequestDto(categoryId, "유심을 잃어버렸어요", "분실 신고하세요.", Intent.GENERAL), adminId).id();
+        worker.processPending();
+
+        questionService.createUnansweredQuestion(attempt("유심 분실 신고"), 1, "유심 분실 신고", "유심 분실 신고",
+                UnansweredReason.INSUFFICIENT_FAQ, null, 0.5);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT faq_id FROM unanswered_question_reverifications", Long.class)).isEqualTo(faqId);
+    }
+
+    @Test
+    @DisplayName("처리가 끝난 묶음의 재검증 결과는 조회하지 않는다")
+    void hidesResultsOfClosedGroups() {
+        Long groupId = group("PENDING");
+        question(groupId, "유심 분실 신고", 0.5, vector(0));
+        given(embeddingService.embedText(anyString())).willReturn(vector(0));
+        faqService.createFaq(
+                new FaqCreateRequestDto(categoryId, "유심을 잃어버렸어요", "분실 신고하세요.", Intent.GENERAL), adminId);
+        worker.processPending();
+
+        jdbcTemplate.update("UPDATE unanswered_question_groups SET status = 'APPROVED' WHERE id = ?", groupId);
+
+        assertThat(reverifyRepository.findSummaries(List.of(groupId))).isEmpty();
+        assertThat(reverifyRepository.findByGroupId(groupId)).isEmpty();
+    }
+
     private Long group(String status) {
         return jdbcTemplate.queryForObject(
                 """
@@ -147,13 +182,17 @@ class UnansweredReverifyTest {
                 Long.class, status);
     }
 
-    private Long question(Long groupId, String text, Double bestSimilarity, PGvector vector) {
+    private Long attempt(String text) {
         Long userId = jdbcTemplate.queryForObject(
                 "INSERT INTO users (email, password_hash, name) VALUES (?, 'hash', '사용자') RETURNING user_id",
                 Long.class, UUID.randomUUID() + "@test.com");
-        Long attemptId = jdbcTemplate.queryForObject(
+        return jdbcTemplate.queryForObject(
                 "INSERT INTO answer_attempts_history (user_id, question, attempt_count, status, idempotency_key) VALUES (?, ?, 1, 'FAIL', ?) RETURNING attempt_id",
                 Long.class, userId, text, UUID.randomUUID().toString());
+    }
+
+    private Long question(Long groupId, String text, Double bestSimilarity, PGvector vector) {
+        Long attemptId = attempt(text);
         Long questionId = jdbcTemplate.queryForObject(
                 """
                 INSERT INTO unanswered_questions (attempt_id, group_id, sub_question, user_text, reason, best_similarity)
