@@ -65,4 +65,18 @@ public interface SubscriptionRoamingRepository extends JpaRepository<Subscriptio
 			""")
 	Optional<SubscriptionRoaming> findBySubscriptionRoamingIdAndSubscriptionId(
 			@Param("subscriptionRoamingId") Long subscriptionRoamingId, @Param("subscriptionId") Long subscriptionId);
+
+	// 예약 중이거나 이용 중인 로밍 가운데 기간이 하루라도 겹치는 것이 있는지 본다. 종료일도 이용 기간에 들어간다.
+	@Query("""
+			select count(record) > 0 from SubscriptionRoaming record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.status in (com.ubot.subscription.enums.SubscriptionRoamingStatus.SCHEDULED,
+			                        com.ubot.subscription.enums.SubscriptionRoamingStatus.ACTIVE)
+			  and record.startDate <= :endDate
+			  and record.endDate >= :startDate
+			""")
+	boolean existsOverlapping(
+			@Param("subscriptionId") Long subscriptionId,
+			@Param("startDate") LocalDate startDate,
+			@Param("endDate") LocalDate endDate);
 }

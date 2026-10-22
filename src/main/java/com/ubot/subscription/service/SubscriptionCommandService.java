@@ -125,6 +125,10 @@ public class SubscriptionCommandService {
 			throw new SubscriptionException(SubscriptionErrorCode.INVALID_ROAMING_PERIOD);
 		}
 		Subscription subscription = getActiveSubscriptionForUpdate(userId, subscriptionId);
+		// 회선을 잠근 뒤 확인하므로 같은 회선의 예약이 동시에 들어와도 둘 다 통과하지 않는다.
+		if (subscriptionRoamingRepository.existsOverlapping(subscriptionId, startDate, endDate)) {
+			throw new SubscriptionException(SubscriptionErrorCode.ROAMING_PERIOD_OVERLAPPED);
+		}
 		RoamingProduct product = roamingProductRepository.findByIdForUpdate(roamingProductId)
 				.filter(found -> found.getStatus() == MasterStatus.ACTIVE)
 				.orElseThrow(() -> new RoamingProductException(RoamingProductErrorCode.PRODUCT_NOT_FOUND));

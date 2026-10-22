@@ -178,6 +178,35 @@ class ProductJoinIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("같은 회선에서 예약·이용 중인 로밍과 기간이 겹치면 국가와 관계없이 예약할 수 없다")
+	void rejectsOverlappingRoaming() throws Exception {
+		long japan = productId("roaming_products", "roaming_product_id", "UBOT_ROAM_JP_1G");
+		long china = productId("roaming_products", "roaming_product_id", "UBOT_ROAM_CN_1G");
+		LocalDate start = LocalDate.now().plusDays(10);
+		long reservedId = id(send(post(BASE + ownerLine + "/roamings"), owner, roamingBody(japan, start, start.plusDays(4)))
+				.andExpect(status().isCreated()), "subscriptionRoamingId");
+
+		// 종료일 하루만 겹쳐도 막고, 다른 국가 상품도 막는다.
+		send(post(BASE + ownerLine + "/roamings"), owner, roamingBody(japan, start.plusDays(4), start.plusDays(6)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-017"));
+		send(post(BASE + ownerLine + "/roamings"), owner, roamingBody(china, start.minusDays(2), start))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("SUB-017"));
+		// 바로 다음 날부터는 예약할 수 있고, 다른 회선은 영향을 받지 않는다.
+		send(post(BASE + ownerLine + "/roamings"), owner, roamingBody(china, start.plusDays(5), start.plusDays(6)))
+				.andExpect(status().isCreated());
+		send(post(BASE + otherLine + "/roamings"), other, roamingBody(japan, start, start.plusDays(4)))
+				.andExpect(status().isCreated());
+
+		// 취소한 예약의 기간은 다시 예약할 수 있다.
+		mockMvc.perform(delete(BASE + ownerLine + "/roamings/" + reservedId).with(as(owner)))
+				.andExpect(status().isOk());
+		send(post(BASE + ownerLine + "/roamings"), owner, roamingBody(china, start, start.plusDays(4)))
+				.andExpect(status().isCreated());
+	}
+
+	@Test
 	@DisplayName("인터넷/IPTV는 종류마다 하나만 가입하고 해지한다")
 	void subscribesHomeProducts() throws Exception {
 		long internet = productId("home_products", "home_product_id", "UBOT_HOME_INTERNET_100");
