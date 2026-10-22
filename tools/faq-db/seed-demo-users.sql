@@ -1,6 +1,6 @@
 -- 로컬 초기화용 가상 사용자 300명과 회선·사용량·청구·약정·결합·부가서비스·로밍 기록.
 -- 원본: ubot-all.seed.sql (2026-10-11 생성본) 그대로. reset-local-db.ps1이 seed-baseline.sql 다음에 실행한다.
--- [2] 상품 부분은 V43과 같아 이미 있는 코드는 건너뛴다. 결합 그룹은 seed-users.sql이 복원한다.
+-- [2] 상품 부분은 V47과 같아 이미 있는 코드는 건너뛴다. 결합 그룹은 seed-users.sql이 복원한다.
 -- Ubot 상품 + 가상 사용자 300명 통합 데이터 / 2026-10-11 / PostgreSQL
 -- 공통 비밀번호: UbotDemo2026!
 -- 로그인 이메일: ubot.demo.001@example.test ~ ubot.demo.300@example.test

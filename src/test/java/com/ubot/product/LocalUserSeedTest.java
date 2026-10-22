@@ -37,7 +37,7 @@ class LocalUserSeedTest {
             var jdbc = new JdbcTemplate(new DriverManagerDataSource(
                     postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
 
-            // 상품 시드(V43): 홈 결합은 모두 같은 속도의 인터넷 상품에 연결된다.
+            // 상품 시드(V47): 홈 결합은 모두 같은 속도의 인터넷 상품에 연결된다.
             assertThat(jdbc.queryForList("""
                     SELECT b.code FROM bundle_products b
                     LEFT JOIN home_products h ON h.home_product_id = b.home_product_id
