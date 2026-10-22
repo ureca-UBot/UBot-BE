@@ -11,6 +11,9 @@ on:
       - develop
       - main
 
+  # AWS PoC BE CD calls this for pushes to its test branch.
+  workflow_call:
+
 permissions:
   contents: read
 
@@ -54,7 +57,10 @@ jobs:
           cp infra/aws/be/env.example .env
           trap 'rm -f .env' EXIT
           docker compose --env-file .env \
-            -f docker-compose.api.yml -f docker-compose.worker.yml config --quiet
+            -f docker-compose.api.yml -f docker-compose.worker.yml -f docker-compose.monitoring.yml config --quiet
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/infra/prometheus/prometheus.aws.yml:/etc/prometheus/prometheus.yml:ro" \
+            prom/prometheus:v3.15.0 check config /etc/prometheus/prometheus.yml
           bash -n tools/deploy/aws-be-deploy.sh
           # SC2024: .deploy/ 상태 파일은 sudo 없이 배포 사용자 권한으로 씁니다.
           shellcheck -S warning -e SC2024 tools/deploy/aws-be-deploy.sh tools/deploy/aws-be-ssm-command.sh
@@ -84,7 +90,8 @@ jobs:
           container_id="$(docker create ubot-be:ci)"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
           docker cp "$container_id:/opt/ubot-deploy/." "$bundle/"
-          for file in docker-compose.api.yml docker-compose.worker.yml \
-              infra/nginx/nginx.api.conf.template tools/deploy/aws-be-deploy.sh; do
+          for file in docker-compose.api.yml docker-compose.worker.yml docker-compose.monitoring.yml \
+              infra/nginx/nginx.api.conf.template infra/prometheus/prometheus.aws.yml \
+              tools/deploy/aws-be-deploy.sh; do
             cmp "$file" "$bundle/$file"
           done

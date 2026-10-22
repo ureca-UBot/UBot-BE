@@ -1,20 +1,26 @@
 name: AWS PoC BE CD
 
 # AWS resources are created by hand for now (no Terraform stack).
+# develop: Backend CI succeeds -> workflow_run publishes the image and deploys it.
+# chore/191-aws-cicd: workflow_run and workflow_dispatch only run workflow files from the default
+#   branch, so a push to this test branch runs Backend CI here first, then publishes and deploys.
+#   Remove the push trigger once this workflow is on develop.
+# Add required reviewers to the aws-poc environment to make each deployment wait for approval.
 #
-# Secrets (repository secrets, or aws-poc environment secrets for the deploy job):
+# Repository secrets:
 #   AWS_BE_ECR_REPOSITORY_URL  <account>.dkr.ecr.ap-northeast-2.amazonaws.com/<name>
-#   AWS_BE_PUBLISH_ROLE_ARN    OIDC sub repo:<org>/<repo>:ref:refs/heads/<default branch>
-#                              (workflow_run jobs run on the default branch whatever branch CI ran on);
-#                              ECR push and DescribeImages
-#   AWS_BE_DEPLOY_ROLE_ARN     OIDC sub repo:<org>/<repo>:environment:aws-poc; ssm:SendCommand on
-#                              document/AWS-RunShellScript and the BE instance only,
-#                              ssm:GetCommandInvocation, ecr:DescribeImages
+#   AWS_BE_ROLE_ARN            one OIDC role trusted for these subjects:
+#                                repo:<org>/<repo>:ref:refs/heads/<default branch>   (publish after workflow_run;
+#                                  those jobs run on the default branch whatever branch CI ran on)
+#                                repo:<org>/<repo>:ref:refs/heads/chore/191-aws-cicd (publish on the test branch)
+#                                repo:<org>/<repo>:environment:aws-poc              (deploy; the environment must
+#                                  allow develop and chore/191-aws-cicd)
+#                              ECR push/DescribeImages on the repository, ssm:SendCommand on
+#                              document/AWS-RunShellScript and the BE instance only, ssm:GetCommandInvocation
 #   AWS_BE_INSTANCE_ID
 # Variables:
-#   AWS_BE_RELEASE_ENABLED, AWS_BE_DEPLOY_ENABLED   'true' turns each job on
-#   AWS_BE_DEPLOY_BRANCH       branch whose successful CI pushes are deployed (default develop)
-#   AWS_BE_ECR_REPOSITORY_NAME
+#   AWS_BE_DEPLOY_ENABLED      'true' turns publishing and deployment on; 'false' freezes the server
+#   AWS_BE_DEPLOY_BRANCH       branch whose successful CI pushes are published by workflow_run (default develop)
 #   AWS_BE_DEPLOY_PATH (default /home/ssm-user/ubot-api), AWS_BE_DEPLOY_USER (default ssm-user)
 # The BE instance role needs ECR pull access and the SSM agent. Server .env secrets stay on the server.
 
@@ -24,6 +30,8 @@ on:
     types: [completed]
     # `on` cannot read variables: list every branch AWS_BE_DEPLOY_BRANCH may name.
     branches: [develop, main]
+  push:
+    branches: [chore/191-aws-cicd]
   workflow_dispatch:
     inputs:
       image_digest:
@@ -39,14 +47,22 @@ env:
   DEPLOY_BRANCH: ${{ vars.AWS_BE_DEPLOY_BRANCH || 'develop' }}
 
 jobs:
+  # Test branch only: the same Backend CI that develop runs before workflow_run.
+  ci:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
   publish:
+    needs: [ci]
     if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == (vars.AWS_BE_DEPLOY_BRANCH || 'develop') &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      vars.AWS_BE_RELEASE_ENABLED == 'true'
+      always() &&
+      vars.AWS_BE_DEPLOY_ENABLED == 'true' &&
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == (vars.AWS_BE_DEPLOY_BRANCH || 'develop') &&
+        github.event.workflow_run.head_repository.full_name == github.repository) ||
+       (github.event_name == 'push' && needs.ci.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -56,33 +72,34 @@ jobs:
       image_digest: ${{ steps.image.outputs.digest }}
     env:
       ECR_REPOSITORY_URL: ${{ secrets.AWS_BE_ECR_REPOSITORY_URL }}
-      ECR_REPOSITORY_NAME: ${{ vars.AWS_BE_ECR_REPOSITORY_NAME }}
-      PUBLISH_ROLE_ARN: ${{ secrets.AWS_BE_PUBLISH_ROLE_ARN }}
-      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      ROLE_ARN: ${{ secrets.AWS_BE_ROLE_ARN }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
 
     steps:
       - name: Check release settings
         run: |
           set -euo pipefail
           test -n "$ECR_REPOSITORY_URL" || { echo 'Secret AWS_BE_ECR_REPOSITORY_URL is not set' >&2; exit 1; }
-          test -n "$ECR_REPOSITORY_NAME" || { echo 'Variable AWS_BE_ECR_REPOSITORY_NAME is not set' >&2; exit 1; }
-          test -n "$PUBLISH_ROLE_ARN" || { echo 'Secret AWS_BE_PUBLISH_ROLE_ARN is not set' >&2; exit 1; }
+          test -n "$ROLE_ARN" || { echo 'Secret AWS_BE_ROLE_ARN is not set' >&2; exit 1; }
+          [[ "$ECR_REPOSITORY_URL" == */* ]] || { echo 'AWS_BE_ECR_REPOSITORY_URL must end with /<repository name>' >&2; exit 1; }
           [[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          echo "ECR_REPOSITORY_NAME=${ECR_REPOSITORY_URL#*/}" >> "$GITHUB_ENV"
 
       - name: Checkout the exact CI commit
         uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       # Backend CI already validated this commit's deployment files and image build.
       - name: Verify the checked out commit
         run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
-      - name: Assume image publisher role
+      - name: Assume BE CD role
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.PUBLISH_ROLE_ARN }}
+          role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Build and publish the CI commit
@@ -101,14 +118,14 @@ jobs:
             --query 'imageDetails[0].imageDigest' --output text)"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "Published ${DEPLOY_BRANCH}@${RELEASE_SHA} as ${ECR_REPOSITORY_NAME}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published ${SOURCE_BRANCH}@${RELEASE_SHA} as ${ECR_REPOSITORY_NAME}@${digest}" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     needs: [publish]
     if: >-
       always() &&
       vars.AWS_BE_DEPLOY_ENABLED == 'true' &&
-      ((github.event_name == 'workflow_run' && needs.publish.result == 'success') ||
+      ((github.event_name != 'workflow_dispatch' && needs.publish.result == 'success') ||
        (github.event_name == 'workflow_dispatch' &&
         github.ref == format('refs/heads/{0}', vars.AWS_BE_DEPLOY_BRANCH || 'develop')))
     runs-on: ubuntu-latest
@@ -123,36 +140,38 @@ jobs:
     env:
       IMAGE_DIGEST: ${{ github.event_name == 'workflow_dispatch' && inputs.image_digest || needs.publish.outputs.image_digest }}
       ECR_REPOSITORY_URL: ${{ secrets.AWS_BE_ECR_REPOSITORY_URL }}
-      ECR_REPOSITORY_NAME: ${{ vars.AWS_BE_ECR_REPOSITORY_NAME }}
       BE_INSTANCE_ID: ${{ secrets.AWS_BE_INSTANCE_ID }}
-      DEPLOY_ROLE_ARN: ${{ secrets.AWS_BE_DEPLOY_ROLE_ARN }}
+      ROLE_ARN: ${{ secrets.AWS_BE_ROLE_ARN }}
       DEPLOY_PATH: ${{ vars.AWS_BE_DEPLOY_PATH || '/home/ssm-user/ubot-api' }}
       DEPLOY_USER: ${{ vars.AWS_BE_DEPLOY_USER || 'ssm-user' }}
+      # The branch whose latest commit this deployment must still match.
+      SOURCE_BRANCH: ${{ github.event_name == 'push' && github.ref_name || vars.AWS_BE_DEPLOY_BRANCH || 'develop' }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - name: Checkout deployment tools
         uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Validate deployment input and target
         run: |
           set -euo pipefail
           [[ "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'Invalid image digest' >&2; exit 1; }
-          [[ "$DEPLOY_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid AWS_BE_DEPLOY_BRANCH' >&2; exit 1; }
-          test -n "$ECR_REPOSITORY_NAME" || { echo 'Variable AWS_BE_ECR_REPOSITORY_NAME is not set' >&2; exit 1; }
+          [[ "$SOURCE_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid deploy branch name' >&2; exit 1; }
           test -n "$BE_INSTANCE_ID" || { echo 'Secret AWS_BE_INSTANCE_ID is not set' >&2; exit 1; }
-          test -n "$DEPLOY_ROLE_ARN" || { echo 'Secret AWS_BE_DEPLOY_ROLE_ARN is not set' >&2; exit 1; }
+          test -n "$ROLE_ARN" || { echo 'Secret AWS_BE_ROLE_ARN is not set' >&2; exit 1; }
           # Also validates the repository URL, path and user before anything reaches AWS.
           bash tools/deploy/aws-be-ssm-command.sh \
             "$ECR_REPOSITORY_URL" "$IMAGE_DIGEST" "$DEPLOY_PATH" "$DEPLOY_USER" \
             > "$RUNNER_TEMP/ssm-parameters.json"
+          echo "ECR_REPOSITORY_NAME=${ECR_REPOSITORY_URL#*/}" >> "$GITHUB_ENV"
 
-      - name: Assume BE deployment role
+      - name: Assume BE CD role
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Check image exists
@@ -160,20 +179,20 @@ jobs:
           aws ecr describe-images --repository-name "$ECR_REPOSITORY_NAME" \
             --image-ids "imageDigest=$IMAGE_DIGEST" >/dev/null
 
-      - name: Check the current deploy branch commit
-        if: github.event_name == 'workflow_run'
+      # A slower run for an older commit must not replace a newer deployment.
+      - name: Check the branch still points at this commit
+        if: github.event_name != 'workflow_dispatch'
         id: head
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${DEPLOY_BRANCH}" --jq '.object.sha')"
+          current_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${SOURCE_BRANCH}" --jq '.object.sha')"
           if [ "$current_sha" = "$RELEASE_SHA" ]; then
             echo 'deploy=true' >> "$GITHUB_OUTPUT"
           else
             echo 'deploy=false' >> "$GITHUB_OUTPUT"
-            echo "Skipped stale CI commit ${RELEASE_SHA}; ${DEPLOY_BRANCH} is ${current_sha}." >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipped stale commit ${RELEASE_SHA}; ${SOURCE_BRANCH} is ${current_sha}." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Deploy through SSM
@@ -189,7 +208,7 @@ jobs:
             --comment "UBot BE ${IMAGE_DIGEST}" \
             --query 'Command.CommandId' --output text)"
           echo "command_id=$command_id" >> "$GITHUB_OUTPUT"
-          echo "SSM command: $command_id (${DEPLOY_BRANCH})" >> "$GITHUB_STEP_SUMMARY"
+          echo "SSM command: $command_id (${SOURCE_BRANCH})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Wait for deployment result
         if: steps.command.outputs.command_id != ''

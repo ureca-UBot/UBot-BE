@@ -31,7 +31,8 @@ done
 sudo docker compose version >/dev/null
 
 export BACKEND_IMAGE="${repository_url}@${image_digest}"
-compose=(sudo env "BACKEND_IMAGE=$BACKEND_IMAGE" docker compose -p ubot-api --env-file .env -f docker-compose.api.yml -f docker-compose.worker.yml)
+compose=(sudo env "BACKEND_IMAGE=$BACKEND_IMAGE" docker compose -p ubot-api --env-file .env
+  -f docker-compose.api.yml -f docker-compose.worker.yml -f docker-compose.monitoring.yml)
 "${compose[@]}" config --quiet
 sudo docker image inspect "$BACKEND_IMAGE" >/dev/null
 
@@ -109,4 +110,30 @@ fi
 printf '%s\n' "$BACKEND_IMAGE" > "$state_dir/current-image"
 echo "BE image running: $BACKEND_IMAGE"
 echo 'API /actuator/health, /api/notices, and Worker startup passed.'
+
+# Monitoring does not serve users, so it follows the app switch. Prometheus is recreated so a
+# changed scrape config in this release takes effect; its data volume is kept.
+"${compose[@]}" up -d --no-deps postgres-exporter redis-exporter cadvisor
+"${compose[@]}" up -d --no-deps --force-recreate prometheus
+prometheus_url="http://$("${compose[@]}" port prometheus 9090)"
+prom_value() {
+  curl -fsS --max-time 3 -G --data-urlencode "query=$1" "$prometheus_url/api/v1/query" 2>/dev/null \
+    | sed -n 's/.*"value":\[[^,]*,"\([^"]*\)"\].*/\1/p'
+}
+# All five scrape jobs up, and the exporters can reach PostgreSQL and Redis on the State EC2.
+monitoring_ready=false
+for _ in $(seq 1 24); do
+  if [ "$(prom_value 'count(up == 1)')" = 5 ] \
+      && [ "$(prom_value 'min(pg_up)')" = 1 ] && [ "$(prom_value 'min(redis_up)')" = 1 ]; then
+    monitoring_ready=true
+    break
+  fi
+  sleep 5
+done
+if [ "$monitoring_ready" != true ]; then
+  echo "The new BE image is running, but monitoring is not ready at $prometheus_url" >&2
+  curl -fsS --max-time 3 "$prometheus_url/api/v1/targets?state=active" >&2 || true
+  exit 1
+fi
+echo "Prometheus scrapes API, Worker, PostgreSQL, Redis and containers at $prometheus_url"
 echo 'Run an authenticated question-to-answer smoke test before declaring the release complete.'

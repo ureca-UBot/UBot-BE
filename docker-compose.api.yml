@@ -17,6 +17,8 @@ services:
       EMBEDDING_BASE_URL: http://${NLB_DNS:?Set NLB_DNS}:8001/v1
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-ubot-embedding}
       COUNSEL_SEED_ON_START: 'false'
+      # docker-compose.monitoring.yml on the same instance
+      PROMETHEUS_BASE_URL: http://prometheus:9090
     ports:
       - '127.0.0.1:8080:8080'
     stop_grace_period: 35s
