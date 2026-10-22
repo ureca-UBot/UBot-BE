@@ -126,6 +126,32 @@ class CounselEmbeddingWorkerTest {
 		assertThat(calls).hasValue(2);
 	}
 
+	@Test void countsJobsByStatusAndFailureCode() throws Exception {
+		var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		worker = new CounselEmbeddingWorker(redis, new EmbeddingClient() {
+			@Override public String getModelName() { return "test-model"; }
+			@Override public List<PGvector> embedBatch(List<String> inputs) {
+				if (inputs.getFirst().equals("failure")) throw new IllegalStateException("not logged");
+				float[] vector = new float[1024];
+				vector[0] = 1;
+				return List.of(new PGvector(vector));
+			}
+		}, JSON, registry);
+		String failed = enqueue("failure", "test-model", Duration.ofSeconds(5));
+		String mismatched = enqueue("요금 문의", "other-model", Duration.ofSeconds(5));
+		String succeeded = enqueue("healthy", "test-model", Duration.ofSeconds(5));
+		worker.start();
+		result(failed);
+		result(mismatched);
+		result(succeeded);
+		assertThat(registry.get("counsel.embedding.jobs").tag("status", "failed").tag("code", "WORKER_INVALID_RESPONSE")
+				.counter().count()).isEqualTo(1);
+		assertThat(registry.get("counsel.embedding.jobs").tag("status", "failed").tag("code", "WORKER_MODEL_MISMATCH")
+				.counter().count()).isEqualTo(1);
+		assertThat(registry.get("counsel.embedding.jobs").tag("status", "succeeded").tag("code", "none")
+				.counter().count()).isEqualTo(1);
+	}
+
 	@Test void oneFailureDoesNotKillWorkerOrRetryTheFailedJob() throws Exception {
 		String first = enqueue("failure", "test-model", Duration.ofSeconds(5));
 		String second = enqueue("healthy", "test-model", Duration.ofSeconds(5));
