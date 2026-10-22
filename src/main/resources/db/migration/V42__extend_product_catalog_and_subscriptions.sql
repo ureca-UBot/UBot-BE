@@ -91,3 +91,9 @@ ALTER TABLE subscription_bundles
     ADD COLUMN bundle_group_id BIGINT REFERENCES bundle_groups (bundle_group_id) ON DELETE SET NULL;
 
 CREATE INDEX idx_subscription_bundles_group_status ON subscription_bundles (bundle_group_id, status);
+
+-- 부가서비스 가입 경로. 요금제를 바꾸면 이전 요금제로 들어온 PLAN_INCLUDED 행만 해지한다.
+-- 요금제 포함 목록이 나중에 바뀌어도 가입 당시 행으로 판단하므로 plan_included_addons로 추측하지 않는다.
+ALTER TABLE subscription_addons
+    ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'SUBSCRIBED'
+        CHECK (source IN ('SUBSCRIBED', 'PLAN_INCLUDED'));

@@ -49,7 +49,7 @@ SELECT l.line_key, s.subscription_id, s.activated_at
 FROM seed_line l
 JOIN subscriptions s ON s.phone_number = l.phone_number AND s.status <> 'TERMINATED';
 
--- 부가서비스 (라이프 뮤직·북패스 요금제의 포함 혜택은 plan_included_addons에 있어 따로 가입하지 않는다)
+-- 부가서비스 (요금제 포함 혜택은 파일 끝에서 PLAN_INCLUDED 0원으로 넣는다)
 CREATE TEMP TABLE seed_addon (line_key TEXT, addon_code TEXT, days_ago INT) ON COMMIT DROP;
 INSERT INTO seed_addon VALUES
     ('U1', 'UBOT_ADDON_SPAM', 300), ('U1', 'UBOT_ADDON_DATA_5', 20),
@@ -279,5 +279,29 @@ JOIN legacy_bundle rep ON rep.bundle_product_id = lb.bundle_product_id AND rep.g
     AND rep.applied_discount_amount > 0
 JOIN bundle_groups g ON g.representative_subscription_id = rep.subscription_id AND g.status = 'ACTIVE'
 WHERE sb.subscription_bundle_id = lb.subscription_bundle_id;
+
+-- 요금제 포함 부가서비스: 두 시드 파일의 해지되지 않은 회선 모두. 앱의 요금제 변경과 같은 규칙을 따른다.
+-- 포함 부가서비스를 따로 가입해 두었으면 해지하고, 요금제 이용 시작 시점에 0원(PLAN_INCLUDED)으로 넣는다.
+CREATE TEMP TABLE seed_included ON COMMIT DROP AS
+SELECT s.subscription_id, pia.addon_service_id, a.name,
+       GREATEST(COALESCE(s.plan_changed_at, s.activated_at), s.activated_at) AS included_at
+FROM subscriptions s
+JOIN plan_included_addons pia ON pia.plan_id = s.plan_id
+JOIN addon_services a ON a.addon_service_id = pia.addon_service_id AND a.deleted_at IS NULL
+WHERE s.status <> 'TERMINATED';
+
+UPDATE subscription_addons sa SET status = 'CANCELED', canceled_at = GREATEST(sa.subscribed_at, i.included_at)
+FROM seed_included i
+WHERE sa.subscription_id = i.subscription_id AND sa.addon_service_id = i.addon_service_id
+  AND sa.status = 'ACTIVE' AND sa.source = 'SUBSCRIBED';
+
+INSERT INTO subscription_addons (subscription_id, addon_service_id, subscribed_at, status,
+    service_name_snapshot, monthly_fee_snapshot, source)
+SELECT i.subscription_id, i.addon_service_id,
+       GREATEST(i.included_at, (SELECT max(sa.canceled_at) FROM subscription_addons sa
+                                WHERE sa.subscription_id = i.subscription_id
+                                  AND sa.addon_service_id = i.addon_service_id)),
+       'ACTIVE', i.name, 0, 'PLAN_INCLUDED'
+FROM seed_included i;
 
 COMMIT;
