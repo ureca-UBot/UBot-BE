@@ -146,6 +146,13 @@ src/main/resources/
 | `JWT_REFRESH_TOKEN_EXPIRATION_DAYS` | `RefreshTokenService` | `14` | `14` |
 | `CORS_ALLOWED_ORIGINS` | `SecurityConfig` | (빈 값) | (빈 값, 같은 origin만 허용) |
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택. CD는 서버 `.env`의 이 값이 `prod`인지 검사 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
+| `ALERTS_ENABLED` | `render-alert-config.sh`: 알림 규칙을 만들지 여부. `false`면 빈 규칙을 만들고 Alertmanager 설정과 Webhook secret을 지움([장애 알림](../how-to/alerting.md)) | `false` | 렌더러 기본 `false`. Spring에서 읽지 않음 |
+| `ALERT_DISCORD_WEBHOOK_URL`, `ALERT_SLACK_WEBHOOK_URL` | `render-alert-config.sh`: Discord·Slack Webhook URL. 값을 넣은 채널만 Alertmanager 설정에 남고, URL은 `.generated/alertmanager/secrets/<채널>-webhook`(권한 600)에만 씀. 알림을 켜면 하나 이상 필수. Git에 올리지 않음 | 빈 값 | 없음 |
+| `ALERT_WORKER_JOB` | `render-alert-config.sh`: Worker 지표를 내보내는 Prometheus job. 로컬은 백엔드가 Worker도 맡아 `ubot-backend` | `ubot-backend` | 렌더러 기본 `ubot-ai-worker` |
+| `ALERT_BACKEND_DOWN_FOR`, `ALERT_WORKER_DOWN_FOR`, `ALERT_DEPENDENCY_DOWN_FOR` | `render-alert-config.sh`: Backend·Worker·PostgreSQL/Redis 장애로 보기까지 이어져야 하는 시간(`30s`·`1m`·`2h` 형태) | `1m` | `1m` |
+| `ALERT_CHAT_QUEUE_OLDEST_SECONDS`, `ALERT_CHAT_QUEUE_FOR` | `render-alert-config.sh`: 가장 오래 기다린 Chat Job 대기 시간 기준(초)과 이어져야 하는 시간 | `120`, `2m` | `120`, `2m` |
+| `ALERT_LLM_TIMEOUT_RATIO`, `ALERT_LLM_TIMEOUT_WINDOW`, `ALERT_LLM_TIMEOUT_FOR`, `ALERT_LLM_TIMEOUT_MIN_CALLS` | `render-alert-config.sh`: LLM 시간 초과 비율 기준(0~1), 계산 기간, 이어져야 하는 시간, 계산에 필요한 최소 호출 수 | `0.05`, `5m`, `5m`, `10` | `0.05`, `5m`, `5m`, `10` |
+| `ALERTMANAGER_PORT` | Docker Compose(`alerts` 프로필): Alertmanager 호스트 포트(127.0.0.1만) | `19093` | Spring에서 읽지 않음 |
 
 Compose는 PostgreSQL `127.0.0.1:15432 → 5432`, Ollama `127.0.0.1:11435 → 11434`로 노출합니다. `OLLAMA_PORT`를 바꾸면 Spring이 사용하는 `OLLAMA_BASE_URL`의 포트도 함께 바꿔야 합니다.
 

@@ -9,6 +9,9 @@ build/
 # Gradle downloadKiwi 작업이 받는 Kiwi 형태소 분석기 jar와 모델입니다.
 .kiwi/
 
+# render-alert-config.sh가 .env로 만드는 알림 규칙·Alertmanager 설정·Webhook secret입니다.
+.generated/
+
 ### STS ###
 .apt_generated
 .classpath
