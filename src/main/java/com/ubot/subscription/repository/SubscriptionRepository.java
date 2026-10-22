@@ -46,6 +46,7 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
 	boolean existsByPhoneNumberAndStatusNot(String phoneNumber, SubscriptionStatus status);
 
 	// 결합에 추가할 본인 명의 회선. 하이픈 유무와 관계없이 숫자만 비교한다.
+	// 회선 해지와 동시에 처리되지 않도록 잠근다. 해지가 먼저 커밋되면 status 조건에 걸려 비어 있다.
 	@Query(value = """
 			SELECT s.subscription_id, s.user_id, s.plan_id, s.phone_number, s.status, s.activated_at, s.terminated_at,
 			       s.sim_type, s.sim_identifier, s.sim_status, s.sim_activated_at, s.sim_deactivated_at, s.plan_changed_at,
@@ -55,6 +56,7 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
 			WHERE s.user_id = :userId
 			  AND regexp_replace(s.phone_number, '[^0-9]', '', 'g') = :digits
 			  AND s.status = 'ACTIVE' AND u.deleted_at IS NULL
+			FOR UPDATE OF s
 			""", nativeQuery = true)
-	Optional<Subscription> findActiveByUserIdAndPhoneDigits(@Param("userId") Long userId, @Param("digits") String digits);
+	Optional<Subscription> findActiveByUserIdAndPhoneDigitsForUpdate(@Param("userId") Long userId, @Param("digits") String digits);
 }

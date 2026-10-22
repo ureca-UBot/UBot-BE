@@ -2,6 +2,7 @@ package com.ubot.subscription.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,6 +77,9 @@ public class BundleGroupService {
 
 	/** subscriptionId는 요청한 사용자의 대표 회선이어야 한다. */
 	public BundleGroupResponseDto addMember(Long userId, Long subscriptionId, Long bundleGroupId, String phoneNumber) {
+		// 회선 해지와 같은 순서(회선 → 그룹)로 잠근다. 추가할 회선을 잠그지 않으면 동시에 해지된 회선이 결합에 남는다.
+		Optional<Subscription> candidate = subscriptionRepository.findActiveByUserIdAndPhoneDigitsForUpdate(
+				userId, phoneNumber.replaceAll("\\D", ""));
 		BundleGroup group = bundleGroupRepository.findActiveForUpdate(bundleGroupId)
 				.filter(found -> found.isRepresentedBy(subscriptionId))
 				.filter(found -> isOwner(found.getRepresentativeSubscription(), userId))
@@ -86,7 +90,7 @@ public class BundleGroupService {
 			throw new SubscriptionException(SubscriptionErrorCode.BUNDLE_GROUP_FULL);
 		}
 		// 본인 명의가 아닌 번호와 없는 번호를 같은 오류로 묶어 다른 사람 번호의 존재 여부를 드러내지 않는다.
-		Subscription target = subscriptionRepository.findActiveByUserIdAndPhoneDigits(userId, phoneNumber.replaceAll("\\D", ""))
+		Subscription target = candidate
 				.filter(found -> !subscriptionBundleRepository.existsActiveBySubscriptionId(found.getSubscriptionId()))
 				.orElseThrow(() -> new SubscriptionException(SubscriptionErrorCode.BUNDLE_MEMBER_NOT_ADDABLE));
 		ProductWriteSupport.saveUnique(
