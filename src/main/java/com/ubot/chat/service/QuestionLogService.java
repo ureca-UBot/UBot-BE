@@ -5,6 +5,7 @@ import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.util.IpRegionResolver;
 import com.ubot.ranking.enums.RegionSido;
+import com.ubot.telemap.service.TelemapOutboxService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import java.util.Set;
 public class QuestionLogService {
 	private final QuestionLogRepository questionLogRepository;
 	private final IpRegionResolver ipRegionResolver;
+	private final TelemapOutboxService telemapOutboxService;
 
 	@Value("${ranking.window-minutes}")
 	private int rankingWindowMinutes;
@@ -83,7 +85,9 @@ public class QuestionLogService {
 					.region(regionSido)
 					.build());
 		}
-		return questionLogRepository.saveAllAndFlush(questionLogs);
+		List<QuestionLog> savedQuestionLogs = questionLogRepository.saveAllAndFlush(questionLogs);
+		telemapOutboxService.enqueueSurgingQuestions(savedQuestionLogs);
+		return savedQuestionLogs;
 	}
 
 	/**
