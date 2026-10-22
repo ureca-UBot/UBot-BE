@@ -1,12 +1,14 @@
 package com.ubot.subscription.repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.ubot.subscription.entity.SubscriptionAddon;
+import com.ubot.subscription.enums.SubscriptionAddonStatus;
 
 public interface SubscriptionAddonRepository extends JpaRepository<SubscriptionAddon, Long> {
 	@Query("""
@@ -18,4 +20,10 @@ public interface SubscriptionAddonRepository extends JpaRepository<SubscriptionA
 			""")
 	List<SubscriptionAddon> findAllBySubscriptionIdAndUserId(
 			@Param("subscriptionId") Long subscriptionId, @Param("userId") Long userId);
+
+	boolean existsBySubscription_SubscriptionIdAndAddonService_AddonServiceIdAndStatus(
+			Long subscriptionId, Long addonServiceId, SubscriptionAddonStatus status);
+
+	Optional<SubscriptionAddon> findBySubscriptionAddonIdAndSubscription_SubscriptionIdAndStatus(
+			Long subscriptionAddonId, Long subscriptionId, SubscriptionAddonStatus status);
 }

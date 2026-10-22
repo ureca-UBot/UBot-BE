@@ -3,6 +3,7 @@ package com.ubot.subscription.repository;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -56,4 +57,7 @@ public interface SubscriptionRoamingRepository extends JpaRepository<Subscriptio
 			@Param("to") LocalDate to,
 			@Param("statuses") Collection<SubscriptionRoamingStatus> statuses,
 			@Param("subscriptionStatus") SubscriptionStatus subscriptionStatus);
+
+	Optional<SubscriptionRoaming> findBySubscriptionRoamingIdAndSubscription_SubscriptionId(
+			Long subscriptionRoamingId, Long subscriptionId);
 }

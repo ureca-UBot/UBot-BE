@@ -17,6 +17,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import lombok.AccessLevel;
@@ -49,4 +51,31 @@ public class BundleGroup extends BusinessEntity {
 
 	@Column(name = "ended_at")
 	private LocalDateTime endedAt;
+
+	public static BundleGroup create(Subscription representativeSubscription) {
+		BundleGroup group = new BundleGroup();
+		group.representativeSubscription = representativeSubscription;
+		group.status = BundleGroupStatus.ACTIVE;
+		return group;
+	}
+
+	public boolean isRepresentedBy(Long subscriptionId) {
+		return representativeSubscription != null
+				&& representativeSubscription.getSubscriptionId().equals(subscriptionId);
+	}
+
+	public void end(LocalDateTime now) {
+		this.status = BundleGroupStatus.ENDED;
+		this.endedAt = now;
+	}
+
+	@PrePersist
+	private void initializeMetadata() {
+		initializeTimestamps();
+	}
+
+	@PreUpdate
+	private void updateTimestamp() {
+		markUpdated();
+	}
 }

@@ -67,6 +67,21 @@ public class SubscriptionAddon extends BusinessEntity {
 	@Column(name = "monthly_fee_snapshot")
 	private Integer monthlyFeeSnapshot;
 
+	public static SubscriptionAddon subscribe(Subscription subscription, AddonService addonService, LocalDateTime now) {
+		return SubscriptionAddon.builder()
+				.subscription(subscription)
+				.addonService(addonService)
+				.subscribedAt(now)
+				.serviceNameSnapshot(addonService.getName())
+				.monthlyFeeSnapshot(addonService.getMonthlyFee())
+				.build();
+	}
+
+	public void cancel(LocalDateTime now) {
+		this.status = SubscriptionAddonStatus.CANCELED;
+		this.canceledAt = now;
+	}
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();

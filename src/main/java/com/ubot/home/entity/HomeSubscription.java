@@ -19,6 +19,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -64,4 +66,31 @@ public class HomeSubscription extends BusinessEntity {
 
     @Column(name = "monthly_fee_snapshot")
     private Integer monthlyFeeSnapshot;
+
+    public static HomeSubscription subscribe(User user, HomeProduct homeProduct, LocalDateTime now) {
+        HomeSubscription subscription = new HomeSubscription();
+        subscription.user = user;
+        subscription.homeProduct = homeProduct;
+        subscription.productType = homeProduct.getProductType();
+        subscription.status = HomeSubscriptionStatus.ACTIVE;
+        subscription.joinedAt = now;
+        subscription.productNameSnapshot = homeProduct.getName();
+        subscription.monthlyFeeSnapshot = homeProduct.getMonthlyFee();
+        return subscription;
+    }
+
+    public void end(LocalDateTime now) {
+        this.status = HomeSubscriptionStatus.ENDED;
+        this.endedAt = now;
+    }
+
+    @PrePersist
+    private void initializeMetadata() {
+        initializeTimestamps();
+    }
+
+    @PreUpdate
+    private void updateTimestamp() {
+        markUpdated();
+    }
 }

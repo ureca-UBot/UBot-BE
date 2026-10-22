@@ -88,6 +88,11 @@ public class Subscription extends BusinessEntity {
 	@Column(name = "plan_changed_at")
 	private LocalDateTime planChangedAt;
 
+	public void changePlan(Plan plan, LocalDateTime changedAt) {
+		this.plan = plan;
+		this.planChangedAt = changedAt;
+	}
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();

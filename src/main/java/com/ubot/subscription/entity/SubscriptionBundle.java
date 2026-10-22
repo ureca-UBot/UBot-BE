@@ -71,6 +71,24 @@ public class SubscriptionBundle extends BusinessEntity {
 	@JoinColumn(name = "bundle_group_id")
 	private BundleGroup bundleGroup;
 
+	/** 결합 할인액은 대표 회선 기록에만 적고 구성 회선은 0원이다. */
+	public static SubscriptionBundle join(Subscription subscription, BundleProduct bundleProduct,
+			BundleGroup bundleGroup, boolean representative, LocalDateTime now) {
+		return SubscriptionBundle.builder()
+				.subscription(subscription)
+				.bundleProduct(bundleProduct)
+				.bundleGroup(bundleGroup)
+				.joinedAt(now)
+				.productNameSnapshot(bundleProduct.getName())
+				.appliedDiscountAmount(representative ? bundleProduct.getDiscountAmount() : 0)
+				.build();
+	}
+
+	public void end(LocalDateTime now) {
+		this.status = SubscriptionBundleStatus.ENDED;
+		this.endedAt = now;
+	}
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();

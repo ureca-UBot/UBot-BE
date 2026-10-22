@@ -26,6 +26,7 @@ public class SubscriptionService {
 	private final SubscriptionBundleRepository subscriptionBundleRepository;
 	private final SubscriptionAddonRepository subscriptionAddonRepository;
 	private final SubscriptionRoamingRepository subscriptionRoamingRepository;
+	private final BundleGroupService bundleGroupService;
 
 	public List<SubscriptionResponseDto> getMySubscriptionList(Long userId) {
 		return subscriptionRepository.findAllByUserId(userId).stream()
@@ -44,7 +45,7 @@ public class SubscriptionService {
 	public List<SubscriptionBundleResponseDto> getMyBundleList(Long userId, Long subscriptionId) {
 		subscriptionAccessService.getOwnedSubscription(userId, subscriptionId);
 		return subscriptionBundleRepository.findAllBySubscriptionIdAndUserId(subscriptionId, userId).stream()
-				.map(SubscriptionBundleResponseDto::from).toList();
+				.map(record -> SubscriptionBundleResponseDto.from(record, bundleGroupService.findGroup(record))).toList();
 	}
 
 	public List<SubscriptionAddonResponseDto> getMyAddonList(Long userId, Long subscriptionId) {
