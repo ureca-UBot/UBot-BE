@@ -1,5 +1,6 @@
 package com.ubot.outbox;
 
 public enum OutboxEventType {
-    UNANSWERED_QUESTION
+    UNANSWERED_QUESTION,
+    FAQ_REVERIFY
 }

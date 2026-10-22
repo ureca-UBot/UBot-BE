@@ -16,6 +16,8 @@ import com.ubot.unanswered.exception.UnansweredErrorCode;
 import com.ubot.unanswered.exception.UnansweredException;
 import com.ubot.unanswered.repository.UnansweredQuestionGroupRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
+import com.ubot.unanswered.repository.UnansweredReverifyRepository;
+import com.ubot.unanswered.repository.UnansweredReverifyRepository.ReverificationSummary;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -41,6 +43,7 @@ public class UnansweredGroupService {
 	private final UnansweredQuestionGroupRepository unansweredQuestionGroupRepository;
 	private final UnansweredQuestionRepository unansweredQuestionRepository;
 	private final FaqService faqService;
+	private final UnansweredReverifyRepository unansweredReverifyRepository;
 
 	@Transactional(readOnly = true)
 	public PageResponseDto<UnansweredGroupResponseDto> getUnansweredGroupList(
@@ -57,7 +60,10 @@ public class UnansweredGroupService {
 		Page<UnansweredQuestionGroup> groups = status == null
 				? unansweredQuestionGroupRepository.findAllByQuestionCountGreaterThanEqual(minCount, pageRequest)
 				: unansweredQuestionGroupRepository.findAllByStatusAndQuestionCountGreaterThanEqual(status, minCount, pageRequest);
-		return PageResponseDto.from(groups.map(UnansweredGroupResponseDto::from));
+		Map<Long, ReverificationSummary> reverifications = unansweredReverifyRepository.findSummaries(
+				groups.getContent().stream().map(UnansweredQuestionGroup::getId).toList());
+		return PageResponseDto.from(groups.map(group ->
+				UnansweredGroupResponseDto.from(group, reverifications.get(group.getId()))));
 	}
 
 	@Transactional(readOnly = true)
@@ -65,7 +71,8 @@ public class UnansweredGroupService {
 		UnansweredQuestionGroup group = findGroup(groupId);
 		return UnansweredGroupDetailResponseDto.from(
 				group,
-				unansweredQuestionRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId)
+				unansweredQuestionRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId),
+				unansweredReverifyRepository.findByGroupId(groupId)
 		);
 	}
 
