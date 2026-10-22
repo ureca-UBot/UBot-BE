@@ -159,6 +159,14 @@ public class FaqMonitoringService {
 				exclusionId, administratorId);
 	}
 
+	@Transactional
+	public void deleteFaqImprovementExclusion(Long exclusionId) {
+		FaqImprovementExclusion exclusion = exclusionRepository.findById(exclusionId)
+				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_IMPROVEMENT_EXCLUSION_NOT_FOUND));
+		exclusionRepository.delete(exclusion);
+		log.info("개선 필요 FAQ 제외 이력을 삭제했습니다. exclusionId={}", exclusionId);
+	}
+
 	@Transactional(readOnly = true)
 	public PageResponseDto<FaqImprovementExclusionResponse> getFaqImprovementExclusions(int page, int size) {
 		return PageResponseDto.from(exclusionRepository.findAllUnreleased(
