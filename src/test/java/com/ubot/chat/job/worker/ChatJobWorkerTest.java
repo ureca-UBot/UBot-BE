@@ -746,6 +746,79 @@ class ChatJobWorkerTest {
 		assertThat(worker.isOperational()).isFalse();
 	}
 
+	@Test
+	void userCancellationInterruptsOnlySelectedComputationAndKeepsWorkerRunning() throws Exception {
+		queueJobs(2);
+		var started = new CountDownLatch(2);
+		var cancelledA = new CountDownLatch(1);
+		var releaseB = new CountDownLatch(1);
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
+			AnswerAttemptsHistory attempt = call.getArgument(0);
+			started.countDown();
+			try {
+				if (attempt.getId() == 1L) new CountDownLatch(1).await();
+				else releaseB.await(5, TimeUnit.SECONDS);
+			} catch (InterruptedException error) {
+				if (attempt.getId() == 1L) cancelledA.countDown();
+				else throw new AssertionError("다른 질문이 중단됨", error);
+				throw new java.util.concurrent.CancellationException();
+			}
+			return answered();
+		});
+		worker = worker(2, Duration.ofSeconds(20));
+		worker.start();
+		try {
+			assertThat(started.await(4, TimeUnit.SECONDS)).isTrue();
+			storedJobs.get(1L).fail(); // 취소 트랜잭션이 먼저 확정한 종료 상태
+			worker.cancelJob(1L);
+			assertThat(cancelledA.await(2, TimeUnit.SECONDS)).isTrue();
+			assertThat(worker.isRunning()).isTrue();
+			releaseB.countDown();
+			verify(completion, timeout(2_000)).complete(eq(2L), any(), any(), any());
+			verify(completion, never()).complete(eq(1L), any(), any(), any());
+			verify(stream, timeout(2_000)).ack("message-1");
+		} finally { releaseB.countDown(); }
+	}
+
+	@Test
+	void cancellationCommittedAfterClaimDoesNotStartTheModel() {
+		queueJobs(1);
+		when(queue.claim(eq(1L), any())).thenAnswer(call -> {
+			storedJobs.get(1L).fail();
+			return Optional.of(STARTED_AT);
+		});
+		worker = worker(1, Duration.ofSeconds(20));
+		worker.processAvailableJobs();
+		verifyNoInteractions(processor, completion);
+		verify(stream).ack("message-1");
+	}
+
+	@Test
+	void cancellationBeforeFutureBindingIsNotLostAndNeverStartsTheModel() throws Exception {
+		queueJobs(1);
+		var beforeBinding = new CountDownLatch(1);
+		var resume = new CountDownLatch(1);
+		when(attempts.findById(1L)).thenAnswer(call -> {
+			beforeBinding.countDown();
+			assertThat(resume.await(5, TimeUnit.SECONDS)).isTrue();
+			return Optional.of(AnswerAttemptsHistory.builder()
+					.id(1L).userId(1L).question("질문").attemptCount(1).status("PENDING").build());
+		});
+		worker = worker(1, Duration.ofSeconds(20));
+		worker.start();
+		try {
+			assertThat(beforeBinding.await(4, TimeUnit.SECONDS)).isTrue();
+			storedJobs.get(1L).fail();
+			worker.cancelJob(1L);
+			resume.countDown();
+			verify(stream, timeout(2_000)).ack("message-1");
+			verifyNoInteractions(processor, completion);
+			assertThat(worker.isRunning()).isTrue();
+		} finally {
+			resume.countDown();
+		}
+	}
+
 	// QUEUED 작업 count개의 메시지를 스트림에 넣음. 선점은 STARTED_AT으로 성공함
 	private List<ReceivedChatJob> queueJobs(int count) {
 		unread.addAll(storeJobs(count));

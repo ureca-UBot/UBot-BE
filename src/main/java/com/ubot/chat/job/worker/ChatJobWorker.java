@@ -34,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -496,23 +497,41 @@ public class ChatJobWorker implements SmartLifecycle {
 		}
 	}
 
+
+	/** 로컬 실행 중 해당 ID 하나만 중단합니다. 분리된 Worker에는 Redis 취소 알림으로 전달됩니다. */
+	public void cancelJob(long jobId) {
+		for (RunningJob job : runningJobs) {
+			if (job.received.message().jobId() == jobId) job.cancel();
+		}
+	}
+
 	private void execute(ReceivedChatJob received, ClaimedJob claimed) {
 		long executionStarted = System.nanoTime();
 		ChatJobMessage message = new ChatJobMessage(received.message().jobId(), claimed.context());
 		RunningJob job = new RunningJob(received, claimed.startedAt());
 		runningJobs.add(job);
 		try {
+			// 선점 직후 사용자 취소가 커밋되었으면 모델을 호출하지 않습니다.
+			if (jobRepository.findById(message.jobId()).map(found -> found.getStatus().isFinished()).orElse(false)) {
+				ackQuietly(received);
+				return;
+			}
 			log.info("답변 작업을 시작합니다: 작업ID={}, 메시지ID={}", message.jobId(), received.messageId());
 			AnswerAttemptsHistory attempt = answerAttemptsHistoryRepository.findById(claimed.attemptId()).orElseThrow();
-			job.computation = computations.submit(() -> AnswerProgress.observe(
-					phase -> reportPhase(job, phase),
-					() -> jobProcessor.process(attempt, message.context().location(), job::checkActive, job.unanswered)));
+			FutureTask<ChatJobOutcome> computation = new FutureTask<>(() -> {
+				job.checkActive();
+				return AnswerProgress.observe(phase -> reportPhase(job, phase),
+						() -> jobProcessor.process(attempt, message.context().location(), job::checkActive, job.unanswered));
+			});
+			// 실행 전에 Future를 연결합니다. 연결 직전 취소도 기억해 모델을 시작하지 않습니다.
+			job.bindComputation(computation);
+			computations.execute(computation);
 			ChatJobOutcome outcome;
 			try {
 				// 선점 때 안내한 마감까지의 시간만 사용. 단계 전환으로 시간을 연장하지 않음.
 				long remaining = Duration.between(now(), claimed.startedAt().plus(properties.executionTimeout())).toMillis();
 				if (remaining <= 0) throw new TimeoutException("답변 처리 제한 시간이 지났습니다.");
-				outcome = job.computation.get(remaining, TimeUnit.MILLISECONDS);
+				outcome = computation.get(remaining, TimeUnit.MILLISECONDS);
 				job.checkActive();
 			} catch (TimeoutException exception) {
 				count("timeouts");
@@ -542,7 +561,11 @@ public class ChatJobWorker implements SmartLifecycle {
 			// DB 커밋 뒤에만 ACK함
 			ackQuietly(received);
 		} catch (CancellationException exception) {
-			log.warn("종료 중에 대기열로 돌려놓은 작업이라 결과를 버립니다: 작업ID={}", message.jobId());
+			// 취소가 DB에 확정된 작업만 ACK합니다. 종료·선점 상실의 기존 재발행 흐름은 유지합니다.
+			if (jobRepository.findById(message.jobId()).map(found -> found.getStatus().isFinished()).orElse(false)) {
+				ackQuietly(received);
+			}
+			log.info("중단되었거나 실행 권한을 잃은 답변 작업의 결과를 버립니다: 작업ID={}", message.jobId());
 		} catch (RuntimeException exception) {
 			// DB 장애 등으로 기록 못 함. ACK하지 않아 처리 대기로 남음
 			log.error("답변 작업 결과를 기록하지 못해 메시지를 ACK하지 않았습니다: 작업ID={}", message.jobId(), exception);
@@ -704,6 +727,12 @@ public class ChatJobWorker implements SmartLifecycle {
 		private volatile boolean lost;
 		private volatile Future<ChatJobOutcome> computation;
 		private final List<UnansweredCandidate> unanswered = new CopyOnWriteArrayList<>();
+
+		private void bindComputation(Future<ChatJobOutcome> future) {
+			computation = future;
+			// cancel()이 Future 연결 전에 실행된 경우에도 중단 신호를 잃지 않습니다.
+			if (lost) future.cancel(true);
+		}
 
 		private void cancel() {
 			lost = true;

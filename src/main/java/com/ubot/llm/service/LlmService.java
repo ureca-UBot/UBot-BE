@@ -89,6 +89,7 @@ public class LlmService {
 			Long permitWaitTimeoutMillis
 	) {
         // API 호출 전에 메시지 누락·공백·마지막 역할을 확인합니다.
+        checkCancellation();
         validateRequest(request);
         if (reportAnswerProgress) {
             AnswerProgress.report(Phase.WAITING_FOR_MODEL);
@@ -98,6 +99,7 @@ public class LlmService {
 		long startedAt = System.nanoTime();
 		String outcome = "error";
 		try {
+			checkCancellation();
 			if (reportAnswerProgress) {
 				AnswerProgress.report(Phase.GENERATING);
 			}
@@ -132,6 +134,12 @@ public class LlmService {
 		if (errorCode == LlmErrorCode.LLM_SERVICE_UNAVAILABLE) return "unavailable";
 		if (errorCode == LlmErrorCode.LLM_RESPONSE_INVALID) return "invalid_response";
 		return "error";
+	}
+
+	private void checkCancellation() {
+		if (Thread.currentThread().isInterrupted()) {
+			throw new CancellationException("LLM 요청이 취소되었습니다.");
+		}
 	}
 
 	// 기다리다 취소되면 모델을 부르지 않음
