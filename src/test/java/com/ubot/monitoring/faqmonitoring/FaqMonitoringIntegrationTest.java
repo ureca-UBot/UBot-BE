@@ -13,9 +13,12 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqTrendWindow;
 import com.ubot.monitoring.faqmonitoring.dto.model.detail.FaqUsageTrendPeriod;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.FaqImprovementType;
+import com.ubot.monitoring.faqmonitoring.dto.request.FaqImprovementExclusionRequest;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringDetailQueryRepository;
+import com.ubot.monitoring.faqmonitoring.repository.FaqImprovementExclusionRepository;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringRankingQueryRepository;
 import com.ubot.monitoring.faqmonitoring.service.FaqMonitoringService;
+import jakarta.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -49,6 +52,8 @@ class FaqMonitoringIntegrationTest {
 	@Autowired private FaqMonitoringRankingQueryRepository rankingRepository;
 	@Autowired private FaqMonitoringDetailQueryRepository detailRepository;
 	@Autowired private FaqMonitoringService monitoringService;
+	@Autowired private FaqImprovementExclusionRepository exclusionRepository;
+	@Autowired private EntityManager entityManager;
 	private long userId;
 
 	@BeforeEach
@@ -204,6 +209,97 @@ class FaqMonitoringIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("같은 FAQ 버전의 개선 제외 항목은 개선 목록에서 숨겨진다")
+	void hidesExcludedImprovementForSameFaqVersion() {
+		long faqId = unusedFaq();
+
+		monitoringService.excludeFaqImprovement(
+				faqId, new FaqImprovementExclusionRequest(FaqImprovementType.LOW_USAGE, "제외"), userId);
+		exclusionRepository.flush();
+
+		assertThat(lowUsageImprovementIds()).doesNotContain(faqId);
+		assertThat(monitoringService.getFaqImprovementExclusions(0, 10).content())
+				.singleElement()
+				.satisfies(exclusion -> {
+					assertThat(exclusion.faqId()).isEqualTo(faqId);
+					assertThat(exclusion.outdated()).isFalse();
+				});
+	}
+
+	@Test
+	@DisplayName("FAQ 버전이 오르면 기존 활성 제외는 오래된 이력이 되고 개선 목록에 다시 나타난다")
+	void showsImprovementAgainWhenFaqVersionChanges() {
+		long faqId = unusedFaq();
+		monitoringService.excludeFaqImprovement(
+				faqId, new FaqImprovementExclusionRequest(FaqImprovementType.LOW_USAGE, null), userId);
+		exclusionRepository.flush();
+		assertThat(lowUsageImprovementIds()).doesNotContain(faqId);
+
+		jdbcTemplate.update("UPDATE faq SET version = version + 1 WHERE id = ?", faqId);
+		entityManager.clear();
+
+		assertThat(lowUsageImprovementIds()).contains(faqId);
+		assertThat(monitoringService.getFaqImprovementExclusions(0, 10).content())
+				.singleElement()
+				.extracting(exclusion -> exclusion.outdated())
+				.isEqualTo(true);
+	}
+
+	@Test
+	@DisplayName("개선 제외를 해제하면 목록에 다시 나타나고 이력 목록으로 이동한다")
+	void showsImprovementAgainWhenExclusionIsReleased() {
+		long faqId = unusedFaq();
+		monitoringService.excludeFaqImprovement(
+				faqId, new FaqImprovementExclusionRequest(FaqImprovementType.LOW_USAGE, null), userId);
+		exclusionRepository.flush();
+		long exclusionId = monitoringService.getFaqImprovementExclusions(0, 10).content().getFirst().exclusionId();
+
+		monitoringService.releaseFaqImprovementExclusion(exclusionId, userId);
+		exclusionRepository.flush();
+
+		assertThat(lowUsageImprovementIds()).contains(faqId);
+		assertThat(monitoringService.getFaqImprovementExclusions(0, 10).content()).isEmpty();
+		assertThat(monitoringService.getFaqImprovementExclusionHistory(0, 10).content())
+				.singleElement()
+				.extracting(exclusion -> exclusion.exclusionId())
+				.isEqualTo(exclusionId);
+	}
+
+	@Test
+	@DisplayName("활성 상태의 개선 제외 이력을 삭제하면 개선 목록에 다시 나타난다")
+	void showsImprovementAgainWhenActiveExclusionIsDeleted() {
+		long faqId = unusedFaq();
+		monitoringService.excludeFaqImprovement(
+				faqId, new FaqImprovementExclusionRequest(FaqImprovementType.LOW_USAGE, null), userId);
+		exclusionRepository.flush();
+		long exclusionId = monitoringService.getFaqImprovementExclusions(0, 10).content().getFirst().exclusionId();
+
+		monitoringService.deleteFaqImprovementExclusion(exclusionId);
+		exclusionRepository.flush();
+
+		assertThat(monitoringService.getFaqImprovementExclusions(0, 10).content()).isEmpty();
+		assertThat(lowUsageImprovementIds()).contains(faqId);
+	}
+
+	@Test
+	@DisplayName("같은 개선 제외를 반복 등록해도 활성 제외는 하나만 유지된다")
+	void ignoresDuplicateExclusionRequests() {
+		long faqId = unusedFaq();
+		FaqImprovementExclusionRequest request =
+				new FaqImprovementExclusionRequest(FaqImprovementType.LOW_USAGE, null);
+
+		monitoringService.excludeFaqImprovement(faqId, request, userId);
+		monitoringService.excludeFaqImprovement(faqId, request, userId);
+		exclusionRepository.flush();
+
+		assertThat(monitoringService.getFaqImprovementExclusions(0, 10).content())
+				.singleElement()
+				.extracting(exclusion -> exclusion.faqId())
+				.isEqualTo(faqId);
+		assertThat(lowUsageImprovementIds()).doesNotContain(faqId);
+	}
+
+	@Test
 	@DisplayName("중복 후보는 현재 버전의 1위·2위 유사도 차이와 후보별 횟수로 조회한다")
 	void findsDuplicateCandidatesAndCounts() throws Exception {
 		LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
@@ -267,6 +363,16 @@ class FaqMonitoringIntegrationTest {
 	private long category() {
 		return jdbcTemplate.queryForObject("INSERT INTO faq_category (name) VALUES (?) RETURNING id", Long.class,
 				"카테고리-" + UUID.randomUUID());
+	}
+
+	private long unusedFaq() {
+		return faq(category(), "제외 테스트 FAQ", Intent.GENERAL, 1, LocalDateTime.now().minusDays(8));
+	}
+
+	private List<Long> lowUsageImprovementIds() {
+		return monitoringService.getFaqImprovements(List.of(FaqImprovementType.LOW_USAGE), 0, 10).items().stream()
+				.map(item -> item.faqId())
+				.toList();
 	}
 
 	private long faq(long categoryId, String question, Intent intent, int version, LocalDateTime updatedAt) {
