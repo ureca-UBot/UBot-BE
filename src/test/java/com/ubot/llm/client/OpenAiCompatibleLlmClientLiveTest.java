@@ -15,7 +15,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.web.client.RestClient;
 
 import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -71,7 +71,7 @@ class OpenAiCompatibleLlmClientLiveTest {
 		when(storeService.getNearbyStoreList(37.5, 127.0, 3.0, List.of(), 5)).thenReturn(List.of(
 				new NearbyStoreResponseDto(12L, "강남점", "서울", "강남구", "서울 강남구 테헤란로 1",
 						"02-123-4567", "10:00~21:00", 37.49, 127.02, 0.42)));
-		var registry = new AiToolRegistry(
+		var registry = AiToolFixtures.registry(
 				new StoreTools(new NearbyStoreSearcher(storeService, 3.0, 5), locationService));
 		var recorder = new StoreSearchRecorder();
 
