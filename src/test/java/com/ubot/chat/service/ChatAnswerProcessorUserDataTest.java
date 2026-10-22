@@ -154,7 +154,7 @@ class ChatAnswerProcessorUserDataTest {
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
         assertThat(capturedMaterials().sections()).singleElement()
-                .satisfies(section -> assertThat(section.content()).isEqualTo("사용자 정보를 찾을 수 없습니다."));
+                .satisfies(section -> assertThat(section.content()).isEqualTo(UserIntentHandler.LOGIN_REQUIRED_CONTENT));
         verifyNoInteractions(users, stores, sentenceFilter);
         assertThat(unanswered).isEmpty();
     }
@@ -173,7 +173,7 @@ class ChatAnswerProcessorUserDataTest {
 
     private ChatAnswerProcessor processor() {
         ChatContextCollector collector = new ChatContextCollector(List.of(
-                new GeneralIntentHandler(), new UserIntentHandler(users), new StoreIntentHandler(stores)));
+                new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores)));
         ChatAnswerProcessor processor = ChatTestFixtures.processor(retrieval, ai, collector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);

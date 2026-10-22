@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script is invoked on the existing BE EC2 by the dedicated SSM document.
-# The document extracts these files from the exact image and links the server .env.
+# This script runs on the existing BE EC2 through SSM AWS-RunShellScript (aws-be-ssm-command.sh).
+# Those commands extract these files from the exact image and link the server .env.
 if [ "$#" -ne 2 ]; then
   echo 'usage: aws-be-deploy.sh <ecr-repository-url> <sha256:image-digest>' >&2
   exit 2
@@ -29,6 +29,30 @@ for command in curl sudo; do
   command -v "$command" >/dev/null || { echo "Missing command: $command" >&2; exit 1; }
 done
 sudo docker compose version >/dev/null
+
+# Same counseling checks as tools/deploy/lib/counsel.sh, before any container changes.
+# A missing COUNSEL_ENABLED means true, as in the application.
+env_value() { sed -n "s/^$1=//p" .env | tail -n 1; }
+counsel_enabled="$(env_value COUNSEL_ENABLED)"
+counsel_enabled="${counsel_enabled:-true}"
+case "$counsel_enabled" in
+  false) ;;
+  true)
+    if [ "$(env_value COUNSEL_EMBEDDING_WORKER_ENABLED)" = false ]; then
+      echo 'Counseling requires COUNSEL_EMBEDDING_WORKER_ENABLED=true' >&2
+      exit 1
+    fi
+    transport="$(env_value COUNSEL_EMBEDDING_TRANSPORT)"
+    if [ "${transport:-worker}" != worker ]; then
+      echo 'Deployed counseling requires COUNSEL_EMBEDDING_TRANSPORT=worker' >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo 'COUNSEL_ENABLED must be true or false' >&2
+    exit 1
+    ;;
+esac
 
 export BACKEND_IMAGE="${repository_url}@${image_digest}"
 compose=(sudo env "BACKEND_IMAGE=$BACKEND_IMAGE" docker compose -p ubot-api --env-file .env
@@ -110,6 +134,21 @@ fi
 printf '%s\n' "$BACKEND_IMAGE" > "$state_dir/current-image"
 echo "BE image running: $BACKEND_IMAGE"
 echo 'API /actuator/health, /api/notices, and Worker startup passed.'
+
+# Counseling messages fail with PROFILE_NOT_READY until the safety index exists. The new API has
+# applied the migrations and the Worker embeds the sentences, so index now in a one-off backend.
+# The same profile, model and data hash is not indexed again.
+if [ "$counsel_enabled" = true ]; then
+  echo 'Preparing the counseling safety index'
+  seed_status=0
+  "${compose[@]}" run --rm -T --no-deps backend \
+    --counsel.seed-on-start=true --counsel.seed-only=true </dev/null || seed_status=$?
+  if [ "$seed_status" -ne 0 ]; then
+    echo "The new BE image is running, but counseling index preparation failed (exit code $seed_status)" >&2
+    exit "$seed_status"
+  fi
+  echo 'Counseling safety index is ready.'
+fi
 
 # Monitoring does not serve users, so it follows the app switch. Prometheus is recreated so a
 # changed scrape config in this release takes effect; its data volume is kept.

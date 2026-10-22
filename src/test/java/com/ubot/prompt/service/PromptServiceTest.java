@@ -51,6 +51,19 @@ class PromptServiceTest {
     }
 
     @Test
+    void CRLF_줄바꿈은_LF로_바꾸고_사용자_메시지_끝의_줄바꿈은_지운다() {
+        // Windows 체크아웃처럼 CRLF로 끝나는 파일입니다. 시스템 지침 끝의 줄바꿈은 그대로 둡니다.
+        var service = service("시스템\r\n두 번째 줄\r\n", "참고자료:\r\n{{faqs}}\r\n\r\n질문:\r\n{{question}}\r\n");
+
+        var request = service.createPrompt("유심 재발급 방법", results, List.of());
+
+        assertThat(request.messages().getFirst().content()).isEqualTo("시스템\n두 번째 줄\n");
+        assertThat(request.messages().getLast().content())
+                .doesNotContain("\r")
+                .endsWith("\n\n질문:\n유심 재발급 방법");
+    }
+
+    @Test
     void 원문을_하위_질문_하나로_쓰면_기존_형식_그대로_넣는다() {
         var service = service(TEST_SYSTEM, TEST_TEMPLATE);
         String question = "유심 재발급 방법과 준비물을 알려주세요.";
@@ -101,9 +114,7 @@ class PromptServiceTest {
 
                 ## 하위 질문 2: 로밍 요금
 
-                (없음)
-
-                """);
+                (없음)""");
     }
 
     @Test
@@ -198,7 +209,8 @@ class PromptServiceTest {
 
         assertThat(request.messages().getLast().content())
                 .contains("[FAQ ID: 12]")
-                .contains("추가자료:\n### 사용자 정보\n이름: 홍길동\n거주 지역: 서울\n\n");
+                // 템플릿 끝에 놓인 자료는 사용자 메시지 끝 공백 제거로 뒤 빈 줄이 빠집니다.
+                .endsWith("추가자료:\n### 사용자 정보\n이름: 홍길동\n거주 지역: 서울");
     }
 
     @Test

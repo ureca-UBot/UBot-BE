@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.config.ChatRateLimitProperties;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
@@ -21,6 +22,11 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.pgvector.PGvector;
 import com.ubot.user.service.UserService;
+import com.ubot.billing.service.BillingService;
+import com.ubot.contract.service.ContractService;
+import com.ubot.subscription.service.SubscriptionService;
+import com.ubot.usage.service.UsageService;
+import java.time.Clock;
 import java.util.List;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -99,7 +105,14 @@ final class ChatTestFixtures {
 	static ChatContextCollector collector(NearbyStoreSearcher nearbyStoreSearcher) {
 		return new ChatContextCollector(List.of(
 				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
-				new UserIntentHandler(mock(UserService.class))));
+				new UserIntentHandler(mock(UserDataSummarizer.class))));
+	}
+
+	/** 회원 정보는 users로 조회하고 이용 중인 회선은 없는 실제 가입 정보 핸들러입니다. */
+	static UserIntentHandler userIntentHandler(UserService users) {
+		return new UserIntentHandler(new UserDataSummarizer(users, mock(SubscriptionService.class),
+				mock(UsageService.class), mock(BillingService.class), mock(ContractService.class),
+				Clock.systemDefaultZone()));
 	}
 
 	/** 판정 LLM을 부르지 않고 원문을 하위 질문 하나로 쓰는 정리기입니다. */
