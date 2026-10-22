@@ -17,6 +17,7 @@ import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityRep
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityVariantAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.request.DuplicateSuspectedReviewRequest;
 import com.ubot.monitoring.faqmonitoring.dto.response.AiReviewResponse;
+import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import com.ubot.monitoring.faqmonitoring.repository.FaqMonitoringImprovementQueryRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -43,26 +44,12 @@ public class AiReviewService {
 	private final FaqRepository faqRepository;
 	private final FaqMonitoringImprovementQueryRepository improvementQueryRepository;
 	private final AiReviewLlmService aiReviewLlmService;
+	private final AiReviewProperties aiReviewProperties;
 	@Value("${faq-monitoring.improvement.low-gap-threshold}")
 	private double lowGapThreshold;
 
 	@Value("${faq-monitoring.improvement.top-k}")
 	private int improvementTopK;
-
-	@Value("${faq-monitoring.ai-review.max-duplicate-candidates}")
-	private int maxDuplicateCandidates;
-
-	@Value("${faq-monitoring.ai-review.max-questions-per-duplicate-candidate}")
-	private int maxQuestionsPerDuplicateCandidate;
-
-	@Value("${faq-monitoring.ai-review.max-displayed-questions-per-duplicate-candidate}")
-	private int maxDisplayedQuestionsPerDuplicateCandidate;
-
-	@Value("${faq-monitoring.ai-review.max-low-rag-quality-questions}")
-	private int maxLowRagQualityQuestions;
-
-	@Value("${faq-monitoring.ai-review.max-displayed-questions-for-low-rag-quality}")
-	private int maxDisplayedQuestionsForLowRagQuality;
 
 	public AiReviewResponse reviewDuplicateSuspected(
 			Long faqId,
@@ -92,11 +79,11 @@ public class AiReviewService {
 			LocalDateTime evaluatedAt = LocalDateTime.now(SERVICE_ZONE);
 			List<FaqLowRagQualityQuestion> questions = improvementQueryRepository.findLowRagQualityQuestions(
 					faq.getId(), evaluatedAt, improvementTopK,
-					maxLowRagQualityQuestions);
+					aiReviewProperties.maxLowRagQualityQuestions());
 			List<FaqLowRagQualityQuestion> recentQuestions =
 					improvementQueryRepository.findRecentLowRagQualityQuestions(
 							faq.getId(), evaluatedAt, improvementTopK,
-							maxDisplayedQuestionsForLowRagQuality);
+							aiReviewProperties.maxDisplayedQuestionsForLowRagQuality());
 			AiReviewResponse response = generateLowRagQualityReview(faq, questions, recentQuestions);
 			logReviewCompleted(faqId, FaqImprovementType.LOW_RAG_QUALITY, startedAt);
 			return response;
@@ -163,7 +150,7 @@ public class AiReviewService {
 		}
 		List<Long> candidateIds = duplicateRequest.candidateFaqIds();
 		Set<Long> uniqueCandidateIds = new HashSet<>(candidateIds);
-		if (candidateIds.isEmpty() || candidateIds.size() > maxDuplicateCandidates
+		if (candidateIds.isEmpty() || candidateIds.size() > aiReviewProperties.maxDuplicateCandidates()
 				|| uniqueCandidateIds.size() != candidateIds.size()
 				|| uniqueCandidateIds.contains(faqId) || candidateIds.stream().anyMatch(id -> id <= 0)) {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
@@ -187,7 +174,7 @@ public class AiReviewService {
 				.toList();
 		List<FaqDuplicateEvidence> evidence = improvementQueryRepository.findDuplicateEvidence(
 				faqId, activeCandidateIds, evaluatedAt, lowGapThreshold,
-				maxQuestionsPerDuplicateCandidate);
+				aiReviewProperties.maxQuestionsPerDuplicateCandidate());
 		Map<Long, FaqDuplicateEvidence> evidenceByCandidate = evidence.stream()
 				.collect(Collectors.toMap(FaqDuplicateEvidence::candidateFaqId, Function.identity()));
 
@@ -237,7 +224,7 @@ public class AiReviewService {
 				후보 FAQ 자료(JSON): %s
 
 				""".formatted(
-				maxQuestionsPerDuplicateCandidate,
+				aiReviewProperties.maxQuestionsPerDuplicateCandidate(),
 				JSON_MAPPER.writeValueAsString(materials)
 		);
 	}
@@ -263,7 +250,7 @@ public class AiReviewService {
 			details.append("#### 함께 검색된 유저 질문\n");
 			int displayedQuestionCount = Math.min(
 					material.coRetrievedQuestions().size(),
-					maxDisplayedQuestionsPerDuplicateCandidate
+					aiReviewProperties.maxDisplayedQuestionsPerDuplicateCandidate()
 			);
 			for (int questionIndex = 0; questionIndex < displayedQuestionCount; questionIndex++) {
 				details.append("- **질문 ").append(questionIndex + 1).append("**: ")
@@ -383,7 +370,7 @@ public class AiReviewService {
 
 				""".formatted(
 				improvementTopK,
-				maxLowRagQualityQuestions,
+				aiReviewProperties.maxLowRagQualityQuestions(),
 				JSON_MAPPER.writeValueAsString(questions)
 		);
 	}

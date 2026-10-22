@@ -9,9 +9,9 @@ import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityRep
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.LowRagQualityVariantAssessment;
 import com.ubot.monitoring.faqmonitoring.format.DuplicateSuspectedReviewFormat;
 import com.ubot.monitoring.faqmonitoring.format.LowRagQualityReviewFormat;
+import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -49,9 +49,7 @@ public class AiReviewLlmService {
 			""";
 
 	private final LlmService llmService;
-
-	@Value("${faq-monitoring.ai-review.max-llm-queue-wait-millis}")
-	private long maxLlmQueueWaitMillis;
+	private final AiReviewProperties aiReviewProperties;
 
 	public DuplicateSuspectedAssessment generateDuplicateSuspectedReview(
 			String prompt,
@@ -61,7 +59,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, DUPLICATE_SUSPECTED_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(DuplicateSuspectedReviewFormat.schema()),
-				maxLlmQueueWaitMillis).answer();
+				aiReviewProperties.maxLlmQueueWaitMillis()).answer();
 		return DuplicateSuspectedReviewFormat.parse(output, candidateFaqIds);
 	}
 
@@ -70,7 +68,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, LOW_RAG_QUALITY_REPRESENTATIVE_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(LowRagQualityReviewFormat.representativeSchema()),
-				maxLlmQueueWaitMillis).answer();
+				aiReviewProperties.maxLlmQueueWaitMillis()).answer();
 		return LowRagQualityReviewFormat.parseRepresentative(output);
 	}
 
@@ -82,7 +80,7 @@ public class AiReviewLlmService {
 				new LlmMessageRequestDto(LlmMessageRole.SYSTEM, LOW_RAG_QUALITY_VARIANT_SYSTEM_PROMPT),
 				new LlmMessageRequestDto(LlmMessageRole.USER, prompt)
 		)).withResponseSchema(LowRagQualityReviewFormat.variantSchema()),
-				maxLlmQueueWaitMillis).answer();
+				aiReviewProperties.maxLlmQueueWaitMillis()).answer();
 		return LowRagQualityReviewFormat.parseVariant(output, questionCount);
 	}
 }
