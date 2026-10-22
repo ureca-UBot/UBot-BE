@@ -15,7 +15,7 @@ function Invoke-Checked {
 
 # Validate both CSV files before removing the PostgreSQL volume.
 $seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
-$renderedSql = New-FaqSeedSql -TemplatePath $sqlPath
+$renderedSql = New-FaqSeedSql -TemplatePath $sqlPath -DeletedFaqIds @(Get-FaqDeletedIds -SeedPath $seedPath)
 
 $containerId = (& docker compose ps --all --quiet postgres).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the PostgreSQL container.' }
@@ -69,11 +69,12 @@ SELECT
   (SELECT count(*) FROM users),
   (SELECT count(*) FROM faq_category),
   (SELECT count(*) FROM faq),
+  (SELECT count(*) FROM faq WHERE deleted_at IS NOT NULL),
   (SELECT count(*) FROM faq_question_variants),
   (SELECT count(*) FROM faq_embeddings);
 '@).Trim()
-$expected = "2|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.variantCount)|0"
+$expected = "2|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.deletedCount)|$($seedSummary.variantCount)|0"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "Baseline seed verification failed: $verification"
 }
-Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs and $($seedSummary.variantCount) variants. No vectors were inserted."
+Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs ($($seedSummary.deletedCount) soft-deleted) and $($seedSummary.variantCount) variants. No vectors were inserted."

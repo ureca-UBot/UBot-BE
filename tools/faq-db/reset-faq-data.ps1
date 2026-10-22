@@ -12,7 +12,8 @@ function Invoke-Checked {
 }
 
 $seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
-$renderedSql = New-FaqSeedSql -TemplatePath (Join-Path $PSScriptRoot 'seed-baseline.sql')
+$renderedSql = New-FaqSeedSql -TemplatePath (Join-Path $PSScriptRoot 'seed-baseline.sql') `
+    -DeletedFaqIds @(Get-FaqDeletedIds -SeedPath $seedPath)
 Invoke-Checked { docker compose up -d postgres } 'Could not start PostgreSQL.'
 $containerId = (& docker compose ps --quiet postgres).Trim()
 if (-not $containerId) { throw 'Could not locate the PostgreSQL container.' }
@@ -38,11 +39,12 @@ try {
 $verification = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
     -U $databaseUser -d $databaseName -At -F '|' -c @'
 SELECT (SELECT count(*) FROM faq),
+       (SELECT count(*) FROM faq WHERE deleted_at IS NOT NULL),
        (SELECT count(*) FROM faq_question_variants),
        (SELECT count(*) FROM faq_embeddings);
 '@).Trim()
-$expected = "$($seedSummary.faqCount)|$($seedSummary.variantCount)|0"
+$expected = "$($seedSummary.faqCount)|$($seedSummary.deletedCount)|$($seedSummary.variantCount)|0"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "FAQ baseline verification failed: $verification"
 }
-Write-Host "FAQ reset completed: $($seedSummary.faqCount) FAQs and $($seedSummary.variantCount) variants. No vectors were inserted."
+Write-Host "FAQ reset completed: $($seedSummary.faqCount) FAQs ($($seedSummary.deletedCount) soft-deleted) and $($seedSummary.variantCount) variants. No vectors were inserted."

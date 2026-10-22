@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Run through the reset PowerShell scripts, which replace the CSV copy markers below.
+-- Run through the reset PowerShell scripts, which replace the CSV copy and deleted FAQ markers below.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 \if :{?faq_only}
@@ -31,4 +31,5 @@ INSERT INTO faq_question_variants (id, origin_faq_id, question)
 SELECT variant_id, origin_faq_id, question FROM seed_variant ORDER BY variant_id;
 SELECT setval(pg_get_serial_sequence('faq', 'id'), (SELECT max(id) FROM faq), true);
 SELECT setval(pg_get_serial_sequence('faq_question_variants', 'id'), (SELECT max(id) FROM faq_question_variants), true);
+-- __DELETED_FAQS__
 COMMIT;
