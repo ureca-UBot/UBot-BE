@@ -38,7 +38,7 @@ public class ChatJobProcessor {
 			AiAnswer answer = result.answer();
 			log.info("답변을 생성했습니다: 시도ID={}, 처리시간={}ms", attempt.getId(), elapsedMillis(startedAt));
 			return ChatJobOutcome.answered(answer.answer(), result.subQuestions(),
-					ChatStoreDto.of(answer.locationRequired(), answer.storeMap()), unanswered);
+					ChatStoreDto.of(answer.locationRequired(), answer.storeMap()), answer.userData(), unanswered);
 		} catch (CancellationException exception) {
 			throw exception;
 		} catch (GlobalException exception) {
