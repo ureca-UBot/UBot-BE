@@ -13,6 +13,7 @@ import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
+import com.ubot.unanswered.repository.UnansweredReverifyRepository;
 import com.ubot.unanswered.service.RejectedQuestionDuplicateChecker.QuestionEmbedding;
 import java.util.Objects;
 import java.util.HashMap;
@@ -33,7 +34,9 @@ public class UnansweredQuestionService {
     private final RejectedQuestionDuplicateChecker rejectedQuestionDuplicateChecker;
     private final AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final UnansweredReverifyRepository reverifyRepository;
     private final double groupThreshold;
+    private final double confidenceThreshold;
 
     public UnansweredQuestionService(
             EmbeddingService embeddingService,
@@ -43,7 +46,9 @@ public class UnansweredQuestionService {
             RejectedQuestionDuplicateChecker rejectedQuestionDuplicateChecker,
             AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
             OutboxEventRepository outboxEventRepository,
-            @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold
+            UnansweredReverifyRepository reverifyRepository,
+            @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold,
+            @Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}") double confidenceThreshold
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
@@ -52,7 +57,9 @@ public class UnansweredQuestionService {
         this.rejectedQuestionDuplicateChecker = rejectedQuestionDuplicateChecker;
         this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
         this.outboxEventRepository = outboxEventRepository;
+        this.reverifyRepository = reverifyRepository;
         this.groupThreshold = groupThreshold;
+        this.confidenceThreshold = confidenceThreshold;
     }
 
     public void enqueueUnansweredQuestion(Long attemptId, UnansweredCandidate candidate) {
@@ -168,7 +175,7 @@ public class UnansweredQuestionService {
                         )
                 );
 
-        unansweredQuestionVectorRepository.saveQuestion(
+        Long questionId = unansweredQuestionVectorRepository.saveQuestion(
                 attemptId,
                 subQuestionIndex,
                 groupId,
@@ -181,6 +188,7 @@ public class UnansweredQuestionService {
                 bestSimilarity,
                 source
         );
+        reverifyRepository.reverifyQuestion(questionId, confidenceThreshold);
 
         unansweredQuestionVectorRepository.updateGroupCentroid(
                 groupId,

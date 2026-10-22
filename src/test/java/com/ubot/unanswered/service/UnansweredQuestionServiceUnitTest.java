@@ -33,7 +33,8 @@ class UnansweredQuestionServiceUnitTest {
     private final PGvector vector = vector();
     private final List<Stored> stored = new ArrayList<>();
     private final UnansweredQuestionService service = new UnansweredQuestionService(embedding, profiles, questions,
-            vectors, rejected, attempts, mock(com.ubot.outbox.OutboxEventRepository.class), .6);
+            vectors, rejected, attempts, mock(com.ubot.outbox.OutboxEventRepository.class),
+            mock(com.ubot.unanswered.repository.UnansweredReverifyRepository.class), .6, .75);
     private record Stored(Long attemptId, int index, String query, String userText, UnansweredSource source) { }
 
     @BeforeEach void setUp() {

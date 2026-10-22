@@ -18,9 +18,11 @@ public record UnansweredGroupDetailResponseDto(
 		UnansweredGroupStatus status,
 		LocalDateTime lastOccurredAt,
 		LocalDateTime createdAt,
-		List<UnansweredQuestionResponseDto> questions
+		List<UnansweredQuestionResponseDto> questions,
+		List<UnansweredReverificationResponseDto> reverifications
 ) {
-	public static UnansweredGroupDetailResponseDto from(UnansweredQuestionGroup group, List<UnansweredQuestion> questions){
+	public static UnansweredGroupDetailResponseDto from(UnansweredQuestionGroup group, List<UnansweredQuestion> questions,
+			List<UnansweredReverificationResponseDto> reverifications){
 		return new UnansweredGroupDetailResponseDto(
 				group.getId(),
 				group.getRepresentativeQuestion(),
@@ -32,7 +34,8 @@ public record UnansweredGroupDetailResponseDto(
 				group.getStatus(),
 				group.getLastOccurredAt(),
 				group.getCreatedAt(),
-				questions.stream().map(UnansweredQuestionResponseDto::from).toList()
+				questions.stream().map(UnansweredQuestionResponseDto::from).toList(),
+				reverifications
 		);
 	}
 }
