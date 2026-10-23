@@ -8,6 +8,7 @@ import com.ubot.plan.enums.NetworkType;
 import com.ubot.plan.enums.PlanTargetGroup;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
@@ -31,11 +32,13 @@ public class PlanTools {
     static final String NO_CONTRACT_DISCOUNT = "선택약정 할인 미적용(무약정 요금제)";
 
     private final ProductCatalogQuery productCatalogQuery;
+    private final ProductNameIndex productNameIndex;
     private final int contractDiscountPercent;
 
-    public PlanTools(ProductCatalogQuery productCatalogQuery,
+    public PlanTools(ProductCatalogQuery productCatalogQuery, ProductNameIndex productNameIndex,
             @Value("${product.contract-discount-percent:25}") int contractDiscountPercent) {
         this.productCatalogQuery = productCatalogQuery;
+        this.productNameIndex = productNameIndex;
         this.contractDiscountPercent = contractDiscountPercent;
     }
 
@@ -68,13 +71,29 @@ public class PlanTools {
         }
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
         try {
+            // 모델이 "프리미엄 요금제 종류"의 "프리미엄"을 분류로 보고 이름을 비우면 전체 요금제가 나오므로, 질문의 시리즈 이름으로 채웁니다.
+            if (!StringUtils.hasText(name)) {
+                Optional<String> series = productNameIndex.planSeriesMentionedIn(recorder.question());
+                if (series.isPresent()) {
+                    log.info("요금제 조회 도구: 이름 조건이 비었지만 질문에 '{} 요금제'가 있어 이름 조건으로 넣었습니다", series.get());
+                    name = series.get();
+                }
+            }
             ProductCatalogQuery.Found<Plan> found = productCatalogQuery.searchPlans(
                     new PlanCondition(name, network, target, maxMonthlyFee, minDataGb, dataUnlimited, sort));
             String order = sort == PlanSort.DATA_DESC ? "데이터 많은 순" : "월정액 낮은 순";
             log.info("요금제 조회 도구: name={}, networkType={}, targetGroup={}, maxMonthlyFee={}, minDataGb={}, "
                     + "dataUnlimited={}, sortBy={}, listRequested={}, 결과={}건 중 {}건", name, networkType, targetGroup,
                     maxMonthlyFee, minDataGb, dataUnlimited, sortBy, listRequested, found.total(), found.items().size());
-            String listSubject = ProductToolResults.listSubject(listRequested, PRODUCT_LABEL,
+            // 아무 조건 없이 전체를 조회했는데 질문에 시리즈 이름이 있으면(둘 이상이라 하나로 정하지 못한 경우) 걸렀어야 할 조회라
+            // 목록 답변으로 확정하지 않고 모델 답변에 맡깁니다.
+            boolean unfilteredSeriesQuestion = !StringUtils.hasText(name) && network == null && target == null
+                    && maxMonthlyFee == null && minDataGb == null && dataUnlimited == null
+                    && productNameIndex.mentionsPlanSeries(recorder.question());
+            if (Boolean.TRUE.equals(listRequested) && unfilteredSeriesQuestion) {
+                log.info("요금제 조회 도구: 질문에 시리즈 이름이 있는데 조건 없이 조회해 목록 답변을 만들지 않습니다");
+            }
+            String listSubject = unfilteredSeriesQuestion ? null : ProductToolResults.listSubject(listRequested, PRODUCT_LABEL,
                     maxMonthlyFee != null || minDataGb != null || Boolean.FALSE.equals(dataUnlimited),
                     network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
                     Boolean.TRUE.equals(dataUnlimited) ? "데이터 무제한" : null,

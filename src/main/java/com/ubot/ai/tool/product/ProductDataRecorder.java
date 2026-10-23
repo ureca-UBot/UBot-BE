@@ -21,6 +21,20 @@ public class ProductDataRecorder {
     private final List<ProductCard> cards = new CopyOnWriteArrayList<>();
     private final List<String> lines = new CopyOnWriteArrayList<>();
     private final List<Optional<ProductListing>> searches = new CopyOnWriteArrayList<>();
+    private final String question;
+
+    public ProductDataRecorder() {
+        this(null);
+    }
+
+    /** question은 사용자 질문 원문입니다. 요금제 도구가 모델이 빠뜨린 시리즈 이름을 찾는 데 씁니다. */
+    public ProductDataRecorder(String question) {
+        this.question = question;
+    }
+
+    public String question() {
+        return question;
+    }
 
     /** line은 도구가 LLM에 돌려준 그 상품의 행입니다. */
     public void record(ProductCard card, String line) {

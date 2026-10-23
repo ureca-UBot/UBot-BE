@@ -10,9 +10,14 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -49,6 +54,48 @@ public class ProductNameIndex {
         return types;
     }
 
+    /**
+     * 질문에 "프리미엄 요금제"처럼 요금제 시리즈 이름이 하나만 있으면 그 이름입니다. 없거나 둘 이상이면 비어 있습니다.
+     * 작은 모델은 "프리미엄 요금제 종류"의 "프리미엄"을 이름이 아니라 분류로 보고 이름 조건을 비우기도 해서,
+     * 요금제 도구가 이 값으로 이름 조건을 채웁니다(planSeriesIn 참고).
+     */
+    public Optional<String> planSeriesMentionedIn(String question) {
+        List<String> found = planSeriesIn(question, current().planSeries());
+        return found.size() == 1 ? Optional.of(found.getFirst()) : Optional.empty();
+    }
+
+    /** 질문에 요금제 시리즈 이름이 하나라도 있는지입니다. 둘 이상이라 하나로 정하지 못한 경우도 참입니다. */
+    public boolean mentionsPlanSeries(String question) {
+        return !planSeriesIn(question, current().planSeries()).isEmpty();
+    }
+
+    /**
+     * 질문에서 시리즈 이름 바로 뒤에 "요금제"가 오는 것만 찾습니다. "데이터 많은 요금제"의 "데이터"처럼
+     * 시리즈 이름과 같은 일반 단어를 시리즈로 잘못 보지 않기 위해서입니다.
+     */
+    static List<String> planSeriesIn(String question, Collection<String> series) {
+        if (!StringUtils.hasText(question)) {
+            return List.of();
+        }
+        return series.stream()
+                .filter(word -> Pattern.compile("(?<![가-힣A-Za-z0-9])" + Pattern.quote(word) + "\\s*요금제",
+                        Pattern.CASE_INSENSITIVE).matcher(question).find())
+                .toList();
+    }
+
+    /**
+     * "Ubot 프리미엄 89"의 "프리미엄"처럼 요금제 이름에서 "Ubot" 다음 첫 단어입니다.
+     * 두 개 이상의 요금제가 같이 쓰는 말만 시리즈로 봅니다. "Ubot 통화 전용"의 "통화"처럼 한 요금제만 쓰는 말은
+     * 질문에 흔히 나오는 일반 단어라 뺍니다.
+     */
+    static List<String> planSeries(Collection<String> planNames) {
+        Map<String, Long> counts = planNames.stream()
+                .map(name -> name.strip().split("\\s+"))
+                .filter(words -> words.length >= 2 && words[0].equalsIgnoreCase("Ubot"))
+                .collect(Collectors.groupingBy(words -> words[1], Collectors.counting()));
+        return counts.entrySet().stream().filter(entry -> entry.getValue() >= 2).map(Map.Entry::getKey).sorted().toList();
+    }
+
     private Snapshot current() {
         Snapshot cached = snapshot;
         Instant now = clock.instant();
@@ -56,13 +103,15 @@ public class ProductNameIndex {
             return cached;
         }
         try {
-            Snapshot loaded = new Snapshot(load(), now);
+            List<Named> names = load();
+            List<String> planNames = names.stream().filter(named -> named.type() == ProductType.PLAN).map(Named::name).toList();
+            Snapshot loaded = new Snapshot(names, planSeries(planNames), now);
             snapshot = loaded;
             return loaded;
         } catch (RuntimeException exception) {
             // 이름 보강은 도구 선택을 돕는 단계라, 실패해도 FAQ 카테고리와 키워드로 고른 도구로 진행합니다.
             log.warn("상품 이름 목록을 불러오지 못했습니다", exception);
-            return cached != null ? cached : new Snapshot(List.of(), now);
+            return cached != null ? cached : new Snapshot(List.of(), List.of(), now);
         }
     }
 
@@ -85,6 +134,6 @@ public class ProductNameIndex {
     private record Named(ProductType type, String name) {
     }
 
-    private record Snapshot(List<Named> names, Instant loadedAt) {
+    private record Snapshot(List<Named> names, List<String> planSeries, Instant loadedAt) {
     }
 }

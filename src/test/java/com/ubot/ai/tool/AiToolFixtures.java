@@ -7,6 +7,7 @@ import com.ubot.ai.tool.product.AddonTools;
 import com.ubot.ai.tool.product.BundleTools;
 import com.ubot.ai.tool.product.PlanTools;
 import com.ubot.ai.tool.product.ProductCatalogQuery;
+import com.ubot.ai.tool.product.ProductNameIndex;
 import com.ubot.ai.tool.product.RoamingTools;
 import com.ubot.billing.service.BillingService;
 import com.ubot.bundle.repository.BundleProductRepository;
@@ -26,7 +27,7 @@ public final class AiToolFixtures {
 
     public static AiToolRegistry registry(StoreTools storeTools) {
         ProductCatalogQuery catalog = productCatalogQuery();
-        return new AiToolRegistry(storeTools, userDataTools(), new PlanTools(catalog, 25), new AddonTools(catalog),
+        return new AiToolRegistry(storeTools, userDataTools(), new PlanTools(catalog, mock(ProductNameIndex.class), 25), new AddonTools(catalog),
                 new BundleTools(catalog), new RoamingTools(catalog));
     }
 
