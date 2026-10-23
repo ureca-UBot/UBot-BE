@@ -39,12 +39,21 @@ final class StubLlmServer implements AutoCloseable {
 	}
 
 	void respond(int status, String body) {
-		responses.add(new StubResponse(status, body, false));
+		respond(status, "application/json", body);
+	}
+
+	void respond(int status, String contentType, String body) {
+		responses.add(new StubResponse(status, contentType, body, Mode.RESPOND));
 	}
 
 	/** 다음 요청에는 서버를 닫을 때까지 응답하지 않습니다. */
 	void hang() {
-		responses.add(new StubResponse(0, "", true));
+		responses.add(new StubResponse(0, null, "", Mode.HANG));
+	}
+
+	// 다음 요청은 응답 없이 연결을 끊음. 모델 서버가 처리 중 죽은 경우
+	void drop() {
+		responses.add(new StubResponse(0, null, "", Mode.DROP));
 	}
 
 	List<JsonNode> requests() {
@@ -62,9 +71,13 @@ final class StubLlmServer implements AutoCloseable {
 		StubResponse response = responses.poll();
 		if (response == null) {
 			// 준비한 응답보다 많이 호출하면 테스트가 실패하게 합니다.
-			response = new StubResponse(500, "{\"error\":\"unexpected call\"}", false);
+			response = new StubResponse(500, "application/json", "{\"error\":\"unexpected call\"}", Mode.RESPOND);
 		}
-		if (response.hang()) {
+		if (response.mode() == Mode.DROP) {
+			exchange.close();
+			return;
+		}
+		if (response.mode() == Mode.HANG) {
 			try {
 				released.await(5, TimeUnit.SECONDS);
 			} catch (InterruptedException exception) {
@@ -75,12 +88,14 @@ final class StubLlmServer implements AutoCloseable {
 			return;
 		}
 		byte[] bytes = response.body().getBytes(StandardCharsets.UTF_8);
-		exchange.getResponseHeaders().set("Content-Type", "application/json");
+		exchange.getResponseHeaders().set("Content-Type", response.contentType());
 		exchange.sendResponseHeaders(response.status(), bytes.length);
 		exchange.getResponseBody().write(bytes);
 		exchange.close();
 	}
 
-	private record StubResponse(int status, String body, boolean hang) {
+	private enum Mode { RESPOND, HANG, DROP }
+
+	private record StubResponse(int status, String contentType, String body, Mode mode) {
 	}
 }

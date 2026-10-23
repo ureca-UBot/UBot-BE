@@ -8,6 +8,7 @@ import com.ubot.chat.entity.converter.AnswerAttemptErrorCodeConverter;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
+import com.ubot.common.exception.SafeExceptions;
 import com.ubot.unanswered.dto.UnansweredCandidate;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -53,10 +54,14 @@ public class ChatJobProcessor {
 			}
 			return ChatJobOutcome.failed(errorCode, unanswered);
 		} catch (DataAccessException exception) {
-			log.warn("답변 저장소 접근에 실패했습니다: 시도ID={}", attempt.getId(), exception);
+			log.warn("답변 저장소 접근에 실패했습니다: 시도ID={}, 오류코드={}, 예외종류={}",
+					attempt.getId(), ChatErrorCode.STORAGE_UNAVAILABLE.getCode(), SafeExceptions.type(exception));
 			return ChatJobOutcome.failed(ChatErrorCode.STORAGE_UNAVAILABLE, unanswered);
 		} catch (RuntimeException exception) {
-			log.error("답변 생성에 실패했습니다: 시도ID={}", attempt.getId(), exception);
+			// 예상하지 못한 오류라 위치를 찾을 수 있게 메시지를 지운 스택트레이스를 함께 남김
+			log.error("답변 생성에 실패했습니다: 시도ID={}, 오류코드={}, 예외종류={}",
+					attempt.getId(), ChatErrorCode.INTERNAL_ERROR.getCode(), SafeExceptions.type(exception),
+					SafeExceptions.withoutMessages(exception));
 			return ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR, unanswered);
 		}
 	}
