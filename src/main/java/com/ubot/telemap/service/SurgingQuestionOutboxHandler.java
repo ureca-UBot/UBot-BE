@@ -22,6 +22,11 @@ public class SurgingQuestionOutboxHandler implements OutboxEventHandler {
     }
 
     @Override
+    public boolean runsOutsideTransaction() {
+        return true;
+    }
+
+    @Override
     public void handle(JsonNode payload) {
         JsonNode questionLogId = payload.get("questionLogId");
         if (questionLogId == null || questionLogId.isNull()) {
