@@ -47,7 +47,7 @@ class OutputGuardUnansweredConnectionTest {
     @BeforeEach void setUp() {
         var guard = output();
         var input = input();
-        ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard);
+        ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard, SubQuestionLabels.withoutMorphology());
         processor = new ChatAnswerProcessor(retrieval, ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), input, new FaqGapCandidateSelector(input, guard), profiles);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", .75);
@@ -113,7 +113,7 @@ class OutputGuardUnansweredConnectionTest {
         var attempts = mock(ChatAttemptsService.class);
         var harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
         var service = new ChatService(attempts, input(), harness.submissionService,
-                mock(com.ubot.chat.util.IpRegionResolver.class));
+                mock(com.ubot.chat.util.IpRegionResolver.class), ChatTestFixtures.noRateLimit());
         when(attempts.createAnswerAttempt(1L, null, QUESTION)).thenReturn(attempt);
         when(attempts.recordSuccess(any(), any(), any(), isNull())).thenAnswer(call -> {
             AnswerAttemptsHistory saved = call.getArgument(0);

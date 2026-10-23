@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -92,14 +93,15 @@ class AiServiceTest {
                 .thenReturn(List.of(ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
         var wordFilter = new ForbiddenWordFilterService(words);
         wordFilter.refreshForbiddenWordCache();
-        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter));
+        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter),
+                SubQuestionLabels.withoutMorphology());
     }
 
     @Test
     void 생성된_프롬프트를_도구_없이_LLM에_전달하고_응답을_반환한다() {
         var section = new ContextSection("사용자 정보", "이름: 홍길동");
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).addSection(section).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(section), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(section), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("생성 답변"));
 
         assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("생성 답변");
@@ -112,7 +114,7 @@ class AiServiceTest {
     @Test
     void 모델이_낸_JSON에서_answer만_꺼내_반환한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"선택약정은 12개월과 24개월이 있습니다.\",\"evidence_ids\":[\"1\"],\"status\":\"ANSWER\"}"));
 
@@ -122,7 +124,7 @@ class AiServiceTest {
     @Test
     void 모델이_낸_JSON을_읽을_수_없으면_LLM_응답_오류로_실패한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answer\": \"잘린 답"));
 
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -134,7 +136,7 @@ class AiServiceTest {
     @ValueSource(strings = {"112", "FAQ-999999", "999999"})
     void 근거번호만_틀린_정상_답변은_기존_생성_흐름에서_보존한다(String id) {
         var materials = AnswerMaterials.builder("서류 안내").addFaqs(faqs).build();
-        when(promptService.createPrompt("서류 안내", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("서류 안내", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요.\",\"evidence_ids\":[\"" + id + "\"],\"status\":\"ANSWER\"}"));
         assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("신분증을 지참해주세요.");
@@ -144,7 +146,7 @@ class AiServiceTest {
     @Test
     void 매장_도구가_켜지면_도구와_질문_recorder를_toolContext로_전달한다() {
         var materials = AnswerMaterials.builder("근처 매장 알려줘").enableTool(AiTool.STORE_SEARCH).build();
-        when(promptService.createPrompt("근처 매장 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
         aiService.generateAnswer(materials);
@@ -168,7 +170,7 @@ class AiServiceTest {
     @Test
     void 가입_정보_도구가_켜지면_로그인_사용자_ID를_toolContext로만_전달한다() {
         var materials = AnswerMaterials.builder("지난달 요금").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L).build();
-        when(promptService.createPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
         aiService.generateAnswer(materials);
@@ -187,7 +189,7 @@ class AiServiceTest {
     void 가입_정보_요약이_프롬프트에_들어갔으면_toolContext에_표시한다() {
         var materials = AnswerMaterials.builder("지난달 요금").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
-        when(promptService.createPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("지난달 요금", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
         aiService.generateAnswer(materials);
@@ -200,7 +202,7 @@ class AiServiceTest {
     @Test
     void 비회원이면_toolContext에_사용자_ID를_넣지_않는다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).userId(null).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
         aiService.generateAnswer(materials);
@@ -215,7 +217,7 @@ class AiServiceTest {
         var history = List.of(new ConversationTurn("강남역 매장 알려줘", "강남역점이 있습니다."));
         var materials = AnswerMaterials.builder("거기 영업시간은?").enableTool(AiTool.STORE_SEARCH).build()
                 .withHistory(history);
-        when(promptService.createPrompt("거기 영업시간은?", List.of(), List.of(), List.of(), history)).thenReturn(prompt);
+        when(promptService.createSlotPrompt("거기 영업시간은?", List.of(), List.of(), List.of(), history)).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
         aiService.generateAnswer(materials);
@@ -235,7 +237,7 @@ class AiServiceTest {
                 new SubQuestionFaqs("매장 영업시간", List.of(), "영업시간도 알려줘"));
         var materials = AnswerMaterials.builder("근처 매장이랑 영업시간도 알려줘").enableTool(AiTool.STORE_SEARCH)
                 .subQuestions(subQuestions).build();
-        when(promptService.createPrompt("근처 매장이랑 영업시간도 알려줘", List.of(), subQuestions, List.of(), List.of()))
+        when(promptService.createSlotPrompt("근처 매장이랑 영업시간도 알려줘", List.of(), subQuestions, List.of(), List.of()))
                 .thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 
@@ -251,7 +253,7 @@ class AiServiceTest {
     void 도구가_조회한_매장은_답변과_함께_반환한다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
         var storeMap = new StoreMapResult(new Location(37.5, 127.0), null, 3.0, List.of());
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         // 실제 도구 실행 대신, 도구가 요청의 recorder에 결과를 남기는 상황을 흉내 냅니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
@@ -269,7 +271,7 @@ class AiServiceTest {
     void 도구가_조회한_청구서와_답변에_쓰인_요약_청구서를_중복_없이_합쳐_카드로_반환한다() {
         var materials = AnswerMaterials.builder("지난달이랑 이번 달 요금 차이").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
-        when(promptService.createPrompt("지난달이랑 이번 달 요금 차이", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("지난달이랑 이번 달 요금 차이", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         // 실제 도구 실행 대신, 도구가 9월 청구서와 (이미 요약에 있는) 10월 청구서를 recorder에 남기는 상황을 흉내 냅니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
@@ -292,7 +294,7 @@ class AiServiceTest {
     void 도구로_조회했지만_답변에_쓰지_않은_달은_카드로_붙이지_않는다() {
         var materials = AnswerMaterials.builder("8월이랑 9월 요금 비교해줘").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
-        when(promptService.createPrompt("8월이랑 9월 요금 비교해줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("8월이랑 9월 요금 비교해줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         // 모델이 7월까지 더 조회했지만 답변에는 8월·9월만 쓴 상황입니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
@@ -314,7 +316,7 @@ class AiServiceTest {
     void 도구를_부르지_않으면_답변에_쓰인_요약_기록만_카드로_반환한다() {
         var materials = AnswerMaterials.builder("이번 달 요금 얼마야?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
-        when(promptService.createPrompt("이번 달 요금 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("이번 달 요금 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"이번 달 요금은 2026년 10월 청구서 기준 78,000원입니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
 
@@ -330,7 +332,7 @@ class AiServiceTest {
     void 답변에_쓰인_가입_정보가_없으면_카드는_없다() {
         var materials = AnswerMaterials.builder("결합 상품 있어?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
-        when(promptService.createPrompt("결합 상품 있어?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("결합 상품 있어?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("결합 상품은 없습니다."));
 
         assertThat(aiService.generateAnswer(materials).userData()).isNull();
@@ -340,7 +342,7 @@ class AiServiceTest {
     void 모델이_답을_보류하면_조회한_기록이_있어도_카드를_붙이지_않고_보류_상태는_유지한다() {
         var materials = AnswerMaterials.builder("요금제 변경할 수 있어?").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
-        when(promptService.createPrompt("요금제 변경할 수 있어?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("요금제 변경할 수 있어?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         // 도구가 청구서를 남기고, 답변에도 요약 청구서가 나오지만 모델은 답을 보류한 상황입니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
@@ -359,7 +361,7 @@ class AiServiceTest {
     @Test
     void 상품_도구가_조회한_상품_중_답변에_쓰인_것만_카드로_반환하고_가격을_검사_근거로_쓴다() {
         var materials = AnswerMaterials.builder("밸런스 요금제 얼마야?").enableTool(AiTool.PLAN_SEARCH).build();
-        when(promptService.createPrompt("밸런스 요금제 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("밸런스 요금제 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         // 실제 도구 실행 대신, 도구가 요금제 두 개를 돌려주고 모델이 그중 하나만 답변에 쓴 상황입니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
@@ -382,7 +384,7 @@ class AiServiceTest {
     @Test
     void 목록_요청_조회가_한_번이면_LLM_답변_대신_목록_답변과_목록_전체_카드를_반환한다() {
         var materials = AnswerMaterials.builder("프리미엄 요금제 종류 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
-        when(promptService.createPrompt("프리미엄 요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of()))
+        when(promptService.createSlotPrompt("프리미엄 요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of()))
                 .thenReturn(prompt);
         // 도구가 목록 요청으로 두 요금제를 돌려줬는데 모델은 하나만 쓰고 정보가 부족하다고 답한 상황입니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
@@ -409,7 +411,7 @@ class AiServiceTest {
                 new SubQuestionFaqs("요금제 해지 방법", List.of(), "해지 방법 알려줘"));
         var materials = AnswerMaterials.builder("프리미엄 요금제 종류랑 해지 방법 알려줘").enableTool(AiTool.PLAN_SEARCH)
                 .subQuestions(subQuestions).build();
-        when(promptService.createPrompt("프리미엄 요금제 종류랑 해지 방법 알려줘", List.of(), subQuestions, List.of(), List.of()))
+        when(promptService.createSlotPrompt("프리미엄 요금제 종류랑 해지 방법 알려줘", List.of(), subQuestions, List.of(), List.of()))
                 .thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             recordPremiumListing(invocation.getArgument(0));
@@ -426,7 +428,7 @@ class AiServiceTest {
     @Test
     void 시리즈_개요_답변은_출력_검사를_그대로_통과하고_카드를_붙이지_않는다() {
         var materials = AnswerMaterials.builder("요금제 종류 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
-        when(promptService.createPrompt("요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         var overview = new PlanSeriesOverview(List.of(
                 new PlanSeriesOverview.Group("실속", true, 13, 3300, 19800),
                 new PlanSeriesOverview.Group("프리미엄", true, 5, 89000, 129000)));
@@ -460,7 +462,7 @@ class AiServiceTest {
     @Test
     void 모델이_답을_보류하면_조회한_상품이_있어도_상품_카드를_붙이지_않는다() {
         var materials = AnswerMaterials.builder("컬러링 얼마야?").enableTool(AiTool.ADDON_SEARCH).build();
-        when(promptService.createPrompt("컬러링 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("컬러링 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             ((ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY)).record(
@@ -475,7 +477,7 @@ class AiServiceTest {
     @Test
     void 도구가_매장을_조회하지_않으면_지도_정보는_없다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("어느 지역인지 알려 주세요."));
 
         assertThat(aiService.generateAnswer(materials).storeMap()).isNull();
@@ -484,7 +486,7 @@ class AiServiceTest {
     @Test
     void 도구가_위치_필요를_표시하면_locationRequired를_반환한다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         // 도구가 기준 장소를 얻지 못해 recorder에 "위치 필요"를 남기는 상황을 흉내 냅니다.
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
@@ -503,7 +505,7 @@ class AiServiceTest {
         var section = new ContextSection("현재 위치 근처 매장", "반경 3km 안에 매장이 없습니다.");
         var storeMap = new StoreMapResult(new Location(37.5, 127.0), null, 3.0, List.of());
         var materials = AnswerMaterials.builder("근처 매장").addSection(section).storeMap(storeMap).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(section), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(section), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("근처에 매장이 없어요."));
 
         AiAnswer answer = aiService.generateAnswer(materials);
@@ -523,7 +525,7 @@ class AiServiceTest {
     @Test
     void 프롬프트_준비가_안_되면_LLM은_호출하지_않는다() {
         var failure = new PromptException(PromptErrorCode.PROMPT_NOT_READY);
-        when(promptService.createPrompt("질문", faqs, List.of(), List.of(), List.of())).thenThrow(failure);
+        when(promptService.createSlotPrompt("질문", faqs, List.of(), List.of(), List.of())).thenThrow(failure);
 
         assertThatThrownBy(() -> aiService.generateAnswer(AnswerMaterials.builder("질문").addFaqs(faqs).build()))
                 .isSameAs(failure);
@@ -548,7 +550,7 @@ class AiServiceTest {
     @Test
     void JSON_파싱_후_문제_문장을_제거하고_남은_본문만_반환한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요. 바보입니다.\",\"evidence_ids\":\"123\",\"status\":\"CLARIFY\"}"));
 
@@ -562,7 +564,7 @@ class AiServiceTest {
             "```json\n{\"answer\":\"바보입니다.\"}\n```"})
     void 일반_문장과_JSON_모두_정상_본문이_없으면_출력_차단_오류를_전달한다(String output) {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(output));
 
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -576,7 +578,7 @@ class AiServiceTest {
     void 잘못된_근거번호가_있어도_본문_검사를_거쳐_위험_답변은_거절한다(String answer) {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
-        when(promptService.createPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"" + answer + "\",\"status\":\"ANSWER\",\"evidence_ids\":[\"999999\"]}"));
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -589,7 +591,7 @@ class AiServiceTest {
     void 실제_제공한_FAQ로_수치_충돌을_확인해_문제_문장을_제거한다() {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
-        when(promptService.createPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\",\"evidence_ids\":[\"1\"]}"));
 
@@ -599,7 +601,7 @@ class AiServiceTest {
     @Test
     void 매장_도구가_켜져도_실제_조회_결과_없이_조회했다고_하면_거절한다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("근처 매장을 조회했습니다."));
 
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -612,7 +614,7 @@ class AiServiceTest {
         var previous = new StoreMapResult(new Location(37.5, 127), null, 5.0, List.of());
         var actual = new StoreMapResult(new Location(37.5, 127), "강남역", 3.0, List.of());
         var materials = AnswerMaterials.builder("근처 매장").storeMap(previous).enableTool(AiTool.STORE_SEARCH).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             ((StoreSearchRecorder) request.toolContext().get(StoreTools.RECORDER)).record(actual);
@@ -629,9 +631,214 @@ class AiServiceTest {
     @ValueSource(strings = {" ", "\n"})
     void 기존_빈_응답은_그대로_후속_답변_검사에_넘긴다(String output) {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(output));
 
         assertThat(aiService.generateAnswer(materials).answer()).isNull();
+    }
+
+    @Test
+    void 칸_형식이면_ANSWER_칸만_보여_주고_답하지_못한_하위_질문은_원문_조각으로_고지한다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법", faqs, "유심 재발급은 어떻게 하고"),
+                new SubQuestionFaqs("유심 재발급 비용", faqs, "비용은 얼마예요?"));
+        var materials = AnswerMaterials.builder("유심 재발급은 어떻게 하고 비용은 얼마예요?").addFaqs(faqs)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), faqs, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"매장에서 재발급할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"비용은 자료에 없습니다.\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[\"1\"]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("매장에서 재발급할 수 있습니다.\n\n"
+                + "「비용은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void 칸_형식에서_모든_칸이_ABSTAIN이면_가드를_거치지_않고_전체_고지만_낸다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 비용", faqs, "유심 재발급 비용이랑"),
+                new SubQuestionFaqs("eSIM 발급 비용", faqs, "eSIM 비용은요?"));
+        var materials = AnswerMaterials.builder("유심 재발급 비용이랑 eSIM 비용은요?").addFaqs(faqs)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), faqs, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"자료에 없습니다.\",\"status\":\"ABSTAIN\"},"
+                + "{\"answer\":\"\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("문의하신 내용은 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.abstained()).isTrue();
+        assertThat(answer.outputGuardResult()).isNull();
+    }
+
+    @Test
+    void 칸_형식에서_ANSWER인데_본문이_비었으면_답하지_못한_것으로_본다() {
+        var materials = AnswerMaterials.builder("유심 재발급 비용").addFaqs(faqs).build();
+        when(promptService.createSlotPrompt("유심 재발급 비용", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
+                "{\"answers\":[{\"answer\":\" \",\"status\":\"ANSWER\"}],\"evidence_ids\":[]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("문의하신 내용은 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("ABSTAIN");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"answers\":[{\"answer\":\"답\",\"status\":\"ANSWER\"},{\"answer\":\"답\",\"status\":\"ANSWER\"}],\"evidence_ids\":[]}",
+            "{\"answers\":[{\"answer\":\"답\",\"status\":\"PARTIAL\"}],\"evidence_ids\":[]}"})
+    void 칸_수가_맞지_않거나_알_수_없는_status면_응답_오류로_실패한다(String output) {
+        var materials = AnswerMaterials.builder("유심 재발급 비용").addFaqs(faqs).build();
+        when(promptService.createSlotPrompt("유심 재발급 비용", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(output));
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+    }
+
+    @Test
+    void 칸_형식에서_가드가_문장을_지운_칸은_답하지_못한_것으로_바꿔_고지한다() {
+        var sources = List.of(
+                new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL),
+                new FaqSearchResponseDto(2L, "가입 장소", "가입은 매장에서 할 수 있습니다.", 0.9, Intent.GENERAL));
+        var subQuestions = List.of(
+                new SubQuestionFaqs("가입 장소", List.of(sources.get(1)), "가입은 어디서 하고"),
+                new SubQuestionFaqs("할인율", List.of(sources.get(0)), "할인율은 얼마예요?"));
+        var materials = AnswerMaterials.builder("가입은 어디서 하고 할인율은 얼마예요?").addFaqs(sources)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), sources, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"가입은 매장에서 할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\"}],"
+                + "\"evidence_ids\":[\"1\",\"2\"]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("가입은 매장에서 할 수 있습니다.\n\n"
+                + "「할인율은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+        // 미응답 수집이 모델의 보류와 가드의 삭제를 구분할 수 있게 칸별 결과를 남깁니다.
+        assertThat(answer.slotOutcomes()).containsExactly(
+                new AiAnswer.SlotOutcome("ANSWER", false), new AiAnswer.SlotOutcome("ABSTAIN", true));
+    }
+
+    @Test
+    void 칸_형식에서_정책_위반으로_칸이_거부되면_답변_전체를_거부한다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법", faqs, "유심 재발급은 어떻게 하고"),
+                new SubQuestionFaqs("유심 재발급 비용", faqs, "비용은요?"));
+        var materials = AnswerMaterials.builder("유심 재발급은 어떻게 하고 비용은요?").addFaqs(faqs)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), faqs, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"매장에서 재발급할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"바보입니다.\",\"status\":\"ANSWER\"}],\"evidence_ids\":[]}"));
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+    }
+
+    @Test
+    void 비로그인이면_사용자_정보를_묻는_하위_질문은_로그인_고지를_붙이고_FAQ_부족으로_보지_않는다() {
+        var general = new FaqSearchResponseDto(1L, "요금제 변경", "요금제는 앱에서 변경할 수 있습니다.", 0.9, Intent.GENERAL);
+        var userData = new FaqSearchResponseDto(2L, "내 요금 조회", "가입 정보에서 확인합니다.", 0.9, Intent.USER_DATA);
+        var section = new ContextSection(com.ubot.chat.context.UserIntentHandler.SECTION_TITLE,
+                com.ubot.chat.context.UserIntentHandler.LOGIN_REQUIRED_CONTENT);
+        var subQuestions = List.of(
+                new SubQuestionFaqs("요금제 변경 방법", List.of(general), "요금제는 어떻게 바꾸고"),
+                new SubQuestionFaqs("내 이번 달 요금", List.of(userData), "내 요금은 얼마예요?"));
+        var materials = AnswerMaterials.builder("요금제는 어떻게 바꾸고 내 요금은 얼마예요?").addFaqs(List.of(general, userData))
+                .addSection(section).subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), List.of(general, userData), subQuestions, List.of(section),
+                List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"요금제는 앱에서 변경할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"로그인 후 다시 질문해 주세요.\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[\"1\"]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("요금제는 앱에서 변경할 수 있습니다.\n\n"
+                + "「내 요금은 얼마예요」에 대해서는 로그인한 사용자만 이용할 수 있습니다. 로그인한 뒤 다시 질문해 주세요.");
+        assertThat(answer.slotOutcomes()).containsExactly(
+                new AiAnswer.SlotOutcome("ANSWER", false, false), new AiAnswer.SlotOutcome("ABSTAIN", false, true));
+    }
+
+    @Test
+    void 비로그인으로_질문_전체를_답하지_못하면_로그인_고지_하나만_낸다() {
+        var userData = new FaqSearchResponseDto(2L, "내 요금 조회", "가입 정보에서 확인합니다.", 0.9, Intent.USER_DATA);
+        var section = new ContextSection(com.ubot.chat.context.UserIntentHandler.SECTION_TITLE,
+                com.ubot.chat.context.UserIntentHandler.LOGIN_REQUIRED_CONTENT);
+        var materials = AnswerMaterials.builder("내 요금 얼마예요?").addFaqs(List.of(userData)).addSection(section).build();
+        when(promptService.createSlotPrompt("내 요금 얼마예요?", List.of(userData), List.of(), List.of(section), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
+                "{\"answers\":[{\"answer\":\"\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("가입 정보는 로그인한 사용자만 이용할 수 있습니다. 로그인한 뒤 다시 질문해 주세요.");
+        assertThat(answer.status()).isEqualTo("ABSTAIN");
+    }
+
+    @Test
+    void 도구_경로도_칸_형식을_쓰고_매장_조회_실패는_사유별_고지로_알린다() {
+        var store = new FaqSearchResponseDto(3L, "매장 찾기", "가까운 매장을 안내합니다.", 0.9, Intent.STORE_DATA);
+        var materials = AnswerMaterials.builder("근처 매장 알려줘").addFaqs(List.of(store)).enableTool(AiTool.STORE_SEARCH).build();
+        when(promptService.createSlotPrompt("근처 매장 알려줘", List.of(store), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 도구가 기준 장소를 얻지 못한 상황을 흉내 냅니다. 모델은 안내를 쓰지 않고 칸을 ABSTAIN으로 둡니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            ((StoreSearchRecorder) request.toolContext().get(StoreTools.RECORDER)).markLocationRequired();
+            return new LlmResponseDto("{\"answers\":[{\"answer\":\"\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer())
+                .isEqualTo("매장을 찾을 기준 위치가 없어 조회하지 못했습니다. 위치 권한을 허용하거나 지역·역 이름을 알려 주세요.");
+        assertThat(answer.locationRequired()).isTrue();
+        // 조회 실패로 답하지 못한 것은 FAQ 부족이 아니므로 미응답 수집에서 뺄 수 있게 표시합니다.
+        assertThat(answer.slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ABSTAIN", false, true));
+        verify(promptService, never()).createPrompt(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 도구_경로에서_칸_수가_하위_질문과_다르면_칸을_하나로_합쳐_전체_고지를_낸다() {
+        var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"매장 목록은 지도에서 확인할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"영업시간은 자료에 없습니다.\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("매장 목록은 지도에서 확인할 수 있습니다.\n\n"
+                + "문의하신 내용 중 일부는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+        assertThat(answer.slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("PARTIAL", false, false));
+    }
+
+    @Test
+    void 도구_경로에서_회선을_고르지_못하면_후보_회선을_넣어_되묻는다() {
+        var userData = new FaqSearchResponseDto(2L, "요금 조회", "가입 정보에서 확인합니다.", 0.9, Intent.USER_DATA);
+        var materials = AnswerMaterials.builder("지난달 요금").addFaqs(List.of(userData)).enableTool(AiTool.USER_DATA_LOOKUP)
+                .userId(7L).build();
+        when(promptService.createSlotPrompt("지난달 요금", List.of(userData), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            ((UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER)).fail(com.ubot.ai.dto.LookupFailure.of(
+                    com.ubot.ai.dto.LookupFailure.Kind.SUBSCRIPTION_UNSELECTED, "010-****-1234(5G 스탠다드), 010-****-5678"));
+            return new LlmResponseDto("{\"answers\":[{\"answer\":\"\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}");
+        });
+
+        assertThat(aiService.generateAnswer(materials).answer())
+                .isEqualTo("어느 회선인지 정할 수 없습니다. 다음 중 어느 번호인지 알려 주세요: 010-****-1234(5G 스탠다드), 010-****-5678");
     }
 }

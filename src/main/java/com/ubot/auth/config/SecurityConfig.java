@@ -1,10 +1,12 @@
 package com.ubot.auth.config;
 
+import com.ubot.chat.job.service.ChatJobReadExecutor;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -22,6 +24,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import lombok.RequiredArgsConstructor;
 
 @Configuration
+@Import(ChatJobReadExecutor.class)
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
@@ -91,6 +94,7 @@ public class SecurityConfig {
 								"/bundle-products", "/bundle-products/**",
 								"/addon-services", "/addon-services/**",
 								"/roaming-products", "/roaming-products/**",
+								"/home-products", "/home-products/**",
 								"/notices", "/notices/**")
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()

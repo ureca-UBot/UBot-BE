@@ -1,10 +1,14 @@
 package com.ubot.chat.service;
 
+import com.ubot.chat.job.service.ChatJobReadExecutor;
+import org.junit.jupiter.api.AfterEach;
+
 import com.ubot.conversation.service.ConversationService;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
+import com.ubot.ai.service.SubQuestionLabels;
 import com.ubot.chat.controller.ChatController;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -44,6 +48,7 @@ import com.ubot.prompt.exception.PromptException;
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.user.entity.User;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.stream.IntStream;
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +85,8 @@ import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.prompt.service.PromptService;
 
 class ChatServiceTest {
+	ChatJobReadExecutor reads = new ChatJobReadExecutor(Duration.ofMillis(1500), 8);
+	@AfterEach void closeReads() { reads.close(); }
 	FaqVectorService vector = ChatTestFixtures.vectorService();
 	AiService ai = mock(AiService.class);
 	AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
@@ -148,11 +155,11 @@ class ChatServiceTest {
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, attemptsService, processor, tx);
 		service = new ChatService(attemptsService, ChatTestFixtures.inputGuard(),
-				harness.submissionService, ipRegionResolver);
+				harness.submissionService, ipRegionResolver, ChatTestFixtures.noRateLimit());
 		var conversationService = mock(ConversationService.class);
 		when(conversationService.getOrCreateMemberConversation(eq(1L), any())).thenReturn(Conversation.createMember(1L));
 		var controller = new ChatController(service, harness.queryService, mock(ClientIpResolver.class),
-				mock(GuestConversationService.class), conversationService);
+				mock(GuestConversationService.class), conversationService, reads);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
 				.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {
@@ -279,7 +286,7 @@ class ChatServiceTest {
 
 	@Test void noResultsSkipLlmAndPersistFailure() throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of());
-		assertThat(completeRequest(ChatErrorCode.NO_FAQ)).contains("검색 결과가 없습니다.", "\"status\":\"FAILED\"", "\"retryable\":true");
+		assertThat(completeRequest(ChatErrorCode.NO_FAQ)).contains("검색 결과가 없습니다.", "\"status\":\"FAILED\"", "\"retryable\":false");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.NO_FAQ);
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
@@ -290,7 +297,7 @@ class ChatServiceTest {
 		when(vector.getSimilarList("질문", 3)).thenReturn(List.of(
 				new FaqSearchResponseDto(1L, "q", "a", score, Intent.GENERAL),
 				new FaqSearchResponseDto(2L, "q2", "a2", 0.7, Intent.GENERAL)));
-		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("정확한 답변을 찾지 못했습니다.", "\"status\":\"FAILED\"", "\"retryable\":true");
+		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("정확한 답변을 찾지 못했습니다.", "\"status\":\"FAILED\"", "\"retryable\":false");
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verifyNoInteractions(ai, questions, faqLogs);
 	}
@@ -307,7 +314,7 @@ class ChatServiceTest {
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.8);
 		when(vector.getSimilarList("질문", 5)).thenReturn(List.of(new FaqSearchResponseDto(1L, "q", "a", 0.79, Intent.GENERAL)));
 
-		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("\"status\":\"FAILED\"", "\"retryable\":true");
+		assertThat(completeRequest(ChatErrorCode.INSUFFICIENT_FAQ)).contains("\"status\":\"FAILED\"", "\"retryable\":false");
 		verify(vector).getSimilarList("질문", 5);
 		assertThat(saved.getFirst().getErrorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verifyNoInteractions(ai);
@@ -383,7 +390,7 @@ class ChatServiceTest {
 
 	@Test void attemptsRecordModelNameReportedByLlmService() {
 		var first = attemptsService.createAnswerAttempt(1L, "질문");
-		attemptsService.recordFailure(first, ChatErrorCode.NO_FAQ);
+		attemptsService.recordFailure(first, ChatErrorCode.INTERNAL_ERROR);
 		var retry = attemptsService.createRetryAttempt(1L, first.getIdempotencyKey());
 		assertThat(List.of(first, retry)).extracting(AnswerAttemptsHistory::getLlmModel)
 				.containsOnly("recorded-chat-model");
@@ -391,7 +398,7 @@ class ChatServiceTest {
 
 	@Test void attemptsRecordModelNameReportedByEmbeddingService() {
 		var first = attemptsService.createAnswerAttempt(1L, "질문");
-		attemptsService.recordFailure(first, ChatErrorCode.NO_FAQ);
+		attemptsService.recordFailure(first, ChatErrorCode.INTERNAL_ERROR);
 		var retry = attemptsService.createRetryAttempt(1L, first.getIdempotencyKey());
 		assertThat(List.of(first, retry)).extracting(AnswerAttemptsHistory::getEmbeddingModel)
 				.containsOnly("recorded-embedding-model");
@@ -406,7 +413,7 @@ class ChatServiceTest {
 
 	@ParameterizedTest
 	@EnumSource(value = ChatErrorCode.class, names = {
-			"NO_FAQ", "INSUFFICIENT_FAQ", "PROMPT_NOT_READY", "INTERNAL_ERROR", "STORAGE_UNAVAILABLE", "TASK_START_FAILED"
+			"PROMPT_NOT_READY", "INTERNAL_ERROR", "STORAGE_UNAVAILABLE", "TASK_START_FAILED"
 	})
 	void failedAttemptsCanRetryUntilThirdAttempt(ChatErrorCode code) {
 		var attempt = attemptsService.createAnswerAttempt(1L, "질문");
@@ -426,6 +433,21 @@ class ChatServiceTest {
 			assertThat(stored.getErrorCode()).isEqualTo(code);
 		});
 		verifyNoInteractions(vector, ai);
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = ChatErrorCode.class, names = {
+			"NO_FAQ", "INSUFFICIENT_FAQ", "PROMPT_INJECTION_DETECTED", "NO_USABLE_QUESTION"
+	})
+	void sameResultFailuresCannotRetry(ChatErrorCode code) {
+		var attempt = attemptsService.createAnswerAttempt(1L, "질문");
+		assertThat(attemptsService.recordFailure(attempt, code)).isTrue();
+
+		// 같은 질문이면 결과가 같아 자동 재시도가 같은 검색·검사를 반복하지 않게 막음
+		assertThat(attemptsService.validateRetryAttempt(attempt)).contains(ChatErrorCode.RETRY_NOT_ALLOWED);
+		assertChatError(() -> attemptsService.createRetryAttempt(1L, attempt.getIdempotencyKey()),
+				ChatErrorCode.RETRY_NOT_ALLOWED);
+		assertThat(saved).hasSize(1);
 	}
 
 	@Test
@@ -593,13 +615,13 @@ class ChatServiceTest {
 		service.retryGuestChat(7L, systemFailure.getIdempotencyKey(), null);
 		assertThat(saved).hasSize(4);
 		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
-		saved.getLast().succeed();
-
-		service.retryGuestChat(7L, missingFaq.getIdempotencyKey(), null);
-		assertThat(saved).hasSize(5);
-		assertThat(saved.getLast().getAttemptCount()).isEqualTo(2);
 		assertThat(saved.getLast().getUserId()).isNull();
 		assertThat(saved.getLast().getConversationId()).isEqualTo(7L);
+		saved.getLast().succeed();
+
+		assertChatError(() -> service.retryGuestChat(7L, missingFaq.getIdempotencyKey(), null),
+				ChatErrorCode.RETRY_NOT_ALLOWED);
+		assertThat(saved).hasSize(4);
 	}
 
 	@Test void guestRetryRejectsAnotherConversationsKey() {
@@ -975,7 +997,8 @@ class ChatServiceTest {
 		when(promptService.createPrompt(anyString(), anyList(), anyList())).thenReturn(new LlmRequestDto(List.of()));
 		var registry = mock(AiToolRegistry.class);
 		when(registry.resolve(any())).thenReturn(List.of());
-		var guardedAi = new AiService(promptService, llmService, registry, new AiOutputGuardService(filter));
+		var guardedAi = new AiService(promptService, llmService, registry, new AiOutputGuardService(filter),
+				SubQuestionLabels.withoutMorphology());
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenAnswer(call -> guardedAi.generateAnswer(call.getArgument(0)));
 		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(
 				List.of(new FaqSearchResponseDto(1L, "서비스 안내", "할인율은 25%입니다. 신분증을 지참해주세요.", 0.9, Intent.GENERAL)));

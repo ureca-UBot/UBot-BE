@@ -46,6 +46,7 @@ public class ReviewWorkService {
 				id = repository.insertCandidate(s, ReviewService.normalizedHash(s.expression()), vector);
 			repository.finding(id, runId, source, s);
 		}
+		repository.updateAnalysisProgress(runId);
 	}
 	@Transactional
 	public void release(long id, UUID token) {

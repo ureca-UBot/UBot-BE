@@ -1,0 +1,41 @@
+name: ubot-api
+
+# AWS PoC: BE EC2 only. State and GPU run on their own EC2 instances.
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable ECR image digest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      APP_ROLE: api
+      AI_MODE: vllm
+      AI_RUNTIME_MANAGED: 'false'
+      LLM_BASE_URL: http://${NLB_DNS:?Set NLB_DNS}:8000/v1
+      LLM_MODEL: ${LLM_MODEL:-ubot-chat}
+      EMBEDDING_BASE_URL: http://${NLB_DNS:?Set NLB_DNS}:8001/v1
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-ubot-embedding}
+      COUNSEL_SEED_ON_START: 'false'
+      # docker-compose.monitoring.yml on the same instance
+      PROMETHEUS_BASE_URL: http://prometheus:9090
+    ports:
+      - '127.0.0.1:8080:8080'
+    stop_grace_period: 35s
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      FE_PRIVATE_IP: ${FE_PRIVATE_IP:?Set FE_PRIVATE_IP}
+      CHAT_GUEST_RATE_LIMIT_RATE: ${CHAT_GUEST_RATE_LIMIT_RATE:-30r/m}
+      CHAT_GUEST_RATE_LIMIT_BURST: ${CHAT_GUEST_RATE_LIMIT_BURST:-10}
+      CHAT_MEMBER_RATE_LIMIT_RATE: ${CHAT_MEMBER_RATE_LIMIT_RATE:-30r/m}
+      CHAT_MEMBER_RATE_LIMIT_BURST: ${CHAT_MEMBER_RATE_LIMIT_BURST:-10}
+    volumes:
+      - ./infra/nginx/nginx.api.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    depends_on:
+      - backend

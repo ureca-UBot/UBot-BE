@@ -14,9 +14,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -29,13 +32,22 @@ public class PromptService {
     private static final String FAILED_ANSWER = "(답변 실패)";
 
     private final Resource systemPromptResource;
+    private final Resource slotSystemPromptResource;
     private final Resource userPromptResource;
 
+    @Autowired
     public PromptService(
             @Value("${prompt.faq.system-location:classpath:prompts/faq-system.txt}") Resource systemPromptResource,
+            @Value("${prompt.faq.slot-system-location:classpath:prompts/faq-system-slot.txt}") Resource slotSystemPromptResource,
             @Value("${prompt.faq.user-location:classpath:prompts/faq-user.txt}") Resource userPromptResource) {
         this.systemPromptResource = systemPromptResource;
+        this.slotSystemPromptResource = slotSystemPromptResource;
         this.userPromptResource = userPromptResource;
+    }
+
+    /** 칸 형식 지침은 기본 파일을 씁니다. */
+    public PromptService(Resource systemPromptResource, Resource userPromptResource) {
+        this(systemPromptResource, new ClassPathResource("prompts/faq-system-slot.txt"), userPromptResource);
     }
 
     public LlmRequestDto createPrompt(String question, List<FaqSearchResponseDto> faqs, List<ContextSection> sections) {
@@ -62,8 +74,46 @@ public class PromptService {
             List<SubQuestionFaqs> subQuestions,
             List<ContextSection> sections,
             List<ConversationTurn> history) {
+        return createPrompt(systemPromptResource, FaqAnswerFormat.schema(), question, faqs, subQuestions, sections, history);
+    }
+
+    /**
+     * 하위 질문마다 칸(answer → status)을 받는 요청입니다. 입력은 createPrompt와 같고, 지침은 faq-system-slot.txt,
+     * 출력 스키마는 칸 수(slotCount)만큼의 칸을 강제합니다. 도구가 있는 요청은 스키마가 강제되지 않으므로 쓰지 않습니다.
+     */
+    public LlmRequestDto createSlotPrompt(
+            String question,
+            List<FaqSearchResponseDto> faqs,
+            List<SubQuestionFaqs> subQuestions,
+            List<ContextSection> sections,
+            List<ConversationTurn> history) {
+        return createPrompt(slotSystemPromptResource, FaqAnswerFormat.slotSchema(slotCount(subQuestions)),
+                question, faqs, subQuestions, sections, history);
+    }
+
+    /**
+     * 칸 형식에서 모델이 써야 할 칸 수입니다. 프롬프트에 "하위 질문 N" 제목으로 나눠 넣은 경우만 하위 질문 수이고,
+     * 나머지(하나뿐이거나 원문 조각이 없어 나누지 않고 넣은 경우)는 질문 전체 하나입니다.
+     */
+    public static int slotCount(List<SubQuestionFaqs> subQuestions) {
+        return isGrouped(subQuestions) ? subQuestions.size() : 1;
+    }
+
+    private static boolean isGrouped(List<SubQuestionFaqs> subQuestions) {
+        return subQuestions != null && subQuestions.size() > 1
+                && subQuestions.stream().allMatch(subQuestion -> StringUtils.hasText(subQuestion.userText()));
+    }
+
+    private LlmRequestDto createPrompt(
+            Resource systemResource,
+            Map<String, Object> responseSchema,
+            String question,
+            List<FaqSearchResponseDto> faqs,
+            List<SubQuestionFaqs> subQuestions,
+            List<ContextSection> sections,
+            List<ConversationTurn> history) {
         // 답변 지침은 코드에 임의로 작성하지 않고, 담당자가 채울 파일에서 읽습니다.
-        String[] templates = readTemplates();
+        String[] templates = readTemplates(systemResource);
         String systemPrompt = templates[0];
         String userTemplate = templates[1];
 
@@ -80,8 +130,7 @@ public class PromptService {
         // 검색된 모든 FAQ의 ID·질문·답변을 전달합니다. 점수는 ChatAnswerProcessor의 검색 판단용입니다.
         // 매장만 묻는 질문처럼 FAQ 없이 도구·추가 자료만으로 답할 수도 있습니다.
         String faqText;
-        if (subQuestions != null && subQuestions.size() > 1
-                && subQuestions.stream().allMatch(subQuestion -> StringUtils.hasText(subQuestion.userText()))) {
+        if (isGrouped(subQuestions)) {
             faqText = formatSubQuestions(subQuestions);
         } else {
             faqText = faqs == null || faqs.isEmpty() ? EMPTY_VALUE : formatFaqs(faqs);
@@ -110,11 +159,11 @@ public class PromptService {
                     StringUtils.hasText(turn.answer()) ? turn.answer() : FAILED_ANSWER));
         }
         messages.add(new LlmMessageRequestDto(LlmMessageRole.USER, userPrompt));
-        return new LlmRequestDto(messages).withResponseSchema(FaqAnswerFormat.schema());
+        return new LlmRequestDto(messages).withResponseSchema(responseSchema);
     }
 
-    private String[] readTemplates() {
-        String systemPrompt = readPrompt(systemPromptResource);
+    private String[] readTemplates(Resource systemResource) {
+        String systemPrompt = readPrompt(systemResource);
         String userTemplate = readPrompt(userPromptResource);
 
         // 빈 프롬프트나 질문/FAQ 삽입 위치가 없는 템플릿으로는 모델을 호출하지 않습니다.

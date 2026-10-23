@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+
+# AWS PoC BE EC2. The API and Worker run here; PostgreSQL and Redis run on the State EC2,
+# so their exporters run here and connect to the State addresses from the server .env.
+# Job names match the operation monitoring queries (ServiceOperationMonitoringService).
+scrape_configs:
+  - job_name: ubot-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - backend:8080
+
+  - job_name: ubot-ai-worker
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - ai-worker:8080
+
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - postgres-exporter:9187
+
+  - job_name: redis
+    static_configs:
+      - targets:
+          - redis-exporter:9121
+
+  - job_name: cadvisor
+    static_configs:
+      - targets:
+          - cadvisor:8080

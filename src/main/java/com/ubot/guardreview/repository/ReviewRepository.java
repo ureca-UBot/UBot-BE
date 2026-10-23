@@ -186,6 +186,14 @@ public class ReviewRepository {
 						(r, n) -> r.getLong(1), token)
 				.stream().findFirst().orElse(null);
 	}
+	/** 진행 중인 묶음도 새 오차단 재검사에 차례를 양보합니다. */
+	public boolean hasRunnableValidation() {
+		return Boolean.TRUE.equals(jdbc.queryForObject("""
+				SELECT EXISTS(SELECT 1 FROM guard_review_runs WHERE kind='VALIDATION'
+				 AND status IN ('QUEUED','RUNNING')
+				 AND (lease_until IS NULL OR lease_until < LOCALTIMESTAMP))
+				""", Boolean.class));
+	}
 	public void requireLease(long id, UUID token) {
 		if (jdbc.query(
 				"SELECT id FROM guard_review_runs WHERE id=? AND lease_token=? AND lease_until>LOCALTIMESTAMP FOR UPDATE",
@@ -215,6 +223,19 @@ public class ReviewRepository {
 						WHERE id=? AND status='RUNNING' AND lease_token=? AND lease_until>LOCALTIMESTAMP
 						""",
 				id, token) == 1;
+	}
+	public void updateAnalysisProgress(long runId) {
+		jdbc.update("""
+				WITH stats AS (
+				 SELECT count(*) FILTER (WHERE status='COMPLETED')::int AS completed,
+				 count(*) FILTER (WHERE status='FAILED')::int AS failed,
+				 count(*) FILTER (WHERE status='PENDING')::int AS pending
+				 FROM guard_review_items WHERE run_id=?)
+				UPDATE guard_review_runs r SET updated_at=CURRENT_TIMESTAMP,
+				 processed=s.completed+s.failed,
+				 result=r.result||jsonb_build_object('completed',s.completed,'failed',s.failed,'pending',s.pending)
+				FROM stats s WHERE r.id=? AND r.kind='ANALYSIS'
+				""", runId, runId);
 	}
 	public void releaseAnalysis(long id, UUID token) {
 		finishAnalysis(id, token, false);

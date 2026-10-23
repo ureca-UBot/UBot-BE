@@ -17,6 +17,7 @@ import com.ubot.addon.dto.request.AdminAddonServiceCreateRequestDto;
 import com.ubot.addon.dto.request.AdminAddonServiceUpdateRequestDto;
 import com.ubot.addon.dto.response.AdminAddonServiceResponseDto;
 import com.ubot.addon.entity.AddonService;
+import com.ubot.addon.enums.AddonCategory;
 import com.ubot.addon.exception.AddonServiceErrorCode;
 import com.ubot.addon.exception.AddonServiceException;
 import com.ubot.addon.repository.AddonServiceRepository;
@@ -44,7 +45,8 @@ public class AdminAddonService {
                 request.code(),
                 request.name().trim(),
                 normalizeDescription(request.description()),
-                request.monthlyFee()
+                request.monthlyFee(),
+                request.category() == null ? AddonCategory.ETC : request.category()
         );
         AddonService savedProduct = ProductWriteSupport.saveUnique(
                 () -> productRepository.saveAndFlush(product),
@@ -81,7 +83,8 @@ public class AdminAddonService {
                 userRepository.getReferenceById(administratorId),
                 request.name().trim(),
                 normalizeDescription(request.description()),
-                request.monthlyFee()
+                request.monthlyFee(),
+                request.category() == null ? product.getCategory() : request.category()
         );
         log.info("부가서비스 상품을 수정했습니다: 상품ID={}", addonServiceId);
         return AdminAddonServiceResponseDto.from(product);

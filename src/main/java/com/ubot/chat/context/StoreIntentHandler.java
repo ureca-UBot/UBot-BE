@@ -23,9 +23,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class StoreIntentHandler implements IntentHandler {
 	
-	static final String SECTION_TITLE = "현재 위치 근처 매장";
-	static final String LOOKUP_FAILED_CONTENT = "매장 정보를 조회하지 못했습니다. 매장 이름이나 주소를 추측하지 말고, "
-			+ "잠시 후 다시 묻거나 지역·역 이름으로 물어봐 달라고 안내하세요. 질문의 다른 부분은 그대로 답하세요.";
+	public static final String SECTION_TITLE = "현재 위치 근처 매장";
+	// 다시 시도하라는 안내는 코드가 붙이므로(AiService) 모델에게 쓰게 하지 않습니다. AiService는 이 문구를 그대로 비교합니다.
+	public static final String LOOKUP_FAILED_CONTENT = "매장 정보를 조회하지 못했습니다. 매장 이름이나 주소를 추측하지 말고, "
+			+ "질문의 다른 부분은 그대로 답하세요.";
 
 	private final NearbyStoreSearcher nearbyStoreSearcher;
 	
