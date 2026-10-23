@@ -39,6 +39,7 @@ import lombok.extern.slf4j.Slf4j;
 public class TelemapSurgingQuestionService {
 
     private static final int MAX_SNAPSHOT_COUNT = 100;
+    private static final long TELEMAP_REGION_LOCK_NAMESPACE = 0x544D_0000_0000_0000L;
 
     private final QuestionLogRepository questionLogRepository;
     private final EmbeddingService embeddingService;
@@ -187,6 +188,7 @@ public class TelemapSurgingQuestionService {
     }
 
     private long lockKey(RegionSido region, long embeddingProfileId) {
-        return ((long) region.ordinal() << 32) | (embeddingProfileId & 0xffffffffL);
+        long regionProfileKey = ((long) region.ordinal() << 32) | (embeddingProfileId & 0xffffffffL);
+        return TELEMAP_REGION_LOCK_NAMESPACE ^ regionProfileKey;
     }
 }
