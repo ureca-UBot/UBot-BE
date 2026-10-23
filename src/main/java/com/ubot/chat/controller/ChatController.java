@@ -9,6 +9,7 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
 import com.ubot.chat.job.dto.response.ChatJobSubmissionResponseDto;
 import com.ubot.chat.job.service.ChatJobQueryService;
+import com.ubot.chat.job.service.ChatJobReadExecutor;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
@@ -43,6 +44,7 @@ public class ChatController {
 	private final ClientIpResolver clientIpResolver;
 	private final GuestConversationService guestConversationService;
 	private final ConversationService conversationService;
+	private final ChatJobReadExecutor chatJobReadExecutor;
 
 	@PostMapping(value = "/questions", produces = MediaType.APPLICATION_JSON_VALUE)
 	public ResponseEntity<ApiResponse<ChatJobSubmissionResponseDto>> createChat(
@@ -105,11 +107,15 @@ public class ChatController {
 			@PathVariable Long jobId,
 			HttpServletRequest httpRequest) {
 		if (user != null) {
-			guestConversationService.claimConversation(httpRequest, user.getUserId());
-			return ApiResponse.success(chatJobQueryService.getStatus(jobId, user.getUserId(), Optional.empty()));
+			// 작업 조회라 비회원 대화 승계의 DB 접근도 인증과 같은 조회 예산 안에서 실행함
+			guestConversationService.claimConversation(httpRequest, user.getUserId(),
+					claim -> chatJobReadExecutor.execute(httpRequest, claim));
+			return ApiResponse.success(chatJobReadExecutor.execute(httpRequest,
+					() -> chatJobQueryService.getStatus(jobId, user.getUserId(), Optional.empty())));
 		}
-		return ApiResponse.success(chatJobQueryService.getStatus(
-				jobId, null, guestConversationService.findConversationId(httpRequest)));
+		Optional<Long> conversationId = guestConversationService.findConversationId(httpRequest);
+		return ApiResponse.success(chatJobReadExecutor.execute(httpRequest,
+				() -> chatJobQueryService.getStatus(jobId, null, conversationId)));
 	}
 
 	private ResponseEntity<ApiResponse<ChatJobSubmissionResponseDto>> accepted(

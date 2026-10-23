@@ -8,6 +8,7 @@ import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
 import com.ubot.chat.job.dto.response.ChatJobSubmissionResponseDto;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.service.ChatJobQueryService;
+import com.ubot.chat.job.service.ChatJobReadExecutor;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
@@ -16,9 +17,11 @@ import com.ubot.conversation.entity.Conversation;
 import com.ubot.conversation.service.ConversationService;
 import com.ubot.guest.session.GuestConversationService;
 import com.ubot.user.entity.User;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -44,12 +47,14 @@ class ChatControllerTest {
 	ConversationService conversationService = mock(ConversationService.class);
 	CustomUserDetails principal = new CustomUserDetails(User.builder().id(1L).build());
 	MockMvc mvc;
+	ChatJobReadExecutor reads = new ChatJobReadExecutor(Duration.ofMillis(1500), 8);
+	@AfterEach void closeReads() { reads.close(); }
 
 	@BeforeEach void setup() {
 		when(conversationService.getOrCreateMemberConversation(eq(1L), any())).thenReturn(Conversation.createMember(1L));
 		when(conversationService.getPublicId(5L)).thenReturn(CONVERSATION_PUBLIC_ID);
 		var controller = new ChatController(
-				service, queryService, clientIpResolver, guestConversationService, conversationService);
+				service, queryService, clientIpResolver, guestConversationService, conversationService, reads);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
 				.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {

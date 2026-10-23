@@ -325,7 +325,7 @@ class ConversationDeletionConcurrencyTest {
     private RunningJob queueJob(AnswerAttemptsHistory attempt) {
         ChatJob job = jobs.saveAndFlush(ChatJob.queue(attempt.getId()));
         LocalDateTime startedAt = queue.claim(job.getId(),
-                LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
+                LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow().startedAt();
         return new RunningJob(job.getId(), startedAt);
     }
 

@@ -1,5 +1,8 @@
 package com.ubot.chat.service;
 
+import com.ubot.chat.job.service.ChatJobReadExecutor;
+import org.junit.jupiter.api.AfterEach;
+
 import com.ubot.conversation.service.ConversationService;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.SubQuestionFaqs;
@@ -44,6 +47,7 @@ import com.ubot.prompt.exception.PromptException;
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.user.entity.User;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.stream.IntStream;
 import java.util.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +84,8 @@ import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.prompt.service.PromptService;
 
 class ChatServiceTest {
+	ChatJobReadExecutor reads = new ChatJobReadExecutor(Duration.ofMillis(1500), 8);
+	@AfterEach void closeReads() { reads.close(); }
 	FaqVectorService vector = ChatTestFixtures.vectorService();
 	AiService ai = mock(AiService.class);
 	AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
@@ -152,7 +158,7 @@ class ChatServiceTest {
 		var conversationService = mock(ConversationService.class);
 		when(conversationService.getOrCreateMemberConversation(eq(1L), any())).thenReturn(Conversation.createMember(1L));
 		var controller = new ChatController(service, harness.queryService, mock(ClientIpResolver.class),
-				mock(GuestConversationService.class), conversationService);
+				mock(GuestConversationService.class), conversationService, reads);
 		mvc = MockMvcBuilders.standaloneSetup(controller)
 				.setControllerAdvice(new GlobalExceptionHandler())
 				.setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {

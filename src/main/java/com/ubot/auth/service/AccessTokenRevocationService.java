@@ -5,23 +5,35 @@ import java.time.Instant;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
 
 import lombok.extern.slf4j.Slf4j;
+
+import com.ubot.auth.exception.JwtErrorCode;
+import com.ubot.auth.exception.MyJwtException;
 
 @Slf4j
 @Service
 public class AccessTokenRevocationService {
 	private final StringRedisTemplate redisTemplate;
+	private final ReactiveStringRedisTemplate revocationReader;
 	private final Duration accessTokenLifetime;
+	private final Duration lookupTimeout;
 
 	public AccessTokenRevocationService(
 			StringRedisTemplate redisTemplate,
-			@Value("${app.jwt.access-token-expiration-millis}") Long accessTokenExpirationMillis
+			ReactiveStringRedisTemplate revocationReader,
+			@Value("${app.jwt.access-token-expiration-millis}") Long accessTokenExpirationMillis,
+			@Value("${app.jwt.revocation-lookup-timeout:200ms}") Duration lookupTimeout
 	) {
 		this.redisTemplate = redisTemplate;
+		this.revocationReader = revocationReader;
 		this.accessTokenLifetime = Duration.ofMillis(accessTokenExpirationMillis);
+		this.lookupTimeout = lookupTimeout;
 	}
 
 	public void revokeAll(Long userId) {
@@ -39,7 +51,15 @@ public class AccessTokenRevocationService {
 		}
 		String revokedAt;
 		try {
-			revokedAt = redisTemplate.opsForValue().get(key(userId));
+			// Redis 재연결 대기가 인증 요청을 붙잡지 않도록 이 조회에만 제한을 둠. 제한이 지나면 구독을 취소함
+			revokedAt = revocationReader.opsForValue().get(key(userId))
+					.timeout(lookupTimeout, Mono.error(() -> new QueryTimeoutException("접근 토큰 차단 조회 시간 초과")))
+					.block();
+		} catch (QueryTimeoutException e) {
+			// 로그아웃 여부를 모르는 상태라 통과시키지 않음. 연결 오류처럼 바로 실패한 조회는 아래 정책을 따름
+			log.warn("접근 토큰 차단 정보를 제한 시간 안에 확인하지 못해 요청을 거부합니다: 사용자ID={}, 제한시간={}ms",
+					userId, lookupTimeout.toMillis());
+			throw new MyJwtException(JwtErrorCode.REVOCATION_CHECK_UNAVAILABLE);
 		} catch (DataAccessException e) {
 			log.warn("접근 토큰 차단 정보를 조회하지 못해 차단 없이 진행합니다: 사용자ID={}", userId, e);
 			return false;
