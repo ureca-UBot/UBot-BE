@@ -202,6 +202,28 @@ class LlmBackgroundAdmissionTest {
 	}
 
 	@Test
+	void dedicatedModelKeepsForegroundAdmissionAndDoesNotUseSharedClient() throws Exception {
+		try (var executor = Executors.newVirtualThreadPerTaskExecutor(); var calls = new Calls()) {
+			var limited = new LlmService(calls, 2);
+			var dedicatedCalls = new AtomicInteger();
+			java.util.function.Supplier<LlmResponseDto> dedicated = () -> {
+				dedicatedCalls.incrementAndGet();
+				return new LlmResponseDto("dedicated-model");
+			};
+			calls.block("chat-1");
+			var chat = executor.submit(() -> limited.generateAnswer(request("chat-1")));
+			calls.awaitStarted("chat-1");
+			assertThat(limited.tryGenerateBackgroundJudgment(request("review-1"), dedicated)).isEmpty();
+			assertThat(dedicatedCalls.get()).isZero();
+			calls.release("chat-1");
+			chat.get(5, TimeUnit.SECONDS);
+			assertThat(limited.tryGenerateBackgroundJudgment(request("review-1"), dedicated).orElseThrow().answer())
+					.isEqualTo("dedicated-model");
+			assertThat(dedicatedCalls.get()).isEqualTo(1);
+			assertThat(calls.names).containsExactly("chat-1");
+		}
+	}
+	@Test
 	void backgroundDoesNotReportChatProgress() {
 		try (var calls = new Calls()) {
 			var limited = new LlmService(calls, 2);

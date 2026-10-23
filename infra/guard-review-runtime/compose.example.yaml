@@ -1,0 +1,71 @@
+# Deployment example only. Not applied to EC2 or the existing application compose file.
+# Use `docker compose -f compose.example.yaml create` to create an idle container at deployment.
+# Do NOT use `up`: loading is exclusively controlled by controller.py and batch leases.
+services:
+  admin-risk-qwen14:
+    image: ${GUARD_REVIEW_RUNTIME_IMAGE:?Use the already available and verified vLLM image ID}
+    pull_policy: never
+    container_name: ubot-admin-risk-qwen14
+    restart: "no"
+    labels:
+      ubot.guard-review-runtime: qwen3-14b-awq
+    entrypoint: [python3, -m, vllm.entrypoints.openai.api_server]
+    command:
+      - --model
+      - /model
+      - --served-model-name
+      - Qwen/Qwen3-14B-AWQ
+      - --dtype
+      - float16
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reasoning-parser
+      - qwen3
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "2"
+      - --max-num-batched-tokens
+      - "2048"
+      - --gpu-memory-utilization
+      - "0.88"
+      - --enforce-eager
+      - --no-enable-log-requests
+    ports:
+      - "127.0.0.1:18175:8000"
+    volumes:
+      # Official AWQ revision: 31c69efc29464b6bb0aee1398b5a7b50a99340c3
+      - "${GUARD_REVIEW_AWQ_CHECKPOINT:?Path to the verified official AWQ snapshot}:/model:ro"
+    read_only: true
+    cpus: 3
+    mem_limit: 9g
+    pids_limit: 512
+    shm_size: 512m
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=1g
+      - /root/.cache:rw,nosuid,nodev,size=256m
+      - /root/.config:rw,nosuid,nodev,size=16m
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+      HF_HOME: /tmp/hf
+      TRITON_CACHE_DIR: /tmp/triton
+      TORCHINDUCTOR_CACHE_DIR: /tmp/torchinductor
+      VLLM_CACHE_ROOT: /tmp/vllm
+      CUDA_CACHE_PATH: /tmp/cuda
+      XDG_CACHE_HOME: /tmp/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options:
+        max-size: 32m
+        max-file: "1"
