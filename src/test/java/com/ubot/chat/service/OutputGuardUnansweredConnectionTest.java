@@ -113,7 +113,7 @@ class OutputGuardUnansweredConnectionTest {
         var attempts = mock(ChatAttemptsService.class);
         var harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
         var service = new ChatService(attempts, input(), harness.submissionService,
-                mock(com.ubot.chat.util.IpRegionResolver.class));
+                mock(com.ubot.chat.util.IpRegionResolver.class), ChatTestFixtures.noRateLimit());
         when(attempts.createAnswerAttempt(1L, null, QUESTION)).thenReturn(attempt);
         when(attempts.recordSuccess(any(), any(), any(), isNull())).thenAnswer(call -> {
             AnswerAttemptsHistory saved = call.getArgument(0);
