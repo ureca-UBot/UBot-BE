@@ -40,7 +40,18 @@ public class TelemapRetentionRepository {
                 SET question_snapshots = (
                     SELECT jsonb_agg(
                             CASE
-                                WHEN (item.snapshot ->> 'occurredAt')::timestamp < ?
+                                WHEN make_timestamp(
+                                        (item.snapshot -> 'occurredAt' ->> 0)::integer,
+                                        (item.snapshot -> 'occurredAt' ->> 1)::integer,
+                                        (item.snapshot -> 'occurredAt' ->> 2)::integer,
+                                        (item.snapshot -> 'occurredAt' ->> 3)::integer,
+                                        (item.snapshot -> 'occurredAt' ->> 4)::integer,
+                                        COALESCE((item.snapshot -> 'occurredAt' ->> 5)::double precision, 0)
+                                            + COALESCE(
+                                                (item.snapshot -> 'occurredAt' ->> 6)::double precision
+                                                    / 1000000000.0,
+                                                0)
+                                    ) < ?
                                     THEN jsonb_set(item.snapshot, '{question}', '""'::jsonb, false)
                                 ELSE item.snapshot
                             END
@@ -51,7 +62,20 @@ public class TelemapRetentionRepository {
                 WHERE EXISTS (
                       SELECT 1
                       FROM jsonb_array_elements(alert.question_snapshots) AS snapshots(snapshot)
-                      WHERE (snapshots.snapshot ->> 'occurredAt')::timestamp < ?
+                      WHERE make_timestamp(
+                                (snapshots.snapshot -> 'occurredAt' ->> 0)::integer,
+                                (snapshots.snapshot -> 'occurredAt' ->> 1)::integer,
+                                (snapshots.snapshot -> 'occurredAt' ->> 2)::integer,
+                                (snapshots.snapshot -> 'occurredAt' ->> 3)::integer,
+                                (snapshots.snapshot -> 'occurredAt' ->> 4)::integer,
+                                COALESCE(
+                                    (snapshots.snapshot -> 'occurredAt' ->> 5)::double precision,
+                                    0)
+                                    + COALESCE(
+                                        (snapshots.snapshot -> 'occurredAt' ->> 6)::double precision
+                                            / 1000000000.0,
+                                        0)
+                            ) < ?
                         AND snapshots.snapshot ->> 'question' <> ''
                   )
                 """,
