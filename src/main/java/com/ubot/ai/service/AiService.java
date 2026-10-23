@@ -84,6 +84,7 @@ public class AiService {
         String answer = null;
         String status = null;
         OutputGuardResult inspection = null;
+        List<AiAnswer.SlotOutcome> slotOutcomes = null;
         if (response != null && StringUtils.hasText(response.answer())) {
             FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
             log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
@@ -97,6 +98,7 @@ public class AiService {
                 answer = slotResult.answer();
                 status = slotResult.status();
                 inspection = slotResult.inspection();
+                slotOutcomes = slotResult.outcomes();
             } else {
                 inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
                 // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
@@ -112,7 +114,8 @@ public class AiService {
                 : UserDataCards.merge(
                         UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
                         UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary()));
-        return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData);
+        return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData,
+                slotOutcomes);
     }
 
     /**
@@ -144,6 +147,7 @@ public class AiService {
         List<String> kept = new ArrayList<>();
         Set<OutputGuardResult.Reason> reasons = EnumSet.noneOf(OutputGuardResult.Reason.class);
         boolean inspected = false;
+        boolean[] changedByGuard = new boolean[slots.size()];
         for (int index = 0; index < slots.size(); index++) {
             if (!SubQuestionStatuses.ANSWER.equals(statuses.get(index))) {
                 continue;
@@ -160,6 +164,7 @@ public class AiService {
                 log.info("출력 가드가 칸의 내용을 지워 답하지 못한 것으로 바꿉니다: 칸={}, 거부={}, 사유={}",
                         index + 1, result.rejected(), result.reasons());
                 statuses.set(index, SubQuestionStatuses.ABSTAIN);
+                changedByGuard[index] = true;
                 continue;
             }
             kept.add(result.answer());
@@ -167,7 +172,12 @@ public class AiService {
         String body = String.join("\n\n", kept);
         String notice = SubQuestionStatuses.notice(statuses, noticeLabels(statuses, materials.subQuestions()));
         OutputGuardResult inspection = inspected ? new OutputGuardResult(body, false, reasons) : null;
-        return new SlotResult(SubQuestionStatuses.compose(body, notice), SubQuestionStatuses.combine(statuses), inspection);
+        List<AiAnswer.SlotOutcome> outcomes = new ArrayList<>();
+        for (int index = 0; index < statuses.size(); index++) {
+            outcomes.add(new AiAnswer.SlotOutcome(statuses.get(index), changedByGuard[index]));
+        }
+        return new SlotResult(SubQuestionStatuses.compose(body, notice), SubQuestionStatuses.combine(statuses), inspection,
+                List.copyOf(outcomes));
     }
 
     /**
@@ -197,7 +207,8 @@ public class AiService {
                 materials.toolRecords());
     }
 
-    private record SlotResult(String answer, String status, OutputGuardResult inspection) {
+    private record SlotResult(String answer, String status, OutputGuardResult inspection,
+            List<AiAnswer.SlotOutcome> outcomes) {
     }
 
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder,

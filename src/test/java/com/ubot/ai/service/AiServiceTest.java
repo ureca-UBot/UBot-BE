@@ -600,6 +600,9 @@ class AiServiceTest {
         assertThat(answer.answer()).isEqualTo("가입은 매장에서 할 수 있습니다.\n\n"
                 + "「할인율은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
         assertThat(answer.status()).isEqualTo("PARTIAL");
+        // 미응답 수집이 모델의 보류와 가드의 삭제를 구분할 수 있게 칸별 결과를 남깁니다.
+        assertThat(answer.slotOutcomes()).containsExactly(
+                new AiAnswer.SlotOutcome("ANSWER", false), new AiAnswer.SlotOutcome("ABSTAIN", true));
     }
 
     @Test
