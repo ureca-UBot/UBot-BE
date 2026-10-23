@@ -1,11 +1,13 @@
 package com.ubot.ai.tool;
 
+import com.ubot.ai.dto.LookupFailure;
 import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.dto.UserDataCards.BillingCard;
 import com.ubot.ai.dto.UserDataCards.UsageCard;
 import com.ubot.billing.dto.response.BillingRecordResponseDto;
 import com.ubot.usage.dto.response.UsageRecordResponseDto;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -20,13 +22,29 @@ public class UserDataRecorder {
     // 도구 실행과 결과 확인이 다른 스레드에서 일어나도 기록이 빠지지 않게 합니다.
     private final List<UsageCard> usages = new CopyOnWriteArrayList<>();
     private final List<BillingCard> billings = new CopyOnWriteArrayList<>();
+    private volatile LookupFailure failure;
 
+    /** 조회에 성공하면 앞선 실패 사유(회선을 고르지 못함 등)는 지웁니다. */
     public void recordUsage(String maskedPhoneNumber, UsageRecordResponseDto usage) {
         usages.add(new UsageCard(maskedPhoneNumber, usage));
+        failure = null;
     }
 
     public void recordBilling(String maskedPhoneNumber, BillingRecordResponseDto billing) {
         billings.add(BillingCard.of(maskedPhoneNumber, billing));
+        failure = null;
+    }
+
+    /** 조회하지 못한 사유를 남깁니다. 이미 조회한 기록이 있으면 남기지 않습니다. */
+    public void fail(LookupFailure value) {
+        if (usages.isEmpty() && billings.isEmpty()) {
+            failure = value;
+        }
+    }
+
+    /** 조회에 한 번도 성공하지 못했을 때 마지막 실패 사유입니다. 코드가 사유별 고지를 붙일 때 씁니다. */
+    public Optional<LookupFailure> failure() {
+        return Optional.ofNullable(failure);
     }
 
     public UserDataCards cards() {

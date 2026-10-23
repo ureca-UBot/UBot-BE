@@ -1,5 +1,6 @@
 package com.ubot.ai.tool;
 
+import com.ubot.ai.dto.LookupFailure;
 import com.ubot.billing.dto.response.BillingRecordResponseDto;
 import com.ubot.billing.service.BillingService;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
@@ -44,14 +45,14 @@ public class UserDataTools {
 
     static final int LOOKUP_MONTHS = 12;
 
-    static final String LOGIN_REQUIRED_MESSAGE =
-            "로그인한 사용자만 가입 정보를 조회할 수 있습니다. 로그인 후 다시 질문하도록 안내하세요.";
-    static final String LOOKUP_FAILED_MESSAGE = "가입 정보를 조회하지 못했습니다. 잠시 후 다시 시도하도록 안내하세요.";
+    // 조회하지 못한 사유별 안내(로그인, 다시 시도, 회선 선택)는 코드가 붙이므로(AiService) 모델에게 쓰게 하지 않습니다.
+    static final String LOGIN_REQUIRED_MESSAGE = "로그인한 사용자만 가입 정보를 조회할 수 있습니다.";
+    static final String LOOKUP_FAILED_MESSAGE = "가입 정보를 조회하지 못했습니다. 가입 정보를 추측하지 마세요.";
     static final String NO_SUBSCRIPTION_MESSAGE = "이용 중인 회선이 없습니다.";
     static final String SELECT_SUBSCRIPTION_MESSAGE =
-            "어느 회선인지 정할 수 없습니다. 번호를 추측하지 말고, 아래 회선 중 어느 번호인지 사용자에게 물어보세요.\n%s";
+            "어느 회선인지 정할 수 없습니다. 번호를 추측하지 마세요. 이용 중인 회선:\n%s";
     static final String SUBSCRIPTION_NOT_MATCHED_MESSAGE =
-            "끝자리가 %s인 회선이 없습니다. 번호를 추측하지 말고, 아래 회선 중 어느 번호인지 사용자에게 물어보세요.\n%s";
+            "끝자리가 %s인 회선이 없습니다. 번호를 추측하지 마세요. 이용 중인 회선:\n%s";
     static final String INVALID_MONTH_MESSAGE = "'%s'은(는) 올바른 월이 아닙니다. month를 YYYY-MM 형식으로 넣어 다시 호출하세요.";
     static final String FUTURE_MONTH_MESSAGE = "%s은(는) 아직 오지 않은 달이라 기록이 없습니다. 조회 기준일은 %s입니다.";
     static final String TOO_OLD_MONTH_MESSAGE = "최근 12개월(%s~%s) 기록만 조회할 수 있습니다.";
@@ -146,8 +147,10 @@ public class UserDataTools {
 
     /** 사용자와 회선을 확인한 뒤 조회합니다. 조회 오류는 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다. */
     private String lookup(String phoneLast4, ToolContext toolContext, BiFunction<Long, SubscriptionResponseDto, String> query) {
+        UserDataRecorder recorder = recorder(toolContext);
         Long userId = toolContext.getContext().get(USER_ID) instanceof Long value ? value : null;
         if (userId == null) {
+            recorder.fail(LookupFailure.of(LookupFailure.Kind.LOGIN_REQUIRED));
             return LOGIN_REQUIRED_MESSAGE;
         }
         try {
@@ -160,6 +163,7 @@ public class UserDataTools {
             String suffix = phoneLast4 == null ? "" : phoneLast4.replaceAll("\\D", "");
             if (suffix.isEmpty()) {
                 if (subscriptions.size() > 1) {
+                    recorder.fail(LookupFailure.of(LookupFailure.Kind.SUBSCRIPTION_UNSELECTED, phoneList(subscriptions)));
                     return String.format(SELECT_SUBSCRIPTION_MESSAGE, formatSubscriptionList(subscriptions));
                 }
                 return respond(subscriptions.getFirst(), query.apply(userId, subscriptions.getFirst()));
@@ -169,14 +173,17 @@ public class UserDataTools {
                     .filter(subscription -> digits(subscription.phoneNumber()).endsWith(suffix))
                     .toList();
             if (matched.isEmpty()) {
+                recorder.fail(LookupFailure.of(LookupFailure.Kind.SUBSCRIPTION_NOT_MATCHED, suffix, phoneList(subscriptions)));
                 return String.format(SUBSCRIPTION_NOT_MATCHED_MESSAGE, suffix, formatSubscriptionList(subscriptions));
             }
             if (matched.size() > 1) {
+                recorder.fail(LookupFailure.of(LookupFailure.Kind.SUBSCRIPTION_UNSELECTED, phoneList(matched)));
                 return String.format(SELECT_SUBSCRIPTION_MESSAGE, formatSubscriptionList(matched));
             }
             return respond(matched.getFirst(), query.apply(userId, matched.getFirst()));
         } catch (RuntimeException exception) {
             log.warn("가입 정보 조회 도구 실패: userId={}, phoneLast4={}", userId, phoneLast4, exception);
+            recorder.fail(LookupFailure.of(LookupFailure.Kind.USER_LOOKUP_FAILED));
             return LOOKUP_FAILED_MESSAGE;
         }
     }
@@ -189,6 +196,14 @@ public class UserDataTools {
         return subscriptions.stream()
                 .map(subscription -> "- " + UserDataSummarizer.formatSubscription(subscription))
                 .collect(Collectors.joining("\n"));
+    }
+
+    /** 사용자에게 보여 줄 회선 목록입니다. 번호는 가리고 요금제만 덧붙입니다. */
+    private String phoneList(List<SubscriptionResponseDto> subscriptions) {
+        return subscriptions.stream()
+                .map(subscription -> UserDataSummarizer.maskPhone(subscription.phoneNumber())
+                        + (StringUtils.hasText(subscription.planName()) ? "(" + subscription.planName() + ")" : ""))
+                .collect(Collectors.joining(", "));
     }
 
     private String digits(String value) {

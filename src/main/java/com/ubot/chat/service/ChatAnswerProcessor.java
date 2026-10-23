@@ -236,7 +236,11 @@ public class ChatAnswerProcessor {
 		if (answer == null || !StringUtils.hasText(answer.answer())) {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
-		collectOutputGuardCandidates(attempt, answer, materials, queryEmbeddings, unansweredCandidates);
+		if (answer.slotOutcomes() != null) {
+			collectSlotUnanswered(attempt, answer.slotOutcomes(), materials, queryEmbeddings, unansweredCandidates);
+		} else {
+			collectOutputGuardCandidates(attempt, answer, materials, queryEmbeddings, unansweredCandidates);
+		}
 		return ChatAnswerResult.answered(answer, searched);
 	}
 
@@ -350,6 +354,48 @@ public class ChatAnswerProcessor {
 			collectUnanswered(attempt, new UnansweredSubQuestion(candidate.subQuestionIndex(),
 					candidate.searchQuery(), candidate.userText(), UnansweredReason.INSUFFICIENT_FAQ, bestResult),
 					UnansweredSource.OUTPUT_GUARD, queryEmbeddings.get(candidate.searchQuery()), unansweredCandidates);
+		}
+	}
+
+	/**
+	 * 칸 형식 답변에서 답하지 못한 하위 질문을 미응답으로 모읍니다. ANSWER 칸은 답변으로 나갔으므로 미응답이 아니고,
+	 * OUT_OF_SCOPE는 통신 상담 주제가 아니라 FAQ로 보완할 대상이 아니므로 모으지 않습니다.
+	 * <ul>
+	 *   <li>모델이 ABSTAIN: LLM_ABSTAIN / LLM_MODEL</li>
+	 *   <li>모델이 CONFLICT: LLM_CONFLICT / LLM_MODEL</li>
+	 *   <li>모델은 ANSWER였는데 출력 가드가 내용을 지워 ABSTAIN이 됨: INSUFFICIENT_FAQ / OUTPUT_GUARD</li>
+	 * </ul>
+	 * 근거 FAQ를 찾지 못한 하위 질문은 검색 단계에서 이미 저장했으므로 넘깁니다. 칸이 하나뿐이면(원문 조각 없이 나누지 않고 넣은 경우)
+	 * 그 칸의 결과를 모든 하위 질문에 적용합니다. 정책 위반으로 답변 전체가 거부되면 이 단계까지 오지 않습니다.
+	 */
+	private void collectSlotUnanswered(AnswerAttemptsHistory attempt, List<AiAnswer.SlotOutcome> outcomes,
+			AnswerMaterials materials, Map<String, QuestionEmbedding> queryEmbeddings,
+			List<UnansweredCandidate> unansweredCandidates) {
+		if (attempt.isResearch() || outcomes.isEmpty()) return;
+		List<SubQuestionFaqs> subQuestions = materials.subQuestions();
+		for (int index = 0; index < subQuestions.size(); index++) {
+			SubQuestionFaqs subQuestion = subQuestions.get(index);
+			if (!subQuestion.isAnswered()) continue;
+			AiAnswer.SlotOutcome outcome = outcomes.size() == subQuestions.size() ? outcomes.get(index) : outcomes.getFirst();
+			// 비로그인 등으로 가입 정보를 조회할 수 없어 답하지 못한 것은 FAQ로 보완할 대상이 아닙니다.
+			if (outcome.lookupUnavailable()) continue;
+			UnansweredReason reason;
+			UnansweredSource source;
+			if (outcome.changedByGuard()) {
+				reason = UnansweredReason.INSUFFICIENT_FAQ;
+				source = UnansweredSource.OUTPUT_GUARD;
+			} else if ("ABSTAIN".equals(outcome.status())) {
+				reason = UnansweredReason.LLM_ABSTAIN;
+				source = UnansweredSource.LLM_MODEL;
+			} else if ("CONFLICT".equals(outcome.status())) {
+				reason = UnansweredReason.LLM_CONFLICT;
+				source = UnansweredSource.LLM_MODEL;
+			} else {
+				continue;
+			}
+			collectUnanswered(attempt, new UnansweredSubQuestion(index + 1, subQuestion.searchQuery(),
+					subQuestion.userText(), reason, subQuestion.faqs().getFirst()),
+					source, queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates);
 		}
 	}
 
