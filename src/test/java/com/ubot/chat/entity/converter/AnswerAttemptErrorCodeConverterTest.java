@@ -35,6 +35,16 @@ class AnswerAttemptErrorCodeConverterTest {
 		assertThat(converter.convertToEntityAttribute(null)).isNull();
 	}
 
+	@Test
+	void chatErrorsHaveUniqueCodesAndRestoreTheSameFailure() {
+		assertThat(Stream.of(ChatErrorCode.values()).map(ChatErrorCode::getCode))
+				.doesNotHaveDuplicates();
+		for (ChatErrorCode code : ChatErrorCode.values()) {
+			assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(code)))
+					.isSameAs(code);
+		}
+	}
+
 	@ParameterizedTest
 	@EnumSource(LlmErrorCode.class)
 	void rejectsLlmEnumNamesOnReadAndWrite(LlmErrorCode code) {
@@ -61,6 +71,9 @@ class AnswerAttemptErrorCodeConverterTest {
 	private static Stream<Arguments> storedErrorCodes() {
 		return Stream.of(
 				Arguments.of("CHAT-010", ChatErrorCode.VECTOR_SEARCH_FAILED),
+				Arguments.of("CHAT-024", ChatErrorCode.USER_CANCELLED),
+				Arguments.of("CHAT-025", ChatErrorCode.JOB_QUERY_UNAVAILABLE),
+				Arguments.of("CHAT-026", ChatErrorCode.MEMBER_RATE_LIMITED),
 				Arguments.of("EM-003", EmbeddingErrorCode.EMBEDDING_TIMEOUT),
 				Arguments.of("LLM-001", LlmErrorCode.LLM_REQUEST_INVALID),
 				Arguments.of("LLM-002", LlmErrorCode.LLM_MODEL_NOT_CONFIGURED),
