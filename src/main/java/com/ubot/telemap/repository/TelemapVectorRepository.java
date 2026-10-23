@@ -21,8 +21,7 @@ public class TelemapVectorRepository {
             RegionSido region,
             long embeddingProfileId,
             PGvector vector,
-            double threshold,
-            LocalDateTime activeSince
+            double threshold
     ) {
         return jdbcTemplate.query(
                 """
@@ -30,13 +29,12 @@ public class TelemapVectorRepository {
                 FROM surging_clusters
                 WHERE region = ?
                   AND embedding_profile_id = ?
-                  AND last_occurred_at >= ?
                   AND 1 - (centroid_embedding <=> ?) >= ?
                 ORDER BY centroid_embedding <=> ?, id
                 LIMIT 1
                 """,
                 (rs, rowNum) -> rs.getLong("id"),
-                region.name(), embeddingProfileId, activeSince, vector, threshold, vector
+                region.name(), embeddingProfileId, vector, threshold, vector
         ).stream().findFirst();
     }
 
@@ -71,21 +69,28 @@ public class TelemapVectorRepository {
         );
     }
 
-    public void updateClusterCentroid(long clusterId, long embeddingProfileId, LocalDateTime occurredAt) {
-        jdbcTemplate.update(
+    public LocalDateTime updateClusterCentroid(long clusterId, long embeddingProfileId, LocalDateTime occurredAt) {
+        return jdbcTemplate.queryForObject(
                 """
                 UPDATE surging_clusters c
                 SET centroid_embedding = (
-                        SELECT AVG(sqe.vector)
-                        FROM surging_question_embeddings sqe
-                        JOIN surging_questions sq ON sq.id = sqe.question_id
-                        WHERE sq.cluster_id = c.id
-                          AND sqe.embedding_profile_id = ?
+                        SELECT AVG(recent.vector)
+                        FROM (
+                            SELECT sqe.vector
+                            FROM surging_question_embeddings sqe
+                            JOIN surging_questions sq ON sq.id = sqe.question_id
+                            WHERE sq.cluster_id = c.id
+                              AND sqe.embedding_profile_id = ?
+                            ORDER BY sq.occurred_at DESC, sq.id DESC
+                            LIMIT 10
+                        ) recent
                     ),
                     last_occurred_at = GREATEST(c.last_occurred_at, ?),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE c.id = ?
+                RETURNING last_occurred_at
                 """,
+                LocalDateTime.class,
                 embeddingProfileId, occurredAt, clusterId
         );
     }

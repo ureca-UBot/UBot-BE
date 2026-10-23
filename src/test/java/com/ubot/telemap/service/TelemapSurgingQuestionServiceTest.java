@@ -1,5 +1,6 @@
 package com.ubot.telemap.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -29,6 +30,7 @@ import com.ubot.telemap.exception.TelemapException;
 import com.ubot.telemap.repository.SurgingAlertRepository;
 import com.ubot.telemap.repository.SurgingClusterRepository;
 import com.ubot.telemap.repository.SurgingQuestionRepository;
+import com.ubot.telemap.repository.TelemapRetentionRepository;
 import com.ubot.telemap.repository.TelemapVectorRepository;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,7 +39,9 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.data.domain.Pageable;
 
 @DisplayName("급증 질문 등록 서비스")
 class TelemapSurgingQuestionServiceTest {
@@ -49,17 +53,18 @@ class TelemapSurgingQuestionServiceTest {
     private final SurgingClusterRepository clusters = mock(SurgingClusterRepository.class);
     private final SurgingAlertRepository alerts = mock(SurgingAlertRepository.class);
     private final TelemapVectorRepository vectors = mock(TelemapVectorRepository.class);
+    private final TelemapRetentionRepository retention = mock(TelemapRetentionRepository.class);
     private final OutboxEventRepository outbox = mock(OutboxEventRepository.class);
     private final TelemapProperties properties = new TelemapProperties();
     private final TelemapSurgingQuestionService service = new TelemapSurgingQuestionService(
-            questionLogs, embeddings, profiles, surgingQuestions, clusters, alerts, vectors, properties, outbox);
+            questionLogs, embeddings, profiles, surgingQuestions, clusters, alerts, vectors, retention, properties, outbox);
 
     @BeforeEach
     void setUp() {
         properties.setWindowMinutes(10);
         properties.setCountThreshold(3);
         properties.setClusterThreshold(0.7);
-        properties.setRetentionMinutes(60);
+        properties.setClusterMinimumAgeMinutes(1_440);
     }
 
     @Test
@@ -105,12 +110,12 @@ class TelemapSurgingQuestionServiceTest {
         when(questionLogs.findById(1L)).thenReturn(Optional.of(questionLog));
         when(profiles.getCurrentProfileId()).thenReturn(7L);
         when(embeddings.embedText("5G 장애 문의")).thenReturn(vector);
-        when(vectors.findNearestClusterId(eq(RegionSido.SEOUL), eq(7L), eq(vector), eq(0.7), any()))
+        when(vectors.findNearestClusterId(RegionSido.SEOUL, 7L, vector, 0.7))
                 .thenReturn(Optional.of(11L));
         when(clusters.getReferenceById(11L)).thenReturn(cluster);
         when(surgingQuestions.saveAndFlush(any())).thenReturn(saved);
-        when(surgingQuestions.findSnapshotsByClusterIdAndOccurredAtAfter(eq(11L), any()))
-                .thenReturn(List.of(snapshot(1L)));
+        when(vectors.updateClusterCentroid(eq(11L), eq(7L), any())).thenReturn(questionLog.getCreatedAt());
+        when(surgingQuestions.countByClusterIdAndOccurredAtBetween(eq(11L), any(), any())).thenReturn(1L);
 
         service.registerQuestion(1L);
 
@@ -133,14 +138,14 @@ class TelemapSurgingQuestionServiceTest {
         when(questionLogs.findById(2L)).thenReturn(Optional.of(questionLog));
         when(profiles.getCurrentProfileId()).thenReturn(8L);
         when(embeddings.embedText("인터넷이 느려요")).thenReturn(vector);
-        when(vectors.findNearestClusterId(eq(RegionSido.BUSAN), eq(8L), eq(vector), eq(0.7), any()))
+        when(vectors.findNearestClusterId(RegionSido.BUSAN, 8L, vector, 0.7))
                 .thenReturn(Optional.empty());
         when(vectors.createCluster(eq(RegionSido.BUSAN), eq("인터넷이 느려요"), eq(8L), eq(vector), any()))
                 .thenReturn(12L);
         when(clusters.getReferenceById(12L)).thenReturn(mock(SurgingCluster.class));
         when(surgingQuestions.saveAndFlush(any())).thenReturn(saved);
-        when(surgingQuestions.findSnapshotsByClusterIdAndOccurredAtAfter(eq(12L), any()))
-                .thenReturn(List.of());
+        when(vectors.updateClusterCentroid(eq(12L), eq(8L), any())).thenReturn(questionLog.getCreatedAt());
+        when(surgingQuestions.countByClusterIdAndOccurredAtBetween(eq(12L), any(), any())).thenReturn(0L);
 
         service.registerQuestion(2L);
 
@@ -176,7 +181,10 @@ class TelemapSurgingQuestionServiceTest {
         service.registerQuestion(4L);
 
         verify(clusters).claimAlert(14L);
-        verify(alerts).save(any(SurgingAlert.class));
+        ArgumentCaptor<SurgingAlert> alert = ArgumentCaptor.forClass(SurgingAlert.class);
+        verify(alerts).save(alert.capture());
+        assertThat(alert.getValue().getQuestionCount()).isEqualTo(3);
+        assertThat(alert.getValue().getQuestionSnapshots()).hasSize(3);
         verify(outbox).enqueue(OutboxEventType.SURGING_ALERT_LABEL, "44", Map.of("alertId", 44L));
     }
 
@@ -191,8 +199,52 @@ class TelemapSurgingQuestionServiceTest {
         verifyNoInteractions(alerts, outbox);
     }
 
+    @Test
+    @DisplayName("이미 알림된 클러스터는 건수와 스냅샷을 다시 조회하지 않는다")
+    void skipsAlertAggregationForAlertedCluster() {
+        prepareStoredQuestion(6L, 16L, List.of(snapshot(1L), snapshot(2L), snapshot(3L)));
+        when(clusters.existsByIdAndAlertedAtIsNotNull(16L)).thenReturn(true);
+
+        service.registerQuestion(6L);
+
+        verify(surgingQuestions, never()).countByClusterIdAndOccurredAtBetween(anyLong(), any(), any());
+        verify(surgingQuestions, never()).findRecentSnapshotsByClusterIdAndOccurredAtBetween(
+                anyLong(), any(), any(), any());
+        verify(clusters, never()).claimAlert(anyLong());
+        verifyNoInteractions(alerts, outbox);
+    }
+
+    @Test
+    @DisplayName("전체 질문 수를 기록하되 최신 스냅샷은 최대 100건만 요청한다")
+    void limitsStoredSnapshotsToOneHundred() {
+        List<SurgingQuestionSnapshot> snapshots = java.util.stream.LongStream.rangeClosed(21, 120)
+                .mapToObj(TelemapSurgingQuestionServiceTest::snapshot)
+                .toList();
+        prepareStoredQuestion(7L, 17L, snapshots, 120L);
+        when(clusters.claimAlert(17L)).thenReturn(1);
+        SurgingAlert savedAlert = mock(SurgingAlert.class);
+        when(savedAlert.getId()).thenReturn(47L);
+        when(alerts.save(any(SurgingAlert.class))).thenReturn(savedAlert);
+
+        service.registerQuestion(7L);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(surgingQuestions).findRecentSnapshotsByClusterIdAndOccurredAtBetween(
+                eq(17L), any(), any(), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
+        ArgumentCaptor<SurgingAlert> alert = ArgumentCaptor.forClass(SurgingAlert.class);
+        verify(alerts).save(alert.capture());
+        assertThat(alert.getValue().getQuestionCount()).isEqualTo(120);
+        assertThat(alert.getValue().getQuestionSnapshots()).hasSize(100);
+    }
+
     private void prepareStoredQuestion(long questionLogId, long clusterId,
             List<SurgingQuestionSnapshot> snapshots) {
+        prepareStoredQuestion(questionLogId, clusterId, snapshots, snapshots.size());
+    }
+
+    private void prepareStoredQuestion(long questionLogId, long clusterId,
+            List<SurgingQuestionSnapshot> snapshots, long questionCount) {
         QuestionLog questionLog = questionLog(questionLogId, RegionSido.SEOUL, "질문", "원문");
         PGvector vector = new PGvector(new float[] {1});
         SurgingQuestion saved = mock(SurgingQuestion.class);
@@ -200,11 +252,15 @@ class TelemapSurgingQuestionServiceTest {
         when(questionLogs.findById(questionLogId)).thenReturn(Optional.of(questionLog));
         when(profiles.getCurrentProfileId()).thenReturn(1L);
         when(embeddings.embedText("질문")).thenReturn(vector);
-        when(vectors.findNearestClusterId(eq(RegionSido.SEOUL), eq(1L), eq(vector), eq(0.7), any()))
+        when(vectors.findNearestClusterId(RegionSido.SEOUL, 1L, vector, 0.7))
                 .thenReturn(Optional.of(clusterId));
         when(clusters.getReferenceById(clusterId)).thenReturn(mock(SurgingCluster.class));
         when(surgingQuestions.saveAndFlush(any())).thenReturn(saved);
-        when(surgingQuestions.findSnapshotsByClusterIdAndOccurredAtAfter(eq(clusterId), any()))
+        when(vectors.updateClusterCentroid(eq(clusterId), eq(1L), any())).thenReturn(questionLog.getCreatedAt());
+        when(surgingQuestions.countByClusterIdAndOccurredAtBetween(eq(clusterId), any(), any()))
+                .thenReturn(questionCount);
+        when(surgingQuestions.findRecentSnapshotsByClusterIdAndOccurredAtBetween(
+                eq(clusterId), any(), any(), any()))
                 .thenReturn(snapshots);
     }
 

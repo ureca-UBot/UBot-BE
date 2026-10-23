@@ -9,6 +9,8 @@ import com.ubot.telemap.entity.SurgingCluster;
 
 public interface SurgingClusterRepository extends JpaRepository<SurgingCluster, Long> {
 
+    boolean existsByIdAndAlertedAtIsNotNull(Long clusterId);
+
     @Query(value = "SELECT pg_advisory_xact_lock(:lockKey)", nativeQuery = true)
     void acquireRegionLock(@Param("lockKey") long lockKey);
 

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -34,6 +35,7 @@ class TelemapRepositoryIntegrationTest {
     @Autowired SurgingClusterRepository clusters;
     @Autowired SurgingQuestionRepository questions;
     @Autowired SurgingAlertRepository alerts;
+    @Autowired TelemapRetentionRepository retention;
     @Autowired com.ubot.user.repository.UserRepository users;
     @Autowired com.ubot.notification.repository.NotificationRepository notifications;
     @Autowired JdbcTemplate jdbc;
@@ -52,48 +54,48 @@ class TelemapRepositoryIntegrationTest {
     }
 
     @Test
-    @DisplayName("지역·프로필·보존 시간·유사도 조건을 만족하는 가장 가까운 클러스터를 찾는다")
-    void findsNearestActiveCluster() {
+    @DisplayName("지역·프로필·유사도 조건을 만족하는 가장 가까운 클러스터를 찾는다")
+    void findsNearestCluster() {
         long nearest = vectors.createCluster(RegionSido.SEOUL, "가까운 질문", profileId,
                 vector(1.0f, 0.0f), NOW.minusMinutes(5));
         vectors.createCluster(RegionSido.SEOUL, "먼 질문", profileId,
                 vector(0.0f, 1.0f), NOW.minusMinutes(5));
         vectors.createCluster(RegionSido.BUSAN, "다른 지역", profileId,
                 vector(1.0f, 0.0f), NOW.minusMinutes(5));
-        vectors.createCluster(RegionSido.SEOUL, "만료", profileId,
-                vector(1.0f, 0.0f), NOW.minusHours(2));
-
         assertThat(vectors.findNearestClusterId(
-                RegionSido.SEOUL, profileId, vector(1.0f, 0.0f), 0.8, NOW.minusHours(1)))
+                RegionSido.SEOUL, profileId, vector(1.0f, 0.0f), 0.8))
                 .contains(nearest);
         assertThat(vectors.findNearestClusterId(
-                RegionSido.BUSAN, profileId, vector(0.0f, 1.0f), 0.8, NOW.minusHours(1)))
+                RegionSido.BUSAN, profileId, vector(0.0f, 1.0f), 0.8))
                 .isEmpty();
     }
 
     @Test
-    @DisplayName("질문 임베딩 평균으로 중심 벡터를 갱신하고 마지막 발생 시각은 뒤로 가지 않는다")
-    void updatesCentroidAndKeepsLatestOccurredAt() {
+    @DisplayName("최신 질문 임베딩 10개의 평균으로 중심 벡터를 갱신하고 마지막 발생 시각은 뒤로 가지 않는다")
+    void updatesCentroidWithLatestTenAndKeepsLatestOccurredAt() {
         long clusterId = vectors.createCluster(RegionSido.SEOUL, "대표", profileId,
-                vector(1.0f, 0.0f), NOW);
-        long first = createSurgingQuestion(clusterId, "첫 질문", NOW);
-        long second = createSurgingQuestion(clusterId, "둘째 질문", NOW.minusMinutes(1));
-        vectors.saveQuestionEmbedding(first, profileId, vector(1.0f, 0.0f));
-        vectors.saveQuestionEmbedding(second, profileId, vector(0.0f, 1.0f));
+                vector(1.0f, 0.0f), NOW.minusMinutes(20));
+        long oldQuestion = createSurgingQuestion(clusterId, "오래된 질문", NOW.minusMinutes(11));
+        vectors.saveQuestionEmbedding(oldQuestion, profileId, vector(1.0f, 0.0f));
+        for (int index = 0; index < 10; index++) {
+            long recentQuestion = createSurgingQuestion(
+                    clusterId, "최신 질문 " + index, NOW.minusMinutes(index));
+            vectors.saveQuestionEmbedding(recentQuestion, profileId, vector(0.0f, 1.0f));
+        }
 
-        vectors.updateClusterCentroid(clusterId, profileId, NOW.minusMinutes(1));
+        vectors.updateClusterCentroid(clusterId, profileId, NOW);
 
         String centroid = jdbc.queryForObject(
                 "SELECT centroid_embedding::text FROM surging_clusters WHERE id = ?", String.class, clusterId);
         LocalDateTime lastOccurredAt = jdbc.queryForObject(
                 "SELECT last_occurred_at FROM surging_clusters WHERE id = ?", LocalDateTime.class, clusterId);
-        assertThat(centroid).startsWith("[0.5,0.5,");
+        assertThat(centroid).startsWith("[0,1,");
         assertThat(lastOccurredAt).isEqualTo(NOW);
     }
 
     @Test
-    @DisplayName("질문 스냅샷은 시간 창 안의 질문을 발생 순서로 반환하고 null 하위 질문은 원문으로 대체한다")
-    void returnsOrderedSnapshotsInWindow() {
+    @DisplayName("최근 질문 스냅샷은 시간 창 안에서 최신순으로 제한하고 null 하위 질문은 원문으로 대체한다")
+    void returnsRecentSnapshotsInWindow() {
         long clusterId = vectors.createCluster(RegionSido.SEOUL, "대표", profileId,
                 vector(1.0f, 0.0f), NOW);
         long oldQuestionLogId = createQuestionLog("오래된 원문", "오래된 하위", NOW.minusMinutes(20));
@@ -103,13 +105,15 @@ class TelemapRepositoryIntegrationTest {
         insertSurgingQuestion(firstQuestionLogId, clusterId, NOW.minusMinutes(5));
         insertSurgingQuestion(secondQuestionLogId, clusterId, NOW.minusMinutes(4));
 
-        List<SurgingQuestionSnapshot> snapshots = questions.findSnapshotsByClusterIdAndOccurredAtAfter(
-                clusterId, NOW.minusMinutes(10));
+        List<SurgingQuestionSnapshot> snapshots = questions.findRecentSnapshotsByClusterIdAndOccurredAtBetween(
+                clusterId, NOW.minusMinutes(10), NOW, PageRequest.of(0, 100));
 
         assertThat(snapshots).extracting(SurgingQuestionSnapshot::questionLogId)
-                .containsExactly(firstQuestionLogId, secondQuestionLogId);
+                .containsExactly(secondQuestionLogId, firstQuestionLogId);
         assertThat(snapshots).extracting(SurgingQuestionSnapshot::question)
-                .containsExactly("첫 원문", "둘째 하위");
+                .containsExactly("둘째 하위", "첫 원문");
+        assertThat(questions.countByClusterIdAndOccurredAtBetween(
+                clusterId, NOW.minusMinutes(10), NOW)).isEqualTo(2);
     }
 
     @Test
@@ -190,6 +194,66 @@ class TelemapRepositoryIntegrationTest {
         assertThat(second).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM notifications WHERE dedupe_key = ?", Long.class, dedupeKey)).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("스냅샷 텍스트는 알림 생성 시각이 아니라 각 질문 발생 시각을 기준으로 익명화한다")
+    void anonymizesOnlySnapshotsPastTheOccurrenceCutoff() {
+        LocalDateTime cutoff = NOW.minusMonths(3);
+        SurgingAlert alert = alerts.saveAndFlush(SurgingAlert.create(
+                RegionSido.SEOUL,
+                List.of(
+                        new SurgingQuestionSnapshot(1L, "오래된 질문", cutoff.minusSeconds(1)),
+                        new SurgingQuestionSnapshot(2L, "최근 질문", cutoff.plusSeconds(1))
+                ),
+                2,
+                10
+        ));
+
+        assertThat(retention.anonymizeAlertSnapshots(cutoff)).isEqualTo(1);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT question_snapshots -> 0 ->> 'question' FROM surging_alerts WHERE id = ?",
+                String.class,
+                alert.getId()
+        )).isEmpty();
+        assertThat(jdbc.queryForObject(
+                "SELECT question_snapshots -> 1 ->> 'question' FROM surging_alerts WHERE id = ?",
+                String.class,
+                alert.getId()
+        )).isEqualTo("최근 질문");
+    }
+
+    @Test
+    @DisplayName("생성 후 하루가 지나고 최근 10분간 질문이 없는 클러스터만 연관 데이터와 함께 삭제한다")
+    void deletesOnlyOldInactiveClustersWithChildren() {
+        long expiredClusterId = vectors.createCluster(
+                RegionSido.SEOUL, "삭제 대상", profileId, vector(1.0f, 0.0f), NOW.minusMinutes(11));
+        long youngClusterId = vectors.createCluster(
+                RegionSido.SEOUL, "생성된 지 하루 미만", profileId, vector(1.0f, 0.0f), NOW.minusMinutes(11));
+        long activeClusterId = vectors.createCluster(
+                RegionSido.SEOUL, "최근 질문 존재", profileId, vector(1.0f, 0.0f), NOW.minusMinutes(9));
+        jdbc.update("UPDATE surging_clusters SET created_at = ? WHERE id = ?", NOW.minusDays(2), expiredClusterId);
+        jdbc.update("UPDATE surging_clusters SET created_at = ? WHERE id = ?", NOW.minusHours(23), youngClusterId);
+        jdbc.update("UPDATE surging_clusters SET created_at = ? WHERE id = ?", NOW.minusDays(2), activeClusterId);
+        long questionId = createSurgingQuestion(expiredClusterId, "삭제될 질문", NOW.minusMinutes(11));
+        vectors.saveQuestionEmbedding(questionId, profileId, vector(1.0f, 0.0f));
+
+        assertThat(retention.deleteExpiredClusters(NOW.minusDays(1), NOW.minusMinutes(10))).isEqualTo(1);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM surging_clusters WHERE id = ?", Long.class, expiredClusterId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM surging_questions WHERE id = ?", Long.class, questionId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM surging_question_embeddings WHERE question_id = ?", Long.class, questionId))
+                .isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM surging_clusters WHERE id IN (?, ?)",
+                Long.class,
+                youngClusterId,
+                activeClusterId
+        )).isEqualTo(2L);
     }
 
     private long createSurgingQuestion(long clusterId, String text, LocalDateTime occurredAt) {

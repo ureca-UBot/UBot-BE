@@ -11,7 +11,7 @@ public class TelemapProperties implements InitializingBean {
     private int windowMinutes = 10;
     private int countThreshold = 100;
     private double clusterThreshold = 0.6;
-    private int retentionMinutes = 60;
+    private int clusterMinimumAgeMinutes = 24 * 60;
     private int maxQuestionsForSubject = 20;
 
     @Override
@@ -28,9 +28,10 @@ public class TelemapProperties implements InitializingBean {
             throw new TelemapException(TelemapErrorCode.INVALID_CONFIGURATION,
                     "TELEMAP_CLUSTER_THRESHOLD는 0보다 크고 1 이하여야 합니다: " + clusterThreshold);
         }
-        if (retentionMinutes < windowMinutes) {
+        if (clusterMinimumAgeMinutes < windowMinutes) {
             throw new TelemapException(TelemapErrorCode.INVALID_CONFIGURATION,
-                    "TELEMAP_RETENTION_MINUTES는 TELEMAP_WINDOW_MINUTES 이상이어야 합니다: " + retentionMinutes);
+                    "TELEMAP_CLUSTER_MINIMUM_AGE_MINUTES는 TELEMAP_WINDOW_MINUTES 이상이어야 합니다: "
+                            + clusterMinimumAgeMinutes);
         }
         if (maxQuestionsForSubject < 1) {
             throw new TelemapException(TelemapErrorCode.INVALID_CONFIGURATION,
@@ -62,12 +63,12 @@ public class TelemapProperties implements InitializingBean {
         this.clusterThreshold = clusterThreshold;
     }
 
-    public int getRetentionMinutes() {
-        return retentionMinutes;
+    public int getClusterMinimumAgeMinutes() {
+        return clusterMinimumAgeMinutes;
     }
 
-    public void setRetentionMinutes(int retentionMinutes) {
-        this.retentionMinutes = retentionMinutes;
+    public void setClusterMinimumAgeMinutes(int clusterMinimumAgeMinutes) {
+        this.clusterMinimumAgeMinutes = clusterMinimumAgeMinutes;
     }
 
     public int getMaxQuestionsForSubject() {

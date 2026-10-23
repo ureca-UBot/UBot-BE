@@ -70,17 +70,26 @@ public class SurgingAlert {
     public static SurgingAlert create(
             RegionSido region,
             List<SurgingQuestionSnapshot> questionSnapshots,
+            int questionCount,
             int windowMinutes
     ) {
         SurgingAlert alert = new SurgingAlert();
         alert.region = region;
         alert.questionSnapshots = List.copyOf(questionSnapshots);
-        alert.questionCount = questionSnapshots.size();
+        alert.questionCount = questionCount;
         alert.windowMinutes = windowMinutes;
         alert.status = SurgingAlertStatus.PENDING;
         alert.createdAt = LocalDateTime.now();
         alert.updatedAt = alert.createdAt;
         return alert;
+    }
+
+    public static SurgingAlert create(
+            RegionSido region,
+            List<SurgingQuestionSnapshot> questionSnapshots,
+            int windowMinutes
+    ) {
+        return create(region, questionSnapshots, questionSnapshots.size(), windowMinutes);
     }
 
     public void updateSubject(String subject) {

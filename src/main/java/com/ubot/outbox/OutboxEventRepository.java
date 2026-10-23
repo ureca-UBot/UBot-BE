@@ -50,6 +50,20 @@ public class OutboxEventRepository {
         ).stream().findFirst();
     }
 
+    public long countPending(OutboxEventType type, int maxRetries) {
+        return jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM outbox_events
+                WHERE event_type = ?
+                  AND retry_count < ?
+                """,
+                Long.class,
+                type.name(),
+                maxRetries
+        );
+    }
+
     public void delete(long id) {
         jdbcTemplate.update("DELETE FROM outbox_events WHERE id = ?", id);
     }

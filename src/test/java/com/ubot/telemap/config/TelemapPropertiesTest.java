@@ -39,9 +39,9 @@ class TelemapPropertiesTest {
                 {"건수 임계값이 0", (Consumer<TelemapProperties>) value -> value.setCountThreshold(0)},
                 {"유사도 임계값이 0", (Consumer<TelemapProperties>) value -> value.setClusterThreshold(0)},
                 {"유사도 임계값이 1 초과", (Consumer<TelemapProperties>) value -> value.setClusterThreshold(1.01)},
-                {"보존 시간이 시간 창보다 짧음", (Consumer<TelemapProperties>) value -> {
+                {"클러스터 최소 나이가 시간 창보다 짧음", (Consumer<TelemapProperties>) value -> {
                     value.setWindowMinutes(10);
-                    value.setRetentionMinutes(9);
+                    value.setClusterMinimumAgeMinutes(9);
                 }},
                 {"제목 생성 질문 수가 0", (Consumer<TelemapProperties>) value -> value.setMaxQuestionsForSubject(0)}
         };
