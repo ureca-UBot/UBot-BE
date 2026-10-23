@@ -168,6 +168,12 @@ BEGIN
             format('COALESCE(canceled_at::DATE, expires_at) < %L', legal_cutoff), batch_size);
     CALL purge_in_batches('subscription_bundles', 'subscription_bundle_id',
             format('ended_at < %L', legal_cutoff), batch_size);
+    -- 종료된 결합 그룹은 구성 회선의 결합 기록이 모두 정리된 뒤 지운다. 대표 회선보다 먼저 지워야 한다.
+    CALL purge_in_batches('bundle_groups', 'bundle_group_id',
+            format($c$status = 'ENDED' AND ended_at < %L
+                AND NOT EXISTS (SELECT 1 FROM subscription_bundles c WHERE c.bundle_group_id = bundle_groups.bundle_group_id)$c$,
+                    legal_cutoff),
+            batch_size);
     CALL purge_in_batches('subscription_addons', 'subscription_addon_id',
             format('canceled_at < %L', legal_cutoff), batch_size);
     CALL purge_in_batches('subscription_roamings', 'subscription_roaming_id',
@@ -178,6 +184,7 @@ BEGIN
                 AND NOT EXISTS (SELECT 1 FROM usage_records c WHERE c.subscription_id = subscriptions.subscription_id)
                 AND NOT EXISTS (SELECT 1 FROM subscription_contracts c WHERE c.subscription_id = subscriptions.subscription_id)
                 AND NOT EXISTS (SELECT 1 FROM subscription_bundles c WHERE c.subscription_id = subscriptions.subscription_id)
+                AND NOT EXISTS (SELECT 1 FROM bundle_groups c WHERE c.representative_subscription_id = subscriptions.subscription_id)
                 AND NOT EXISTS (SELECT 1 FROM subscription_addons c WHERE c.subscription_id = subscriptions.subscription_id)
                 AND NOT EXISTS (SELECT 1 FROM subscription_roamings c WHERE c.subscription_id = subscriptions.subscription_id)$c$,
                     legal_cutoff),
