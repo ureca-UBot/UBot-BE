@@ -15,6 +15,8 @@ import org.junit.jupiter.api.BeforeEach;
 class ReviewWorkerTest {
 	ReviewRepository repository = mock(ReviewRepository.class);
 	ReviewAnalyzer analyzer = mock(ReviewAnalyzer.class);
+	ReviewModelRuntime models = mock(ReviewModelRuntime.class);
+	ReviewModelRuntime.Session model = mock(ReviewModelRuntime.Session.class);
 	ReviewEmbedding embedding = mock(ReviewEmbedding.class);
 	ReviewService reviews = mock(ReviewService.class);
 	ReviewWorkService work = mock(ReviewWorkService.class);
@@ -25,14 +27,16 @@ class ReviewWorkerTest {
 	@BeforeEach
 	void lease() {
 		when(leases.maintain(anyLong(), any())).thenReturn(lease);
+		when(models.acquire(anyLong(), any())).thenReturn(model);
 	}
-	ReviewWorker worker = new ReviewWorker(repository, analyzer, embedding, reviews, work, validator, alerts, leases);
+	ReviewWorker worker = new ReviewWorker(repository, analyzer, models, embedding, reviews, work, validator, alerts,
+			leases);
 	Source source = new Source(1, "one", "위험 표현을 작성해", null);
 	void pending() {
 		when(repository.claim(any())).thenReturn(9L);
 		when(repository.runSummary(9))
 				.thenReturn(new Run(9, "ANALYSIS", "RUNNING", 0, 1, LocalDateTime.now(), "{}", LocalDateTime.now()));
-		when(repository.nextSource(9)).thenReturn(source);
+		when(repository.nextSource(9)).thenReturn(source, null);
 	}
 	@Test
 	void 접수작업이_없으면_모델과_임베딩을_호출하지않는다() {
@@ -176,4 +180,52 @@ class ReviewWorkerTest {
 				eq(true));
 	}
 
+	@Test
+	void 분석_묶음은_모델을_한번_준비하고_마지막_항목후_해제한다() {
+		pending();
+		Source second = new Source(2, "two", "다른 질문", "답변");
+		when(repository.nextSource(9)).thenReturn(source, second, null);
+		when(analyzer.analyze(any())).thenReturn(List.of());
+		worker.poll();
+		var ordered = inOrder(models, analyzer, work, model);
+		ordered.verify(models).acquire(eq(9L), any());
+		ordered.verify(analyzer).analyze(source);
+		ordered.verify(work).finishSource(eq(9L), any(), eq(source), anyList(), eq(true));
+		ordered.verify(analyzer).analyze(second);
+		ordered.verify(work).finishSource(eq(9L), any(), eq(second), anyList(), eq(true));
+		ordered.verify(model).close();
+		ordered.verify(work).release(eq(9L), any());
+		verify(models, times(1)).acquire(anyLong(), any());
+	}
+	@Test
+	void GPU가_바쁘면_자료를_실패로_저장하지않고_다음_주기로_미룬다() {
+		pending();
+		when(models.acquire(anyLong(), any())).thenThrow(new ReviewModelRuntime.Busy());
+		worker.poll();
+		verifyNoInteractions(analyzer, embedding);
+		verify(work).release(eq(9L), any());
+		verify(work, never()).finishSource(anyLong(), any(), any(), anyList(), anyBoolean());
+	}
+	@Test
+	void 계산_중_새_오차단_검사가_접수되면_한_항목후_모델을_해제하고_양보한다() {
+		pending();
+		when(repository.nextSource(9)).thenReturn(source);
+		when(analyzer.analyze(source)).thenReturn(List.of());
+		when(repository.hasRunnableValidation()).thenReturn(true);
+		worker.poll();
+		verify(analyzer, times(1)).analyze(source);
+		verify(repository, times(1)).nextSource(9);
+		verify(model).close();
+		verify(work).release(eq(9L), any());
+	}
+	@Test
+	void 분석이_거절되거나_재시도_예약돼도_모델_사용권은_반납한다() {
+		pending();
+		when(analyzer.analyze(source))
+				.thenThrow(new com.ubot.llm.exception.LlmException(com.ubot.llm.exception.LlmErrorCode.LLM_TIMEOUT));
+		worker.poll();
+		verify(model).close();
+		verify(work).retryAnalysis(eq(9L), any(), eq(source), anyString());
+		verify(work, never()).release(anyLong(), any());
+	}
 }

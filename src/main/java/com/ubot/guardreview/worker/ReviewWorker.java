@@ -27,6 +27,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class ReviewWorker {
 	private final ReviewRepository repository;
 	private final ReviewAnalyzer analyzer;
+	private final ReviewModelRuntime models;
 	private final ReviewEmbedding embedding;
 	private final ReviewService reviews;
 	private final ReviewWorkService work;
@@ -34,6 +35,11 @@ public class ReviewWorker {
 	private final ReviewAlertService alerts;
 	private final ReviewLeaseService leases;
 	private static final JsonMapper JSON = JsonMapper.builder().build();
+	private enum AnalysisResult {
+		COMPLETED,
+		DEFERRED,
+		RETRY_PENDING
+	}
 
 	@Scheduled(fixedDelay = 5000)
 	public void deliverAlerts() {
@@ -67,8 +73,22 @@ public class ReviewWorker {
 				work.finishValidation(id, token, JSON.writeValueAsString(result), true);
 			} else {
 				Source source = repository.nextSource(id);
-				if (source != null && !analyze(id, token, source, lease))
-					return;
+				if (source != null) {
+					try (var model = models.acquire(id, lease::check)) {
+						while (source != null) {
+							lease.check();
+							model.ensureValid();
+							AnalysisResult result = analyze(id, token, source, lease, model);
+							if (result == AnalysisResult.RETRY_PENDING)
+								return;
+							if (result == AnalysisResult.DEFERRED || repository.hasRunnableValidation())
+								break;
+							source = repository.nextSource(id);
+						}
+					} catch (ReviewModelRuntime.Busy busy) {
+						log.debug("관리자 모델 실행 자원을 기다립니다: 실행ID={}", id);
+					}
+				}
 				lease.check();
 				work.release(id, token);
 				deliverAlerts();
@@ -87,10 +107,12 @@ public class ReviewWorker {
 			}
 		}
 	}
-	private boolean analyze(long id, UUID token, Source source, ReviewLeaseService.Lease lease) {
+	private AnalysisResult analyze(long id, UUID token, Source source, ReviewLeaseService.Lease lease,
+			ReviewModelRuntime.Session model) {
 		try {
 			var suggestions = analyzer.analyze(source);
 			lease.check();
+			model.ensureValid();
 			if (suggestions == null || suggestions.size() > 20)
 				throw new IllegalArgumentException("분석 후보 수를 확인해 주세요.");
 			var proposals = new ArrayList<ReviewWorkService.Proposal>();
@@ -109,9 +131,11 @@ public class ReviewWorker {
 				proposals.add(new ReviewWorkService.Proposal(suggestion, vector));
 			}
 			lease.check();
+			model.ensureValid();
 			work.finishSource(id, token, source, proposals, true);
 		} catch (ReviewAnalysisDeferredException e) {
 			log.debug("사용자 채팅을 위해 관리자 분석을 다음 주기로 미룹니다: 실행ID={}, 항목ID={}", id, source.id());
+			return AnalysisResult.DEFERRED;
 		} catch (ReviewLeaseLostException e) {
 			throw e;
 		} catch (RuntimeException e) {
@@ -120,10 +144,10 @@ public class ReviewWorker {
 			if (e instanceof LlmException llm && (llm.getErrorCode() == LlmErrorCode.LLM_SERVICE_UNAVAILABLE
 					|| llm.getErrorCode() == LlmErrorCode.LLM_TIMEOUT)) {
 				work.retryAnalysis(id, token, source, llm.getErrorCode().getCode());
-				return false;
+				return AnalysisResult.RETRY_PENDING;
 			}
 			work.finishSource(id, token, source, java.util.List.of(), false);
 		}
-		return true;
+		return AnalysisResult.COMPLETED;
 	}
 }

@@ -107,4 +107,13 @@ class ReviewRepositoryTest {
 						"i.source_fingerprint=f.source_fingerprint")
 				.doesNotContain("question_log", "answer_attempts_history");
 	}
+	@Test
+	void 진행중_분석은_소유권이_없는_재검사에만_양보한다() {
+		when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(true);
+		assertThat(repository.hasRunnableValidation()).isTrue();
+		verify(jdbc).queryForObject(
+				argThat(sql -> sql.contains("kind='VALIDATION'") && sql.contains("status IN ('QUEUED','RUNNING')")
+						&& sql.contains("lease_until IS NULL OR lease_until < LOCALTIMESTAMP")),
+				eq(Boolean.class));
+	}
 }

@@ -336,6 +336,31 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 
 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#ai-실행-엔진-선택)에 있습니다.
 
+## 관리자 위험 표현 분석 전용 모델 설정
+
+관리자 `ReviewWorker` 분석은 `Qwen/Qwen3-14B-AWQ`를 사용합니다. 공통 상담·실시간 가드의
+`LLM_BASE_URL`과 `LLM_MODEL`은 바꾸지 않습니다. 기존 채팅 우선 입장 제어와 오류 처리를 재사용합니다.
+설정이 없어도 애플리케이션은 기동하며, 분석 시에는 다른 모델로 대체하지 않고 실패합니다.
+
+| 환경변수 | 기본값 | 용도 |
+|---|---|---|
+| `GUARD_REVIEW_LLM_BASE_URL` | 빈 값 | 전용 OpenAI 호환 API. `/v1` 포함 |
+| `GUARD_REVIEW_LLM_CONNECT_TIMEOUT` | `3s` | 모델 연결 제한 |
+| `GUARD_REVIEW_LLM_READ_TIMEOUT` | `180s` | 추론 응답 대기 제한 |
+| `GUARD_REVIEW_LLM_MAX_TOKENS` | `16384` | 추론을 포함한 출력 상한 |
+| `GUARD_REVIEW_RUNTIME_BASE_URL` | 빈 값 | 전용 실행 제어 API. `/v1` 제외 |
+| `GUARD_REVIEW_RUNTIME_TOKEN` | 빈 값 | 제어기와 공유하는 비밀 토큰. Git에 실제 값 저장 금지 |
+| `GUARD_REVIEW_RUNTIME_CONNECT_TIMEOUT` | `3s` | 제어기 연결 제한 |
+| `GUARD_REVIEW_RUNTIME_READ_TIMEOUT` | `300s` | 초기 모델 로딩을 포함한 제어 응답 대기 |
+
+각 값은 `app.guard-review.llm.*` / `app.guard-review.runtime.*` Spring 속성으로도 지정할 수 있습니다.
+관리자 모델에는 Thinking을 활성화하고 `temperature=0.6`, `top_p=0.95`, `top_k=20`, `min_p=0`을 사용합니다.
+모델은 사용권을 얻을 때만 준비하며 마지막 사용권 반납 시 전용 컨테이너를 정지합니다.
+모델 파일은 디스크에 남습니다. 오차단 재검사는 LLM을 로드하지 않습니다.
+
+기존 운영 Compose나 실제 서버 설정에 자동 연결되지 않습니다. 별도 제어기 배치·사설 통신 경로·자원 확보가 필요합니다.
+배치 예시와 장애·동시 사용 시 동작은 [관리자 모델 실행 안내](../how-to/admin-risk-runtime.md)를 참고하세요.
+
 ## 임베딩 호출 모듈 설정
 
 `EmbeddingConfig`는 임베딩 엔진에 따라 `EmbeddingClient` 구현체 하나만 등록합니다. 엔진은 `AI_MODE`가 `ollama`·`vllm`이면 그 값이고, `custom`이면 `AI_EMBEDDING_ENGINE`입니다. 클라이언트는 `EmbeddingClientFactory`가 만듭니다.
