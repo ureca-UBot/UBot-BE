@@ -2,8 +2,8 @@ package com.ubot.chat.context;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
-import com.ubot.ai.tool.ProductNameIndex;
-import com.ubot.ai.tool.ProductType;
+import com.ubot.ai.tool.product.ProductNameIndex;
+import com.ubot.ai.tool.product.ProductType;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import java.util.Arrays;

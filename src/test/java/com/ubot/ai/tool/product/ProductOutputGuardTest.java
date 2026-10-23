@@ -1,4 +1,4 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;

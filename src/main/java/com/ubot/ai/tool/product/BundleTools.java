@@ -1,6 +1,7 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
+import com.ubot.ai.tool.ToolFormats;
 import com.ubot.bundle.entity.BundleProduct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,8 +37,8 @@ public class BundleTools {
     }
 
     private static String line(BundleProduct bundle) {
-        return ProductToolResults.text(bundle.getName())
-                + " | 결합 전체 월 " + ProductToolResults.won(bundle.getDiscountAmount()) + " 할인";
+        return ToolFormats.valueOrUnknown(bundle.getName())
+                + " | 결합 전체 월 " + ToolFormats.won(bundle.getDiscountAmount()) + " 할인";
     }
 
     private static ProductCard card(BundleProduct bundle) {

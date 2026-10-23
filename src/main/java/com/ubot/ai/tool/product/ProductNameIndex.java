@@ -1,4 +1,4 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.addon.repository.AddonServiceRepository;
 import com.ubot.bundle.repository.BundleProductRepository;

@@ -1,5 +1,9 @@
 package com.ubot.ai.tool;
 
+import com.ubot.ai.tool.product.AddonTools;
+import com.ubot.ai.tool.product.BundleTools;
+import com.ubot.ai.tool.product.PlanTools;
+import com.ubot.ai.tool.product.RoamingTools;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;

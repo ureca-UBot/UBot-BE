@@ -1,7 +1,8 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.addon.entity.AddonService;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
+import com.ubot.ai.tool.ToolFormats;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
@@ -36,8 +37,8 @@ public class AddonTools {
     }
 
     private static String line(AddonService addon) {
-        return ProductToolResults.text(addon.getName())
-                + " | 월 " + ProductToolResults.won(addon.getMonthlyFee());
+        return ToolFormats.valueOrUnknown(addon.getName())
+                + " | 월 " + ToolFormats.won(addon.getMonthlyFee());
     }
 
     private static ProductCard card(AddonService addon) {

@@ -6,7 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
-import com.ubot.ai.tool.ProductNameIndex;
+import com.ubot.ai.tool.product.ProductNameIndex;
 import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;

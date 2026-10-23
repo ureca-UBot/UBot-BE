@@ -1,4 +1,4 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 /** 요금제 조회 도구의 정렬 기준입니다. */
 public enum PlanSort {

@@ -7,7 +7,7 @@ import com.ubot.ai.dto.OutputGuardResult.Reason;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
-import com.ubot.ai.tool.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductDataRecorder;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserRecordClaims;
 import com.ubot.chat.context.UserIntentHandler;

@@ -9,7 +9,7 @@ import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.NearbyStoreSearcher;
-import com.ubot.ai.tool.ProductNameIndex;
+import com.ubot.ai.tool.product.ProductNameIndex;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import java.util.ArrayList;

@@ -1,7 +1,8 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
-import com.ubot.ai.tool.ProductCatalogQuery.PlanCondition;
+import com.ubot.ai.tool.ToolFormats;
+import com.ubot.ai.tool.product.ProductCatalogQuery.PlanCondition;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.enums.NetworkType;
 import com.ubot.plan.enums.PlanTargetGroup;
@@ -85,13 +86,13 @@ public class PlanTools {
     private String contractFee(Plan plan) {
         return ProductDescriptions.isNoContract(plan.getDescription()) ? NO_CONTRACT_DISCOUNT
                 : "선택약정 " + contractDiscountPercent + "% 할인 시 월 "
-                        + ProductToolResults.won(contractDiscountedFee(plan.getMonthlyFee()));
+                        + ToolFormats.won(contractDiscountedFee(plan.getMonthlyFee()));
     }
 
     private String line(Plan plan) {
-        return ProductToolResults.text(plan.getName())
+        return ToolFormats.valueOrUnknown(plan.getName())
                 + " | " + networkLabel(plan.getNetworkType()) + " | 대상 " + targetLabel(plan.getTargetGroup())
-                + " | 월정액 " + ProductToolResults.won(plan.getMonthlyFee())
+                + " | 월정액 " + ToolFormats.won(plan.getMonthlyFee())
                 + " | " + contractFee(plan)
                 + " | 데이터 " + data(plan)
                 + " | 음성 " + allowance(plan.isVoiceUnlimited(), plan.getVoiceMinutes(), "분")
@@ -109,7 +110,7 @@ public class PlanTools {
             return "제공 안 함";
         }
         return ProductToolResults.data(mb) + (plan.getExhaustedSpeedKbps() == null ? "(소진 후 차단)"
-                : "(소진 후 최대 " + UserDataSummarizer.speed(plan.getExhaustedSpeedKbps()) + ")");
+                : "(소진 후 최대 " + ToolFormats.speed(plan.getExhaustedSpeedKbps()) + ")");
     }
 
     private static ProductCard card(Plan plan) {

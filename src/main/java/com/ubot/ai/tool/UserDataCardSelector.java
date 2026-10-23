@@ -132,7 +132,7 @@ public final class UserDataCardSelector {
     private static boolean mentionsBilling(String answer, BillingRecordResponseDto billing) {
         return billing.totalAmount() != null
                 && mentions(answer, billing.billingMonth().getMonthValue() + "월 청구서")
-                && mentions(answer, UserDataSummarizer.won(billing.totalAmount()));
+                && mentions(answer, ToolFormats.won(billing.totalAmount()));
     }
 
     /**
@@ -142,7 +142,7 @@ public final class UserDataCardSelector {
     private static boolean mentionsLatestBilling(String answer, BillingRecordResponseDto billing) {
         return mentionsBilling(answer, billing)
                 || billing.totalAmount() != null && THIS_MONTH.matcher(answer).find()
-                        && mentions(answer, UserDataSummarizer.won(billing.totalAmount()));
+                        && mentions(answer, ToolFormats.won(billing.totalAmount()));
     }
 
     /**

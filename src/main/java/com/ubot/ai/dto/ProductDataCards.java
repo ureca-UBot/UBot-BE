@@ -1,6 +1,6 @@
 package com.ubot.ai.dto;
 
-import com.ubot.ai.tool.ProductType;
+import com.ubot.ai.tool.product.ProductType;
 import java.util.List;
 
 /**

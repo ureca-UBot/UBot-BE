@@ -1,4 +1,4 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.ai.dto.ProductDataCards;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;

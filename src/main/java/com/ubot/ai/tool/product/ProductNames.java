@@ -1,4 +1,4 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import java.util.ArrayList;
 import java.util.Comparator;

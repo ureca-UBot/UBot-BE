@@ -1,6 +1,7 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
+import com.ubot.ai.tool.ToolFormats;
 import com.ubot.roaming.entity.RoamingProduct;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -64,9 +65,9 @@ public class RoamingTools {
     }
 
     private static String line(RoamingProduct roaming) {
-        return ProductToolResults.text(roaming.getName())
-                + " | " + ProductToolResults.text(roaming.getCountry())
-                + " | 일 " + ProductToolResults.won(roaming.getDailyFee())
+        return ToolFormats.valueOrUnknown(roaming.getName())
+                + " | " + ToolFormats.valueOrUnknown(roaming.getCountry())
+                + " | 일 " + ToolFormats.won(roaming.getDailyFee())
                 + " | 데이터 " + ProductToolResults.data(roaming.getDataAmountMb());
     }
 

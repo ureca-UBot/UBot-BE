@@ -1,7 +1,8 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
-import com.ubot.ai.tool.ProductCatalogQuery.Found;
+import com.ubot.ai.tool.ToolFormats;
+import com.ubot.ai.tool.product.ProductCatalogQuery.Found;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
@@ -69,20 +70,12 @@ final class ProductToolResults {
     /** DB 규칙(1GB = 1000MB)대로 보여 줍니다. 1000MB 이상이면 GB로, 소수점은 필요할 때만 씁니다. */
     static String data(Long mb) {
         if (mb == null) {
-            return "정보 없음";
+            return ToolFormats.UNKNOWN;
         }
         if (mb < ProductCatalogQuery.MB_PER_GB) {
             return mb + "MB";
         }
         double gb = mb / (double) ProductCatalogQuery.MB_PER_GB;
         return gb == Math.floor(gb) ? (long) gb + "GB" : String.format(Locale.ROOT, "%.1fGB", gb);
-    }
-
-    static String won(Integer amount) {
-        return UserDataSummarizer.won(amount);
-    }
-
-    static String text(String value) {
-        return UserDataSummarizer.valueOrUnknown(value);
     }
 }

@@ -1,5 +1,6 @@
-package com.ubot.ai.tool;
+package com.ubot.ai.tool.product;
 
+import com.ubot.ai.tool.AiTool;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;

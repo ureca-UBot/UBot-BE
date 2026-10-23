@@ -3,6 +3,11 @@ package com.ubot.ai.tool;
 import static org.mockito.Mockito.mock;
 
 import com.ubot.addon.repository.AddonServiceRepository;
+import com.ubot.ai.tool.product.AddonTools;
+import com.ubot.ai.tool.product.BundleTools;
+import com.ubot.ai.tool.product.PlanTools;
+import com.ubot.ai.tool.product.ProductCatalogQuery;
+import com.ubot.ai.tool.product.RoamingTools;
 import com.ubot.billing.service.BillingService;
 import com.ubot.bundle.repository.BundleProductRepository;
 import com.ubot.plan.repository.PlanRepository;
