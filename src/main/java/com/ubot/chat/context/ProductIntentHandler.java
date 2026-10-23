@@ -29,7 +29,10 @@ public class ProductIntentHandler implements IntentHandler {
 
 	static final String SECTION_TITLE = "상품 정보";
 	// "조회하지 마세요" 같은 금지형 문장은 작은 모델이 도구 전체를 쓰지 말라는 뜻으로 받아들이므로 긍정형으로만 안내합니다.
-	static final String TOOL_GUIDE = "상품 가격·제공량·가입 조건·목록은 이 자료에 없습니다. 답하기 전에 상품 조회 도구를 호출해 확인하세요.";
+	// 이 섹션은 도구 결과를 받은 뒤에도 프롬프트에 남습니다. "이 자료에 없다"고 쓰면 결과를 받고도 정보가 부족하다고 답해서,
+	// 도구를 부르기 전과 후에 모두 맞는 문장으로 씁니다.
+	static final String TOOL_GUIDE = "상품의 가격·제공량·목록은 상품 조회 도구 결과로 답합니다. "
+			+ "도구 결과에 나온 상품 정보는 확정된 정보입니다.";
 
 	private final ProductNameIndex productNameIndex;
 

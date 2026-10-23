@@ -81,6 +81,6 @@ class ProductOutputGuardTest {
     private AnswerMaterials.Builder productMaterials() {
         return AnswerMaterials.builder("밸런스 59 약정 할인하면 얼마예요?")
                 .addSection(new ContextSection("상품 정보",
-                        "상품 가격·제공량·가입 조건·목록은 이 자료에 없습니다. 답하기 전에 상품 조회 도구를 호출해 확인하세요."));
+                        "상품의 가격·제공량·목록은 상품 조회 도구 결과로 답합니다. 도구 결과에 나온 상품 정보는 확정된 정보입니다."));
     }
 }
