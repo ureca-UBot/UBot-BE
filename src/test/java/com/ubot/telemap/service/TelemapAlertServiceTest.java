@@ -63,9 +63,10 @@ class TelemapAlertServiceTest {
     @DisplayName("대기 중 알림을 처리한 관리자와 처리 시간을 반환한다")
     void marksAlertProcessed() {
         User administrator = User.builder().id(7L).build();
+        SurgingAlert pending = alert(6L, SurgingAlertStatus.PENDING, null);
         SurgingAlert processed = alert(6L, SurgingAlertStatus.PROCESSED, administrator);
         when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(administrator));
-        when(alerts.findById(6L)).thenReturn(Optional.of(processed));
+        when(alerts.findById(6L)).thenReturn(Optional.of(pending), Optional.of(processed));
         when(alerts.markProcessedIfPending(eq(6L), eq(administrator), any(LocalDateTime.class))).thenReturn(1);
 
         var response = service.markProcessed(6L, 7L);

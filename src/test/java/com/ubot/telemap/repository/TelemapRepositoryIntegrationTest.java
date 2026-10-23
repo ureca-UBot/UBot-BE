@@ -8,6 +8,7 @@ import com.ubot.ranking.enums.RegionSido;
 import com.ubot.telemap.dto.SurgingQuestionSnapshot;
 import com.ubot.telemap.entity.SurgingAlert;
 import com.ubot.telemap.enums.SurgingAlertStatus;
+import com.ubot.telemap.service.TelemapAlertService;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,7 @@ class TelemapRepositoryIntegrationTest {
     @Autowired SurgingClusterRepository clusters;
     @Autowired SurgingQuestionRepository questions;
     @Autowired SurgingAlertRepository alerts;
+    @Autowired TelemapAlertService telemapAlertService;
     @Autowired TelemapRetentionRepository retention;
     @Autowired com.ubot.user.repository.UserRepository users;
     @Autowired com.ubot.notification.repository.NotificationRepository notifications;
@@ -160,6 +162,22 @@ class TelemapRepositoryIntegrationTest {
         assertThat(reloaded.getStatus()).isEqualTo(SurgingAlertStatus.PROCESSED);
         assertThat(reloaded.getUpdatedBy().getId()).isEqualTo(administratorId);
         assertThat(reloaded.getUpdatedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("대기 중인 알림을 처리하면 응답도 처리 완료 상태를 반환한다")
+    void returnsProcessedAlertAfterMarkingItProcessed() {
+        SurgingAlert alert = alerts.saveAndFlush(alert(RegionSido.SEOUL, "처리할 알림"));
+        Long administratorId = jdbc.queryForObject("""
+                INSERT INTO users (email, password_hash, name, role)
+                VALUES (?, 'pw', '관리자', 'ADMIN') RETURNING user_id
+                """, Long.class, "response-admin-" + System.nanoTime() + "@test.invalid");
+
+        var response = telemapAlertService.markProcessed(alert.getId(), administratorId);
+
+        assertThat(response.status()).isEqualTo(SurgingAlertStatus.PROCESSED);
+        assertThat(response.processedById()).isEqualTo(administratorId);
+        assertThat(response.processedAt()).isNotNull();
     }
 
     @Test

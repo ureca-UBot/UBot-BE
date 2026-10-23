@@ -70,7 +70,9 @@ public class TelemapAlertService {
         if(exists == 0) {
             throw new TelemapException(TelemapErrorCode.PROCESSED_ALERT);
         }
-        return SurgingAlertDetailResponse.from(alert);
+
+        SurgingAlert processedAlert = findAlert(alertId);
+        return SurgingAlertDetailResponse.from(processedAlert);
     }
 
     private SurgingAlert findAlert(Long alertId) {
