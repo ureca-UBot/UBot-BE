@@ -24,7 +24,12 @@ public interface SurgingQuestionRepository extends JpaRepository<SurgingQuestion
     @Query("""
             select new com.ubot.telemap.dto.SurgingQuestionSnapshot(
                 q.questionLog.id,
-                coalesce(q.questionLog.subQuestion, q.questionLog.userQuestion),
+                case
+                	when q.questionLog.subQuestion is null
+                    or trim(q.questionLog.subQuestion) = ''
+                    then q.questionLog.userQuestion
+                    else q.questionLog.subQuestion
+                end,
                 q.occurredAt
             )
             from SurgingQuestion q
