@@ -15,7 +15,8 @@ public enum TelemapErrorCode implements ErrorCode {
     SURGING_ALERT_NOT_FOUND(HttpStatus.NOT_FOUND, "TM-003", "급증 알림 이력이 존재하지 않습니다."),
     SUBJECT_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "TM-004", "급증 알림 제목을 생성할 수 없습니다."),
     INVALID_CONFIGURATION(HttpStatus.INTERNAL_SERVER_ERROR, "TM-005", "급증 감지 설정이 올바르지 않습니다."),
-    PROCESSED_ALERT(HttpStatus.CONFLICT,"TM-006", "이미 처리된 알람입니다.");
+    UNPROCESSED_ALERT(HttpStatus.BAD_REQUEST, "TM-006", "아직 라벨링되지 않은 알림입니다."),
+    PROCESSED_ALERT(HttpStatus.CONFLICT,"TM-007", "이미 처리된 알림입니다.");
 
     private final HttpStatus status;
     private final String code;
