@@ -135,7 +135,7 @@ class CounselIntegrationTest {
 				counseling.rate_buckets, counseling.role_audit RESTART IDENTITY CASCADE
 				""");
 		jdbc.execute("TRUNCATE public.users RESTART IDENTITY CASCADE");
-		jdbc.execute("TRUNCATE public.forbidden_words RESTART IDENTITY");
+		jdbc.execute("TRUNCATE public.forbidden_words RESTART IDENTITY CASCADE");
 		forbiddenWordFilter.refreshForbiddenWordCache();
 		jdbc.update("""
 				INSERT INTO public.users(user_id,email,password_hash,name,role)
