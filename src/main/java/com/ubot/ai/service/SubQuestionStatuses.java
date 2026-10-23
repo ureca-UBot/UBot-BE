@@ -56,10 +56,10 @@ final class SubQuestionStatuses {
      * labels[i]는 i번째 하위 질문의 원문 조각이며, 없으면 "N번째 질문"으로 씁니다.
      */
     static String notice(List<String> statuses, List<String> labels) {
-        if (statuses.stream().noneMatch(status -> !ANSWER.equals(status))) {
+        if (statuses.stream().allMatch(ANSWER::equals)) {
             return "";
         }
-        if (statuses.size() == 1 || statuses.stream().distinct().count() == 1) {
+        if (!needsPartNotice(statuses)) {
             return WHOLE_NOTICES.getOrDefault(statuses.getFirst(), "");
         }
         Map<String, List<String>> partsByStatus = new LinkedHashMap<>();
@@ -72,6 +72,12 @@ final class SubQuestionStatuses {
         return partsByStatus.entrySet().stream()
                 .map(entry -> quote(entry.getValue()) + PART_NOTICES.get(entry.getKey()))
                 .collect(Collectors.joining(" "));
+    }
+
+    /** 원문 조각을 넣은 하위 고지를 낼지입니다. 하위 질문이 둘 이상이고, 답하지 못한 것이 있으며, 모두 같은 status는 아닐 때입니다. */
+    static boolean needsPartNotice(List<String> statuses) {
+        return statuses.size() > 1 && !statuses.stream().allMatch(ANSWER::equals)
+                && statuses.stream().distinct().count() > 1;
     }
 
     /** 모델 답변 뒤에 고지를 붙입니다. 둘 중 하나가 비면 다른 하나만 씁니다. */

@@ -25,11 +25,12 @@ import com.ubot.prompt.format.FaqAnswerFormat;
 import com.ubot.prompt.format.FaqAnswerFormat.FaqAnswer;
 import com.ubot.prompt.format.FaqAnswerFormat.SlotAnswer;
 import com.ubot.prompt.service.PromptService;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
@@ -45,6 +46,7 @@ public class AiService {
     private final LlmService llmService;
     private final AiToolRegistry toolRegistry;
     private final AiOutputGuardService aiOutputGuardService;
+    private final SubQuestionLabels subQuestionLabels;
 
     public AiAnswer generateAnswer(AnswerMaterials materials) {
         // ChatAnswerProcessor가 intent별로 모은 자료를 받습니다. DB를 다시 조회하지 않습니다.
@@ -114,8 +116,14 @@ public class AiService {
     }
 
     /**
-     * 칸 형식 출력에서 ANSWER인 칸의 answer만 이어 출력 가드로 검사하고, 답하지 못한 하위 질문의 고지는 코드가 붙입니다.
-     * 전체 status는 하위 status를 조합한 값입니다. 모든 칸이 ANSWER가 아니면 본문이 없으므로 가드를 거치지 않고 고지만 냅니다.
+     * 칸 형식 출력을 하위 질문마다 처리합니다. ANSWER인 칸만 출력 가드로 검사하고, 답하지 못한 하위 질문의 고지는 코드가 붙입니다.
+     * <ul>
+     *   <li>가드는 칸마다 그 하위 질문(원문 조각)을 질문으로 삼아 검사합니다. 다른 하위 질문의 범위를 이 칸의 누락으로 보지 않게 합니다.</li>
+     *   <li>가드가 문장 단위로 지웠거나 칸을 거부하면 그 칸은 ABSTAIN으로 바꾸고 버립니다. 표현만 정리했으면 정리한 칸을 씁니다.</li>
+     *   <li>정책 위반으로 칸을 거부하면 기존과 같이 답변 전체를 거부합니다(자동 재시도 없음).</li>
+     *   <li>모든 칸이 ANSWER가 아니면 본문 없이 고지만 냅니다. 같은 이유로 모두 답하지 못했으면 전체 고지 하나입니다.</li>
+     * </ul>
+     * 전체 status는 가드를 거친 하위 status를 조합한 값입니다.
      * 칸 수가 맞지 않거나 알 수 없는 status가 있으면 어느 칸을 보여 줄지 정할 수 없으므로 응답 오류로 처리합니다.
      */
     private SlotResult answerBySlots(FaqAnswer parsed, AnswerMaterials materials, StoreMapResult storeMap) {
@@ -127,28 +135,66 @@ public class AiService {
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
         // ANSWER인데 answer가 비었으면 그 하위 질문은 사용자에게 아무 답도 나가지 않으므로 ABSTAIN으로 봅니다.
-        List<String> statuses = slots.stream()
+        List<String> statuses = new ArrayList<>(slots.stream()
                 .map(slot -> SubQuestionStatuses.ANSWER.equals(slot.status()) && !StringUtils.hasText(slot.answer())
                         ? SubQuestionStatuses.ABSTAIN : slot.status())
-                .toList();
+                .toList());
         log.info("LLM 칸 형식 답변을 파싱했습니다: statuses={}, evidenceIds={}", statuses, parsed.evidenceIds());
 
-        String body = IntStream.range(0, slots.size())
-                .filter(index -> SubQuestionStatuses.ANSWER.equals(statuses.get(index)))
-                .mapToObj(index -> slots.get(index).answer())
-                .collect(Collectors.joining("\n\n"));
-        OutputGuardResult inspection = null;
-        if (StringUtils.hasText(body)) {
-            inspection = aiOutputGuardService.inspectAnswer(body, parsed.evidenceIds(), materials, storeMap);
-            // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
-            if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-            body = inspection.answer();
+        List<String> kept = new ArrayList<>();
+        Set<OutputGuardResult.Reason> reasons = EnumSet.noneOf(OutputGuardResult.Reason.class);
+        boolean inspected = false;
+        for (int index = 0; index < slots.size(); index++) {
+            if (!SubQuestionStatuses.ANSWER.equals(statuses.get(index))) {
+                continue;
+            }
+            AnswerMaterials scoped = expected > 1 ? scopedTo(materials, materials.subQuestions().get(index)) : materials;
+            OutputGuardResult result = aiOutputGuardService.inspectAnswer(
+                    slots.get(index).answer(), parsed.evidenceIds(), scoped, storeMap);
+            inspected = true;
+            reasons.addAll(result.reasons());
+            if (result.rejected() && result.reasons().contains(OutputGuardResult.Reason.POLICY_VIOLATION)) {
+                throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+            }
+            if (result.rejected() || result.contentRemoved()) {
+                log.info("출력 가드가 칸의 내용을 지워 답하지 못한 것으로 바꿉니다: 칸={}, 거부={}, 사유={}",
+                        index + 1, result.rejected(), result.reasons());
+                statuses.set(index, SubQuestionStatuses.ABSTAIN);
+                continue;
+            }
+            kept.add(result.answer());
         }
-        // 칸이 하나면 질문 전체에 대한 고지이므로 원문 조각이 필요 없습니다.
-        List<String> labels = expected > 1
-                ? materials.subQuestions().stream().map(SubQuestionFaqs::userText).toList() : List.of();
-        String notice = SubQuestionStatuses.notice(statuses, labels);
+        String body = String.join("\n\n", kept);
+        String notice = SubQuestionStatuses.notice(statuses, noticeLabels(statuses, materials.subQuestions()));
+        OutputGuardResult inspection = inspected ? new OutputGuardResult(body, false, reasons) : null;
         return new SlotResult(SubQuestionStatuses.compose(body, notice), SubQuestionStatuses.combine(statuses), inspection);
+    }
+
+    /**
+     * 하위 고지에 넣을 원문 조각입니다. 하위 고지를 낼 때(일부만 답하지 못했을 때)만, 답하지 못한 하위 질문의 조각만 다듬습니다.
+     * 칸이 하나이거나 전체 고지 하나로 끝나면 조각이 필요 없으므로 형태소 분석을 하지 않습니다.
+     */
+    private List<String> noticeLabels(List<String> statuses, List<SubQuestionFaqs> subQuestions) {
+        if (!SubQuestionStatuses.needsPartNotice(statuses)) {
+            return List.of();
+        }
+        List<String> labels = new ArrayList<>();
+        for (int index = 0; index < statuses.size(); index++) {
+            labels.add(SubQuestionStatuses.ANSWER.equals(statuses.get(index)) ? null
+                    : subQuestionLabels.label(subQuestions.get(index).userText()));
+        }
+        return labels;
+    }
+
+    /**
+     * 칸 하나를 검사할 자료입니다. 질문은 그 하위 질문의 원문 조각(없으면 검색어)이고, FAQ·추가 자료는 모델에 준 그대로 둡니다.
+     * 모델은 모든 자료를 보고 답하므로, 근거 대조에는 전체 자료를 씁니다.
+     */
+    private static AnswerMaterials scopedTo(AnswerMaterials materials, SubQuestionFaqs subQuestion) {
+        String question = StringUtils.hasText(subQuestion.userText()) ? subQuestion.userText() : subQuestion.searchQuery();
+        return new AnswerMaterials(question, materials.faqs(), materials.sections(), materials.tools(), materials.storeMap(),
+                List.of(subQuestion), materials.history(), materials.userId(), materials.userDataSummary(),
+                materials.toolRecords());
     }
 
     private record SlotResult(String answer, String status, OutputGuardResult inspection) {

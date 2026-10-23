@@ -808,7 +808,7 @@ public class AiOutputGuardService {
             String filtered = filterAnswer(answer, materials, storeMap, reasons, trace);
             recordUnansweredScopes(filtered, materials, storeMap, reasons);
             logInspection("BODY", filtered.equals(answer) ? "PASS" : "FILTERED", reasons, answer, filtered, startedAt, trace);
-            return new OutputGuardResult(filtered, false, reasons);
+            return new OutputGuardResult(filtered, false, reasons, trace.removedUnits > 0);
         } catch (LlmException exception) {
             if (exception.getErrorCode() != LlmErrorCode.LLM_OUTPUT_REJECTED) throw exception;
             // 같은 오류 코드를 FAQ 부족으로 바꾸지 않습니다. 판별 근거가 없으면 미분류입니다.

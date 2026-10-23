@@ -88,7 +88,8 @@ class AiServiceTest {
                 .thenReturn(List.of(ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
         var wordFilter = new ForbiddenWordFilterService(words);
         wordFilter.refreshForbiddenWordCache();
-        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter));
+        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter),
+                SubQuestionLabels.withoutMorphology());
     }
 
     @Test
@@ -576,6 +577,46 @@ class AiServiceTest {
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
                 .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
                         .isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+    }
+
+    @Test
+    void 칸_형식에서_가드가_문장을_지운_칸은_답하지_못한_것으로_바꿔_고지한다() {
+        var sources = List.of(
+                new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL),
+                new FaqSearchResponseDto(2L, "가입 장소", "가입은 매장에서 할 수 있습니다.", 0.9, Intent.GENERAL));
+        var subQuestions = List.of(
+                new SubQuestionFaqs("가입 장소", List.of(sources.get(1)), "가입은 어디서 하고"),
+                new SubQuestionFaqs("할인율", List.of(sources.get(0)), "할인율은 얼마예요?"));
+        var materials = AnswerMaterials.builder("가입은 어디서 하고 할인율은 얼마예요?").addFaqs(sources)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), sources, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"가입은 매장에서 할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\"}],"
+                + "\"evidence_ids\":[\"1\",\"2\"]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("가입은 매장에서 할 수 있습니다.\n\n"
+                + "「할인율은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void 칸_형식에서_정책_위반으로_칸이_거부되면_답변_전체를_거부한다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법", faqs, "유심 재발급은 어떻게 하고"),
+                new SubQuestionFaqs("유심 재발급 비용", faqs, "비용은요?"));
+        var materials = AnswerMaterials.builder("유심 재발급은 어떻게 하고 비용은요?").addFaqs(faqs)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), faqs, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"매장에서 재발급할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"바보입니다.\",\"status\":\"ANSWER\"}],\"evidence_ids\":[]}"));
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
     }
 
     @Test
