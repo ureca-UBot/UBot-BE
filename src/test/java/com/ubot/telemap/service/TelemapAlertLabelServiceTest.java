@@ -32,6 +32,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 @DisplayName("급증 알림 제목 생성 서비스")
 class TelemapAlertLabelServiceTest {
@@ -40,13 +42,15 @@ class TelemapAlertLabelServiceTest {
     private final UserRepository users = mock(UserRepository.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final LlmService llm = mock(LlmService.class);
+    private final PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
     private final TelemapProperties properties = new TelemapProperties();
     private TelemapAlertLabelService service;
 
     @BeforeEach
     void setUp() {
         properties.setMaxQuestionsForSubject(2);
-        service = new TelemapAlertLabelService(alerts, users, notifications, llm, properties,
+        when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
+        service = new TelemapAlertLabelService(alerts, users, notifications, llm, properties, transactionManager,
                 new ByteArrayResource("제목을 JSON으로 생성하세요".getBytes()));
     }
 

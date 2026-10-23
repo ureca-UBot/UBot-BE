@@ -73,18 +73,6 @@ public class TelemapAlertLabelService {
         this.transactionManager = transactionManager;
     }
 
-    public TelemapAlertLabelService(
-            SurgingAlertRepository surgingAlertRepository,
-            UserRepository userRepository,
-            NotificationService notificationService,
-            LlmService llmService,
-            TelemapProperties telemapProperties,
-            Resource systemPromptResource
-    ) {
-        this(surgingAlertRepository, userRepository, notificationService, llmService, telemapProperties,
-                null, systemPromptResource);
-    }
-
     public void labelAndNotify(long alertId) {
         AlertLabelInput input = inTransaction(() -> loadInput(alertId));
         String subject = StringUtils.hasText(input.subject()) ? input.subject() : generateSubjectOrFallback(input);
@@ -121,7 +109,6 @@ public class TelemapAlertLabelService {
     }
 
     private <T> T inTransaction(Supplier<T> action) {
-        if (transactionManager == null) return action.get();
         return new TransactionTemplate(transactionManager).execute(status -> action.get());
     }
 
@@ -134,37 +121,6 @@ public class TelemapAlertLabelService {
             log.warn("Surging alert subject generation failed; using fallback subject.", exception);
         }
         return input.regionName() + " 지역 유사 문의 급증";
-    }
-
-    private String generateSubjectOrFallback(SurgingAlert alert) {
-        try {
-            String subject = parseSubject(callLlm(alert));
-            if (subject != null) return subject;
-            log.warn("급증 알림 제목 LLM 응답이 유효하지 않아 기본 제목을 사용합니다: alertId={}", alert.getId());
-        } catch (RuntimeException exception) {
-            log.warn("급증 알림 제목 생성에 실패해 기본 제목을 사용합니다: alertId={}", alert.getId(), exception);
-        }
-        return alert.getRegion().name() + " 지역 유사 문의 급증";
-    }
-
-    private String callLlm(SurgingAlert alert) {
-        List<SurgingQuestionSnapshot> allSnapshots = alert.getQuestionSnapshots();
-        long skipCount = Math.max(0, allSnapshots.size() - telemapProperties.getMaxQuestionsForSubject());
-        List<SurgingQuestionSnapshot> snapshots = allSnapshots.stream()
-                .skip(skipCount)
-                .toList();
-        StringBuilder user = new StringBuilder()
-                .append("지역: ").append(alert.getRegion().name())
-                .append("\n집계 시간: 최근 ").append(alert.getWindowMinutes()).append("분")
-                .append("\n집계 건수: ").append(alert.getQuestionCount())
-                .append("\n질문 목록:");
-        snapshots.forEach(snapshot -> user.append("\n- ").append(snapshot.question()));
-        LlmRequestDto request = new LlmRequestDto(List.of(
-                new LlmMessageRequestDto(LlmMessageRole.SYSTEM, readSystemPrompt()),
-                new LlmMessageRequestDto(LlmMessageRole.USER, user.toString())
-        )).withResponseSchema(RESPONSE_SCHEMA);
-        LlmResponseDto response = llmService.generateAnswer(request);
-        return response.answer();
     }
 
     private String callLlm(AlertLabelInput input) {
