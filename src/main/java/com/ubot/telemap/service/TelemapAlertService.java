@@ -58,11 +58,14 @@ public class TelemapAlertService {
         SurgingAlert alert = findAlert(alertId);
         User administrator = userRepository.findByIdAndDeletedAtIsNull(administratorId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
-        surgingAlertRepository.markProcessedIfPending(
+        int exists = surgingAlertRepository.markProcessedIfPending(
                 alertId,
                 administrator,
                 LocalDateTime.now()
         );
+        if(exists == 0) {
+            throw new TelemapException(TelemapErrorCode.PROCESSED_ALERT);
+        }
         return SurgingAlertDetailResponse.from(alert);
     }
 
