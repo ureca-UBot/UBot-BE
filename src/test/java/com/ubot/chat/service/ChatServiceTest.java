@@ -155,7 +155,7 @@ class ChatServiceTest {
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, attemptsService, processor, tx);
 		service = new ChatService(attemptsService, ChatTestFixtures.inputGuard(),
-				harness.submissionService, ipRegionResolver);
+				harness.submissionService, ipRegionResolver, ChatTestFixtures.noRateLimit());
 		var conversationService = mock(ConversationService.class);
 		when(conversationService.getOrCreateMemberConversation(eq(1L), any())).thenReturn(Conversation.createMember(1L));
 		var controller = new ChatController(service, harness.queryService, mock(ClientIpResolver.class),

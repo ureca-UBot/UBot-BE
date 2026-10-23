@@ -120,6 +120,9 @@ src/main/resources/
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM·모델 복구 대기를 포함한 한 실행의 제한. 재시도마다 연장하지 않음. 전체 기한과 비교해 이른 시각에 CHAT-016으로 끝내고 늦은 결과 폐기 | `180s` | `180s` |
 | `CHAT_WORKER_MODEL_RETRY_BACKOFF` | Worker의 vLLM 연결 실패·5xx 재시도 간격. 실행 기한·취소·heartbeat·같은 작업을 유지. Worker 밖·4xx·잘못된 응답·HTTP 타임아웃에는 적용하지 않음. 0 이하이면 기동 실패 | `5s` | `5s` |
 | `CHAT_WORKER_SHUTDOWN_WAIT` | Worker 종료 시 실행 중인 작업을 기다리는 시간. 넘기면 대기열에 돌려놓고 다시 발행. 컨테이너 종료 유예 시간(`stop_grace_period`, ECS `stopTimeout`)보다 짧아야 함 | `20s` | `20s` |
+| `CHAT_USER_RATE_LIMIT_ENABLED` | `ChatRateLimitService`: 회원 질문·재시도·의도 재검색 접수를 사용자 ID별로 제한할지 여부. Redis(`chat:rate:user:<사용자ID>`)에 고정 윈도로 세고, Redis 장애 시 제한 없이 접수 | `true` | `true` (`test` 프로필은 `false`) |
+| `CHAT_USER_RATE_LIMIT_MAX` | `ChatRateLimitService`: 윈도 하나에 받는 회원 접수 수. 넘으면 시도·작업을 만들지 않고 `CHAT-026`(429). 1 미만이면 기동 실패 | `30` | `30` |
+| `CHAT_USER_RATE_LIMIT_WINDOW` | `ChatRateLimitService`: 회원 접수를 세는 윈도 길이. 1초 미만이면 기동 실패 | `60s` | `60s` |
 | `CHAT_JOB_READ_BUDGET` | `ChatJobReadExecutor`: 답변 작업 조회(`GET /chat/jobs/{id}`)의 인증 사용자 조회·비회원 대화 승계·상태 조회가 함께 쓰는 요청별 한도. 넘기거나 DB 접근이 실패하면 `CHAT-025`(503). 0 이하이면 기동 실패 | `1500ms` | `1500ms` |
 | `CHAT_JOB_READ_MAX_CONCURRENCY` | `ChatJobReadExecutor`: 동시에 실행하는 작업 조회 수 상한. 취소에 반응하지 않는 JDBC 조회도 포함하며 넘치면 기다리지 않고 `CHAT-025`(503) | `8` | `8` |
 | `DB_POOL_MAX_SIZE` | HikariCP(`spring.datasource.hikari.maximum-pool-size`): 프로세스 하나의 DB 연결 수. API와 Worker를 합쳐 PostgreSQL `max_connections`보다 작아야 함 | `10` | `10` |

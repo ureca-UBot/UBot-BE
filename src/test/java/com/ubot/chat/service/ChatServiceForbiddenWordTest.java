@@ -32,7 +32,7 @@ class ChatServiceForbiddenWordTest {
 	private final ForbiddenWordFilterService filter = mock(ForbiddenWordFilterService.class);
 	private ChatJobTestHarness harness = new ChatJobTestHarness(attempts, ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard()));
 	private final ChatService service = new ChatService(attempts, ChatTestFixtures.inputGuard(filter), harness.submissionService,
-			ipRegionResolver);
+			ipRegionResolver, ChatTestFixtures.noRateLimit());
 
 	@Test
 	@DisplayName("금지어가 포함된 질문은 기록·작업 접수·임베딩·검색·LLM 호출 없이 차단한다")
@@ -179,7 +179,7 @@ class ChatServiceForbiddenWordTest {
 		var guard = ChatTestFixtures.inputGuard(actualFilter);
 		var processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), guard);
 		harness = new ChatJobTestHarness(attempts, processor);
-		return new ChatService(attempts, guard, harness.submissionService, ipRegionResolver);
+		return new ChatService(attempts, guard, harness.submissionService, ipRegionResolver, ChatTestFixtures.noRateLimit());
 	}
 
 	@ParameterizedTest

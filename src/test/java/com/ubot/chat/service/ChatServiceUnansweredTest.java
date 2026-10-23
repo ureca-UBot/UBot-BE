@@ -53,7 +53,7 @@ class ChatServiceUnansweredTest {
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt);
 		service = new ChatService(attempts, ChatTestFixtures.inputGuard(),
-				harness.submissionService, ipRegionResolver);
+				harness.submissionService, ipRegionResolver, ChatTestFixtures.noRateLimit());
 		when(attempts.createAnswerAttempt(1L, null, "질문")).thenReturn(attempt);
 		when(attempts.recordFailure(any(), any())).thenAnswer(call -> {
 			AnswerAttemptsHistory saved = call.getArgument(0);
