@@ -714,17 +714,6 @@ public class AiOutputGuardService {
     private static final Pattern FOLLOWUP_INFORMATION_REQUEST = Pattern.compile(
             "(?:(?<input>입력)(?:해|하여)?|알려|말씀(?:해|하여)?|말해|설명(?:해|하여)?|보내|제공(?:해|하여)?)\\s*"
                     + "(?:주(?:세요|십시오|시면|시기\\s*바랍니다)|줘(?:요)?)");
-    // 도구가 받을 검색 기준의 필드만 구분합니다. 특정 답변 문장을 허용 목록으로 두지 않습니다.
-    private static final String STORE_LOCATION_FIELD =
-            "(?:지역(?:명)?|지명|동네(?:\\s*이름)?|역(?:\\s*(?:이름|명))?|위치)";
-    private static final String STORE_LOCATION_FIELD_MODIFIER =
-            "(?:(?:어느|어떤|원하(?:는|시는)|희망(?:하는|하시는)?|정확한|기준(?:이\\s*될)?|현재"
-                    + "|검색할|조회할|찾으시는|매장\\s*검색(?:을\\s*위한)?)\\s*)*";
-    private static final Pattern STORE_LOCATION_INPUT_FIELDS = Pattern.compile(
-            "^" + STORE_LOCATION_FIELD_MODIFIER + STORE_LOCATION_FIELD
-                    + "(?:\\s*(?:이나|또는|혹은|와|과|및|·|/|,)\\s*"
-                    + STORE_LOCATION_FIELD_MODIFIER + STORE_LOCATION_FIELD + ")*"
-                    + "(?:\\s*(?:을|를|이|가|은|는))?\\s*(?:인지|어디(?:인지)?|어느\\s*곳)?$");
     private static final Pattern EXTERNAL_INFORMATION_DESTINATION = Pattern.compile(
             "(?:고객\\s*센터|상담(?:원|사)|매장(?:\\s*직원)?|직원|대리점|통신사|담당자|앱|홈페이지|웹사이트|신청서|화면)"
                     + "(?:에게|한테|으로|로|에(?!서))[^,;.!?。！？\\n]{0,16}$");
@@ -1063,9 +1052,7 @@ public class AiOutputGuardService {
         beforeCheck = filtered;
         filtered = removeUnsupportedRestrictions(filtered, materials, sources, trace);
         recordAnswerChange(reasons, beforeCheck, filtered);
-        beforeCheck = filtered;
-        filtered = removeFollowUpQuestions(filtered, materials, storeMap, trace);
-        recordAnswerChange(reasons, beforeCheck, filtered);
+        // 되묻기라는 문장 형식 자체는 위반이 아닙니다. 위의 내용 검사에서 실제 문제가 탐지된 경우만 거절합니다.
         filtered = filterRequestedScopes(filtered, answer, materials, reasons, trace);
         if (!StringUtils.hasText(filtered) || !filtered.equals(withoutSuffix.strip())
                 && splitSentences(filtered).stream().allMatch(sentence ->
@@ -1090,43 +1077,6 @@ public class AiOutputGuardService {
             throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         }
         return filtered;
-    }
-
-    /** 조회 전 매장 검색 기준 입력은 구분하되, 일반 되묻기와 추가 정보 요구는 기존대로 거절합니다. */
-    private String removeFollowUpQuestions(String answer, AnswerMaterials materials, StoreMapResult storeMap,
-            InspectionTrace trace) {
-        List<String> kept = new ArrayList<>();
-        boolean removed = false;
-        for (String sentence : splitSentences(answer)) {
-            List<String> clauses = new ArrayList<>();
-            addAnswerClauses(sentence, clauses, true, null);
-            for (String clause : clauses) {
-                String inspected = inspect(clause);
-                boolean followUp = QUESTION_END.matcher(inspected).find() || GENERIC_FOLLOWUP.matcher(inspected).matches()
-                        || hasFollowUpInformationRequest(inspected);
-                if (followUp && !isStoreLocationInputRequest(inspected, materials, storeMap)) {
-                    trace.removed(GuardRule.FOLLOWUP_QUESTION);
-                    removed = true;
-                } else kept.add(clause);
-            }
-        }
-        return removed ? String.join("\n", kept) : answer;
-    }
-
-    private boolean isStoreLocationInputRequest(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
-        // 서버가 선택한 매장 도구 문맥과 실제 조회 결과를 사용합니다. 모델의 status나 문구로 문맥을 만들지 않습니다.
-        if (!materials.tools().contains(AiTool.STORE_SEARCH) || storeMap != null) return false;
-        String content = sentence.replaceFirst("[.!?。！？]+$", "").strip();
-        Matcher request = FOLLOWUP_INFORMATION_REQUEST.matcher(content);
-        if (request.find()) {
-            // 요구하는 필드 전체가 검색 기준이어야 합니다. 다른 정보나 뒤따르는 지시를 함께 허용하지 않습니다.
-            return STORE_LOCATION_INPUT_FIELDS.matcher(content.substring(0, request.start()).strip()).matches()
-                    && content.substring(request.end()).isBlank();
-        }
-        if (!QUESTION_END.matcher(sentence).find()) return false;
-        Matcher ending = QUESTION_END.matcher(content);
-        if (ending.find()) content = content.substring(0, ending.start()).strip();
-        return STORE_LOCATION_INPUT_FIELDS.matcher(content).matches();
     }
 
     private boolean hasFollowUpInformationRequest(String sentence) {
