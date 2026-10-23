@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -94,7 +95,7 @@ class AiServiceTest {
     void 생성된_프롬프트를_도구_없이_LLM에_전달하고_응답을_반환한다() {
         var section = new ContextSection("사용자 정보", "이름: 홍길동");
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).addSection(section).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(section), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(section), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("생성 답변"));
 
         assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("생성 답변");
@@ -107,7 +108,7 @@ class AiServiceTest {
     @Test
     void 모델이_낸_JSON에서_answer만_꺼내_반환한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"선택약정은 12개월과 24개월이 있습니다.\",\"evidence_ids\":[\"1\"],\"status\":\"ANSWER\"}"));
 
@@ -117,7 +118,7 @@ class AiServiceTest {
     @Test
     void 모델이_낸_JSON을_읽을_수_없으면_LLM_응답_오류로_실패한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answer\": \"잘린 답"));
 
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -129,7 +130,7 @@ class AiServiceTest {
     @ValueSource(strings = {"112", "FAQ-999999", "999999"})
     void 근거번호만_틀린_정상_답변은_기존_생성_흐름에서_보존한다(String id) {
         var materials = AnswerMaterials.builder("서류 안내").addFaqs(faqs).build();
-        when(promptService.createPrompt("서류 안내", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("서류 안내", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요.\",\"evidence_ids\":[\"" + id + "\"],\"status\":\"ANSWER\"}"));
         assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("신분증을 지참해주세요.");
@@ -380,7 +381,7 @@ class AiServiceTest {
         var section = new ContextSection("현재 위치 근처 매장", "반경 3km 안에 매장이 없습니다.");
         var storeMap = new StoreMapResult(new Location(37.5, 127.0), null, 3.0, List.of());
         var materials = AnswerMaterials.builder("근처 매장").addSection(section).storeMap(storeMap).build();
-        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(section), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(section), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("근처에 매장이 없어요."));
 
         AiAnswer answer = aiService.generateAnswer(materials);
@@ -400,7 +401,7 @@ class AiServiceTest {
     @Test
     void 프롬프트_준비가_안_되면_LLM은_호출하지_않는다() {
         var failure = new PromptException(PromptErrorCode.PROMPT_NOT_READY);
-        when(promptService.createPrompt("질문", faqs, List.of(), List.of(), List.of())).thenThrow(failure);
+        when(promptService.createSlotPrompt("질문", faqs, List.of(), List.of(), List.of())).thenThrow(failure);
 
         assertThatThrownBy(() -> aiService.generateAnswer(AnswerMaterials.builder("질문").addFaqs(faqs).build()))
                 .isSameAs(failure);
@@ -425,7 +426,7 @@ class AiServiceTest {
     @Test
     void JSON_파싱_후_문제_문장을_제거하고_남은_본문만_반환한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요. 바보입니다.\",\"evidence_ids\":\"123\",\"status\":\"CLARIFY\"}"));
 
@@ -439,7 +440,7 @@ class AiServiceTest {
             "```json\n{\"answer\":\"바보입니다.\"}\n```"})
     void 일반_문장과_JSON_모두_정상_본문이_없으면_출력_차단_오류를_전달한다(String output) {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(output));
 
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -453,7 +454,7 @@ class AiServiceTest {
     void 잘못된_근거번호가_있어도_본문_검사를_거쳐_위험_답변은_거절한다(String answer) {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
-        when(promptService.createPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"" + answer + "\",\"status\":\"ANSWER\",\"evidence_ids\":[\"999999\"]}"));
         assertThatThrownBy(() -> aiService.generateAnswer(materials))
@@ -466,7 +467,7 @@ class AiServiceTest {
     void 실제_제공한_FAQ로_수치_충돌을_확인해_문제_문장을_제거한다() {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
-        when(promptService.createPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\",\"evidence_ids\":[\"1\"]}"));
 
@@ -506,9 +507,87 @@ class AiServiceTest {
     @ValueSource(strings = {" ", "\n"})
     void 기존_빈_응답은_그대로_후속_답변_검사에_넘긴다(String output) {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
-        when(promptService.createPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(output));
 
         assertThat(aiService.generateAnswer(materials).answer()).isNull();
+    }
+
+    @Test
+    void 칸_형식이면_ANSWER_칸만_보여_주고_답하지_못한_하위_질문은_원문_조각으로_고지한다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법", faqs, "유심 재발급은 어떻게 하고"),
+                new SubQuestionFaqs("유심 재발급 비용", faqs, "비용은 얼마예요?"));
+        var materials = AnswerMaterials.builder("유심 재발급은 어떻게 하고 비용은 얼마예요?").addFaqs(faqs)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), faqs, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"매장에서 재발급할 수 있습니다.\",\"status\":\"ANSWER\"},"
+                + "{\"answer\":\"비용은 자료에 없습니다.\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[\"1\"]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("매장에서 재발급할 수 있습니다.\n\n"
+                + "「비용은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void 칸_형식에서_모든_칸이_ABSTAIN이면_가드를_거치지_않고_전체_고지만_낸다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 비용", faqs, "유심 재발급 비용이랑"),
+                new SubQuestionFaqs("eSIM 발급 비용", faqs, "eSIM 비용은요?"));
+        var materials = AnswerMaterials.builder("유심 재발급 비용이랑 eSIM 비용은요?").addFaqs(faqs)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt(materials.question(), faqs, subQuestions, List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto("{\"answers\":["
+                + "{\"answer\":\"자료에 없습니다.\",\"status\":\"ABSTAIN\"},"
+                + "{\"answer\":\"\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("문의하신 내용은 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.abstained()).isTrue();
+        assertThat(answer.outputGuardResult()).isNull();
+    }
+
+    @Test
+    void 칸_형식에서_ANSWER인데_본문이_비었으면_답하지_못한_것으로_본다() {
+        var materials = AnswerMaterials.builder("유심 재발급 비용").addFaqs(faqs).build();
+        when(promptService.createSlotPrompt("유심 재발급 비용", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
+                "{\"answers\":[{\"answer\":\" \",\"status\":\"ANSWER\"}],\"evidence_ids\":[]}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("문의하신 내용은 현재 안내 자료로는 확인해 드리기 어렵습니다.");
+        assertThat(answer.status()).isEqualTo("ABSTAIN");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"answers\":[{\"answer\":\"답\",\"status\":\"ANSWER\"},{\"answer\":\"답\",\"status\":\"ANSWER\"}],\"evidence_ids\":[]}",
+            "{\"answers\":[{\"answer\":\"답\",\"status\":\"PARTIAL\"}],\"evidence_ids\":[]}"})
+    void 칸_수가_맞지_않거나_알_수_없는_status면_응답_오류로_실패한다(String output) {
+        var materials = AnswerMaterials.builder("유심 재발급 비용").addFaqs(faqs).build();
+        when(promptService.createSlotPrompt("유심 재발급 비용", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(output));
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+    }
+
+    @Test
+    void 도구가_있는_요청은_칸_형식이_아닌_기존_프롬프트를_쓴다() {
+        var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
+        when(promptService.createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"위치를 알려 주시면 찾아 드릴게요.\",\"evidence_ids\":[],\"status\":\"ABSTAIN\"}"));
+
+        aiService.generateAnswer(materials);
+
+        verify(promptService).createPrompt("근처 매장", List.of(), List.of(), List.of(), List.of());
+        verify(promptService, never()).createSlotPrompt(any(), any(), any(), any(), any());
     }
 }

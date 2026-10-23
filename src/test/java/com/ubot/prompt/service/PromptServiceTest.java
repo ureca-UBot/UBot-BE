@@ -250,6 +250,32 @@ class PromptServiceTest {
                 .contains("참고자료:\n(없음)");
     }
 
+    @Test
+    void 칸_형식_요청은_칸_지침과_하위_질문_수만큼의_칸_스키마를_쓰고_사용자_메시지는_같다() {
+        var service = new PromptService(resource(TEST_SYSTEM), resource("칸 지침"), resource(TEST_TEMPLATE));
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법은 무엇인가요?", results, "유심 재발급이랑"),
+                new SubQuestionFaqs("해외 로밍 요금은 얼마인가요?", List.of(), "로밍 요금"));
+
+        var slot = service.createSlotPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of(), List.of());
+        var single = service.createPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of(), List.of());
+
+        assertThat(slot.messages().getFirst().content()).isEqualTo("칸 지침");
+        assertThat(slot.messages().getLast().content()).isEqualTo(single.messages().getLast().content());
+        assertThat(slot.responseSchema()).isEqualTo(FaqAnswerFormat.slotSchema(2));
+    }
+
+    @Test
+    void 칸_수는_원문_조각으로_나눠_넣은_경우만_하위_질문_수이고_나머지는_하나다() {
+        var grouped = List.of(new SubQuestionFaqs("a", results, "가"), new SubQuestionFaqs("b", results, "나"));
+        var withoutPiece = List.of(new SubQuestionFaqs("a", results, "가"), new SubQuestionFaqs("b", results, null));
+
+        assertThat(PromptService.slotCount(grouped)).isEqualTo(2);
+        assertThat(PromptService.slotCount(withoutPiece)).isEqualTo(1);
+        assertThat(PromptService.slotCount(List.of(new SubQuestionFaqs("a", results, "가")))).isEqualTo(1);
+        assertThat(PromptService.slotCount(List.of())).isEqualTo(1);
+    }
+
     private static ThrowingConsumer<Throwable> hasErrorCode(PromptErrorCode expected) {
         return exception -> assertThat(exception).isInstanceOfSatisfying(PromptException.class,
                 promptException -> assertThat(promptException.getErrorCode()).isEqualTo(expected));

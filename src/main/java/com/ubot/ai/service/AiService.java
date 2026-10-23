@@ -6,6 +6,7 @@ import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.StoreMapResult;
+import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.StoreSearchRecorder;
@@ -22,10 +23,13 @@ import com.ubot.prompt.exception.PromptErrorCode;
 import com.ubot.prompt.exception.PromptException;
 import com.ubot.prompt.format.FaqAnswerFormat;
 import com.ubot.prompt.format.FaqAnswerFormat.FaqAnswer;
+import com.ubot.prompt.format.FaqAnswerFormat.SlotAnswer;
 import com.ubot.prompt.service.PromptService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
@@ -49,16 +53,23 @@ public class AiService {
         if (materials.faqs().isEmpty() && materials.sections().isEmpty() && materials.tools().isEmpty()) {
             throw new PromptException(PromptErrorCode.PROMPT_INPUT_MISSING);
         }
+        // 도구가 있는 요청은 출력 스키마가 강제되지 않아 칸 수를 보장할 수 없으므로, 칸 형식을 쓰지 않고 기존 형식 그대로 둡니다.
+        // 도구가 없는 요청만 하위 질문마다 칸(answer → status)을 받습니다.
+        List<ToolCallback> callbacks = toolRegistry.resolve(materials.tools());
+        boolean slotMode = callbacks.isEmpty();
+
         // 승지님이 작성한 프롬프트에 질문·FAQ·추가 자료를 넣어 메시지를 구성합니다.
         // 이전 대화는 이번 질문이 이전 대화를 써야 할 때만 들어 있습니다(SubQuestionPlanner의 멀티턴 판정).
-        LlmRequestDto request = promptService.createPrompt(materials.question(), materials.faqs(),
-                materials.subQuestions(), materials.sections(), materials.history());
+        LlmRequestDto request = slotMode
+                ? promptService.createSlotPrompt(materials.question(), materials.faqs(),
+                        materials.subQuestions(), materials.sections(), materials.history())
+                : promptService.createPrompt(materials.question(), materials.faqs(),
+                        materials.subQuestions(), materials.sections(), materials.history());
 
         // 도구가 조회한 매장 목록은 LLM 답변 문장과 별도로 화면에 전달하기 위해 요청마다 새로 보관합니다.
         StoreSearchRecorder storeRecorder = new StoreSearchRecorder();
         // 가입 정보 도구가 조회한 사용량·청구서도 같은 이유로 요청마다 따로 보관합니다.
         UserDataRecorder userDataRecorder = new UserDataRecorder();
-        List<ToolCallback> callbacks = toolRegistry.resolve(materials.tools());
         if (!callbacks.isEmpty()) {
             request = request.withTools(callbacks, toToolContext(materials, storeRecorder, userDataRecorder));
         }
@@ -79,11 +90,18 @@ public class AiService {
             AnswerMaterials inspected = toolRecords.isEmpty() ? materials
                     : materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
                             userDataRecorder.cards());
-            inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
-            // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
-            if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-            answer = inspection.answer();
-            status = parsed.status();
+            if (slotMode && parsed.slots() != null) {
+                SlotResult slotResult = answerBySlots(parsed, inspected, storeMap);
+                answer = slotResult.answer();
+                status = slotResult.status();
+                inspection = slotResult.inspection();
+            } else {
+                inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
+                // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+                if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                answer = inspection.answer();
+                status = parsed.status();
+            }
         }
         // 가입 정보 카드는 도구로 조회한 기록과 미리 넣은 요약 중, 답변에 쓰인 기록만 합칩니다.
         // 도구로 조회만 하고 답변에 쓰지 않은 달은 붙이지 않습니다.
@@ -93,6 +111,47 @@ public class AiService {
                         UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
                         UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary()));
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData);
+    }
+
+    /**
+     * 칸 형식 출력에서 ANSWER인 칸의 answer만 이어 출력 가드로 검사하고, 답하지 못한 하위 질문의 고지는 코드가 붙입니다.
+     * 전체 status는 하위 status를 조합한 값입니다. 모든 칸이 ANSWER가 아니면 본문이 없으므로 가드를 거치지 않고 고지만 냅니다.
+     * 칸 수가 맞지 않거나 알 수 없는 status가 있으면 어느 칸을 보여 줄지 정할 수 없으므로 응답 오류로 처리합니다.
+     */
+    private SlotResult answerBySlots(FaqAnswer parsed, AnswerMaterials materials, StoreMapResult storeMap) {
+        List<SlotAnswer> slots = parsed.slots();
+        int expected = PromptService.slotCount(materials.subQuestions());
+        if (slots.size() != expected || slots.stream().anyMatch(slot -> slot.status() == null)) {
+            log.warn("LLM 칸 형식 답변이 하위 질문과 맞지 않습니다: 칸수={}, 하위질문칸수={}, statuses={}",
+                    slots.size(), expected, slots.stream().map(SlotAnswer::status).toList());
+            throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+        }
+        // ANSWER인데 answer가 비었으면 그 하위 질문은 사용자에게 아무 답도 나가지 않으므로 ABSTAIN으로 봅니다.
+        List<String> statuses = slots.stream()
+                .map(slot -> SubQuestionStatuses.ANSWER.equals(slot.status()) && !StringUtils.hasText(slot.answer())
+                        ? SubQuestionStatuses.ABSTAIN : slot.status())
+                .toList();
+        log.info("LLM 칸 형식 답변을 파싱했습니다: statuses={}, evidenceIds={}", statuses, parsed.evidenceIds());
+
+        String body = IntStream.range(0, slots.size())
+                .filter(index -> SubQuestionStatuses.ANSWER.equals(statuses.get(index)))
+                .mapToObj(index -> slots.get(index).answer())
+                .collect(Collectors.joining("\n\n"));
+        OutputGuardResult inspection = null;
+        if (StringUtils.hasText(body)) {
+            inspection = aiOutputGuardService.inspectAnswer(body, parsed.evidenceIds(), materials, storeMap);
+            // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+            if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+            body = inspection.answer();
+        }
+        // 칸이 하나면 질문 전체에 대한 고지이므로 원문 조각이 필요 없습니다.
+        List<String> labels = expected > 1
+                ? materials.subQuestions().stream().map(SubQuestionFaqs::userText).toList() : List.of();
+        String notice = SubQuestionStatuses.notice(statuses, labels);
+        return new SlotResult(SubQuestionStatuses.compose(body, notice), SubQuestionStatuses.combine(statuses), inspection);
+    }
+
+    private record SlotResult(String answer, String status, OutputGuardResult inspection) {
     }
 
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder,
