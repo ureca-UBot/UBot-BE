@@ -259,7 +259,7 @@ class GuardReviewPostgresIntegrationTest {
 				Integer.class)).isEqualTo(6);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
 		Files.writeString(artifacts.resolve("migration-result.json"),
-				JSON.writeValueAsString(Map.of("version", currentVersion, "upgradeMigrations", migrated.migrationsExecuted,
+				JSON.writeValueAsString(Map.of("version", "49", "upgradeMigrations", migrated.migrationsExecuted,
 						"sixTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
 						"extensions", db.queryForList("SELECT extname,extversion FROM pg_extension ORDER BY extname"),
 						"server", db.queryForObject("SHOW server_version", String.class))));

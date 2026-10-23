@@ -8,6 +8,7 @@ import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.service.AiService;
+import com.ubot.ai.service.SubQuestionLabels;
 import com.ubot.chat.controller.ChatController;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -996,7 +997,8 @@ class ChatServiceTest {
 		when(promptService.createPrompt(anyString(), anyList(), anyList())).thenReturn(new LlmRequestDto(List.of()));
 		var registry = mock(AiToolRegistry.class);
 		when(registry.resolve(any())).thenReturn(List.of());
-		var guardedAi = new AiService(promptService, llmService, registry, new AiOutputGuardService(filter));
+		var guardedAi = new AiService(promptService, llmService, registry, new AiOutputGuardService(filter),
+				SubQuestionLabels.withoutMorphology());
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenAnswer(call -> guardedAi.generateAnswer(call.getArgument(0)));
 		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(
 				List.of(new FaqSearchResponseDto(1L, "서비스 안내", "할인율은 25%입니다. 신분증을 지참해주세요.", 0.9, Intent.GENERAL)));
