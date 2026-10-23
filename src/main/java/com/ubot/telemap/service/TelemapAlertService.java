@@ -55,6 +55,7 @@ public class TelemapAlertService {
 
     @Transactional
     public SurgingAlertDetailResponse markProcessed(Long alertId, Long administratorId) {
+        SurgingAlert alert = findAlert(alertId);
         User administrator = userRepository.findByIdAndDeletedAtIsNull(administratorId)
                 .orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
         surgingAlertRepository.markProcessedIfPending(
@@ -62,7 +63,7 @@ public class TelemapAlertService {
                 administrator,
                 LocalDateTime.now()
         );
-        return SurgingAlertDetailResponse.from(findAlert(alertId));
+        return SurgingAlertDetailResponse.from(alert);
     }
 
     private SurgingAlert findAlert(Long alertId) {
