@@ -10,6 +10,7 @@ import com.ubot.chat.job.dto.ChatRequestContext;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.repository.ChatJobQueueRepository;
 import com.ubot.chat.job.repository.ChatJobRepository;
+import com.ubot.chat.job.service.ChatSubmissionService.SubmissionType;
 import com.ubot.chat.job.stream.ChatJobMessage;
 import com.ubot.chat.job.stream.ChatJobStream;
 import com.ubot.chat.job.worker.ChatJobWorker;
@@ -262,22 +263,18 @@ class ChatLlmIntegrationTest {
 
 	@ParameterizedTest
 	@EnumSource(value = ChatErrorCode.class, names = {"NO_FAQ", "INSUFFICIENT_FAQ"})
-	void evidenceFailureAllowsRetryUntilConfiguredLimitWithoutCallingLlm(ChatErrorCode code) throws Exception {
+	void evidenceFailureIsNotRetriedBecauseSameQuestionGivesSameResult(ChatErrorCode code) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(code == ChatErrorCode.NO_FAQ
 				? List.of() : List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74, Intent.GENERAL)));
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}"), code);
-		assertThat(body).contains("\"status\":\"FAILED\"", "\"retryable\":true", code.getMessage());
+		assertThat(body).contains("\"status\":\"FAILED\"", "\"retryable\":false", code.getMessage());
 		String key = keyFrom(body);
-		for (int count = 2; count <= maxAttempts; count++) {
-			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key), code);
-			assertThat(body).contains("\"attemptCount\":" + count, key, "\"retryable\":" + (count < maxAttempts));
-		}
 		mvc.perform(post("/chat/questions/retries").header("Authorization", authorization)
 				.header("Idempotency-Key", key)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.success").value(false))
-				.andExpect(jsonPath("$.code").value(ChatErrorCode.LIMIT_REACHED.getCode()));
-		assertThat(attempts.findAll()).hasSize(maxAttempts).allSatisfy(attempt -> {
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.RETRY_NOT_ALLOWED.getCode()));
+		assertThat(attempts.findAll()).hasSize(1).allSatisfy(attempt -> {
 			assertThat(attempt.getIdempotencyKey()).isEqualTo(key);
 			assertThat(attempt.getStatus()).isEqualTo("FAIL");
 			assertThat(attempt.getErrorCode()).isEqualTo(code);
@@ -681,7 +678,7 @@ class ChatLlmIntegrationTest {
 		Long conversation = conversations.createGuestConversation();
 		var submitted = service.createGuestChat(conversation, "주변 매장", new com.ubot.ai.dto.Location(37.5, 127.0), null);
 		long id = submitted.response().jobId();
-		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
+		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow().startedAt();
 		var nearby = new com.ubot.store.dto.NearbyStoreResponseDto(123L, "테스트 매장", "서울", "강남구",
 				"테스트 주소", "02-000-0000", "09:00-18:00", 37.51, 127.01, 0.5);
 		var map = new com.ubot.ai.dto.StoreMapResult(new com.ubot.ai.dto.Location(37.5, 127.0), null, 3, List.of(nearby));
@@ -707,7 +704,7 @@ class ChatLlmIntegrationTest {
 	void terminalFailuresClearRequestContext(String failure) {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		long id = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
+		long id = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
 				.response().jobId();
 		LocalDateTime started = LocalDateTime.now().minusHours(1).truncatedTo(ChronoUnit.MICROS);
 		if (failure.equals("queue-expiry")) {
@@ -729,9 +726,9 @@ class ChatLlmIntegrationTest {
 	@Test void rolledBackCompletionPreservesContextForRecovery() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		long id = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
+		long id = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context)
 				.response().jobId();
-		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
+		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow().startedAt();
 		new org.springframework.transaction.support.TransactionTemplate(transactions).executeWithoutResult(status -> {
 			completion.complete(id, started, new com.ubot.chat.service.ChatJobOutcome("답변", List.of(), null, null, List.of()), context.region());
 			jobs.flush();
@@ -748,7 +745,7 @@ class ChatLlmIntegrationTest {
 	@Test void redisLossRecoveryPreservesCoordinatesAndRegionFromDatabase() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		var submitted = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context);
+		var submitted = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "내 주변 매장"), context);
 		long id = submitted.response().jobId();
 		assertThat(jobs.findById(id).orElseThrow().getRequestContext()).isEqualTo(context);
 		redis.delete(ChatJobStream.STREAM_KEY);
@@ -764,10 +761,10 @@ class ChatLlmIntegrationTest {
 	@Test void queuedJobIsRecoveredWhenStreamIsLostButMarksRemain() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(null, null, com.ubot.ranking.enums.RegionSido.SEOUL);
-		long lost = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "잃어버린 질문"), context)
+		long lost = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "잃어버린 질문"), context)
 				.response().jobId();
 		redis.delete(ChatJobStream.STREAM_KEY);
-		long fresh = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "새 질문"), context)
+		long fresh = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "새 질문"), context)
 				.response().jobId();
 		jdbc.update("update chat_jobs set created_at = CURRENT_TIMESTAMP - interval '1 minute' where job_id = ?", lost);
 
@@ -835,7 +832,7 @@ class ChatLlmIntegrationTest {
 		Long conversation = conversations.getOrCreateMemberConversation(user.getId(), null).getId();
 		var first = service.createChat(user.getId(), conversation, "질문", new com.ubot.ai.dto.Location(37.5, 127.0), null);
 		long id = first.response().jobId();
-		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
+		LocalDateTime started = jobQueue.claim(id, LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow().startedAt();
 		completion.complete(id, started, com.ubot.chat.service.ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT), null);
 		assertThat(jobs.findById(id).orElseThrow().getRequestContext()).isNull();
 		assertThat(query.getStatus(id, user.getId(), java.util.Optional.empty()).retryable()).isTrue();
@@ -848,7 +845,7 @@ class ChatLlmIntegrationTest {
 	@Test void staleOwnerCannotOverwriteOrFailTakenOverJob() {
 		Long conversation = conversations.createGuestConversation();
 		var context = new ChatRequestContext(37.5, 127.0, com.ubot.ranking.enums.RegionSido.SEOUL);
-		var submitted = submissions.submit(() -> attemptsService.createGuestAnswerAttempt(conversation, "질문"), context);
+		var submitted = submissions.submit(SubmissionType.QUESTION, false, () -> attemptsService.createGuestAnswerAttempt(conversation, "질문"), context);
 		long id = submitted.response().jobId();
 		LocalDateTime old = LocalDateTime.now().minusHours(1).truncatedTo(ChronoUnit.MICROS);
 		jobQueue.claim(id, old);

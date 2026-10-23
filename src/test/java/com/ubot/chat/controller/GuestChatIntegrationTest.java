@@ -7,9 +7,6 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.repository.ChatJobQueueRepository;
-import com.ubot.chat.job.service.ChatJobCompletionService;
-import com.ubot.chat.service.ChatJobOutcome;
 import com.ubot.chat.job.worker.ChatJobWorker;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
@@ -101,8 +98,6 @@ class GuestChatIntegrationTest {
 	@Autowired JdbcTemplate jdbc;
 	@Autowired StringRedisTemplate redis;
 	@Autowired ChatJobWorker worker;
-	@Autowired ChatJobQueueRepository jobQueue;
-	@Autowired ChatJobCompletionService jobCompletion;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
@@ -111,48 +106,6 @@ class GuestChatIntegrationTest {
 	User admin;
 	Long faqId;
 	ChatJobTestFlow flow;
-
-	@Test
-	void guestCanCancelOwnJobWithoutAuthenticationAndCannotRetryIt() throws Exception {
-		var submitted = flow.submit(post("/chat/questions").contentType("application/json")
-				.content("{\"question\":\"유심 재발급 방법\"}"));
-		long jobId = ChatJobTestFlow.jobId(submitted);
-		var session = (MockHttpSession) submitted.getRequest().getSession(false);
-		for (int i = 0; i < 2; i++) {
-			mvc.perform(post("/chat/jobs/{id}/cancel", jobId).session(session))
-					.andExpect(status().isOk())
-					.andExpect(jsonPath("$.data.cancelled").value(true));
-		}
-		mvc.perform(flow.statusOf(submitted))
-				.andExpect(jsonPath("$.data.status").value("FAILED"))
-				.andExpect(jsonPath("$.data.errorCode").value("CHAT-025"))
-				.andExpect(jsonPath("$.data.retryable").value(false));
-		String key = jdbc.queryForObject("select idempotency_key from answer_attempts_history where attempt_id = "
-				+ "(select attempt_id from chat_jobs where job_id = ?)", String.class, jobId);
-		mvc.perform(post("/chat/questions/retries").session(session).header("Idempotency-Key", key))
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("CHAT-007"));
-		worker.processAvailableJobs();
-		org.mockito.Mockito.verify(llm, org.mockito.Mockito.never()).generateAnswer(any());
-	}
-
-	@Test
-	void otherGuestCannotCancelAndLateWorkerCannotOverwriteCancellation() throws Exception {
-		var submitted = flow.submit(post("/chat/questions").contentType("application/json")
-				.content("{\"question\":\"유심 재발급 방법\"}"));
-		long jobId = ChatJobTestFlow.jobId(submitted);
-		mvc.perform(post("/chat/jobs/{id}/cancel", jobId))
-				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.code").value("CHAT-020"));
-		LocalDateTime lease = jobQueue.claim(jobId, LocalDateTime.now().withNano(0)).orElseThrow();
-		mvc.perform(post("/chat/jobs/{id}/cancel", jobId)
-				.session((MockHttpSession) submitted.getRequest().getSession(false)))
-				.andExpect(jsonPath("$.data.cancelled").value(true));
-		assertThat(jobCompletion.complete(jobId, lease,
-				ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR), null).recorded()).isFalse();
-		mvc.perform(flow.statusOf(submitted))
-				.andExpect(jsonPath("$.data.errorCode").value("CHAT-025"));
-	}
 
 	@BeforeEach
 	void setup() {
@@ -245,8 +198,10 @@ class GuestChatIntegrationTest {
 
 		assertThat(complete(retry(systemFailureKey).session(session), null))
 				.contains("\"attemptCount\":2", "\"status\":\"SUCCEEDED\"");
-		assertThat(complete(retry(missingFaqKey).session(session), ChatErrorCode.NO_FAQ))
-				.contains("\"attemptCount\":2");
+		// FAQ 미발견은 같은 질문을 다시 보내도 결과가 같아 재시도를 거절함
+		mvc.perform(retry(missingFaqKey).session(session))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.RETRY_NOT_ALLOWED.getCode()));
 
 		mvc.perform(question(ANSWERABLE).session(session))
 				.andExpect(status().isTooManyRequests());

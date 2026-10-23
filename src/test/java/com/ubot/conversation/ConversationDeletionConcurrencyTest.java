@@ -206,7 +206,8 @@ class ConversationDeletionConcurrencyTest {
             if (request == Request.RESEARCH) {
                 locked.succeed();
             } else {
-                locked.fail(ChatErrorCode.NO_FAQ);
+                // 재시도할 수 있는 실패여야 함. 답변 없음(NO_FAQ)은 재시도해도 같아 막혀 있음
+                locked.fail(ChatErrorCode.INTERNAL_ERROR);
             }
         });
         AnswerAttemptsHistory pending = attemptsService.createAnswerAttempt(
@@ -325,7 +326,7 @@ class ConversationDeletionConcurrencyTest {
     private RunningJob queueJob(AnswerAttemptsHistory attempt) {
         ChatJob job = jobs.saveAndFlush(ChatJob.queue(attempt.getId()));
         LocalDateTime startedAt = queue.claim(job.getId(),
-                LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow();
+                LocalDateTime.now().truncatedTo(ChronoUnit.MICROS)).orElseThrow().startedAt();
         return new RunningJob(job.getId(), startedAt);
     }
 

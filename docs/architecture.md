@@ -71,7 +71,7 @@ com.ubot
 - 게스트 질문은 실시간 검색어 랭킹 집계에서 제외합니다(`ranking_eligible = false`). 승계된 과거 게스트 질문도 그대로 제외하고, 로그인 이후 생성된 질문부터 집계합니다.
 - Access token 서명 키는 `JWT_SECRET`(Base64, 32바이트 이상)이며 기동 시점에 디코딩합니다. 값이 올바르지 않으면 애플리케이션이 뜨지 않습니다.
 - Refresh token은 사용자당 1개(`refresh_tokens.user_id` UNIQUE)입니다. 로그인과 재발급 때마다 새 값으로 교체하므로, 다른 기기에서 로그인하면 이전 refresh token은 쓸 수 없습니다. 로그아웃은 refresh token을 삭제합니다. DB에는 refresh token의 SHA-256 해시만 저장하고, 교체 직전 해시(`previous_token`)로 재사용을 감지합니다. 로그인 실패 횟수는 Redis(`login:fail:*`, 15분 TTL)에 둡니다.
-- 로그아웃하거나 refresh token 재사용이 감지되면 Redis(`auth:access-revoked-before:<사용자ID>`, access token 유효 시간만큼 TTL)에 그 시각을 남기고, 그 전에 발급된 access token은 만료 전이어도 `JWT-009`로 거부합니다. Redis에 연결할 수 없으면 로그인 실패 제한과 이 차단은 경고 로그만 남기고 통과시킵니다.
+- 로그아웃하거나 refresh token 재사용이 감지되면 Redis(`auth:access-revoked-before:<사용자ID>`, access token 유효 시간만큼 TTL)에 그 시각을 남기고, 그 전에 발급된 access token은 만료 전이어도 `JWT-009`로 거부합니다. Redis에 연결할 수 없으면 로그인 실패 제한과 이 차단은 경고 로그만 남기고 통과시킵니다. 차단 조회가 200ms(`JWT_REVOCATION_LOOKUP_TIMEOUT`) 안에 끝나지 않을 때도 같습니다.
 - 보안 기능을 우회하지 않으려면 다음을 지킵니다.
     - Refresh token은 `RefreshTokenService.issue()`·`rotate()`로만 발급합니다. `RefreshTokenRepository`에 직접 저장하면 원문이 저장되고 재발급이 실패합니다. 소셜 로그인·사용자 전환처럼 새로 토큰을 주는 기능도 같은 메서드를 씁니다.
     - `JwtAuthenticationFilter`의 토큰 검사 생략 경로와 `SecurityConfig`의 `permitAll`에는 사용자 정보를 쓰지 않는 공개 조회 경로만 넣습니다. 생략 경로에서는 로그아웃 차단도 확인하지 않습니다.
@@ -174,6 +174,8 @@ SSE 스트리밍 없이 완성된 답변을 상태 조회로 돌려줍니다(#82
 `CHAT-012`(검색 결과 없음)나 `CHAT-013`(기준 미달)로 끝나는 질문은 실패 기록을 남기기 전에, LLM이 답변 상태를 `ABSTAIN`(자료로 답할 수 없음)으로 낸 질문은 답변을 보낸 뒤 `unanswered_questions`에 저장하고, 비슷한 질문끼리 `unanswered_question_groups`로 묶습니다(`UnansweredQuestionService`).
 
 미응답 질문은 답변 처리 중에 모아 두었다가, 작업 결과를 확정하는 트랜잭션(`ChatJobCompletionService`) 안에서 공용 대기열 `outbox_events`에 하위 질문마다 `UNANSWERED_QUESTION` 작업으로 한 행씩 넣습니다(`dedup_key`로 같은 `attempt_id`·`sub_question_index`는 한 번만). 작업이 취소되거나 다른 실행에 넘어가 결과가 기록되지 않으면 대기열에도 들어가지 않고, 대기열 등록이 실패하면 결과 확정도 함께 취소됩니다. 임베딩과 묶기는 `OutboxWorker`가 `OUTBOX_POLL_DELAY_MS`(기본 2초)마다 대기열을 꺼내 작업 종류별 처리기(`UnansweredOutboxHandler`)에 넘깁니다. Worker 역할(`APP_ROLE`이 `worker`·`all`)인 서버에서만 돌고, `FOR UPDATE SKIP LOCKED`로 서버가 여러 대여도 한 행은 한 서버만 처리합니다. 처리에 실패하면 행을 남기고 `retry_count`를 늘린 뒤 `next_attempt_at`을 10초·20초·40초·80초 뒤로 미뤄 다시 시도하며, 5번 실패한 행은 error 로그를 남기고 더 처리하지 않습니다. 이런 행은 보관 기간 삭제 작업이 마지막 실패 7일 뒤 지웁니다.
+
+FAQ를 등록·수정·삭제·복원하면 같은 트랜잭션에서 공용 대기열에 `FAQ_REVERIFY` 작업이 들어갑니다. `UnansweredReverifyHandler`가 처리 대기·보류 묶음의 미응답 질문 벡터를 그 FAQ의 질문 벡터와 비교해, 유사도가 `CHAT_CONFIDENCE_THRESHOLD` 이상이고 처음 실패할 때의 최고 유사도보다 높아진 질문을 `unanswered_question_reverifications`에 전후 유사도와 함께 기록합니다. 같은 FAQ로 다시 검증하면 이전 기록을 지우고 새로 계산합니다. 관리자 미응답 묶음 목록에는 가장 많은 질문을 해결할 FAQ(`reverifiedFaqId`)와 그 질문 수(`resolvableQuestionCount`)가, 상세에는 질문별 전후 유사도(`reverifications`)가 나옵니다.
 
 1. 같은 답변 시도(`attempt_id`)가 이미 저장돼 있으면 건너뜁니다.
 2. 질문을 다시 임베딩합니다. FAQ 검색 때와 별도로 임베딩 서버를 한 번 더 호출합니다.

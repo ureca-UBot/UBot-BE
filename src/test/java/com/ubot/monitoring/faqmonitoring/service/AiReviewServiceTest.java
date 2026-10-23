@@ -16,6 +16,7 @@ import com.ubot.faq.enums.Intent;
 import com.ubot.faq.exception.FaqErrorCode;
 import com.ubot.faq.exception.FaqException;
 import com.ubot.faq.repository.FaqRepository;
+import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateCandidateAssessment;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewResult;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateSuspectedAssessment;
@@ -48,14 +49,14 @@ class AiReviewServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new AiReviewService(faqRepository, improvementQueryRepository, aiReviewLlmService);
+		service = new AiReviewService(
+				faqRepository,
+				improvementQueryRepository,
+				aiReviewLlmService,
+				new AiReviewProperties(5, 20, 5, 20, 5, 1_500L)
+		);
 		ReflectionTestUtils.setField(service, "lowGapThreshold", 0.07);
 		ReflectionTestUtils.setField(service, "improvementTopK", 3);
-		ReflectionTestUtils.setField(service, "maxDuplicateCandidates", 5);
-		ReflectionTestUtils.setField(service, "maxQuestionsPerDuplicateCandidate", 20);
-		ReflectionTestUtils.setField(service, "maxDisplayedQuestionsPerDuplicateCandidate", 5);
-		ReflectionTestUtils.setField(service, "maxLowRagQualityQuestions", 20);
-		ReflectionTestUtils.setField(service, "maxDisplayedQuestionsForLowRagQuality", 5);
 	}
 
 	@Test

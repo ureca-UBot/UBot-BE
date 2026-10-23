@@ -51,7 +51,7 @@ class ChatMemberRateLimitIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("한도를 넘은 회원은 토큰을 새로 받아도 429 CHAT-024이고, 재시도·재검색도 함께 세며, 다른 회원과 게스트는 영향이 없다")
+	@DisplayName("한도를 넘은 회원은 토큰을 새로 받아도 429 CHAT-026이고, 재시도·재검색도 함께 세며, 다른 회원과 게스트는 영향이 없다")
 	void limitsPerUserAcrossTokens() throws Exception {
 		User member = saveUser();
 		User other = saveUser();
@@ -60,19 +60,19 @@ class ChatMemberRateLimitIntegrationTest {
 		mvc.perform(question().header("Authorization", bearer(member))).andExpect(status().isAccepted());
 		mvc.perform(question().header("Authorization", bearer(member)))
 				.andExpect(status().isTooManyRequests())
-				.andExpect(jsonPath("$.code").value("CHAT-024"))
+				.andExpect(jsonPath("$.code").value("CHAT-026"))
 				.andExpect(jsonPath("$.data").doesNotExist());
 
 		// 사용자 ID로 세므로 새로 발급한 토큰도 같은 횟수를 이어 씁니다.
 		String reissued = bearer(member);
 		mvc.perform(question().header("Authorization", reissued))
 				.andExpect(status().isTooManyRequests());
-		// 재시도·재검색은 요청 값 검사보다 먼저 세어, 잘못된 키여도 CHAT-011·CHAT-001이 아니라 CHAT-024입니다.
+		// 재시도·재검색은 요청 값 검사보다 먼저 세어, 잘못된 키여도 CHAT-011·CHAT-001이 아니라 CHAT-026입니다.
 		mvc.perform(post("/chat/questions/retries").header("Idempotency-Key", "x").header("Authorization", reissued))
-				.andExpect(jsonPath("$.code").value("CHAT-024"));
+				.andExpect(jsonPath("$.code").value("CHAT-026"));
 		mvc.perform(post("/chat/questions/research").header("Idempotency-Key", "x").header("Authorization", reissued)
 						.contentType("application/json").content("{\"intent\":\"GENERAL\"}"))
-				.andExpect(jsonPath("$.code").value("CHAT-024"));
+				.andExpect(jsonPath("$.code").value("CHAT-026"));
 		assertThat(attemptCount(member)).isEqualTo(2);
 
 		mvc.perform(question().header("Authorization", bearer(other))).andExpect(status().isAccepted());

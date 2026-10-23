@@ -10,6 +10,7 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.service.LlmService;
+import com.ubot.monitoring.faqmonitoring.config.AiReviewProperties;
 import com.ubot.monitoring.faqmonitoring.dto.model.improvelayer.DuplicateReviewResult;
 import com.ubot.monitoring.faqmonitoring.format.DuplicateSuspectedReviewFormat;
 import com.ubot.monitoring.faqmonitoring.format.LowRagQualityReviewFormat;
@@ -21,7 +22,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class AiReviewLlmServiceTest {
@@ -32,8 +32,7 @@ class AiReviewLlmServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new AiReviewLlmService(llmService);
-		ReflectionTestUtils.setField(service, "maxLlmQueueWaitMillis", 1_500L);
+		service = new AiReviewLlmService(llmService, new AiReviewProperties(5, 20, 5, 20, 5, 1_500L));
 	}
 
 	@Test

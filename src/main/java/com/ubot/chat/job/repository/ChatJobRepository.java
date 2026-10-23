@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ChatJobRepository extends JpaRepository<ChatJob, Long> {
+	Optional<ChatJob> findByAttemptId(Long attemptId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select j from ChatJob j where j.id = :jobId")
 	Optional<ChatJob> findJobForLock(@Param("jobId") Long jobId);

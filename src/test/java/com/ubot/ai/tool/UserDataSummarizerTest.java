@@ -199,8 +199,8 @@ class UserDataSummarizerTest {
                 new SubscriptionAddonResponseDto(2L, 11L, "지니뮤직", 7900, SubscriptionAddonStatus.ACTIVE, joined, null),
                 new SubscriptionAddonResponseDto(3L, 12L, "해지된 서비스", 1100, SubscriptionAddonStatus.CANCELED, joined, joined)));
         when(subscriptionService.getMyBundleList(USER_ID, 1L)).thenReturn(List.of(
-                new SubscriptionBundleResponseDto(1L, 20L, "인터넷 결합", 5500, SubscriptionBundleStatus.ACTIVE, joined, null),
-                new SubscriptionBundleResponseDto(2L, 21L, "끝난 결합", 1000, SubscriptionBundleStatus.ENDED, joined, joined)));
+                new SubscriptionBundleResponseDto(1L, 20L, "인터넷 결합", 5500, SubscriptionBundleStatus.ACTIVE, joined, null, null),
+                new SubscriptionBundleResponseDto(2L, 21L, "끝난 결합", 1000, SubscriptionBundleStatus.ENDED, joined, joined, null)));
         when(subscriptionService.getMyRoamingList(USER_ID, 1L)).thenReturn(List.of(
                 roaming("일본 데이터 로밍", SubscriptionRoamingStatus.SCHEDULED),
                 roaming("지난 로밍", SubscriptionRoamingStatus.EXPIRED)));

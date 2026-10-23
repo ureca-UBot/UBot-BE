@@ -12,6 +12,7 @@ import com.ubot.chat.job.dto.ChatRequestContext;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.repository.ChatJobQueueRepository;
+import com.ubot.chat.job.repository.ChatJobQueueRepository.Claim;
 import com.ubot.chat.job.repository.ChatJobRepository;
 import com.ubot.chat.job.stream.ChatJobMessage;
 import com.ubot.chat.job.stream.ChatJobResultStore;
@@ -134,7 +135,7 @@ class ChatJobStreamIntegrationTest {
 		ChatJob job = queueJob("질문");
 		LocalDateTime first = now();
 
-		assertThat(queue.claim(job.getId(), first)).contains(first);
+		assertThat(queue.claim(job.getId(), first).map(Claim::startedAt)).contains(first);
 		assertThat(queue.claim(job.getId(), now())).as("이미 RUNNING").isEmpty();
 		assertThat(jobs.findById(job.getId())).get().satisfies(found -> {
 			assertThat(found.getStatus()).isEqualTo(ChatJobStatus.RUNNING);
@@ -148,17 +149,17 @@ class ChatJobStreamIntegrationTest {
 		ChatJob job = queueJob("질문");
 		int workers = 8;
 		var barrier = new CyclicBarrier(workers);
-		List<Future<Optional<LocalDateTime>>> futures = new ArrayList<>();
+		List<Future<Optional<Claim>>> futures = new ArrayList<>();
 		try (var executor = Executors.newFixedThreadPool(workers)) {
 			for (int index = 0; index < workers; index++) {
-				Callable<Optional<LocalDateTime>> claim = () -> {
+				Callable<Optional<Claim>> claim = () -> {
 					barrier.await(5, TimeUnit.SECONDS);
 					return queue.claim(job.getId(), now());
 				};
 				futures.add(executor.submit(claim));
 			}
 			int claimed = 0;
-			for (Future<Optional<LocalDateTime>> future : futures) {
+			for (Future<Optional<Claim>> future : futures) {
 				if (future.get(10, TimeUnit.SECONDS).isPresent()) {
 					claimed++;
 				}
@@ -331,7 +332,7 @@ class ChatJobStreamIntegrationTest {
 		LocalDateTime takenAt = now();
 
 		assertThat(queue.takeOver(job.getId(), takenAt, stuckAt)).as("기준 시각 전에 시작하지 않음").isEmpty();
-		assertThat(queue.takeOver(job.getId(), takenAt, takenAt.minusMinutes(2))).contains(takenAt);
+		assertThat(queue.takeOver(job.getId(), takenAt, takenAt.minusMinutes(2)).map(Claim::startedAt)).contains(takenAt);
 		assertThat(queue.takeOver(job.getId(), now(), now().minusMinutes(2))).as("방금 넘겨받은 실행").isEmpty();
 
 		assertThat(jobs.findById(job.getId())).get().satisfies(found -> {
@@ -382,7 +383,7 @@ class ChatJobStreamIntegrationTest {
 		ChatJob job = queueJob("진행 단계");
 		assertThat(jobs.findById(job.getId()).orElseThrow().getPhase()).isEqualTo(Phase.WAITING);
 		assertThat(job.getDeadlineAt()).isEqualTo(job.getPhaseUpdatedAt().plus(Duration.ofMinutes(10)));
-		LocalDateTime started = queue.claim(job.getId(), now()).orElseThrow();
+		LocalDateTime started = queue.claim(job.getId(), now()).orElseThrow().startedAt();
 		LocalDateTime deadline = started.plusSeconds(180);
 		for (Phase phase : List.of(Phase.SEARCHING, Phase.COLLECTING_CONTEXT, Phase.WAITING_FOR_MODEL, Phase.GENERATING)) {
 			assertThat(queue.updatePhase(job.getId(), started, phase)).isEqualTo(1);
@@ -396,9 +397,9 @@ class ChatJobStreamIntegrationTest {
 	@Test
 	void previousOwnerAndFinishedJobCannotUpdatePhase() {
 		ChatJob job = queueJob("실행 권한");
-		LocalDateTime old = queue.claim(job.getId(), now().minusMinutes(10)).orElseThrow();
+		LocalDateTime old = queue.claim(job.getId(), now().minusMinutes(10)).orElseThrow().startedAt();
 		queue.updatePhase(job.getId(), old, Phase.GENERATING);
-		LocalDateTime current = queue.takeOver(job.getId(), now(), now().minusMinutes(1)).orElseThrow();
+		LocalDateTime current = queue.takeOver(job.getId(), now(), now().minusMinutes(1)).orElseThrow().startedAt();
 		assertThat(queue.updatePhase(job.getId(), old, Phase.GENERATING)).isZero();
 		assertThat(queue.updatePhase(job.getId(), current, Phase.SEARCHING)).isEqualTo(1);
 		ChatJob running = jobs.findById(job.getId()).orElseThrow();
@@ -414,12 +415,29 @@ class ChatJobStreamIntegrationTest {
 	@Test
 	void releaseReturnsToWaitingWithOriginalQueueLimit() {
 		ChatJob job = queueJob("반납");
-		LocalDateTime started = queue.claim(job.getId(), now()).orElseThrow();
+		LocalDateTime started = queue.claim(job.getId(), now()).orElseThrow().startedAt();
 		queue.updatePhase(job.getId(), started, Phase.GENERATING);
 		assertThat(queue.release(job.getId(), started)).isEqualTo(1);
 		ChatJob released = jobs.findById(job.getId()).orElseThrow();
 		assertThat(released.getPhase()).isEqualTo(Phase.WAITING);
 		assertThat(released.getDeadlineAt()).isEqualTo(job.getDeadlineAt());
+	}
+
+	@Test
+	void claimAndTakeoverCannotExtendOriginalTotalDeadline() {
+		ChatJob job = queueJob("복구 전체 기한");
+		jdbc.update("update chat_jobs set created_at=CURRENT_TIMESTAMP-interval '9 minutes 50 seconds', "
+				+ "deadline_at=CURRENT_TIMESTAMP+interval '10 seconds' where job_id=?", job.getId());
+		LocalDateTime total = jobs.findById(job.getId()).orElseThrow().getCreatedAt().plusMinutes(10);
+		Claim claimed = queue.claim(job.getId(), now()).orElseThrow();
+		// Worker가 받는 마감과 상태 조회에 저장된 마감이 같은 값임
+		assertThat(claimed.deadline()).isEqualTo(total);
+		assertThat(jobs.findById(job.getId()).orElseThrow().getDeadlineAt()).isEqualTo(total);
+		LocalDateTime started = claimed.startedAt();
+		Claim taken = queue.takeOver(job.getId(), started.plusSeconds(3), started.plusSeconds(1)).orElseThrow();
+		assertThat(taken.startedAt()).isEqualTo(started.plusSeconds(3));
+		assertThat(taken.deadline()).isEqualTo(total);
+		assertThat(jobs.findById(job.getId()).orElseThrow().getDeadlineAt()).isEqualTo(total);
 	}
 
 	@Test
@@ -441,7 +459,7 @@ class ChatJobStreamIntegrationTest {
 		assertThat(queue.takeOver(job.getId(), current, current.minusMinutes(5))).isEmpty();
 		assertThat(queue.findRunningStartedBefore(current.minusMinutes(10), 100)).isEmpty();
 		jdbc.update("update chat_jobs set heartbeat_at = ? where job_id = ?", old, job.getId());
-		assertThat(queue.takeOver(job.getId(), current, current.minusMinutes(5))).contains(current);
+		assertThat(queue.takeOver(job.getId(), current, current.minusMinutes(5)).map(Claim::startedAt)).contains(current);
 		assertThat(queue.heartbeat(job.getId(), old, now())).isZero();
 	}
 

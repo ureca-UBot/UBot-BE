@@ -135,13 +135,16 @@ public class FaqMonitoringService {
 			Long administratorId
 	) {
 		Faq faq = findActiveFaq(faqId);
-		if (exclusionRepository.existsByFaqIdAndImprovementTypeAndFaqVersionAndReleasedAtIsNull(
-				faqId, request.improvementType(), faq.getVersion())) {
+		int inserted = exclusionRepository.insertActiveIfAbsent(
+				faqId,
+				request.improvementType().name(),
+				faq.getVersion(),
+				normalizeMemo(request.memo()),
+				administratorId
+		);
+		if (inserted == 0) {
 			return;
 		}
-		User administrator = userRepository.getReferenceById(administratorId);
-		exclusionRepository.save(FaqImprovementExclusion.exclude(
-				faq, request.improvementType(), normalizeMemo(request.memo()), administrator));
 		log.info("개선 필요 FAQ를 제외 처리했습니다. faqId={}, faqVersion={}, improvementType={}, administratorId={}",
 				faqId, faq.getVersion(), request.improvementType(), administratorId);
 	}
@@ -159,6 +162,14 @@ public class FaqMonitoringService {
 				exclusionId, administratorId);
 	}
 
+	@Transactional
+	public void deleteFaqImprovementExclusion(Long exclusionId) {
+		FaqImprovementExclusion exclusion = exclusionRepository.findById(exclusionId)
+				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_IMPROVEMENT_EXCLUSION_NOT_FOUND));
+		exclusionRepository.delete(exclusion);
+		log.info("개선 필요 FAQ 제외 이력을 삭제했습니다. exclusionId={}", exclusionId);
+	}
+
 	@Transactional(readOnly = true)
 	public PageResponseDto<FaqImprovementExclusionResponse> getFaqImprovementExclusions(int page, int size) {
 		return PageResponseDto.from(exclusionRepository.findAllUnreleased(
@@ -173,13 +184,6 @@ public class FaqMonitoringService {
 						exclusion.getExcludedAt(),
 						exclusion.getFaq().getVersion() != exclusion.getFaqVersion()
 				)));
-	}
-
-	@Transactional
-	public void deleteFaqImprovementExclusion(Long exclusionId) {
-		FaqImprovementExclusion exclusion = exclusionRepository.findById(exclusionId)
-				.orElseThrow(() -> new FaqException(FaqErrorCode.FAQ_IMPROVEMENT_EXCLUSION_NOT_FOUND));
-		exclusionRepository.delete(exclusion);
 	}
 
 	@Transactional(readOnly = true)

@@ -25,8 +25,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -83,6 +83,14 @@ public class FaqMonitoringController {
 		return ApiResponse.success(faqMonitoringService.getFaqImprovementExclusionHistory(page, size));
 	}
 
+	@DeleteMapping("/improvement-exclusions/{exclusionId}")
+	public ApiResponse<Void> deleteFaqImprovementExclusion(
+			@PathVariable("exclusionId") @Positive Long exclusionId
+	) {
+		faqMonitoringService.deleteFaqImprovementExclusion(exclusionId);
+		return ApiResponse.success(null);
+	}
+
 	@GetMapping("/improvements/{faqId}/duplicates")
 	public ApiResponse<List<FaqDuplicateCandidate>> getDuplicateCandidates(
 			@PathVariable("faqId") @Positive Long faqId
@@ -106,14 +114,6 @@ public class FaqMonitoringController {
 			@AuthenticationPrincipal CustomUserDetails administrator
 	) {
 		faqMonitoringService.releaseFaqImprovementExclusion(exclusionId, administrator.getUserId());
-		return ApiResponse.success(null);
-	}
-
-	@DeleteMapping("/improvement-exclusions/{exclusionId}")
-	public ApiResponse<Void> deleteFaqImprovementExclusion(
-			@PathVariable("exclusionId") @Positive Long exclusionId
-	) {
-		faqMonitoringService.deleteFaqImprovementExclusion(exclusionId);
 		return ApiResponse.success(null);
 	}
 }

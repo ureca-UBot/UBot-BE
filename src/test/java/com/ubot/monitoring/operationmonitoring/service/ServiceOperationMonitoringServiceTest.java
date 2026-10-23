@@ -1,6 +1,7 @@
 package com.ubot.monitoring.operationmonitoring.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
@@ -10,6 +11,8 @@ import com.ubot.monitoring.operationmonitoring.PrometheusQueryClient;
 import com.ubot.monitoring.operationmonitoring.PrometheusQueryClient.PrometheusPoint;
 import com.ubot.monitoring.operationmonitoring.PrometheusQueryClient.PrometheusSeries;
 import com.ubot.monitoring.operationmonitoring.ServiceMonitoringRange;
+import com.ubot.monitoring.operationmonitoring.exception.OperationMonitoringErrorCode;
+import com.ubot.monitoring.operationmonitoring.exception.OperationMonitoringException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -101,6 +104,57 @@ class ServiceOperationMonitoringServiceTest {
 
     private PrometheusSeries series(Map<String, String> labels, double value) {
         return new PrometheusSeries(labels, List.of(new PrometheusPoint(AT, value)));
+    }
+
+    @Test
+    @DisplayName("작업·LLM·검색·임베딩·DB·Redis 지표를 조회 기간 기준 질의로 채우고, 데이터가 없으면 null로 둔다")
+    void assemblesOperationalSections() {
+        when(prometheusQueryClient.query(any(), any())).thenAnswer(invocation -> {
+            String query = invocation.getArgument(0);
+            if (query.contains("chat_jobs_submitted_total{type=\"retry\"}[1h]")) return List.of(series(Map.of(), 0.25));
+            if (query.contains("by (code)")) {
+                return List.of(series(Map.of("code", "CHAT-012"), 0.1), series(Map.of("code", "CHAT-016"), 0.05));
+            }
+            if (query.contains("by (reason)")) return List.of(series(Map.of("reason", "heartbeat"), 2.0));
+            if (query.contains("llm_requests_seconds_bucket{kind=\"answer\"}[1h]")) return List.of(series(Map.of(), 4.2));
+            if (query.contains("llm_concurrency_limit{role!=\"api\"}")) return List.of(series(Map.of(), 6.0));
+            if (query.contains("faq_retrieval_top_similarity_bucket[1h])) by (le)")) {
+                return List.of(series(Map.of("le", "0.6"), 3.0), series(Map.of("le", "+Inf"), 10.0));
+            }
+            if (query.equals("max(faq_embeddings_missing)")) return List.of(series(Map.of(), 7.0));
+            if (query.contains("redis_stream_group_messages_pending{stream=\"chat:jobs\"}")) return List.of(series(Map.of(), 3.0));
+            if (query.equals("max(pg_stat_activity_max_tx_duration)")) return List.of(series(Map.of(), 12.0));
+            return List.of();
+        });
+        when(prometheusQueryClient.queryRange(any(), any(), any(), any())).thenReturn(List.of());
+
+        var overview = service.getOverview(ServiceMonitoringRange.ONE_HOUR);
+
+        assertThat(overview.worker().retryRatio()).isEqualTo(0.25);
+        assertThat(overview.worker().failureRatioByCode()).containsEntry("CHAT-012", 0.1).containsEntry("CHAT-016", 0.05);
+        assertThat(overview.worker().reclaimsByReason()).containsEntry("heartbeat", 2.0);
+        assertThat(overview.llm().p95AnswerSeconds()).isEqualTo(4.2);
+        assertThat(overview.llm().concurrencyLimit()).isEqualTo(6.0);
+        assertThat(overview.llm().timeoutRatio()).as("데이터가 없으면 null").isNull();
+        assertThat(overview.retrieval().topSimilarityBuckets()).containsEntry("0.6", 3.0).containsEntry("+Inf", 10.0);
+        assertThat(overview.embedding().faqMissing()).isEqualTo(7.0);
+        assertThat(overview.database().longestTransactionSeconds()).isEqualTo(12.0);
+        assertThat(overview.redis().pendingMessages()).isEqualTo(3.0);
+    }
+
+    @Test
+    @DisplayName("질의를 동시에 보내도 Prometheus 장애는 순서대로 보낼 때와 같은 예외로 알린다")
+    void propagatesPrometheusFailureFromParallelQueries() {
+        when(prometheusQueryClient.query(any(), any())).thenAnswer(invocation -> {
+            if (invocation.<String>getArgument(0).contains("llm_concurrency_limit")) {
+                throw new OperationMonitoringException(OperationMonitoringErrorCode.PROMETHEUS_UNAVAILABLE);
+            }
+            return List.of();
+        });
+        when(prometheusQueryClient.queryRange(any(), any(), any(), any())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.getOverview(ServiceMonitoringRange.ONE_HOUR))
+                .isInstanceOf(OperationMonitoringException.class);
     }
 
     @Test

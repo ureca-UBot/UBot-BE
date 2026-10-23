@@ -4,15 +4,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ubot.ai.config.AiRuntimeConfig;
 import com.ubot.embedding.client.EmbeddingClient;
+import com.ubot.embedding.client.MeteredEmbeddingClient;
 import com.ubot.embedding.client.OllamaEmbeddingClient;
 import com.ubot.embedding.client.OpenAiCompatibleEmbeddingClient;
 import com.ubot.embedding.service.EmbeddingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.ApplicationContext;
 import org.springframework.web.client.RestClient;
 
 class EmbeddingConfigTest {
+
+    // 빈은 지표 데코레이터이므로 그 안의 실제 구현체를 확인함
+    private static EmbeddingClient selected(ApplicationContext context) {
+        return ((MeteredEmbeddingClient) context.getBean(EmbeddingClient.class)).delegate();
+    }
 
     private final ApplicationContextRunner contextRunner =
             new ApplicationContextRunner()
@@ -45,7 +52,7 @@ class EmbeddingConfigTest {
                             .hasNotFailed()
                             .hasSingleBean(EmbeddingClient.class);
 
-                    assertThat(context.getBean(EmbeddingClient.class))
+                    assertThat(selected(context))
                             .isInstanceOf(OllamaEmbeddingClient.class);
                 });
     }
@@ -59,7 +66,7 @@ class EmbeddingConfigTest {
                             .hasNotFailed()
                             .hasSingleBean(EmbeddingClient.class);
 
-                    assertThat(context.getBean(EmbeddingClient.class))
+                    assertThat(selected(context))
                             .isInstanceOf(OpenAiCompatibleEmbeddingClient.class);
                 });
     }
@@ -134,7 +141,7 @@ class EmbeddingConfigTest {
                             .hasNotFailed()
                             .hasSingleBean(EmbeddingClient.class);
 
-                    assertThat(context.getBean(EmbeddingClient.class))
+                    assertThat(selected(context))
                             .isInstanceOf(OllamaEmbeddingClient.class);
                 });
     }
