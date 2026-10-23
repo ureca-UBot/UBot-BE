@@ -116,4 +116,27 @@ class ReviewRepositoryTest {
 						&& sql.contains("lease_until IS NULL OR lease_until < LOCALTIMESTAMP")),
 				eq(Boolean.class));
 	}
+
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(ints = {1, 2})
+	void 준비_실패도_기존_재시도_대기시간과_사용권_반납을_재사용한다(int failures) {
+		UUID token = UUID.randomUUID();
+		when(jdbc.queryForObject(contains("consecutiveFailures"), eq(Integer.class), eq(9L))).thenReturn(failures);
+		repository.retryAnalysis(9, token, new Source(1, "one", "질문", null), "LLM-004");
+		int delay = failures == 1 ? 10 : 30;
+		verify(jdbc).update(contains("make_interval(secs=>?)"), eq(delay), eq(delay), eq(9L), eq(9L), eq(token));
+		assertThat(mockingDetails(jdbc).getInvocations().stream().map(i -> i.getArgument(0, String.class)))
+				.noneMatch(sql -> sql.contains("UPDATE guard_review_items"));
+	}
+
+	@Test
+	void 최초_시도_포함_세번_실패하면_재시도를_예약하지_않는다() {
+		UUID token = UUID.randomUUID();
+		when(jdbc.queryForObject(contains("consecutiveFailures"), eq(Integer.class), eq(9L))).thenReturn(3);
+		repository.retryAnalysis(9, token, new Source(1, "one", "질문", null), "LLM-004");
+		verify(jdbc).update(contains("UPDATE guard_review_items"), eq("LLM-004"), eq(1L), eq(9L));
+		assertThat(mockingDetails(jdbc).getInvocations().stream().map(i -> i.getArgument(0, String.class)))
+				.anyMatch(sql -> sql.contains("REVIEW_FAILED"))
+				.noneMatch(sql -> sql.contains("make_interval(secs=>?)"));
+	}
 }

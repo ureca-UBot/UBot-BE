@@ -74,7 +74,25 @@ public class ReviewWorker {
 			} else {
 				Source source = repository.nextSource(id);
 				if (source != null) {
-					try (var model = models.acquire(id, lease::check)) {
+					ReviewModelRuntime.Session prepared;
+					try {
+						prepared = models.acquire(id, lease::check);
+					} catch (ReviewModelRuntime.Busy busy) {
+						log.debug("관리자 모델 실행 자원을 기다립니다: 실행ID={}", id);
+						lease.check();
+						work.release(id, token);
+						deliverAlerts();
+						return;
+					} catch (LlmException e) {
+						if (e.getErrorCode() != LlmErrorCode.LLM_SERVICE_UNAVAILABLE
+								&& e.getErrorCode() != LlmErrorCode.LLM_TIMEOUT)
+							throw e;
+						lease.check();
+						log.warn("관리자 모델 준비를 대기 후 재시도합니다: 실행ID={}, 사유={}", id, e.getErrorCode().getCode());
+						work.retryAnalysis(id, token, source, e.getErrorCode().getCode());
+						return;
+					}
+					try (var model = prepared) {
 						while (source != null) {
 							lease.check();
 							model.ensureValid();
@@ -85,8 +103,6 @@ public class ReviewWorker {
 								break;
 							source = repository.nextSource(id);
 						}
-					} catch (ReviewModelRuntime.Busy busy) {
-						log.debug("관리자 모델 실행 자원을 기다립니다: 실행ID={}", id);
 					}
 				}
 				lease.check();

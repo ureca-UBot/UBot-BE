@@ -228,4 +228,76 @@ class ReviewWorkerTest {
 		verify(work).retryAnalysis(eq(9L), any(), eq(source), anyString());
 		verify(work, never()).release(anyLong(), any());
 	}
+
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.EnumSource(value = com.ubot.llm.exception.LlmErrorCode.class, names = {
+			"LLM_SERVICE_UNAVAILABLE", "LLM_TIMEOUT"})
+	void 일시적인_모델_준비_실패는_미처리_항목을_보존하고_기존_재시도로_연결한다(com.ubot.llm.exception.LlmErrorCode error) {
+		pending();
+		when(models.acquire(anyLong(), any())).thenThrow(new com.ubot.llm.exception.LlmException(error));
+		worker.poll();
+		verify(work).retryAnalysis(eq(9L), any(), eq(source), eq(error.getCode()));
+		verify(work, never()).failAnalysis(anyLong(), any());
+		verify(work, never()).finishSource(anyLong(), any(), any(), anyList(), anyBoolean());
+		verify(work, never()).release(anyLong(), any());
+		verifyNoInteractions(analyzer, embedding, model);
+		verify(lease).close();
+	}
+
+	@Test
+	void 준비_재시도_이후에는_같은_항목부터_분석을_계속한다() {
+		pending();
+		when(repository.nextSource(9)).thenReturn(source, source, null);
+		var secondLease = mock(ReviewLeaseService.Lease.class);
+		when(leases.maintain(anyLong(), any())).thenReturn(lease, secondLease);
+		when(models.acquire(anyLong(), any()))
+				.thenThrow(new com.ubot.llm.exception.LlmException(com.ubot.llm.exception.LlmErrorCode.LLM_TIMEOUT))
+				.thenReturn(model);
+		when(analyzer.analyze(source)).thenReturn(List.of());
+		worker.poll();
+		worker.poll();
+		var ordered = inOrder(work, analyzer, model);
+		ordered.verify(work).retryAnalysis(eq(9L), any(), eq(source), eq("LLM-004"));
+		ordered.verify(analyzer).analyze(source);
+		ordered.verify(work).finishSource(eq(9L), any(), eq(source), eq(List.of()), eq(true));
+		ordered.verify(model).close();
+		ordered.verify(work).release(eq(9L), any());
+		verify(work, never()).failAnalysis(anyLong(), any());
+		verify(lease).close();
+		verify(secondLease).close();
+	}
+
+	@Test
+	void 준비_실패와_동시에_작업_소유권을_잃으면_재시도_상태를_덮어쓰지않는다() {
+		pending();
+		doNothing().doThrow(new com.ubot.guardreview.exception.ReviewLeaseLostException()).when(lease).check();
+		when(models.acquire(anyLong(), any()))
+				.thenThrow(new com.ubot.llm.exception.LlmException(com.ubot.llm.exception.LlmErrorCode.LLM_TIMEOUT));
+		worker.poll();
+		verifyNoInteractions(work, analyzer, embedding);
+		verify(lease).close();
+	}
+
+	@Test
+	void 준비_설정_오류는_반복하지_않고_분석_실패로_남긴다() {
+		pending();
+		when(models.acquire(anyLong(), any())).thenThrow(new IllegalStateException("invalid configuration"));
+		worker.poll();
+		verify(work).failAnalysis(eq(9L), any());
+		verify(work, never()).retryAnalysis(anyLong(), any(), any(), anyString());
+		verify(work, never()).finishSource(anyLong(), any(), any(), anyList(), anyBoolean());
+		verifyNoInteractions(analyzer, embedding);
+		verify(lease).close();
+	}
+
+	@Test
+	void 준비_실패라도_출력_거절_코드는_재시도에_넣지않는다() {
+		pending();
+		when(models.acquire(anyLong(), any())).thenThrow(
+				new com.ubot.llm.exception.LlmException(com.ubot.llm.exception.LlmErrorCode.LLM_OUTPUT_REJECTED));
+		worker.poll();
+		verify(work, never()).retryAnalysis(anyLong(), any(), any(), anyString());
+		verify(work).failAnalysis(eq(9L), any());
+		verifyNoInteractions(analyzer, embedding);
+	}
 }
