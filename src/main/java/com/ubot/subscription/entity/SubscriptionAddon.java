@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 import com.ubot.addon.entity.AddonService;
 import com.ubot.common.entity.BusinessEntity;
+import com.ubot.subscription.enums.SubscriptionAddonSource;
 import com.ubot.subscription.enums.SubscriptionAddonStatus;
 
 import org.hibernate.annotations.DynamicUpdate;
@@ -66,6 +67,42 @@ public class SubscriptionAddon extends BusinessEntity {
 
 	@Column(name = "monthly_fee_snapshot")
 	private Integer monthlyFeeSnapshot;
+
+	@Builder.Default
+	@Enumerated(EnumType.STRING)
+	@Column(name = "source")
+	private SubscriptionAddonSource source = SubscriptionAddonSource.SUBSCRIBED;
+
+	public static SubscriptionAddon subscribe(Subscription subscription, AddonService addonService, LocalDateTime now) {
+		return SubscriptionAddon.builder()
+				.subscription(subscription)
+				.addonService(addonService)
+				.subscribedAt(now)
+				.serviceNameSnapshot(addonService.getName())
+				.monthlyFeeSnapshot(addonService.getMonthlyFee())
+				.build();
+	}
+
+	/** 요금제에 포함된 부가서비스. 요금제 요금에 들어 있으므로 0원으로 남긴다. */
+	public static SubscriptionAddon includeInPlan(Subscription subscription, AddonService addonService, LocalDateTime now) {
+		return SubscriptionAddon.builder()
+				.subscription(subscription)
+				.addonService(addonService)
+				.subscribedAt(now)
+				.serviceNameSnapshot(addonService.getName())
+				.monthlyFeeSnapshot(0)
+				.source(SubscriptionAddonSource.PLAN_INCLUDED)
+				.build();
+	}
+
+	public boolean isIncludedInPlan() {
+		return source == SubscriptionAddonSource.PLAN_INCLUDED;
+	}
+
+	public void cancel(LocalDateTime now) {
+		this.status = SubscriptionAddonStatus.CANCELED;
+		this.canceledAt = now;
+	}
 
 	@PrePersist
 	private void initializeMetadata() {

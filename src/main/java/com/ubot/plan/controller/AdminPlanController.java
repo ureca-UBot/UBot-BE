@@ -1,17 +1,20 @@
 package com.ubot.plan.controller;
 
 import java.net.URI;
+import java.util.List;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import com.ubot.addon.dto.response.AddonServiceResponseDto;
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.plan.dto.request.AdminPlanCreateRequestDto;
+import com.ubot.plan.dto.request.AdminPlanIncludedAddonRequestDto;
 import com.ubot.plan.dto.request.AdminPlanUpdateRequestDto;
 import com.ubot.plan.dto.request.AdminPlanStatusUpdateRequestDto;
 import com.ubot.plan.dto.response.AdminPlanResponseDto;
@@ -73,6 +76,15 @@ public class AdminPlanController {
             @Valid @RequestBody AdminPlanStatusUpdateRequestDto request
     ) {
         return ApiResponse.success(productService.changeStatus(administrator.getUserId(), planId, request));
+    }
+
+    @PutMapping("/{planId}/included-addons")
+    public ApiResponse<List<AddonServiceResponseDto>> replaceIncludedAddons(
+            @AuthenticationPrincipal CustomUserDetails administrator,
+            @PathVariable(name = "planId") @Positive Long planId,
+            @Valid @RequestBody AdminPlanIncludedAddonRequestDto request
+    ) {
+        return ApiResponse.success(productService.replaceIncludedAddons(administrator.getUserId(), planId, request));
     }
 
     @DeleteMapping("/{planId}")

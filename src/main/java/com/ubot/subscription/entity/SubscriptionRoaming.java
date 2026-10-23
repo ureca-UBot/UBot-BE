@@ -74,6 +74,24 @@ public class SubscriptionRoaming extends BusinessEntity {
 	@Column(name = "canceled_at")
 	private LocalDateTime canceledAt;
 
+	public static SubscriptionRoaming schedule(
+			Subscription subscription, RoamingProduct roamingProduct, LocalDate startDate, LocalDate endDate) {
+		return SubscriptionRoaming.builder()
+				.subscription(subscription)
+				.roamingProduct(roamingProduct)
+				.startDate(startDate)
+				.endDate(endDate)
+				.productNameSnapshot(roamingProduct.getName())
+				.dailyFeeSnapshot(roamingProduct.getDailyFee())
+				.dataAmountMbSnapshot(roamingProduct.getDataAmountMb())
+				.build();
+	}
+
+	public void cancel(LocalDateTime now) {
+		this.status = SubscriptionRoamingStatus.CANCELED;
+		this.canceledAt = now;
+	}
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();
