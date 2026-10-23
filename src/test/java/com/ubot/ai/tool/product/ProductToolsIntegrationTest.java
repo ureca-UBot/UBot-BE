@@ -55,7 +55,7 @@ class ProductToolsIntegrationTest {
             insertPlan(mark + " " + index, "FIVE_G", "GENERAL", 80000 - index * 5000, 10000L * index, false, 1000);
         }
 
-        String result = planTools.searchPlans(mark, null, null, null, null, null, null, toolContext);
+        String result = planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 요금제 7건 중 5건(월정액 낮은 순)");
         assertThat(result.indexOf(mark + " 7")).isLessThan(result.indexOf(mark + " 6"));
@@ -72,7 +72,7 @@ class ProductToolsIntegrationTest {
         insertPlan(mark + " 무제한", "FIVE_G", "GENERAL", 95000, null, true, null);
         insertPlan(mark + " 비싼무제한", "FIVE_G", "GENERAL", 130000, null, true, null);
 
-        String result = planTools.searchPlans(mark, null, null, 100000, null, null, "DATA_DESC", toolContext);
+        String result = planTools.searchPlans(mark, null, null, 100000, null, null, "DATA_DESC", null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 요금제 3건 중 3건(데이터 많은 순)").doesNotContain("비싼무제한");
         assertThat(result.indexOf(mark + " 무제한")).isLessThan(result.indexOf(mark + " 많은"));
@@ -87,7 +87,7 @@ class ProductToolsIntegrationTest {
         insertPlan(mark + " 오백", "LTE", "GENERAL", 3300, 500L, false, null);
         insertPlan(mark + " 무제한", "FIVE_G", "GENERAL", 70000, null, true, null);
 
-        String result = planTools.searchPlans(mark, null, null, null, 1, null, null, toolContext);
+        String result = planTools.searchPlans(mark, null, null, null, 1, null, null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 요금제 2건 중 2건").doesNotContain(mark + " 오백")
                 .contains("데이터 1GB(소진 후 차단)", "데이터 무제한");
@@ -98,7 +98,7 @@ class ProductToolsIntegrationTest {
     void plansIncludeContractDiscountedFee() {
         insertPlan(mark + " 칠만오천", "FIVE_G", "GENERAL", 75000, 150000L, false, 5000);
 
-        String result = planTools.searchPlans(mark, null, null, null, null, null, null, toolContext);
+        String result = planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
 
         assertThat(result).contains("월정액 75,000원", "선택약정 25% 할인 시 월 56,250원");
     }
@@ -109,7 +109,7 @@ class ProductToolsIntegrationTest {
         insertPlan(mark + " 청년", "FIVE_G", "YOUTH", 59000, 24000L, false, 1000,
                 "월 데이터 24GB, 소진 후 최대 1Mbps로 계속 이용. 가입 대상 만 19~34세.");
 
-        String result = planTools.searchPlans(mark, null, null, null, null, null, null, toolContext);
+        String result = planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
 
         assertThat(result).contains("| 가입 대상 만 19~34세.").doesNotContain("월 데이터 24GB");
     }
@@ -120,7 +120,7 @@ class ProductToolsIntegrationTest {
         insertAddon("Ubot " + mark + " 컬러링", 990, "통화연결음 변경. 월 990원, 부가세 포함. 해지 전까지 월 단위 유지.");
         insertAddon("Ubot " + mark + " 표시", 0, "발신번호 표시. 월 0원, 부가세 포함. 해지 전까지 월 단위 유지.");
 
-        String result = addonTools.searchAddons(mark, toolContext);
+        String result = addonTools.searchAddons(mark, null, toolContext);
 
         assertThat(result).contains(String.format(ProductToolResults.COMMON_LINE, "부가서비스", "부가세 포함. 해지 전까지 월 단위 유지."))
                 .contains("Ubot " + mark + " 표시 | 월 0원 | 발신번호 표시.\n")
@@ -136,11 +136,11 @@ class ProductToolsIntegrationTest {
         insertPlan(mark + " 청년", "FIVE_G", "YOUTH", 19000, 5000L, false, 400);
         insertPlan(mark + " 엘티이", "LTE", "YOUTH", 9000, 1000L, false, null);
 
-        assertThat(planTools.searchPlans(mark, "5G", "youth", null, null, null, null, toolContext))
+        assertThat(planTools.searchPlans(mark, "5G", "youth", null, null, null, null, null, toolContext))
                 .startsWith("조건에 맞는 요금제 1건 중 1건").contains(mark + " 청년", "대상 청년", "| 5G |");
-        assertThat(planTools.searchPlans(mark, "6G", null, null, null, null, null, toolContext))
+        assertThat(planTools.searchPlans(mark, "6G", null, null, null, null, null, null, toolContext))
                 .contains("'6G'은(는) networkType에 쓸 수 없는 값입니다");
-        assertThat(planTools.searchPlans(mark, null, null, null, null, null, "CHEAP", toolContext))
+        assertThat(planTools.searchPlans(mark, null, null, null, null, null, "CHEAP", null, toolContext))
                 .contains("MONTHLY_FEE_ASC, DATA_DESC");
     }
 
@@ -152,7 +152,7 @@ class ProductToolsIntegrationTest {
         insertPlan(mark + " 삭제", "LTE", "GENERAL", 5000, 1000L, false, null);
         jdbcTemplate.update("UPDATE plans SET deleted_at = CURRENT_TIMESTAMP WHERE name = ?", mark + " 삭제");
 
-        assertThat(planTools.searchPlans(mark, null, null, null, null, null, null, toolContext))
+        assertThat(planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext))
                 .isEqualTo(String.format(ProductToolResults.NOT_FOUND_MESSAGE, "요금제"));
         assertThat(recorder.cards()).isEmpty();
     }
@@ -163,7 +163,7 @@ class ProductToolsIntegrationTest {
         insertAddon("Ubot " + mark + " 비싼", 9900, "가상 영상 라이브러리");
         insertAddon("Ubot " + mark + " 무료", 0, "발신번호 표시");
 
-        String result = addonTools.searchAddons(mark, toolContext);
+        String result = addonTools.searchAddons(mark, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 부가서비스 2건 중 2건(월 요금 낮은 순)")
                 .contains("Ubot " + mark + " 무료 | 월 0원 | 발신번호 표시.");
@@ -178,7 +178,7 @@ class ProductToolsIntegrationTest {
         insertBundle("Ubot " + mark + " 2인", 6000);
         insertBundle("Ubot " + mark + " 4인", 20000);
 
-        String result = bundleTools.searchBundles("Ubot " + mark, toolContext);
+        String result = bundleTools.searchBundles("Ubot " + mark, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 결합 상품 2건 중 2건(할인액 큰 순)")
                 .contains("결합 전체 월 20,000원 할인");
@@ -192,7 +192,7 @@ class ProductToolsIntegrationTest {
         insertRoaming("Ubot 로밍 " + mark + " 베이직", 11000, 1000L, mark + "국");
         insertRoaming("Ubot 로밍 " + mark + " 다른나라", 11000, 1000L, mark + "도");
 
-        String result = roamingTools.searchRoaming(mark + "국", null, toolContext);
+        String result = roamingTools.searchRoaming(mark + "국", null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 로밍 상품 2건 중 2건(일 요금 낮은 순)")
                 .contains("일 11,000원 | 데이터 1GB").doesNotContain("다른나라");
@@ -204,7 +204,7 @@ class ProductToolsIntegrationTest {
     void roamingListsCountriesAndFindsCountryInsideInput() {
         insertRoaming("Ubot 로밍 " + mark + " 베이직", 11000, 1000L, mark + "국");
 
-        String result = roamingTools.searchRoaming(mark + "국 수도", null, toolContext);
+        String result = roamingTools.searchRoaming(mark + "국 수도", null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 로밍 상품 1건 중 1건").contains("로밍 상품을 판매하는 나라(")
                 .contains(mark + "국");
@@ -215,7 +215,7 @@ class ProductToolsIntegrationTest {
     void roamingRegionWithoutCountryReturnsCountryList() {
         insertRoaming("Ubot 로밍 " + mark + " 베이직", 11000, 1000L, mark + "국");
 
-        String result = roamingTools.searchRoaming("유럽", null, toolContext);
+        String result = roamingTools.searchRoaming("유럽", null, null, toolContext);
 
         assertThat(result).startsWith("'유럽'에 해당하는 나라의 로밍 상품이 없습니다.").contains(mark + "국")
                 .contains("country에 그 나라 이름을 넣어 다시 호출");
@@ -230,13 +230,38 @@ class ProductToolsIntegrationTest {
         insertPlan("Ubot 실속 " + mark, "LTE", "GENERAL", 3300, 500L, false, null, "USIM·eSIM 가입 가능. 약정 없음.");
         insertPlan("Ubot 밸런스 " + mark, "FIVE_G", "GENERAL", 59000, 24000L, false, 1000, "온라인·매장 가입 가능.");
 
-        String result = planTools.searchPlans(mark, null, null, null, null, null, null, toolContext);
+        String result = planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
 
         assertThat(result.lines().filter(line -> line.contains("다이렉트") || line.contains("실속")))
                 .hasSize(2).allSatisfy(line -> assertThat(line).contains(PlanTools.NO_CONTRACT_DISCOUNT)
                         .doesNotContain("% 할인 시"));
         assertThat(result.lines().filter(line -> line.contains("밸런스")))
                 .singleElement().satisfies(line -> assertThat(line).contains("선택약정 25% 할인 시 월 44,250원"));
+    }
+
+    @Test
+    @DisplayName("목록 요청이면 이름 조건을 주어로 한 목록을 기록하고, 목록 요청이 아니거나 한 건이면 기록하지 않는다")
+    void listRequestRecordsListing() {
+        insertPlan("Ubot " + mark + " 89", "FIVE_G", "GENERAL", 89000, null, true, null);
+        insertPlan("Ubot " + mark + " 99", "FIVE_G", "GENERAL", 99000, null, true, null);
+
+        planTools.searchPlans(mark + " 요금제", null, null, null, null, null, null, true, toolContext);
+
+        assertThat(recorder.listing()).hasValueSatisfying(listing -> {
+            assertThat(listing.subject()).isEqualTo(mark + " 요금제");
+            assertThat(listing.total()).isEqualTo(2);
+            assertThat(listing.answer()).startsWith(mark + " 요금제는 다음 2가지가 있습니다.\n- Ubot " + mark + " 89 (월 89,000원)");
+        });
+
+        var notRequested = new ProductDataRecorder();
+        planTools.searchPlans(mark, null, null, null, null, null, null, null,
+                new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, notRequested)));
+        assertThat(notRequested.listing()).isEmpty();
+
+        var single = new ProductDataRecorder();
+        planTools.searchPlans(mark + " 99", null, null, null, null, null, null, true,
+                new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, single)));
+        assertThat(single.listing()).isEmpty();
     }
 
     @Test
@@ -247,11 +272,11 @@ class ProductToolsIntegrationTest {
         insertBundle("Ubot " + mark + " 가족 4인 결합", 20000);
         insertRoaming("Ubot 로밍 " + mark + " 베이직", 11000, 1000L, mark + "국");
 
-        assertThat(planTools.searchPlans("밸런스" + mark + "59 요금제", null, null, null, null, null, null, toolContext))
+        assertThat(planTools.searchPlans("밸런스" + mark + "59 요금제", null, null, null, null, null, null, null, toolContext))
                 .startsWith("조건에 맞는 요금제 1건 중 1건");
-        assertThat(addonTools.searchAddons(mark + "컬러링 서비스", toolContext)).startsWith("조건에 맞는 부가서비스 1건 중 1건");
-        assertThat(bundleTools.searchBundles(mark + " 가족 결합", toolContext)).startsWith("조건에 맞는 결합 상품 1건 중 1건");
-        assertThat(roamingTools.searchRoaming(null, mark + " 베이직 로밍", toolContext)).startsWith("조건에 맞는 로밍 상품 1건 중 1건");
+        assertThat(addonTools.searchAddons(mark + "컬러링 서비스", null, toolContext)).startsWith("조건에 맞는 부가서비스 1건 중 1건");
+        assertThat(bundleTools.searchBundles(mark + " 가족 결합", null, toolContext)).startsWith("조건에 맞는 결합 상품 1건 중 1건");
+        assertThat(roamingTools.searchRoaming(null, mark + " 베이직 로밍", null, toolContext)).startsWith("조건에 맞는 로밍 상품 1건 중 1건");
     }
 
     @Test
@@ -259,7 +284,7 @@ class ProductToolsIntegrationTest {
     void recordsReturnedLines() {
         insertAddon("Ubot " + mark + " 컬러링", 990, "통화연결음 변경");
 
-        String result = addonTools.searchAddons(mark, toolContext);
+        String result = addonTools.searchAddons(mark, null, toolContext);
 
         assertThat(recorder.describe()).isNotBlank();
         assertThat(result).contains(recorder.describe());

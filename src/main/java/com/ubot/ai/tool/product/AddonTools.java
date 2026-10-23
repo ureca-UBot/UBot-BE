@@ -24,11 +24,17 @@ public class AddonTools {
     public String searchAddons(
             @ToolParam(description = "부가서비스 이름 일부. 예: 컬러링, 데이터 플러스. 사용자가 이름을 말하지 않았으면 비운다.",
                     required = false) String name,
+            @ToolParam(description = ProductToolResults.LIST_REQUESTED_DESCRIPTION, required = false) Boolean listRequested,
             ToolContext toolContext) {
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
         try {
-            return ProductToolResults.format(PRODUCT_LABEL, "월 요금 낮은 순", productCatalogQuery.searchAddons(name),
-                    AddonTools::line, AddonService::getDescription, AddonTools::card, recorder);
+            ProductCatalogQuery.Found<AddonService> found = productCatalogQuery.searchAddons(name);
+            log.info("부가서비스 조회 도구: name={}, listRequested={}, 결과={}건 중 {}건", name, listRequested,
+                    found.total(), found.items().size());
+            return ProductToolResults.format(PRODUCT_LABEL, "월 요금 낮은 순", found, AddonTools::line,
+                    AddonService::getDescription, AddonTools::card, recorder,
+                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false,
+                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.ADDON_WORDS)));
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("부가서비스 조회 도구 실패: name={}", name, exception);

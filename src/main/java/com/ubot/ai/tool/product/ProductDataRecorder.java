@@ -2,6 +2,7 @@ package com.ubot.ai.tool.product;
 
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
@@ -19,6 +20,7 @@ public class ProductDataRecorder {
     // 도구 실행과 결과 확인이 다른 스레드에서 일어나도 기록이 빠지지 않게 합니다.
     private final List<ProductCard> cards = new CopyOnWriteArrayList<>();
     private final List<String> lines = new CopyOnWriteArrayList<>();
+    private final List<Optional<ProductListing>> searches = new CopyOnWriteArrayList<>();
 
     /** line은 도구가 LLM에 돌려준 그 상품의 행입니다. */
     public void record(ProductCard card, String line) {
@@ -29,6 +31,19 @@ public class ProductDataRecorder {
     /** 특정 상품의 행은 아니지만 도구가 LLM에 돌려준 줄(여러 상품의 공통 조건)입니다. 카드는 만들지 않습니다. */
     public void note(String line) {
         lines.add(line);
+    }
+
+    /** 도구가 조회를 한 번 마쳤습니다. 목록 요청이 아니었거나 상품이 2개 미만이면 listing은 null입니다. */
+    public void searched(ProductListing listing) {
+        searches.add(Optional.ofNullable(listing));
+    }
+
+    /**
+     * 조회가 한 번뿐이었고 그 조회가 목록 요청이었을 때의 목록입니다.
+     * 여러 번 조회했으면 질문이 여러 상품을 묻는 것이라 목록 답변 하나로 대신하지 않습니다.
+     */
+    public Optional<ProductListing> listing() {
+        return searches.size() == 1 ? searches.getFirst() : Optional.empty();
     }
 
     public List<ProductCard> cards() {

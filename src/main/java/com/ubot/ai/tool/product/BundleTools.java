@@ -24,11 +24,17 @@ public class BundleTools {
     public String searchBundles(
             @ToolParam(description = "결합 상품 이름 일부. 예: 가족, 홈, 듀오. 사용자가 이름을 말하지 않았으면 비운다.",
                     required = false) String name,
+            @ToolParam(description = ProductToolResults.LIST_REQUESTED_DESCRIPTION, required = false) Boolean listRequested,
             ToolContext toolContext) {
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
         try {
-            return ProductToolResults.format(PRODUCT_LABEL, "할인액 큰 순", productCatalogQuery.searchBundles(name),
-                    BundleTools::line, BundleProduct::getDescription, BundleTools::card, recorder);
+            ProductCatalogQuery.Found<BundleProduct> found = productCatalogQuery.searchBundles(name);
+            log.info("결합 상품 조회 도구: name={}, listRequested={}, 결과={}건 중 {}건", name, listRequested,
+                    found.total(), found.items().size());
+            return ProductToolResults.format(PRODUCT_LABEL, "할인액 큰 순", found, BundleTools::line,
+                    BundleProduct::getDescription, BundleTools::card, recorder,
+                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false,
+                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.BUNDLE_WORDS)));
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("결합 상품 조회 도구 실패: name={}", name, exception);

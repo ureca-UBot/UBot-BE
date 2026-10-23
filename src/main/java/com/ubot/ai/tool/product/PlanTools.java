@@ -53,6 +53,7 @@ public class PlanTools {
             @ToolParam(description = "데이터 무제한 요금제만 찾으면 true.", required = false) Boolean dataUnlimited,
             @ToolParam(description = "정렬. MONTHLY_FEE_ASC(월정액 낮은 순, 기본) 또는 DATA_DESC(데이터 많은 순).", required = false)
             String sortBy,
+            @ToolParam(description = ProductToolResults.LIST_REQUESTED_DESCRIPTION, required = false) Boolean listRequested,
             ToolContext toolContext) {
         NetworkType network;
         PlanTargetGroup target;
@@ -62,6 +63,7 @@ public class PlanTools {
             target = parseEnum(PlanTargetGroup.class, targetGroup, "targetGroup");
             sort = parseEnum(PlanSort.class, sortBy, "sortBy");
         } catch (InvalidValueException exception) {
+            log.info("요금제 조회 도구 조건 오류: {}", exception.getMessage());
             return exception.getMessage();
         }
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
@@ -69,8 +71,16 @@ public class PlanTools {
             ProductCatalogQuery.Found<Plan> found = productCatalogQuery.searchPlans(
                     new PlanCondition(name, network, target, maxMonthlyFee, minDataGb, dataUnlimited, sort));
             String order = sort == PlanSort.DATA_DESC ? "데이터 많은 순" : "월정액 낮은 순";
+            log.info("요금제 조회 도구: name={}, networkType={}, targetGroup={}, maxMonthlyFee={}, minDataGb={}, "
+                    + "dataUnlimited={}, sortBy={}, listRequested={}, 결과={}건 중 {}건", name, networkType, targetGroup,
+                    maxMonthlyFee, minDataGb, dataUnlimited, sortBy, listRequested, found.total(), found.items().size());
+            String listSubject = ProductToolResults.listSubject(listRequested, PRODUCT_LABEL,
+                    maxMonthlyFee != null || minDataGb != null || Boolean.FALSE.equals(dataUnlimited),
+                    network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
+                    Boolean.TRUE.equals(dataUnlimited) ? "데이터 무제한" : null,
+                    ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
             return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, Plan::getDescription,
-                    PlanTools::card, recorder);
+                    PlanTools::card, recorder, listSubject);
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("요금제 조회 도구 실패: name={}, networkType={}, targetGroup={}", name, networkType, targetGroup, exception);

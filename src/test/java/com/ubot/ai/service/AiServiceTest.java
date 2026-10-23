@@ -23,6 +23,7 @@ import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductListing;
 import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -375,6 +376,59 @@ class AiServiceTest {
         // 59,000원은 프롬프트 자료가 아니라 도구 결과에만 있으므로, 검사 근거에 덧붙이지 않았다면 지워졌을 문장입니다.
         assertThat(answer.answer()).isEqualTo("Ubot 밸런스 59의 월정액은 59,000원입니다.");
         assertThat(answer.productData().products()).extracting(ProductCard::name).containsExactly("Ubot 밸런스 59");
+    }
+
+    @Test
+    void 목록_요청_조회가_한_번이면_LLM_답변_대신_목록_답변과_목록_전체_카드를_반환한다() {
+        var materials = AnswerMaterials.builder("프리미엄 요금제 종류 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createPrompt("프리미엄 요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of()))
+                .thenReturn(prompt);
+        // 도구가 목록 요청으로 두 요금제를 돌려줬는데 모델은 하나만 쓰고 정보가 부족하다고 답한 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            recordPremiumListing(invocation.getArgument(0));
+            return new LlmResponseDto("{\"answer\":\"Ubot 프리미엄 89만 확인되어 정보가 부족합니다.\","
+                    + "\"evidence_ids\":[\"12\"],\"status\":\"PARTIAL\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("""
+                프리미엄 요금제는 다음 2가지가 있습니다.
+                - Ubot 프리미엄 89 (월 89,000원)
+                - Ubot 프리미엄 99 (월 99,000원)""");
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.productData().products()).extracting(ProductCard::name)
+                .containsExactly("Ubot 프리미엄 89", "Ubot 프리미엄 99");
+    }
+
+    @Test
+    void 하위_질문이_여럿이면_목록_요청이어도_LLM_답변을_쓴다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("프리미엄 요금제 종류", List.of(), "프리미엄 요금제 종류랑"),
+                new SubQuestionFaqs("요금제 해지 방법", List.of(), "해지 방법 알려줘"));
+        var materials = AnswerMaterials.builder("프리미엄 요금제 종류랑 해지 방법 알려줘").enableTool(AiTool.PLAN_SEARCH)
+                .subQuestions(subQuestions).build();
+        when(promptService.createPrompt("프리미엄 요금제 종류랑 해지 방법 알려줘", List.of(), subQuestions, List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            recordPremiumListing(invocation.getArgument(0));
+            return new LlmResponseDto("{\"answer\":\"Ubot 프리미엄 89와 Ubot 프리미엄 99가 있습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"PARTIAL\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("Ubot 프리미엄 89와 Ubot 프리미엄 99가 있습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+    }
+
+    private static void recordPremiumListing(LlmRequestDto request) {
+        var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
+        var premium89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, "설명");
+        var premium99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, "설명");
+        recorder.record(premium89, "- Ubot 프리미엄 89 | 5G | 대상 일반 | 월정액 89,000원");
+        recorder.record(premium99, "- Ubot 프리미엄 99 | 5G | 대상 일반 | 월정액 99,000원");
+        recorder.searched(new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99)));
     }
 
     @Test

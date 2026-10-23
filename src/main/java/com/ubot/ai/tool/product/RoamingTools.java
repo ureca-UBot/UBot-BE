@@ -38,6 +38,7 @@ public class RoamingTools {
             String country,
             @ToolParam(description = "로밍 상품 이름 일부. 예: 베이직, 맥스. 사용자가 이름을 말하지 않았으면 비운다.", required = false)
             String name,
+            @ToolParam(description = ProductToolResults.LIST_REQUESTED_DESCRIPTION, required = false) Boolean listRequested,
             ToolContext toolContext) {
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
         try {
@@ -45,11 +46,16 @@ public class RoamingTools {
             String countriesLine = String.format(COUNTRIES_LINE, sold.size(), String.join(", ", sold));
             List<String> countries = StringUtils.hasText(country) ? countriesIn(country, sold) : List.of();
             if (StringUtils.hasText(country) && countries.isEmpty()) {
+                log.info("로밍 상품 조회 도구: country={}, name={}, 판매 국가 아님", country, name);
                 return String.format(COUNTRY_NOT_FOUND_MESSAGE, country.strip(), countriesLine);
             }
-            String result = ProductToolResults.format(PRODUCT_LABEL, "일 요금 낮은 순",
-                    productCatalogQuery.searchRoaming(countries, name), RoamingTools::line,
-                    RoamingProduct::getDescription, RoamingTools::card, recorder);
+            ProductCatalogQuery.Found<RoamingProduct> found = productCatalogQuery.searchRoaming(countries, name);
+            log.info("로밍 상품 조회 도구: country={}, name={}, listRequested={}, 결과={}건 중 {}건", country, name,
+                    listRequested, found.total(), found.items().size());
+            String result = ProductToolResults.format(PRODUCT_LABEL, "일 요금 낮은 순", found, RoamingTools::line,
+                    RoamingProduct::getDescription, RoamingTools::card, recorder,
+                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false, String.join(", ", countries),
+                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)));
             return result + "\n" + countriesLine;
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.

@@ -3,10 +3,12 @@ package com.ubot.ai.tool.product;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.ToolFormats;
 import com.ubot.ai.tool.product.ProductCatalogQuery.Found;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
 import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.util.StringUtils;
 
 /**
  * 상품 조회 도구 4개가 같이 쓰는 결과 문구입니다. 도구 결과는 호출을 정한 뒤에 읽으므로 여기 둔 안내는 호출 여부에 영향을 주지 않습니다.
@@ -20,6 +22,9 @@ final class ProductToolResults {
             + "조건을 바꿔 다시 물어봐 달라고 안내하세요.";
     static final String MORE_RESULTS_MESSAGE = "조건에 맞는 %s이(가) 더 있습니다. 나머지를 원하면 조건을 좁혀 물어봐 달라고 안내하세요.";
     static final String COMMON_LINE = "아래 %s 모두 공통: %s";
+    // 네 도구가 같은 뜻으로 받는 목록 요청 표시입니다. 표시가 있고 상품이 2개 이상이면 답변을 코드가 목록으로 만듭니다.
+    static final String LIST_REQUESTED_DESCRIPTION = "사용자가 상품 목록이나 종류를 물으면 true. "
+            + "특정 상품 하나의 정보를 물으면 비운다.";
 
     private ProductToolResults() {
     }
@@ -35,10 +40,14 @@ final class ProductToolResults {
      * 행 끝에는 다듬은 설명을 붙입니다(ProductDescriptions 참고). 상품 설명에는 "표시 월정액은 부가세 포함"처럼
      * 같은 종류 상품에 똑같이 들어간 문장이 많아, 돌려준 상품 모두에 있는 문장은 행마다 쓰지 않고 "공통" 줄에 한 번만 씁니다.
      * 조건에 맞는 상품이 LIMIT개보다 많으면 조건을 좁혀 달라고 안내하게 합니다.
+     * listSubject는 LLM이 목록 요청이라고 표시했을 때의 답변 주어이고(listSubject 참고), 아니면 null입니다.
+     * 목록 요청이고 상품이 2개 이상이면 AiService가 목록 답변을 만들 수 있게 기록합니다.
      */
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
-            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder) {
+            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            String listSubject) {
         if (found.items().isEmpty()) {
+            recorder.searched(null);
             return String.format(NOT_FOUND_MESSAGE, productLabel);
         }
         StringBuilder text = new StringBuilder();
@@ -64,7 +73,24 @@ final class ProductToolResults {
         if (found.total() > items.size()) {
             text.append(String.format(MORE_RESULTS_MESSAGE, productLabel));
         }
+        recorder.searched(listSubject == null || items.size() < 2 ? null
+                : new ProductListing(listSubject, order, found.total(), items.stream().map(card).toList()));
         return text.toString().stripTrailing();
+    }
+
+    /**
+     * 목록 답변의 주어입니다. 목록 요청이 아니면 null입니다.
+     * 이름·네트워크 같은 조건 말을 종류 이름 앞에 붙이고("프리미엄 요금제", "5G 청년 요금제"),
+     * 주어에 드러나지 않는 조건(월정액 상한 등)이 있거나 붙일 말이 없으면 "조건에 맞는"을 앞에 둡니다.
+     */
+    static String listSubject(Boolean listRequested, String productLabel, boolean hiddenConditions,
+            String... qualifiers) {
+        if (!Boolean.TRUE.equals(listRequested)) {
+            return null;
+        }
+        List<String> words = Arrays.stream(qualifiers).filter(StringUtils::hasText).map(String::strip).toList();
+        String subject = words.isEmpty() ? productLabel : String.join(" ", words) + " " + productLabel;
+        return hiddenConditions || words.isEmpty() ? "조건에 맞는 " + subject : subject;
     }
 
     /** DB 규칙(1GB = 1000MB)대로 보여 줍니다. 1000MB 이상이면 GB로, 소수점은 필요할 때만 씁니다. */

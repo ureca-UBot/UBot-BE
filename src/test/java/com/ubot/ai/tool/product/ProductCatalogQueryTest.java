@@ -17,6 +17,13 @@ class ProductCatalogQueryTest {
     }
 
     @Test
+    void displayNameKeepsSpacingForAnswerSubject() {
+        assertThat(ProductCatalogQuery.displayName("Ubot 프리미엄 요금제", ProductCatalogQuery.PLAN_WORDS)).isEqualTo("프리미엄");
+        assertThat(ProductCatalogQuery.displayName("밸런스 59", ProductCatalogQuery.PLAN_WORDS)).isEqualTo("밸런스 59");
+        assertThat(ProductCatalogQuery.displayName("요금제", ProductCatalogQuery.PLAN_WORDS)).isNull();
+    }
+
+    @Test
     void genericWordsDependOnProductType() {
         // 부가서비스 "Ubot 데이터 로밍 차단"에서는 "로밍"이 이름의 일부라 떼면 안 됩니다.
         assertThat(ProductCatalogQuery.nameKeyword("데이터 로밍 차단", ProductCatalogQuery.ADDON_WORDS)).isEqualTo("데이터로밍차단");

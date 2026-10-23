@@ -1,6 +1,7 @@
 package com.ubot.ai.tool.product;
 
 import com.ubot.ai.tool.AiTool;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -30,6 +31,11 @@ public enum ProductType {
     }
 
     /** FAQ 카테고리 이름에 맞는 종류입니다. 상품 카테고리가 아니면 비어 있습니다. */
+    /** 상품 조회 도구인지입니다. 상품 도구만 붙은 질문에서만 목록 답변을 코드가 만듭니다. */
+    public static boolean isProductTool(AiTool tool) {
+        return Arrays.stream(values()).anyMatch(type -> type.tool == tool);
+    }
+
     public static Optional<ProductType> fromCategory(String categoryName) {
         if (categoryName == null) {
             return Optional.empty();

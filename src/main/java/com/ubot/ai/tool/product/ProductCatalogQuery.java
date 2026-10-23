@@ -13,6 +13,7 @@ import com.ubot.plan.enums.PlanTargetGroup;
 import com.ubot.plan.repository.PlanRepository;
 import com.ubot.roaming.entity.RoamingProduct;
 import com.ubot.roaming.repository.RoamingProductRepository;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -144,13 +145,24 @@ public class ProductCatalogQuery {
      * 그 말을 남기면 "일본 로밍"이 "Ubot 로밍 일본 베이직"과 어순이 달라 걸리지 않습니다. 남는 말이 없으면 null입니다.
      */
     static String nameKeyword(String name, List<String> genericWords) {
+        String keyword = String.join("", nameWords(name, genericWords)).toLowerCase(Locale.ROOT);
+        return keyword.isEmpty() ? null : keyword;
+    }
+
+    /** nameKeyword와 같은 말을 떼되 띄어쓰기와 대소문자는 남깁니다. 목록 답변의 주어("프리미엄 요금제")에 씁니다. */
+    static String displayName(String name, List<String> genericWords) {
+        String display = String.join(" ", nameWords(name, genericWords));
+        return display.isEmpty() ? null : display;
+    }
+
+    private static List<String> nameWords(String name, List<String> genericWords) {
         if (!StringUtils.hasText(name)) {
-            return null;
+            return List.of();
         }
-        StringBuilder text = new StringBuilder();
+        List<String> words = new ArrayList<>();
         for (String token : name.strip().split("\\s+")) {
             String word = token.toLowerCase(Locale.ROOT).startsWith(BRAND) ? token.substring(BRAND.length()) : token;
-            if (genericWords.contains(word)) {
+            if (word.isEmpty() || genericWords.contains(word)) {
                 continue;
             }
             // "밸런스59요금제"처럼 붙여 쓴 경우 끝의 일반 단어 하나만 떼어 냅니다. 긴 말부터 보므로 "부가서비스"가 통째로 떨어집니다.
@@ -160,9 +172,8 @@ public class ProductCatalogQuery {
                     break;
                 }
             }
-            text.append(word);
+            words.add(word);
         }
-        String keyword = text.toString().toLowerCase(Locale.ROOT);
-        return keyword.isEmpty() ? null : keyword;
+        return words;
     }
 }
