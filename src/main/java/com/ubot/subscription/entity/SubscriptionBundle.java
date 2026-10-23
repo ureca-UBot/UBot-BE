@@ -71,7 +71,10 @@ public class SubscriptionBundle extends BusinessEntity {
 	@JoinColumn(name = "bundle_group_id")
 	private BundleGroup bundleGroup;
 
-	/** 결합 할인액은 대표 회선 기록에만 적고 구성 회선은 0원이다. */
+	/**
+	 * 결합 할인액은 대표 회선 기록에만 적고 구성 회선은 0원이다.
+	 * 가입 시점의 상품 할인액이며, 실제 적용 여부는 조회 시 그룹의 할인 판정을 따른다(SubscriptionBundleResponseDto).
+	 */
 	public static SubscriptionBundle join(Subscription subscription, BundleProduct bundleProduct,
 			BundleGroup bundleGroup, boolean representative, LocalDateTime now) {
 		return SubscriptionBundle.builder()

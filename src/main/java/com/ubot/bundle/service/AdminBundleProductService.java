@@ -41,6 +41,8 @@ public class AdminBundleProductService {
     private final HomeProductRepository homeProductRepository;
 
     public AdminBundleProductResponseDto createBundleProduct(Long administratorId, AdminBundleProductCreateRequestDto request) {
+        BundleType bundleType = request.bundleType() == null ? BundleType.ETC : request.bundleType();
+        validateHomeBundle(bundleType, request.homeProductId());
         if (productRepository.existsByCode(request.code())) {
             throw new BundleProductException(BundleProductErrorCode.DUPLICATE_CODE);
         }
@@ -50,7 +52,7 @@ public class AdminBundleProductService {
                 request.name().trim(),
                 normalizeDescription(request.description()),
                 request.discountAmount(),
-                request.bundleType() == null ? BundleType.ETC : request.bundleType(),
+                bundleType,
                 request.lineCount(),
                 getInternetProduct(request.homeProductId())
         );
@@ -82,6 +84,9 @@ public class AdminBundleProductService {
             Long administratorId, Long bundleProductId, AdminBundleProductUpdateRequestDto request
     ) {
         BundleProduct product = getUndeletedProduct(bundleProductId);
+        BundleType bundleType = request.bundleType() == null ? product.getBundleType() : request.bundleType();
+        validateHomeBundle(bundleType, request.homeProductId() == null && product.getHomeProduct() != null
+                ? product.getHomeProduct().getHomeProductId() : request.homeProductId());
         if (changesConditions(product, request) && subscriptionRepository.existsByBundleProductId(bundleProductId)) {
             throw new BundleProductException(BundleProductErrorCode.PRODUCT_IN_USE);
         }
@@ -90,7 +95,7 @@ public class AdminBundleProductService {
                 request.name().trim(),
                 normalizeDescription(request.description()),
                 request.discountAmount(),
-                request.bundleType() == null ? product.getBundleType() : request.bundleType(),
+                bundleType,
                 request.lineCount() == null ? product.getLineCount() : request.lineCount(),
                 request.homeProductId() == null ? product.getHomeProduct() : getInternetProduct(request.homeProductId())
         );
@@ -131,6 +136,13 @@ public class AdminBundleProductService {
                 .orElseThrow(() -> new BundleProductException(BundleProductErrorCode.INVALID_PRODUCT));
     }
 
+    // 홈 결합은 인터넷 상품이 있어야 할인을 판정할 수 있다. homeProductId는 반영 후의 최종 값이다.
+    private void validateHomeBundle(BundleType bundleType, Long homeProductId) {
+        if (bundleType == BundleType.HOME && homeProductId == null) {
+            throw new BundleProductException(BundleProductErrorCode.INVALID_PRODUCT);
+        }
+    }
+
     private String normalizeDescription(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
@@ -138,6 +150,7 @@ public class AdminBundleProductService {
     private boolean changesConditions(BundleProduct product, AdminBundleProductUpdateRequestDto request) {
         return !Objects.equals(product.getDescription(), normalizeDescription(request.description()))
                 || !Objects.equals(product.getDiscountAmount(), request.discountAmount())
+                || (request.bundleType() != null && product.getBundleType() != request.bundleType())
                 || (request.lineCount() != null && !Objects.equals(product.getLineCount(), request.lineCount()))
                 || (request.homeProductId() != null && (product.getHomeProduct() == null
                         || !Objects.equals(product.getHomeProduct().getHomeProductId(), request.homeProductId())));

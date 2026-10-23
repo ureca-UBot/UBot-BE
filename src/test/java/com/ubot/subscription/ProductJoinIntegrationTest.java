@@ -374,6 +374,9 @@ class ProductJoinIntegrationTest {
 				.andExpect(jsonPath("$.data.requiredLineCount").value(3))
 				.andExpect(jsonPath("$.data.discountApplied").value(false))
 				.andExpect(jsonPath("$.data.discountAmount").value(0)), "bundleGroupId");
+		// 회선 수를 채우기 전에는 대표 회선 기록의 할인액도 0원으로 보인다.
+		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
+				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(0));
 		String members = BASE + ownerLine + "/bundle-groups/" + groupId + "/members";
 		String secondMembers = BASE + ownerSecondLine + "/bundle-groups/" + groupId + "/members";
 		String otherMembers = BASE + otherLine + "/bundle-groups/" + groupId + "/members";
@@ -430,6 +433,8 @@ class ProductJoinIntegrationTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.lineCount").value(2))
 				.andExpect(jsonPath("$.data.discountApplied").value(false));
+		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
+				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(0));
 		mockMvc.perform(delete(members + "/" + ownerLine).with(as(owner)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data").doesNotExist());
@@ -462,11 +467,18 @@ class ProductJoinIntegrationTest {
 
 		mockMvc.perform(delete("/home-subscriptions/me/" + homeId).with(as(owner))).andExpect(status().isOk());
 		long internet100 = productId("home_products", "home_product_id", "UBOT_HOME_INTERNET_100");
-		send(post("/home-subscriptions/me"), owner, "{\"homeProductId\":" + internet100 + "}")
-				.andExpect(status().isCreated());
+		long home100Id = id(send(post("/home-subscriptions/me"), owner, "{\"homeProductId\":" + internet100 + "}")
+				.andExpect(status().isCreated()), "homeSubscriptionId");
 		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
+				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(3300))
 				.andExpect(jsonPath("$.data[0].group.discountApplied").value(true))
 				.andExpect(jsonPath("$.data[0].group.discountAmount").value(3300));
+
+		// 인터넷을 해지하면 대표 회선 기록의 할인액도 0원으로 보인다.
+		mockMvc.perform(delete("/home-subscriptions/me/" + home100Id).with(as(owner))).andExpect(status().isOk());
+		mockMvc.perform(get(BASE + ownerLine + "/bundles").with(as(owner)))
+				.andExpect(jsonPath("$.data[0].appliedDiscountAmount").value(0))
+				.andExpect(jsonPath("$.data[0].group.discountApplied").value(false));
 	}
 
 	@Test

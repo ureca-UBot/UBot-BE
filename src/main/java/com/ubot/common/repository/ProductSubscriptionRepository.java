@@ -47,4 +47,13 @@ public class ProductSubscriptionRepository {
 				SELECT EXISTS (SELECT 1 FROM bundle_products WHERE home_product_id = ? AND deleted_at IS NULL)
 				""", Boolean.class, homeProductId));
 	}
+
+	// 가입 이력이 있는 홈 결합이 연결한 인터넷 상품은 결합 조건이 바뀌지 않도록 조건 변경을 막는다.
+	public boolean existsBundleSubscriptionByHomeProductId(Long homeProductId) {
+		return Boolean.TRUE.equals(jdbcTemplate.queryForObject("""
+				SELECT EXISTS (SELECT 1 FROM subscription_bundles sb
+				    JOIN bundle_products bp ON bp.bundle_product_id = sb.bundle_product_id
+				    WHERE bp.home_product_id = ?)
+				""", Boolean.class, homeProductId));
+	}
 }

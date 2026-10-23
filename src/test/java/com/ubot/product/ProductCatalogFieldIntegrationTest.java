@@ -125,6 +125,46 @@ class ProductCatalogFieldIntegrationTest {
     }
 
     @Test
+    @DisplayName("홈 결합은 인터넷 상품 없이 등록하거나 수정할 수 없다")
+    void requiresInternetProductForHomeBundle() throws Exception {
+        send(post("/admin/bundle-products"), """
+                {"code":"FIELD_HOME_EMPTY","name":"인터넷 없는 홈 결합","discountAmount":1000,"bundleType":"HOME"}
+                """)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BUNDLE-003"));
+        long plainId = createdId(send(post("/admin/bundle-products"), """
+                {"code":"FIELD_TO_HOME","name":"기본 결합","discountAmount":1000}
+                """), "bundleProductId");
+        send(put("/admin/bundle-products/" + plainId), """
+                {"name":"기본 결합","discountAmount":1000,"bundleType":"HOME"}
+                """)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BUNDLE-003"));
+    }
+
+    @Test
+    @DisplayName("가입 이력이 있는 결합 상품은 결합 종류를 바꿀 수 없다")
+    void protectsBundleTypeInUse() throws Exception {
+        long bundleId = createdId(send(post("/admin/bundle-products"), """
+                {"code":"FIELD_TYPE","name":"가족 결합","discountAmount":1000,"bundleType":"FAMILY","lineCount":2}
+                """), "bundleProductId");
+        jdbc.update("""
+                INSERT INTO subscription_bundles (subscription_id, bundle_product_id, joined_at,
+                    product_name_snapshot, applied_discount_amount)
+                VALUES (?, ?, CURRENT_TIMESTAMP, '가족 결합', 1000)
+                """, insertSubscription(), bundleId);
+        send(put("/admin/bundle-products/" + bundleId), """
+                {"name":"가족 결합","discountAmount":1000,"bundleType":"DUO"}
+                """)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("BUNDLE-004"));
+        send(put("/admin/bundle-products/" + bundleId), """
+                {"name":"가족 결합 이름만 수정","discountAmount":1000,"bundleType":"FAMILY"}
+                """)
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("부가서비스 분류는 비우면 ETC로 등록하고, 수정 시 비우면 기존 값을 유지한다")
     void createsAndUpdatesAddonCategory() throws Exception {
         long addonId = createdId(send(post("/admin/addon-services"), """
@@ -140,6 +180,34 @@ class ProductCatalogFieldIntegrationTest {
                 """), "addonServiceId");
         mockMvc.perform(get("/addon-services/" + plainId))
                 .andExpect(jsonPath("$.data.category").value("ETC"));
+    }
+
+    @Test
+    @DisplayName("가입 이력이 있는 홈 결합이 연결한 인터넷 상품은 조건을 바꿀 수 없다")
+    void protectsInternetProductOfSubscribedHomeBundle() throws Exception {
+        long internetId = createdId(send(post("/admin/home-products"), """
+                {"code":"FIELD_INTERNET","name":"결합 인터넷","productType":"INTERNET","speedMbps":100,"monthlyFee":22000}
+                """), "homeProductId");
+        long bundleId = createdId(send(post("/admin/bundle-products"), """
+                {"code":"FIELD_HOME_LINKED","name":"홈 결합","discountAmount":3300,
+                 "bundleType":"HOME","lineCount":1,"homeProductId":%d}
+                """.formatted(internetId)), "bundleProductId");
+        // 결합 가입 이력이 없으면 연결만 되어 있어도 조건을 바꿀 수 있다.
+        send(put("/admin/home-products/" + internetId), """
+                {"name":"결합 인터넷","speedMbps":500,"monthlyFee":33000}
+                """)
+                .andExpect(status().isOk());
+
+        jdbc.update("""
+                INSERT INTO subscription_bundles (subscription_id, bundle_product_id, joined_at,
+                    product_name_snapshot, applied_discount_amount)
+                VALUES (?, ?, CURRENT_TIMESTAMP, '홈 결합', 3300)
+                """, insertSubscription(), bundleId);
+        send(put("/admin/home-products/" + internetId), """
+                {"name":"결합 인터넷","speedMbps":1000,"monthlyFee":44000}
+                """)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("HOME-004"));
     }
 
     @Test
@@ -179,6 +247,14 @@ class ProductCatalogFieldIntegrationTest {
         assertThat(home.getProductType()).isEqualTo(HomeProductType.INTERNET);
         assertThat(home.getHomeProduct().getMonthlyFee()).isEqualTo(22000);
         assertThat(home.getUser().getId()).isEqualTo(userId);
+    }
+
+    private long insertSubscription() {
+        return jdbc.queryForObject("""
+                INSERT INTO subscriptions (user_id, plan_id, phone_number, activated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP) RETURNING subscription_id
+                """, Long.class, administrator.getId(), id("plans", "plan_id", "UBOT_BALANCE_05", "plan_code"),
+                "019" + ThreadLocalRandom.current().nextInt(10_000_000, 100_000_000));
     }
 
     private ResultActions send(MockHttpServletRequestBuilder request, String body) throws Exception {

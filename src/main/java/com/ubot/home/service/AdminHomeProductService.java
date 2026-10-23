@@ -79,7 +79,9 @@ public class AdminHomeProductService {
     ) {
         HomeProduct product = getUndeletedProduct(homeProductId);
         validateSpeed(product.getProductType(), request.speedMbps());
-        if (changesConditions(product, request) && subscriptionRepository.existsByHomeProductId(homeProductId)) {
+        if (changesConditions(product, request)
+                && (subscriptionRepository.existsByHomeProductId(homeProductId)
+                        || subscriptionRepository.existsBundleSubscriptionByHomeProductId(homeProductId))) {
             throw new HomeProductException(HomeProductErrorCode.PRODUCT_IN_USE);
         }
         product.update(
