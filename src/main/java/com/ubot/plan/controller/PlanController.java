@@ -1,8 +1,11 @@
 package com.ubot.plan.controller;
 
+import java.util.List;
+
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import com.ubot.addon.dto.response.AddonServiceResponseDto;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
 import com.ubot.plan.dto.response.PlanDetailResponseDto;
@@ -34,5 +37,11 @@ public class PlanController {
     @GetMapping("/{planId}")
     public ApiResponse<PlanDetailResponseDto> getPlan(@PathVariable(name = "planId") @Positive Long planId) {
         return ApiResponse.success(productService.getPlan(planId));
+    }
+
+    @GetMapping("/{planId}/included-addons")
+    public ApiResponse<List<AddonServiceResponseDto>> getIncludedAddonList(
+            @PathVariable(name = "planId") @Positive Long planId) {
+        return ApiResponse.success(productService.getIncludedAddonList(planId));
     }
 }

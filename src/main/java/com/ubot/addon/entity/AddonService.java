@@ -1,6 +1,7 @@
 package com.ubot.addon.entity;
 
 import com.ubot.common.entity.AdminManagedEntity;
+import com.ubot.addon.enums.AddonCategory;
 import com.ubot.common.enums.MasterStatus;
 import com.ubot.user.entity.User;
 
@@ -43,6 +44,10 @@ public class AddonService extends AdminManagedEntity {
     private Integer monthlyFee;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "category")
+    private AddonCategory category;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private MasterStatus status;
 
@@ -51,13 +56,15 @@ public class AddonService extends AdminManagedEntity {
             String code,
             String name,
             String description,
-            Integer monthlyFee
+            Integer monthlyFee,
+            AddonCategory category
     ) {
         AddonService product = new AddonService();
         product.code = code;
         product.name = name;
         product.description = description;
         product.monthlyFee = monthlyFee;
+        product.category = category;
         product.status = MasterStatus.ACTIVE;
         product.initializeMetadata(administrator);
         return product;
@@ -67,11 +74,13 @@ public class AddonService extends AdminManagedEntity {
             User administrator,
             String name,
             String description,
-            Integer monthlyFee
+            Integer monthlyFee,
+            AddonCategory category
     ) {
         this.name = name;
         this.description = description;
         this.monthlyFee = monthlyFee;
+        this.category = category;
         markUpdated(administrator);
     }
 

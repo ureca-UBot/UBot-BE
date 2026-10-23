@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
 import com.ubot.addon.dto.response.AddonServiceResponseDto;
+import com.ubot.addon.enums.AddonCategory;
 import com.ubot.addon.service.AddonCatalogService;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,10 +25,11 @@ public class AddonServiceController {
     @GetMapping
     public ApiResponse<PageResponseDto<AddonServiceResponseDto>> getAddonServiceList(
             @RequestParam(name = "keyword", required = false) @Size(max = 100) String keyword,
+            @RequestParam(name = "category", required = false) AddonCategory category,
             @RequestParam(name = "page", defaultValue = "0") @Min(0) int page,
             @RequestParam(name = "size", defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return ApiResponse.success(productService.getAddonServiceList(keyword, page, size));
+        return ApiResponse.success(productService.getAddonServiceList(keyword, category, page, size));
     }
 
     @GetMapping("/{addonServiceId}")
