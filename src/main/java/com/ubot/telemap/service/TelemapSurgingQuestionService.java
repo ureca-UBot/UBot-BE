@@ -128,6 +128,58 @@ public class TelemapSurgingQuestionService {
                 alert.getId(), clusterId, region, questionCount);
     }
 
+    /** Outbox payload에 포함된 FAQ 검색 벡터를 사용해 외부 임베딩 호출 없이 등록한다. */
+    @Transactional
+    public void registerQuestion(long questionLogId, long profileId, PGvector vector) {
+        if (surgingQuestionRepository.existsByQuestionLogId(questionLogId)) return;
+
+        QuestionLog questionLog = questionLogRepository.findById(questionLogId)
+                .orElseThrow(() -> new TelemapException(TelemapErrorCode.QUESTION_LOG_NOT_FOUND));
+        RegionSido region = questionLog.getRegion();
+        if (region == null) return;
+        String question = questionText(questionLog);
+        LocalDateTime occurredAt = questionLog.getCreatedAt();
+
+        surgingClusterRepository.acquireRegionLock(lockKey(region, profileId));
+        if (surgingQuestionRepository.existsByQuestionLogId(questionLogId)) return;
+
+        telemapRetentionRepository.deleteExpiredClusters(
+                region, profileId,
+                occurredAt.minusMinutes(telemapProperties.getClusterMinimumAgeMinutes()),
+                occurredAt.minusMinutes(telemapProperties.getWindowMinutes())
+        );
+        long clusterId = telemapVectorRepository.findNearestClusterId(
+                        region, profileId, vector, telemapProperties.getClusterThreshold())
+                .orElseGet(() -> telemapVectorRepository.createCluster(
+                        region, question, profileId, vector, occurredAt));
+
+        SurgingQuestion surgingQuestion = surgingQuestionRepository.saveAndFlush(
+                SurgingQuestion.create(questionLog, surgingClusterRepository.getReferenceById(clusterId), occurredAt));
+        telemapVectorRepository.saveQuestionEmbedding(surgingQuestion.getId(), profileId, vector);
+        LocalDateTime windowEnd = telemapVectorRepository.updateClusterCentroid(clusterId, profileId, occurredAt);
+
+        if (surgingClusterRepository.existsByIdAndAlertedAtIsNotNull(clusterId)) return;
+        LocalDateTime windowStart = windowEnd.minusMinutes(telemapProperties.getWindowMinutes());
+        long questionCount = surgingQuestionRepository.countByClusterIdAndOccurredAtBetween(
+                clusterId, windowStart, windowEnd);
+        if (questionCount < telemapProperties.getCountThreshold()) return;
+        if (surgingClusterRepository.claimAlert(clusterId) == 0) return;
+
+        List<SurgingQuestionSnapshot> snapshots = new ArrayList<>(
+                surgingQuestionRepository.findRecentSnapshotsByClusterIdAndOccurredAtBetween(
+                        clusterId, windowStart, windowEnd, PageRequest.of(0, MAX_SNAPSHOT_COUNT)));
+        Collections.reverse(snapshots);
+        SurgingAlert alert = surgingAlertRepository.save(SurgingAlert.create(
+                region, snapshots, Math.toIntExact(questionCount), telemapProperties.getWindowMinutes()));
+        outboxEventRepository.enqueue(
+                OutboxEventType.SURGING_ALERT_LABEL,
+                String.valueOf(alert.getId()),
+                Map.of("alertId", alert.getId())
+        );
+        log.info("Surging question detected: alertId={}, clusterId={}, region={}, count={}",
+                alert.getId(), clusterId, region, questionCount);
+    }
+
     private String questionText(QuestionLog questionLog) {
         String subQuestion = questionLog.getSubQuestion();
         if (subQuestion != null && !subQuestion.isBlank()) return subQuestion;
