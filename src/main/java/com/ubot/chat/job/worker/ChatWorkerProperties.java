@@ -19,32 +19,15 @@ public record ChatWorkerProperties(
 		Duration resultTtl,
 		Duration executionTimeout,
 		Duration heartbeatTimeout,
-		Duration shutdownWait
+		Duration shutdownWait,
+		Duration modelRetryBackoff
 ) {
-	private static final Duration DEFAULT_HEARTBEAT_TIMEOUT = Duration.ofMinutes(1);
-	private static final Duration DEFAULT_SHUTDOWN_WAIT = Duration.ofSeconds(20);
-
-	public ChatWorkerProperties(int concurrency, boolean pollingEnabled, Duration readBlock, String consumerName,
-			Duration maxQueueWait, Duration republishAfter, Duration reclaimIdle, int maxDeliveries,
-			Duration recoveryInterval, Duration resultTtl) {
-		this(concurrency, pollingEnabled, readBlock, consumerName, maxQueueWait, republishAfter, reclaimIdle,
-				maxDeliveries, recoveryInterval, resultTtl, Duration.ofSeconds(180));
-	}
-
-	public ChatWorkerProperties(int concurrency, boolean pollingEnabled, Duration readBlock, String consumerName,
-			Duration maxQueueWait, Duration republishAfter, Duration reclaimIdle, int maxDeliveries,
-			Duration recoveryInterval, Duration resultTtl, Duration executionTimeout) {
-		this(concurrency, pollingEnabled, readBlock, consumerName, maxQueueWait, republishAfter, reclaimIdle,
-				maxDeliveries, recoveryInterval, resultTtl, executionTimeout,
-				reclaimIdle != null && reclaimIdle.compareTo(DEFAULT_HEARTBEAT_TIMEOUT) < 0 ? reclaimIdle : DEFAULT_HEARTBEAT_TIMEOUT,
-				DEFAULT_SHUTDOWN_WAIT);
-	}
-
-	@org.springframework.boot.context.properties.bind.ConstructorBinding
+	// 기본값은 application.yml이 정함. 테스트는 모든 값을 직접 넘김
 	public ChatWorkerProperties {
 		requirePositive("execution-timeout", executionTimeout);
 		requirePositive("heartbeat-timeout", heartbeatTimeout);
 		requirePositive("shutdown-wait", shutdownWait);
+		requirePositive("model-retry-backoff", modelRetryBackoff);
 		if (concurrency < 1) {
 			throw new IllegalArgumentException("app.chat.worker.concurrency는 1 이상이어야 합니다: " + concurrency);
 		}

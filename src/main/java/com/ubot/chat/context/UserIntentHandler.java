@@ -23,11 +23,12 @@ import org.springframework.stereotype.Component;
 public class UserIntentHandler implements IntentHandler {
 	// 출력 가드가 이 섹션의 조회 성공·실패를 구분할 때도 씁니다.
 	public static final String SECTION_TITLE = "사용자 정보";
-	public static final String LOGIN_REQUIRED_CONTENT =
-			"로그인한 사용자만 가입 정보를 확인할 수 있습니다. 로그인 후 다시 질문하도록 안내하세요.";
+	// 조회하지 못한 사유별 안내(로그인 등)는 코드가 붙이므로(AiService) 모델에게 쓰게 하지 않고 사실만 알립니다.
+	// 출력 가드와 AiService는 이 문구를 그대로 비교해 조회 실패를 가립니다.
+	public static final String LOGIN_REQUIRED_CONTENT = "로그인하지 않은 사용자라 가입 정보를 조회할 수 없습니다.";
 	public static final String NOT_FOUND_CONTENT = "사용자 정보를 찾을 수 없습니다.";
 	public static final String LOOKUP_FAILED_CONTENT = "사용자 정보를 불러오지 못했습니다. "
-			+ "프로필, 요금제, 최근 사용량·청구, 미납, 약정, 부가서비스·결합·로밍 정보는 지금 확인할 수 없다고 안내하세요.";
+			+ "프로필, 요금제, 최근 사용량·청구, 미납, 약정, 부가서비스·결합·로밍 정보는 지금 확인할 수 없습니다.";
 
 	private final UserDataSummarizer userDataSummarizer;
 

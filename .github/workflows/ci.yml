@@ -37,3 +37,58 @@ jobs:
 
       - name: Test counseling deployment
         run: bash tools/deploy/tests/counsel-test.sh
+
+  # PR 단계에서 AWS BE 배포 파일과 이미지를 검사합니다. CD는 이 CI가 성공한 커밋만 배포합니다.
+  aws-be-deploy-bundle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment files
+        run: |
+          set -euo pipefail
+          cp infra/aws/be/env.example .env
+          trap 'rm -f .env' EXIT
+          docker compose --env-file .env \
+            -f docker-compose.api.yml -f docker-compose.worker.yml -f docker-compose.monitoring.yml config --quiet
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/infra/prometheus/prometheus.aws.yml:/etc/prometheus/prometheus.yml:ro" \
+            prom/prometheus:v3.15.0 check config /etc/prometheus/prometheus.yml
+          bash -n tools/deploy/aws-be-deploy.sh
+          # SC2024: .deploy/ 상태 파일은 sudo 없이 배포 사용자 권한으로 씁니다.
+          shellcheck -S warning -e SC2024 tools/deploy/aws-be-deploy.sh tools/deploy/aws-be-ssm-command.sh
+          # CD가 AWS-RunShellScript로 보낼 명령을 만들고, 그 명령의 sh·bash 구문을 검사합니다.
+          bash tools/deploy/aws-be-ssm-command.sh \
+            123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/ubot-be-aws-poc \
+            "sha256:$(printf '0%.0s' {1..64})" /home/ssm-user/ubot-api ssm-user \
+            | jq -r '.commands | join("\n")' > "$RUNNER_TEMP/ssm-command.sh"
+          sh -n "$RUNNER_TEMP/ssm-command.sh"
+          awk '/^UBOT_DEPLOY$/ {body = 0} body; /^sudo -u / {body = 1}' "$RUNNER_TEMP/ssm-command.sh" | bash -n
+          docker run --rm \
+            --add-host backend:127.0.0.1 \
+            -e FE_PRIVATE_IP=10.20.0.10 \
+            -e CHAT_GUEST_RATE_LIMIT_RATE=30r/m \
+            -e CHAT_GUEST_RATE_LIMIT_BURST=10 \
+            -e CHAT_MEMBER_RATE_LIMIT_RATE=30r/m \
+            -e CHAT_MEMBER_RATE_LIMIT_BURST=10 \
+            -e NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx \
+            -v "$PWD/infra/nginx/nginx.api.conf.template:/etc/nginx/templates/nginx.conf.template:ro" \
+            nginx:alpine nginx -t
+
+      - name: Build image and check bundled deployment files
+        run: |
+          set -euo pipefail
+          docker build -t ubot-be:ci .
+          bundle="$(mktemp -d)"
+          container_id="$(docker create ubot-be:ci)"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          docker cp "$container_id:/opt/ubot-deploy/." "$bundle/"
+          for file in docker-compose.api.yml docker-compose.worker.yml docker-compose.monitoring.yml \
+              infra/nginx/nginx.api.conf.template infra/prometheus/prometheus.aws.yml \
+              tools/deploy/aws-be-deploy.sh; do
+            cmp "$file" "$bundle/$file"
+          done

@@ -27,20 +27,20 @@ public class StoreTools {
     public static final String QUESTION = "question";
     public static final String RECORDER = "storeSearchRecorder";
 
+    // 조회하지 못한 사유별 안내(위치를 알려 달라는 말 등)는 코드가 붙이므로(AiService) 모델에게 쓰게 하지 않습니다.
     static final String NO_LOCATION_MESSAGE =
             "사용자가 기준 장소를 말하지 않아 근처 매장을 조회할 수 없습니다. 매장 이름이나 주소를 추측하지 말고, "
-                    + "위치 권한을 허용하거나 지역·역 이름을 알려 달라고 안내하세요. 질문의 다른 부분은 그대로 답하세요.";
+                    + "질문의 다른 부분은 그대로 답하세요.";
     static final String LOOKUP_FAILED_MESSAGE = "매장 정보를 조회하지 못했습니다.";
     
     // 질문에 없는 지역을 지어냈을 때 재요청 프롬프트
     static final String PLACE_NOT_IN_QUESTION_MESSAGE =
             "'%s'은(는) 사용자 질문에 없는 장소입니다. 질문에 쓰인 철자 그대로(오타가 있어도 고치지 말고) place에 넣어 다시 호출하고, "
                     + "사용자가 장소를 말하지 않았다면 place를 비워 다시 호출하세요. "
-                    + "다시 호출하지 않는다면 매장 이름이나 주소를 추측하지 말고, 기준이 될 지명이나 역 이름을 알려 달라고 안내하세요.";
+                    + "다시 호출하지 않는다면 매장 이름이나 주소를 추측하지 마세요.";
     // 카카오 검색 결과가 없을 때 재요청 프롬프트
     static final String PLACE_NOT_FOUND_MESSAGE =
-            "'%s' 위치를 찾지 못했습니다. 매장 이름이나 주소를 추측하지 말고, "
-                    + "정확한 지명이나 역 이름을 다시 알려 달라고 안내하세요. 질문의 다른 부분은 그대로 답하세요.";
+            "'%s' 위치를 찾지 못했습니다. 매장 이름이나 주소를 추측하지 말고, 질문의 다른 부분은 그대로 답하세요.";
     
     // 장소가 아니라 "기준 위치가 없다"는 뜻의 일반 단어입니다.
     private static final Set<String> GENERIC_WORDS = Set.of(
@@ -83,6 +83,9 @@ public class StoreTools {
         // ex2) 질문:역심역, placeName:"역삼역" -> 프롬프트로 제어하지만, LLM이 오타를 알아서 교정할 경우,
         // 재요청 프롬프트를 반환한다.
         if (!isMentionedInQuestion(placeName, question)) {
+            if (recorder != null) {
+                recorder.markPlaceNotInQuestion();
+            }
             return String.format(PLACE_NOT_IN_QUESTION_MESSAGE, placeName);
         }
         
@@ -92,6 +95,9 @@ public class StoreTools {
             
             // 사용자가 장소를 말했으므로 못 찾아도 현재 위치를 요청하지 않습니다. 다시 알려 달라고만 안내합니다.
             if (locations.isEmpty()) {
+                if (recorder != null) {
+                    recorder.markPlaceNotFound(placeName);
+                }
                 return String.format(PLACE_NOT_FOUND_MESSAGE, placeName);
             }
             
@@ -107,6 +113,9 @@ public class StoreTools {
         } catch (RuntimeException exception) {
             // 도구 안의 카카오·DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("매장 조회 도구 실패: place={}, placeName={}", place, placeName, exception);
+            if (recorder != null) {
+                recorder.markLookupFailed();
+            }
             return LOOKUP_FAILED_MESSAGE;
         }
     }

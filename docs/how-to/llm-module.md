@@ -34,33 +34,35 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 
 ### 출력 형식과 서버 처리
 
-시스템 지침은 모델에게 아래 형식의 **JSON 객체 하나**를 출력하도록 요구합니다. 표는 스키마의 키 순서(실제 출력 순서)입니다.
+채팅 답변 지침(`faq-system-slot.txt`)은 모델에게 아래 형식의 **JSON 객체 하나**를 출력하도록 요구합니다(#277). 하위 질문마다 칸 하나이며, 표는 스키마의 키 순서(실제 출력 순서)입니다.
 
 | 키 | 값 |
 |---|---|
-| `answer` | 한국어 답변 문자열. 답할 수 없는 부분은 맨 끝에 한 문장으로만 밝히고, 사용자에게 되묻지 않음 |
+| `answers` | 칸 배열. 칸은 `answer`(그 하위 질문의 답, 답하지 못한 부분에 대한 말은 쓰지 않음) → `status`(`ANSWER`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE`) |
 | `evidence_ids` | 질문의 답이나 계산·판단의 기준을 담은 FAQ ID 문자열 배열. 그런 문서가 없으면 빈 배열 |
-| `status` | `ANSWER`, `PARTIAL`, `ABSTAIN`, `CONFLICT`, `OUT_OF_SCOPE` 중 하나 (되묻기 전용 status는 없음) |
 
-**출력 강제.** `PromptService`가 같은 형식의 JSON Schema(`FaqAnswerFormat.schema()`)를 `LlmRequestDto.responseSchema`에 싣고,
+**출력 강제.** `PromptService.createSlotPrompt`가 칸 수만큼의 칸을 요구하는 JSON Schema(`FaqAnswerFormat.slotSchema(칸 수)`)를 `LlmRequestDto.responseSchema`에 싣고,
 각 클라이언트가 이를 모델 서버에 넘깁니다. Ollama는 요청의 `format`, vLLM은 `response_format`(`json_schema`, `strict`)입니다.
-스키마의 키 순서가 출력 키 순서이며, answer를 먼저 둔 이유는 [프롬프트 안내](../../src/main/resources/prompts/README.md)에 있습니다.
-**매장 조회 도구가 붙은 요청에는 스키마를 걸지 않습니다.** 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없기 때문입니다.
-이 경우 형식은 프롬프트로만 요구하므로, 모델이 JSON을 코드 블록으로 감싸거나 일반 문장으로 답할 수 있습니다.
+칸 수는 프롬프트에 "하위 질문 N" 제목으로 나눠 넣은 경우만 하위 질문 수이고 나머지는 1입니다.
+**매장·가입 정보 도구가 붙은 요청에는 스키마를 걸지 않습니다.** 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없기 때문입니다.
+이 경우 형식은 프롬프트로만 요구하므로, 모델이 칸 수를 틀리거나 JSON을 코드 블록으로 감싸거나 일반 문장으로 답할 수 있습니다.
 
 **생성 옵션.** temperature는 `LlmClient.TEMPERATURE`(0)로 고정해 두 엔진 모두 보냅니다. 지정하지 않으면 모델 기본값
 (`qwen3:4b-instruct-2507-q4_K_M`은 0.7)이 쓰여 같은 질문에도 답이 달라집니다. LLM_Test 평가도 temperature 0입니다.
 
-**서버 파싱.** `AiService`가 모델 출력을 `FaqAnswerFormat.parse()`로 읽어 `answer`만 채팅으로 넘깁니다.
-따라서 `question_log.llm_question`과 채팅 응답의 `answer`에는 답변 문장만 들어갑니다. `status`·`evidence_ids`는
-`AiService`의 INFO 로그(`LLM 답변을 파싱했습니다`)로만 남고 저장하지 않습니다. 모델이 `ABSTAIN`·`OUT_OF_SCOPE`로 판단해도
-서버 기준 상태는 `SUCCESS`이며, `faq_log`에는 `evidence_ids`와 관계없이 모델에 전달한 FAQ 전체가 기록됩니다.
+**서버 처리.** `AiService`가 모델 출력을 `FaqAnswerFormat.parse()`로 읽은 뒤 칸마다 처리합니다(자세한 규칙은 [프롬프트 안내](../../src/main/resources/prompts/README.md)의 "칸 형식 지침").
+- ANSWER 칸의 `answer`만 칸마다 출력 가드로 검사해 사용자 본문으로 잇습니다. 가드가 문장을 지운 칸은 ABSTAIN으로 바꿉니다.
+- 답하지 못한 칸의 고지(가입 정보·매장 조회 실패는 사유별 고지)는 코드가 붙입니다. 모델이 쓴 고지는 버립니다.
+- 전체 status(`AiAnswer.status`)는 하위 status를 조합한 값입니다(`ANSWER`·`PARTIAL`·`ABSTAIN`·`CONFLICT`·`OUT_OF_SCOPE`). 저장하지 않고, 가입 정보 카드를 붙일지와 미응답 수집에 씁니다.
+- `question_log.llm_question`과 채팅 응답의 `answer`에는 사용자 본문(답한 칸 + 코드 고지)만 들어갑니다. `faq_log`에는 `evidence_ids`와 관계없이 모델에 전달한 FAQ 전체가 기록됩니다.
 
 | 모델 출력 | 처리 |
 |---|---|
-| JSON 객체 (코드 블록으로 감싼 것 포함) | `answer` 값을 답변으로 사용. 키 순서는 따지지 않음 |
+| 칸 형식 JSON (코드 블록으로 감싼 것 포함) | 위 서버 처리. 칸 수가 맞지 않으면 도구 경로는 칸을 하나로 합쳐 질문 하나로 보고, 그 밖의 경로는 `LLM-005` |
+| 칸의 status가 목록에 없는 값 | `LLM-005`(`LLM_RESPONSE_INVALID`) |
+| 단일 형식 JSON(`answer`·`status`) | `answer` 값을 답변으로 사용하고 본문 전체를 가드로 검사(칸 처리 없음) |
 | `{`로 시작하지 않는 일반 문장 | 문장 전체를 답변으로 사용 (도구 경로 등 스키마를 걸지 않은 경우) |
-| JSON처럼 보이지만 읽을 수 없음, `answer`가 없거나 빈 문자열 | `LLM-005`(`LLM_RESPONSE_INVALID`)로 실패. 원문 JSON을 사용자에게 보여 주지 않음 |
+| JSON처럼 보이지만 읽을 수 없음, 단일 형식에서 `answer`가 없거나 빈 문자열 | `LLM-005`로 실패. 원문 JSON을 사용자에게 보여 주지 않음 |
 
 2026-10-12 이전에 저장된 답변은 JSON 문자열 그대로입니다. UBot-FE의 `getAnswerText`는 JSON이면 안쪽 `answer`를,
 일반 문장이면 그대로 표시하므로 이전 기록과 새 기록 모두 화면에 정상으로 보입니다.

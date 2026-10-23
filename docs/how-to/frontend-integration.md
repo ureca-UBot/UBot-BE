@@ -42,14 +42,14 @@ UBot-FE는 GitHub Pages(`https://ureca-ubot.github.io/UBot-FE/`)에 배포되고
 | CORS | `CORS_ALLOWED_ORIGINS`에 적은 origin만 허용합니다(`SecurityConfig`). 기본값은 비어 있어 다른 origin에서의 브라우저 요청은 차단됩니다. GitHub Pages에서 호출하려면 `https://ureca-ubot.github.io`를 넣습니다. |
 | HTTPS | GitHub Pages는 HTTPS, 백엔드 Nginx는 HTTP만 엽니다. 브라우저가 HTTPS 페이지의 HTTP 요청(mixed content)을 차단합니다. HTTPS 적용은 후속 작업입니다([deploy.md](../deploy.md#배포-범위)). |
 
-`/api` 접두사는 Nginx가 처리합니다. `/api/`로 시작하는 요청은 `/api`를 떼어 백엔드로 넘기고, 접두사 없는 경로도 그대로 넘깁니다. 그래서 UBot-FE의 두 API 클라이언트가 `/api`를 붙이는 방식이 달라도(아래 표) 둘 다 Nginx를 거치면 동작합니다.
+`/api` 접두사는 Nginx가 떼어 백엔드로 전달합니다. 현재 AWS BE Nginx는 접두사가 없는 일반 경로를 404로 거절하므로, FE의 두 클라이언트 모두 `/api/...`로 요청합니다. `VITE_API_BASE_URL`에는 `/api`를 제외한 서버 origin을 설정합니다.
 
 | UBot-FE 클라이언트 | 사용하는 곳 | 요청 URL 조합 | 인증 헤더 |
 |---|---|---|---|
 | `src/shared/api/client.ts` (`apiClient`) | 인증, 내 정보, 채팅, 관리자 FAQ·매장·금지어 | `VITE_API_BASE_URL`(기본 빈 값) + `/api/...` 경로 | 붙임 |
-| `src/user/store-locator/api/client.ts` (`storeRequest`) | 매장 찾기, 길찾기 | `VITE_API_BASE_URL`(기본 `/api`) + `/stores/...` 경로 | 붙이지 않음 |
+| `src/user/store-locator/api/client.ts` (`storeRequest`) | 매장 찾기, 길찾기 | `VITE_API_BASE_URL`(기본 빈 값) + `/api` + `/stores/...` 경로 | 붙이지 않음 |
 
-예를 들어 `VITE_API_BASE_URL`을 Nginx 주소로 지정하면 `apiClient`는 `…/api/auth/login`을, `storeRequest`는 `…/stores`를 호출하고 둘 다 백엔드에 도달합니다. Nginx를 거치지 않고 백엔드(8080)를 직접 호출하면 `/api`가 붙은 경로는 실패합니다.
+예를 들어 `VITE_API_BASE_URL`을 Nginx 주소로 지정하면 `apiClient`는 `…/api/auth/login`을, `storeRequest`는 `…/api/stores`를 호출합니다. Nginx를 거치지 않고 백엔드(8080)를 직접 호출하면 `/api`가 붙은 경로는 실패합니다.
 
 남은 문제는 CORS와 HTTPS입니다. 프론트를 백엔드와 같은 origin(같은 Nginx)에서 제공하면 둘 다 필요 없고, GitHub Pages에서 호출하려면 둘 다 적용해야 합니다. 게스트 채팅은 `JSESSIONID` 쿠키로 식별하므로, 다른 origin에서 호출할 때는 쿠키 전달 설정(`credentials`, `SameSite=None; Secure`)도 필요합니다.
 
@@ -88,8 +88,8 @@ API 호출 → 401 JWT-007 (access token 만료)
 - 교체된 지 10초가 지난 이전 refresh token이 다시 오면 탈취로 보고 그 사용자의 refresh token을 지운 뒤 `JWT-008`을 반환합니다. 10초 안에 온 경우는 동시 요청으로 보고 `JWT-001`만 반환합니다.
 - 같은 이메일로 로그인에 5번, 같은 IP에서 20번 실패하면 15분 동안 `USER-014`(429)로 로그인을 막습니다. 로그인에 성공하면 이메일 실패 횟수는 초기화됩니다.
 - `JWT-004`(서명·형식 오류)는 재발급으로 해결되지 않습니다.
-- 로그아웃하거나 refresh token 재사용이 감지되면 그 사용자에게 이미 발급된 access token도 만료 전에 거부되고 `JWT-009`가 옵니다. 토큰을 지우고 다시 로그인하게 합니다. 차단 정보는 Redis에 저장하며, Redis에 연결할 수 없으면 차단 없이 통과시킵니다.
-- 토큰이 유효해도 탈퇴한 사용자면 `USER-001`(404)이 옵니다.
+- 로그아웃하거나 refresh token 재사용이 감지되면 그 사용자에게 이미 발급된 access token도 만료 전에 거부되고 `JWT-009`가 옵니다. 토큰을 지우고 다시 로그인하게 합니다. 차단 정보는 Redis에 저장하며, Redis에 연결할 수 없으면 차단 없이 통과시킵니다. Redis 응답이 늦어 차단 조회가 시간 안에 끝나지 않을 때도 통과시킵니다.
+- 토큰이 유효해도 탈퇴한 사용자면 `JWT-005`(401)가 옵니다. 프론트는 토큰을 지우고 로그인 상태를 종료합니다.
 
 ## 채팅
 
@@ -99,6 +99,12 @@ API 호출 → 401 JWT-007 (access token 만료)
 POST /chat/questions → 202 { jobId, status: "QUEUED" }
 GET  /chat/jobs/{jobId} → QUEUED → RUNNING → SUCCEEDED(answer) 또는 FAILED(errorCode)
 ```
+
+### 답변 중단
+
+`POST /chat/jobs/{jobId}/cancel`은 회원 JWT 또는 기존 게스트 세션으로 본인 질문의 최신 작업을 중단합니다. 응답은 `{ "jobId": 1, "cancelled": true }`이며, 재시도가 먼저 접수됐다면 응답의 `jobId`는 요청한 작업과 다를 수 있습니다. 이미 성공했거나 재시도할 수 없는 실패가 확정됐다면 `cancelled: false`로 기존 결과를 보존합니다. 없는 작업·다른 사용자의 작업·삭제된 대화는 모두 `CHAT-020`입니다.
+
+중단한 작업은 `FAILED`, `errorCode: "CHAT-024"`, `retryable: false`입니다. DB 반영 후 해당 작업의 중단을 Worker에 전달하고, 늦게 끝난 결과는 저장하지 않습니다. 작업 조회 장애의 `CHAT-025`와 회원 요청 제한의 `CHAT-026`은 사용자 중단과 구분합니다.
 
 ### 질문 접수
 
@@ -232,6 +238,7 @@ Idempotency-Key: <실패한 작업의 idempotencyKey>
 - 본문은 없습니다. 질문은 서버가 기존 기록에서 가져옵니다. 응답은 질문 접수와 같은 `202`이며 **새 `jobId`**로 다시 조회합니다(`conversationId`는 없습니다).
 - 상태 조회의 `retryable`이 `true`일 때만 재시도 버튼을 보여 주면 됩니다. `retryable`은 안내값이고, 실제 요청이 오면 서버가 본인 기록인지와 재시도 조건을 다시 검사합니다(#82).
 - 최초 요청을 포함해 최대 `CHAT_MAX_ATTEMPTS`(기본 3)회까지 시도할 수 있습니다. 거절 사유는 `CHAT-003`(본인 기록 없음), `CHAT-004`(처리 중), `CHAT-005`(이미 성공), `CHAT-006`(횟수 초과), `CHAT-007`, `CHAT-011`(키 형식 오류)이며, 이때 `data`는 `null`입니다.
+- 답변을 찾지 못한 `CHAT-012`·`CHAT-013`과 질문이 너무 많은 `CHAT-021`, 입력 가드가 거절한 `CHAT-022`·`CHAT-023`, 출력 가드 거절 `LLM-006`, 사용자 중단 `CHAT-024`는 다시 시도해도 결과가 같아 `retryable`이 `false`입니다. 오류 화면 대신 질문을 바꾸도록 안내하면 됩니다.
 
 ### 의도 재검색
 

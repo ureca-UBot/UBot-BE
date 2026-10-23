@@ -260,7 +260,7 @@ class GuardReviewPostgresIntegrationTest {
 		var flyway = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").load();
 		var migrated = flyway.migrate();
 		flyway.validate();
-		assertThat(flyway.info().current().getVersion().toString()).isEqualTo("49");
+		assertThat(flyway.info().current().getVersion().toString()).isEqualTo("50");
 
 		assertThat(db.queryForObject(
 				"SELECT source_key FROM guard_review_items WHERE source_fingerprint='legacy-fingerprint'",
@@ -280,7 +280,7 @@ class GuardReviewPostgresIntegrationTest {
 				Integer.class)).isEqualTo(6);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
 		Files.writeString(artifacts.resolve("migration-result.json"),
-				JSON.writeValueAsString(Map.of("version", "49", "upgradeMigrations", migrated.migrationsExecuted,
+				JSON.writeValueAsString(Map.of("version", "50", "upgradeMigrations", migrated.migrationsExecuted,
 						"sixTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
 						"extensions", db.queryForList("SELECT extname,extversion FROM pg_extension ORDER BY extname"),
 						"server", db.queryForObject("SHOW server_version", String.class))));
