@@ -4,6 +4,7 @@ import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.ai.dto.LookupFailure;
 import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
@@ -14,6 +15,10 @@ import com.ubot.ai.tool.StoreTools;
 import com.ubot.ai.tool.UserDataCardSelector;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserDataTools;
+import com.ubot.chat.context.StoreIntentHandler;
+import com.ubot.chat.context.UserIntentHandler;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -26,11 +31,14 @@ import com.ubot.prompt.format.FaqAnswerFormat.FaqAnswer;
 import com.ubot.prompt.format.FaqAnswerFormat.SlotAnswer;
 import com.ubot.prompt.service.PromptService;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
@@ -55,24 +63,21 @@ public class AiService {
         if (materials.faqs().isEmpty() && materials.sections().isEmpty() && materials.tools().isEmpty()) {
             throw new PromptException(PromptErrorCode.PROMPT_INPUT_MISSING);
         }
-        // 도구가 있는 요청은 출력 스키마가 강제되지 않아 칸 수를 보장할 수 없으므로, 칸 형식을 쓰지 않고 기존 형식 그대로 둡니다.
-        // 도구가 없는 요청만 하위 질문마다 칸(answer → status)을 받습니다.
+        // 도구가 있는 요청도 하위 질문마다 칸(answer → status)을 받습니다. 다만 도구가 있으면 출력 스키마가 강제되지 않아
+        // 칸 수가 하위 질문 수와 다를 수 있으므로, 그때는 칸을 하나로 합쳐 질문 하나로 봅니다(answerBySlots).
         List<ToolCallback> callbacks = toolRegistry.resolve(materials.tools());
-        boolean slotMode = callbacks.isEmpty();
+        boolean toolPath = !callbacks.isEmpty();
 
         // 승지님이 작성한 프롬프트에 질문·FAQ·추가 자료를 넣어 메시지를 구성합니다.
         // 이전 대화는 이번 질문이 이전 대화를 써야 할 때만 들어 있습니다(SubQuestionPlanner의 멀티턴 판정).
-        LlmRequestDto request = slotMode
-                ? promptService.createSlotPrompt(materials.question(), materials.faqs(),
-                        materials.subQuestions(), materials.sections(), materials.history())
-                : promptService.createPrompt(materials.question(), materials.faqs(),
-                        materials.subQuestions(), materials.sections(), materials.history());
+        LlmRequestDto request = promptService.createSlotPrompt(materials.question(), materials.faqs(),
+                materials.subQuestions(), materials.sections(), materials.history());
 
         // 도구가 조회한 매장 목록은 LLM 답변 문장과 별도로 화면에 전달하기 위해 요청마다 새로 보관합니다.
         StoreSearchRecorder storeRecorder = new StoreSearchRecorder();
         // 가입 정보 도구가 조회한 사용량·청구서도 같은 이유로 요청마다 따로 보관합니다.
         UserDataRecorder userDataRecorder = new UserDataRecorder();
-        if (!callbacks.isEmpty()) {
+        if (toolPath) {
             request = request.withTools(callbacks, toToolContext(materials, storeRecorder, userDataRecorder));
         }
 
@@ -93,13 +98,15 @@ public class AiService {
             AnswerMaterials inspected = toolRecords.isEmpty() ? materials
                     : materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
                             userDataRecorder.cards());
-            if (slotMode && parsed.slots() != null) {
-                SlotResult slotResult = answerBySlots(parsed, inspected, storeMap);
+            if (parsed.slots() != null) {
+                SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
+                        lookupFailures(materials, storeRecorder, userDataRecorder));
                 answer = slotResult.answer();
                 status = slotResult.status();
                 inspection = slotResult.inspection();
                 slotOutcomes = slotResult.outcomes();
             } else {
+                // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
                 inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
                 // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
                 if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
@@ -119,42 +126,64 @@ public class AiService {
     }
 
     /**
-     * 칸 형식 출력을 하위 질문마다 처리합니다. ANSWER인 칸만 출력 가드로 검사하고, 답하지 못한 하위 질문의 고지는 코드가 붙입니다.
+     * 칸 형식 출력을 하위 질문마다 처리합니다. 답한 칸만 출력 가드로 검사하고, 답하지 못한 하위 질문의 고지는 코드가 붙입니다.
      * <ul>
      *   <li>가드는 칸마다 그 하위 질문(원문 조각)을 질문으로 삼아 검사합니다. 다른 하위 질문의 범위를 이 칸의 누락으로 보지 않게 합니다.</li>
      *   <li>가드가 문장 단위로 지웠거나 칸을 거부하면 그 칸은 ABSTAIN으로 바꾸고 버립니다. 표현만 정리했으면 정리한 칸을 씁니다.</li>
      *   <li>정책 위반으로 칸을 거부하면 기존과 같이 답변 전체를 거부합니다(자동 재시도 없음).</li>
-     *   <li>모든 칸이 ANSWER가 아니면 본문 없이 고지만 냅니다. 같은 이유로 모두 답하지 못했으면 전체 고지 하나입니다.</li>
+     *   <li>가입 정보·매장 조회가 실패해 그 조회가 필요한 하위 질문을 답하지 못했으면 일반 고지 대신 사유별 고지를 씁니다.</li>
+     *   <li>모든 칸이 답하지 못한 것이면 본문 없이 고지만 냅니다. 같은 기준으로 모두 답하지 못했으면 전체 고지 하나입니다.</li>
      * </ul>
-     * 전체 status는 가드를 거친 하위 status를 조합한 값입니다.
-     * 칸 수가 맞지 않거나 알 수 없는 status가 있으면 어느 칸을 보여 줄지 정할 수 없으므로 응답 오류로 처리합니다.
+     * 전체 status는 가드를 거친 하위 status를 조합한 값입니다. 알 수 없는 status가 있으면 응답 오류로 처리합니다.
+     * 칸 수가 하위 질문 수와 다르면, 도구 경로(스키마가 강제되지 않음)는 칸을 하나로 합쳐 질문 하나로 보고
+     * 그 밖의 경로(스키마로 칸 수를 강제함)는 응답 오류로 처리합니다.
      */
-    private SlotResult answerBySlots(FaqAnswer parsed, AnswerMaterials materials, StoreMapResult storeMap) {
+    private SlotResult answerBySlots(FaqAnswer parsed, AnswerMaterials materials, StoreMapResult storeMap,
+            boolean toolPath, Map<LookupFailure.Target, LookupFailure> failures) {
         List<SlotAnswer> slots = parsed.slots();
         int expected = PromptService.slotCount(materials.subQuestions());
-        if (slots.size() != expected || slots.stream().anyMatch(slot -> slot.status() == null)) {
+        if (slots.isEmpty() || slots.stream().anyMatch(slot -> slot.status() == null)
+                || (slots.size() != expected && !toolPath)) {
             log.warn("LLM 칸 형식 답변이 하위 질문과 맞지 않습니다: 칸수={}, 하위질문칸수={}, statuses={}",
                     slots.size(), expected, slots.stream().map(SlotAnswer::status).toList());
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
         // ANSWER인데 answer가 비었으면 그 하위 질문은 사용자에게 아무 답도 나가지 않으므로 ABSTAIN으로 봅니다.
-        List<String> statuses = new ArrayList<>(slots.stream()
+        List<String> slotStatuses = slots.stream()
                 .map(slot -> SubQuestionStatuses.ANSWER.equals(slot.status()) && !StringUtils.hasText(slot.answer())
                         ? SubQuestionStatuses.ABSTAIN : slot.status())
-                .toList());
+                .toList();
+        List<String> answers;
+        List<String> statuses;
+        if (slots.size() == expected) {
+            answers = slots.stream().map(SlotAnswer::answer).toList();
+            statuses = new ArrayList<>(slotStatuses);
+        } else {
+            // 도구 경로에서 칸 수가 맞지 않으면 어느 칸이 어느 하위 질문인지 알 수 없으므로, 답한 칸의 answer를 이어 질문 하나로 봅니다.
+            log.info("도구 경로의 칸 수가 하위 질문 수와 달라 칸을 하나로 합칩니다: 칸수={}, 하위질문칸수={}, statuses={}",
+                    slots.size(), expected, slotStatuses);
+            answers = List.of(IntStream.range(0, slots.size())
+                    .filter(index -> SubQuestionStatuses.ANSWER.equals(slotStatuses.get(index)))
+                    .mapToObj(index -> slots.get(index).answer())
+                    .collect(Collectors.joining("\n\n")));
+            statuses = new ArrayList<>(List.of(SubQuestionStatuses.combine(slotStatuses)));
+            expected = 1;
+        }
         log.info("LLM 칸 형식 답변을 파싱했습니다: statuses={}, evidenceIds={}", statuses, parsed.evidenceIds());
 
         List<String> kept = new ArrayList<>();
         Set<OutputGuardResult.Reason> reasons = EnumSet.noneOf(OutputGuardResult.Reason.class);
         boolean inspected = false;
-        boolean[] changedByGuard = new boolean[slots.size()];
-        for (int index = 0; index < slots.size(); index++) {
-            if (!SubQuestionStatuses.ANSWER.equals(statuses.get(index))) {
+        boolean[] changedByGuard = new boolean[statuses.size()];
+        for (int index = 0; index < statuses.size(); index++) {
+            // 답한 칸만 검사합니다. 칸을 합친 경우 일부만 답했으면(PARTIAL) 답한 내용이 있으므로 함께 검사합니다.
+            String slotStatus = statuses.get(index);
+            if (!SubQuestionStatuses.ANSWER.equals(slotStatus) && !SubQuestionStatuses.PARTIAL.equals(slotStatus)) {
                 continue;
             }
             AnswerMaterials scoped = expected > 1 ? scopedTo(materials, materials.subQuestions().get(index)) : materials;
             OutputGuardResult result = aiOutputGuardService.inspectAnswer(
-                    slots.get(index).answer(), parsed.evidenceIds(), scoped, storeMap);
+                    answers.get(index), parsed.evidenceIds(), scoped, storeMap);
             inspected = true;
             reasons.addAll(result.reasons());
             if (result.rejected() && result.reasons().contains(OutputGuardResult.Reason.POLICY_VIOLATION)) {
@@ -170,11 +199,14 @@ public class AiService {
             kept.add(result.answer());
         }
         String body = String.join("\n\n", kept);
-        String notice = SubQuestionStatuses.notice(statuses, noticeLabels(statuses, materials.subQuestions()));
+        List<SubQuestionStatuses.NoticeKey> keys = SubQuestionStatuses.noticeKeys(statuses,
+                lookupTargets(materials, expected), failures);
+        String notice = SubQuestionStatuses.notice(keys, noticeLabels(keys, materials.subQuestions()));
         OutputGuardResult inspection = inspected ? new OutputGuardResult(body, false, reasons) : null;
         List<AiAnswer.SlotOutcome> outcomes = new ArrayList<>();
         for (int index = 0; index < statuses.size(); index++) {
-            outcomes.add(new AiAnswer.SlotOutcome(statuses.get(index), changedByGuard[index]));
+            outcomes.add(new AiAnswer.SlotOutcome(statuses.get(index), changedByGuard[index],
+                    keys.get(index).failure() != null));
         }
         return new SlotResult(SubQuestionStatuses.compose(body, notice), SubQuestionStatuses.combine(statuses), inspection,
                 List.copyOf(outcomes));
@@ -184,16 +216,61 @@ public class AiService {
      * 하위 고지에 넣을 원문 조각입니다. 하위 고지를 낼 때(일부만 답하지 못했을 때)만, 답하지 못한 하위 질문의 조각만 다듬습니다.
      * 칸이 하나이거나 전체 고지 하나로 끝나면 조각이 필요 없으므로 형태소 분석을 하지 않습니다.
      */
-    private List<String> noticeLabels(List<String> statuses, List<SubQuestionFaqs> subQuestions) {
-        if (!SubQuestionStatuses.needsPartNotice(statuses)) {
+    private List<String> noticeLabels(List<SubQuestionStatuses.NoticeKey> keys, List<SubQuestionFaqs> subQuestions) {
+        if (!SubQuestionStatuses.needsPartNotice(keys)) {
             return List.of();
         }
         List<String> labels = new ArrayList<>();
-        for (int index = 0; index < statuses.size(); index++) {
-            labels.add(SubQuestionStatuses.ANSWER.equals(statuses.get(index)) ? null
-                    : subQuestionLabels.label(subQuestions.get(index).userText()));
+        for (int index = 0; index < keys.size(); index++) {
+            labels.add(keys.get(index).answered() ? null : subQuestionLabels.label(subQuestions.get(index).userText()));
         }
         return labels;
+    }
+
+    /**
+     * 가입 정보·매장을 조회하지 못한 사유입니다. 도구가 남긴 사유를 먼저 쓰고, 없으면 핸들러가 넣은 섹션으로 판단합니다.
+     * 섹션: 비로그인·없는 사용자·요약 조회 실패(사용자 정보), 내 위치 기준 매장 조회 실패(현재 위치 근처 매장).
+     */
+    private static Map<LookupFailure.Target, LookupFailure> lookupFailures(AnswerMaterials materials,
+            StoreSearchRecorder storeRecorder, UserDataRecorder userDataRecorder) {
+        Map<LookupFailure.Target, LookupFailure> failures = new EnumMap<>(LookupFailure.Target.class);
+        userDataRecorder.failure().ifPresent(failure -> failures.put(LookupFailure.Target.USER_DATA, failure));
+        storeRecorder.failure().ifPresent(failure -> failures.put(LookupFailure.Target.STORE_DATA, failure));
+        for (ContextSection section : materials.sections()) {
+            LookupFailure.Kind kind = null;
+            if (UserIntentHandler.SECTION_TITLE.equals(section.title())) {
+                if (UserIntentHandler.LOGIN_REQUIRED_CONTENT.equals(section.content())) kind = LookupFailure.Kind.LOGIN_REQUIRED;
+                if (UserIntentHandler.NOT_FOUND_CONTENT.equals(section.content())) kind = LookupFailure.Kind.USER_NOT_FOUND;
+                if (UserIntentHandler.LOOKUP_FAILED_CONTENT.equals(section.content())) kind = LookupFailure.Kind.USER_LOOKUP_FAILED;
+            } else if (StoreIntentHandler.SECTION_TITLE.equals(section.title())
+                    && StoreIntentHandler.LOOKUP_FAILED_CONTENT.equals(section.content())) {
+                kind = LookupFailure.Kind.STORE_LOOKUP_FAILED;
+            }
+            if (kind != null) {
+                failures.putIfAbsent(kind.target(), LookupFailure.of(kind));
+            }
+        }
+        return failures;
+    }
+
+    /**
+     * 칸마다 어떤 조회가 필요한 하위 질문인지입니다(근거 FAQ의 USER_DATA·STORE_DATA).
+     * 칸이 하나면 하위 질문 전체에서 하나라도 해당하는지입니다.
+     */
+    private static List<List<LookupFailure.Target>> lookupTargets(AnswerMaterials materials, int slots) {
+        if (slots == 1) {
+            List<FaqSearchResponseDto> all = new ArrayList<>(materials.faqs());
+            materials.subQuestions().forEach(subQuestion -> all.addAll(subQuestion.faqs()));
+            return List.of(targetsOf(all));
+        }
+        return materials.subQuestions().stream().map(subQuestion -> targetsOf(subQuestion.faqs())).toList();
+    }
+
+    private static List<LookupFailure.Target> targetsOf(List<FaqSearchResponseDto> faqs) {
+        List<LookupFailure.Target> targets = new ArrayList<>();
+        if (faqs.stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA)) targets.add(LookupFailure.Target.USER_DATA);
+        if (faqs.stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA)) targets.add(LookupFailure.Target.STORE_DATA);
+        return targets;
     }
 
     /**

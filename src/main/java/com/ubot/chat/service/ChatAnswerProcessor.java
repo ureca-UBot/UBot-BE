@@ -377,6 +377,8 @@ public class ChatAnswerProcessor {
 			SubQuestionFaqs subQuestion = subQuestions.get(index);
 			if (!subQuestion.isAnswered()) continue;
 			AiAnswer.SlotOutcome outcome = outcomes.size() == subQuestions.size() ? outcomes.get(index) : outcomes.getFirst();
+			// 비로그인 등으로 가입 정보를 조회할 수 없어 답하지 못한 것은 FAQ로 보완할 대상이 아닙니다.
+			if (outcome.lookupUnavailable()) continue;
 			UnansweredReason reason;
 			UnansweredSource source;
 			if (outcome.changedByGuard()) {

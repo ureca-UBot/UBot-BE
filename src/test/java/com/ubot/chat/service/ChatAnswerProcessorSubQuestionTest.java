@@ -455,21 +455,36 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("칸 형식 답변의 ANSWER·OUT_OF_SCOPE 칸은 모으지 않고, 검색 단계에서 저장한 하위 질문은 다시 저장하지 않는다")
-	void skipsAnsweredOutOfScopeAndRetrievalFailedSlots() {
+	@DisplayName("칸 형식 답변의 ANSWER 칸과 가입 정보를 조회할 수 없어 답하지 못한 칸은 모으지 않고, 검색 단계에서 저장한 하위 질문은 다시 저장하지 않는다")
+	void skipsAnsweredLookupUnavailableAndRetrievalFailedSlots() {
 		plan("유심 재발급", "김치찌개 끓이는 법", "데이터 쉐어링");
 		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9)));
 		when(vector.getSimilarList("김치찌개 끓이는 법", 3)).thenReturn(List.of(faq(5L, 0.8)));
 		when(vector.getSimilarList("데이터 쉐어링", 3)).thenReturn(List.of(faq(6L, 0.5)));
 		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false, "PARTIAL", null, null, List.of(
 				new AiAnswer.SlotOutcome("ANSWER", false),
-				new AiAnswer.SlotOutcome("OUT_OF_SCOPE", false),
+				// 비로그인으로 가입 정보를 조회할 수 없어 답하지 못한 칸도 FAQ 부족이 아니므로 모으지 않습니다.
+				new AiAnswer.SlotOutcome("ABSTAIN", false, true),
 				new AiAnswer.SlotOutcome("ABSTAIN", false))));
 
 		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(unanswered).containsExactly(new UnansweredCandidate(3, "데이터 쉐어링", "데이터 쉐어링",
 				UnansweredReason.INSUFFICIENT_FAQ, 6L, 0.5, UnansweredSource.RETRIEVAL));
+	}
+
+	@Test
+	@DisplayName("칸 형식 답변의 OUT_OF_SCOPE 칸은 상담 주제가 아니므로 미응답으로 모으지 않는다")
+	void skipsOutOfScopeSlot() {
+		plan("유심 재발급", "김치찌개 끓이는 법");
+		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9)));
+		when(vector.getSimilarList("김치찌개 끓이는 법", 3)).thenReturn(List.of(faq(5L, 0.8)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false, "PARTIAL", null, null, List.of(
+				new AiAnswer.SlotOutcome("ANSWER", false), new AiAnswer.SlotOutcome("OUT_OF_SCOPE", false))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).isEmpty();
 	}
 
 	@Test

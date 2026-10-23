@@ -15,8 +15,12 @@ public record AiAnswer(String answer, StoreMapResult storeMap, boolean locationR
 
 	/**
 	 * 칸 하나의 최종 status입니다. changedByGuard는 모델은 ANSWER로 냈지만 출력 가드가 내용을 지워 ABSTAIN으로 바꾼 경우입니다.
+	 * lookupUnavailable은 비로그인 등으로 가입 정보를 조회할 수 없어 ABSTAIN인 경우입니다(FAQ 부족이 아님).
 	 */
-	public record SlotOutcome(String status, boolean changedByGuard) {
+	public record SlotOutcome(String status, boolean changedByGuard, boolean lookupUnavailable) {
+		public SlotOutcome(String status, boolean changedByGuard) {
+			this(status, changedByGuard, false);
+		}
 	}
 
 	public AiAnswer(String answer, StoreMapResult storeMap, boolean locationRequired, String status,
