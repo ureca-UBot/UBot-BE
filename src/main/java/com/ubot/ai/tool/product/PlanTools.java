@@ -6,7 +6,9 @@ import com.ubot.ai.tool.product.ProductCatalogQuery.PlanCondition;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.enums.NetworkType;
 import com.ubot.plan.enums.PlanTargetGroup;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -95,8 +97,8 @@ public class PlanTools {
                     log.info("요금제 조회 도구: 조건 없는 목록 요청이라 시리즈 개요로 답합니다: 시리즈수={}", overview.get().groups().size());
                     // 개요의 개수·월정액 범위는 조회한 5개 행에 없으므로 출력 검사 근거로 남깁니다.
                     recorder.note(overview.get().answer());
-                    return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, Plan::getDescription,
-                            PlanTools::card, recorder, overview.get());
+                    return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
+                            this::card, recorder, overview.get());
                 }
             }
             // 아무 조건 없이 전체를 조회했는데 질문에 시리즈 이름이 있으면(둘 이상이라 하나로 정하지 못한 경우) 걸렀어야 할 조회라
@@ -110,8 +112,8 @@ public class PlanTools {
                     network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
                     Boolean.TRUE.equals(dataUnlimited) ? "데이터 무제한" : null,
                     ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
-            return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, Plan::getDescription,
-                    PlanTools::card, recorder, listSubject);
+            return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
+                    this::card, recorder, listSubject);
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("요금제 조회 도구 실패: name={}, networkType={}, targetGroup={}", name, networkType, targetGroup, exception);
@@ -154,8 +156,20 @@ public class PlanTools {
                 : "(소진 후 최대 " + ToolFormats.speed(plan.getExhaustedSpeedKbps()) + ")");
     }
 
-    private static ProductCard card(Plan plan) {
-        return new ProductCard(ProductType.PLAN, plan.getName(), plan.getMonthlyFee(), plan.getDescription());
+    /** 카드에는 행의 핵심 수치(네트워크·데이터·음성·문자·테더링·선택약정)와 설명의 고유 문장을 목록으로 담습니다. */
+    private ProductCard card(Plan plan) {
+        List<String> specs = new ArrayList<>();
+        if (plan.getNetworkType() != null) {
+            specs.add(networkLabel(plan.getNetworkType()));
+        }
+        specs.add("데이터 " + data(plan));
+        String voice = allowance(plan.isVoiceUnlimited(), plan.getVoiceMinutes(), "분");
+        String sms = allowance(plan.isSmsUnlimited(), plan.getSmsCount(), "건");
+        specs.add(voice.equals(sms) ? "음성·문자 " + voice : "음성 " + voice + ", 문자 " + sms);
+        specs.add("테더링 " + tethering(plan.getTetheringAmountMb()));
+        specs.add(contractFee(plan));
+        return new ProductCard(ProductType.PLAN, plan.getName(), plan.getMonthlyFee(), specs,
+                ProductDescriptions.highlights(ProductDescriptions.of(plan), productNameIndex.commonSentences(ProductType.PLAN)));
     }
 
     private static String allowance(boolean unlimited, Integer amount, String unit) {

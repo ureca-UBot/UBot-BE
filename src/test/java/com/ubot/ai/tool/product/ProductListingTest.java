@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test;
 
 class ProductListingTest {
 
-    private static final ProductCard PREMIUM_89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, "설명");
-    private static final ProductCard PREMIUM_99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, "설명");
+    private static final ProductCard PREMIUM_89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, List.of(), List.of());
+    private static final ProductCard PREMIUM_99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, List.of(), List.of());
 
     @Test
     void 조건에_맞는_상품을_모두_돌려줬으면_다음_N가지가_있다고_쓴다() {
@@ -31,8 +31,8 @@ class ProductListingTest {
     @Test
     void 상품_종류마다_요금_표기가_다르다() {
         var listing = new ProductListing("결합 상품", "할인액 큰 순", 2, List.of(
-                new ProductCard(ProductType.BUNDLE, "Ubot 가족 4인", 20000, "설명"),
-                new ProductCard(ProductType.ROAMING, "Ubot 로밍 일본 베이직", 11000, "설명")));
+                new ProductCard(ProductType.BUNDLE, "Ubot 가족 4인", 20000, List.of(), List.of()),
+                new ProductCard(ProductType.ROAMING, "Ubot 로밍 일본 베이직", 11000, List.of(), List.of())));
 
         assertThat(listing.answer()).isEqualTo("""
                 결합 상품은 다음 2가지가 있습니다.

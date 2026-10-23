@@ -9,10 +9,10 @@ import org.junit.jupiter.api.Test;
 
 class ProductDataCardSelectorTest {
 
-    private static final ProductCard COLORING = new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, "통화연결음 변경");
-    private static final ProductCard FORWARDING = new ProductCard(ProductType.ADDON, "Ubot 착신전환", 1100, "국내 번호로 전환");
-    private static final ProductCard BOOKPASS = new ProductCard(ProductType.ADDON, "Ubot 북패스", 4900, "전자책");
-    private static final ProductCard BOOKPASS_PLAN = new ProductCard(ProductType.PLAN, "Ubot 북패스 7GB+", 16300, null);
+    private static final ProductCard COLORING = new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of());
+    private static final ProductCard FORWARDING = new ProductCard(ProductType.ADDON, "Ubot 착신전환", 1100, List.of(), List.of());
+    private static final ProductCard BOOKPASS = new ProductCard(ProductType.ADDON, "Ubot 북패스", 4900, List.of(), List.of());
+    private static final ProductCard BOOKPASS_PLAN = new ProductCard(ProductType.PLAN, "Ubot 북패스 7GB+", 16300, List.of(), List.of());
 
     @Test
     void selectsOnlyProductsNamedInAnswer() {

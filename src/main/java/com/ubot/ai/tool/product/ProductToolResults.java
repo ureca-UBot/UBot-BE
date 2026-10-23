@@ -37,14 +37,14 @@ final class ProductToolResults {
 
     /**
      * "조건에 맞는 요금제 12건 중 5건(월정액 낮은 순)" 머리말과 상품 행을 만들고, 돌려준 상품을 기록합니다.
-     * 행 끝에는 다듬은 설명을 붙입니다(ProductDescriptions 참고). 상품 설명에는 "표시 월정액은 부가세 포함"처럼
+     * 행 끝에는 다듬은 설명 문장(description, ProductDescriptions.of)을 붙입니다. 상품 설명에는 "표시 월정액은 부가세 포함"처럼
      * 같은 종류 상품에 똑같이 들어간 문장이 많아, 돌려준 상품 모두에 있는 문장은 행마다 쓰지 않고 "공통" 줄에 한 번만 씁니다.
      * 조건에 맞는 상품이 LIMIT개보다 많으면 조건을 좁혀 달라고 안내하게 합니다.
      * listSubject는 LLM이 목록 요청이라고 표시했을 때의 답변 주어이고(listSubject 참고), 아니면 null입니다.
      * 목록 요청이고 상품이 2개 이상이면 AiService가 목록 답변을 만들 수 있게 기록합니다.
      */
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
-            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
             String listSubject) {
         return format(productLabel, order, found, line, description, card, recorder, listSubject, null);
     }
@@ -54,13 +54,13 @@ final class ProductToolResults {
      * LLM에 돌려주는 결과는 조회한 상품 행 그대로이고, 목록 답변에만 있는 수치는 호출한 쪽이 recorder.note로 출력 검사 근거에 남깁니다.
      */
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
-            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
             ProductListAnswer listAnswer) {
         return format(productLabel, order, found, line, description, card, recorder, null, listAnswer);
     }
 
     private static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
-            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
             String listSubject, ProductListAnswer listAnswer) {
         if (found.items().isEmpty()) {
             recorder.searched(null);
@@ -70,8 +70,7 @@ final class ProductToolResults {
         text.append("조건에 맞는 ").append(productLabel).append(' ').append(found.total()).append("건 중 ")
                 .append(found.items().size()).append("건(").append(order).append(")\n");
         List<T> items = found.items();
-        List<List<String>> sentences = items.stream()
-                .map(item -> ProductDescriptions.sentences(description.apply(item))).toList();
+        List<List<String>> sentences = items.stream().map(description).toList();
         List<String> common = items.size() < 2 ? List.of() : sentences.getFirst().stream()
                 .filter(sentence -> sentences.stream().allMatch(each -> each.contains(sentence))).toList();
         if (!common.isEmpty()) {

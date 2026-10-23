@@ -45,4 +45,19 @@ class ProductNameIndexTest {
                 .containsExactlyInAnyOrder("프리미엄", "밸런스");
         assertThat(ProductNameIndex.planSeriesIn(null, series)).isEmpty();
     }
+
+    @Test
+    void 같은_종류_상품의_3분의_1_이상에_있는_문장만_공통_문장으로_본다() {
+        List<List<String>> sentences = List.of(
+                List.of("부가세 포함.", "가입 대상 만 19~34세."),
+                List.of("부가세 포함.", "가입 대상 만 19~34세."),
+                List.of("부가세 포함.", "법정대리인 동의 필요."),
+                List.of("부가세 포함.", "약정 없음."),
+                List.of("부가세 포함."),
+                List.of("일본 전용."));
+
+        // 6개 중 2개 이상이어야 공통입니다. 한 상품에만 있는 문장은 고유 문장입니다.
+        assertThat(ProductNameIndex.commonSentences(sentences)).containsExactlyInAnyOrder("부가세 포함.", "가입 대상 만 19~34세.");
+        assertThat(ProductNameIndex.commonSentences(List.of(List.of("부가세 포함.")))).isEmpty();
+    }
 }

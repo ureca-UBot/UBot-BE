@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -115,6 +116,36 @@ class ProductToolsIntegrationTest {
     }
 
     @Test
+    @DisplayName("요금제 카드에는 컬럼으로 만든 핵심 수치와 설명의 고유 문장을 목록으로 담는다")
+    void planCardHasSpecsAndHighlights() {
+        insertPlan(mark + " 청년", "FIVE_G", "YOUTH", 59000, 24000L, false, 1000,
+                "월 데이터 24GB, 소진 후 최대 1Mbps로 계속 이용. 표시 월정액은 부가세 포함, 기간 한정 할인 없이 유지. "
+                        + "가입 대상 만 19~34세.");
+
+        planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
+
+        // "표시 월정액은 부가세 포함…"은 판매 중인 요금제 대부분에 있는 문장이라 카드에서 뺍니다.
+        assertThat(recorder.cards()).singleElement().satisfies(card -> {
+            assertThat(card.specs()).containsExactly("5G", "데이터 24GB(소진 후 최대 1Mbps)", "음성·문자 기본 제공",
+                    "테더링 제공 안 함", "선택약정 25% 할인 시 월 44,250원");
+            assertThat(card.highlights()).containsExactly("가입 대상 만 19~34세");
+        });
+    }
+
+    @Test
+    @DisplayName("결합 설명의 가입 조건은 컬럼에 없는 금액이 들어 있어도 행과 카드에 남긴다")
+    void bundleConditionsWithAmountsAreKept() {
+        insertBundle("Ubot " + mark + " 친구 2인", 6000,
+                "친구 휴대폰 2회선. 각 회선 월정액 19,000원 이상 이용 시 결합 전체 월 6,000원 할인. 조건 미충족 다음 달 할인 종료.");
+
+        String result = bundleTools.searchBundles(mark, null, toolContext);
+
+        assertThat(result).contains("각 회선 월정액 19,000원 이상 이용 시 결합 전체 월 6,000원 할인.");
+        assertThat(recorder.cards()).singleElement().satisfies(card -> assertThat(card.highlights())
+                .containsExactly("친구 휴대폰 2회선", "각 회선 월정액 19,000원 이상 이용 시 결합 전체 월 6,000원 할인"));
+    }
+
+    @Test
     @DisplayName("돌려준 상품 모두에 있는 설명 문장은 행마다 쓰지 않고 공통 줄에 한 번만 쓴다")
     void sharedDescriptionSentencesAreWrittenOnce() {
         insertAddon("Ubot " + mark + " 컬러링", 990, "통화연결음 변경. 월 990원, 부가세 포함. 해지 전까지 월 단위 유지.");
@@ -169,7 +200,7 @@ class ProductToolsIntegrationTest {
                 .contains("Ubot " + mark + " 무료 | 월 0원 | 발신번호 표시.");
         assertThat(result.indexOf("무료")).isLessThan(result.indexOf("비싼"));
         assertThat(recorder.cards()).first()
-                .isEqualTo(new ProductCard(ProductType.ADDON, "Ubot " + mark + " 무료", 0, "발신번호 표시"));
+                .isEqualTo(new ProductCard(ProductType.ADDON, "Ubot " + mark + " 무료", 0, List.of(), List.of("발신번호 표시")));
     }
 
     @Test
@@ -313,8 +344,12 @@ class ProductToolsIntegrationTest {
     }
 
     private void insertBundle(String name, int discount) {
+        insertBundle(name, discount, "대표 회선에서 할인");
+    }
+
+    private void insertBundle(String name, int discount, String description) {
         jdbcTemplate.update("INSERT INTO bundle_products (code, name, discount_amount, description) VALUES (?, ?, ?, ?)",
-                UUID.randomUUID().toString(), name, discount, "대표 회선에서 할인");
+                UUID.randomUUID().toString(), name, discount, description);
     }
 
     private void insertRoaming(String name, int dailyFee, long dataMb, String country) {

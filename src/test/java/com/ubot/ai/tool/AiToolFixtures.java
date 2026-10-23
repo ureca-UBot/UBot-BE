@@ -27,8 +27,9 @@ public final class AiToolFixtures {
 
     public static AiToolRegistry registry(StoreTools storeTools) {
         ProductCatalogQuery catalog = productCatalogQuery();
-        return new AiToolRegistry(storeTools, userDataTools(), new PlanTools(catalog, mock(ProductNameIndex.class), 25), new AddonTools(catalog),
-                new BundleTools(catalog), new RoamingTools(catalog));
+        ProductNameIndex nameIndex = mock(ProductNameIndex.class);
+        return new AiToolRegistry(storeTools, userDataTools(), new PlanTools(catalog, nameIndex, 25),
+                new AddonTools(catalog, nameIndex), new BundleTools(catalog, nameIndex), new RoamingTools(catalog, nameIndex));
     }
 
     public static UserDataTools userDataTools() {

@@ -3,6 +3,7 @@ package com.ubot.ai.tool.product;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.ToolFormats;
 import com.ubot.bundle.entity.BundleProduct;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
@@ -19,6 +20,7 @@ public class BundleTools {
     static final String PRODUCT_LABEL = "결합 상품";
 
     private final ProductCatalogQuery productCatalogQuery;
+    private final ProductNameIndex productNameIndex;
 
     @Tool(description = "Ubot 결합 상품의 월 할인액과 가입 조건을 조회한다. 결과는 최대 5개이며 할인액이 큰 순이다.")
     public String searchBundles(
@@ -32,7 +34,7 @@ public class BundleTools {
             log.info("결합 상품 조회 도구: name={}, listRequested={}, 결과={}건 중 {}건", name, listRequested,
                     found.total(), found.items().size());
             return ProductToolResults.format(PRODUCT_LABEL, "할인액 큰 순", found, BundleTools::line,
-                    BundleProduct::getDescription, BundleTools::card, recorder,
+                    ProductDescriptions::of, this::card, recorder,
                     ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false,
                             ProductCatalogQuery.displayName(name, ProductCatalogQuery.BUNDLE_WORDS)));
         } catch (RuntimeException exception) {
@@ -47,7 +49,9 @@ public class BundleTools {
                 + " | 결합 전체 월 " + ToolFormats.won(bundle.getDiscountAmount()) + " 할인";
     }
 
-    private static ProductCard card(BundleProduct bundle) {
-        return new ProductCard(ProductType.BUNDLE, bundle.getName(), bundle.getDiscountAmount(), bundle.getDescription());
+    /** 결합은 할인액 말고 수치 컬럼이 없어 카드에 설명의 고유 문장(가입 조건 등)만 담습니다. */
+    private ProductCard card(BundleProduct bundle) {
+        return new ProductCard(ProductType.BUNDLE, bundle.getName(), bundle.getDiscountAmount(), List.of(),
+                ProductDescriptions.highlights(ProductDescriptions.of(bundle), productNameIndex.commonSentences(ProductType.BUNDLE)));
     }
 }

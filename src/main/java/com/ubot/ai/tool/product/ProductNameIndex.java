@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.IntSummaryStatistics;
 import java.util.List;
@@ -29,6 +30,7 @@ import org.springframework.util.StringUtils;
  * 질문에 판매 중인 상품 이름이나 로밍 국가가 있는지 보고 조회할 상품 종류를 찾습니다.
  * "V컬러링 얼마야?"처럼 종류를 가리키는 말 없이 상품 이름만 말한 질문을 위해 씁니다.
  * 상품은 관리자 화면에서만 바뀌므로 이름 목록을 잠깐 메모리에 두고, 조회에 실패하면 빈 결과로 넘어갑니다.
+ * 같은 목록으로 요금제 시리즈 개요와, 카드에서 뺄 종류별 공통 설명 문장(commonSentences)도 만듭니다.
  */
 @Slf4j
 @Component
@@ -73,6 +75,14 @@ public class ProductNameIndex {
     public Optional<PlanSeriesOverview> planOverview() {
         PlanSeriesOverview overview = current().planOverview();
         return overview.groups().isEmpty() ? Optional.empty() : Optional.of(overview);
+    }
+
+    /**
+     * 같은 종류 판매 상품의 1/3 이상(최소 2개)에 똑같이 있는 설명 문장입니다. "표시 월정액은 부가세 포함"처럼
+     * 상품마다 반복되는 문장이라 카드에는 보여 주지 않습니다. 목록을 불러오지 못했으면 비어 있습니다.
+     */
+    public Set<String> commonSentences(ProductType type) {
+        return current().commonSentences().getOrDefault(type, Set.of());
     }
 
     /** 질문에 요금제 시리즈 이름이 하나라도 있는지입니다. 둘 이상이라 하나로 정하지 못한 경우도 참입니다. */
@@ -127,6 +137,16 @@ public class ProductNameIndex {
         return new PlanSeriesOverview(groups);
     }
 
+    /** 상품마다 다듬은 설명 문장 목록을 받아, 여러 상품에 똑같이 있는 문장을 고릅니다(commonSentences 참고). */
+    static Set<String> commonSentences(List<List<String>> sentencesByProduct) {
+        Map<String, Long> counts = sentencesByProduct.stream().flatMap(sentences -> sentences.stream().distinct())
+                .collect(Collectors.groupingBy(sentence -> sentence, Collectors.counting()));
+        int products = sentencesByProduct.size();
+        return counts.entrySet().stream()
+                .filter(entry -> entry.getValue() >= 2 && entry.getValue() * 3 >= products)
+                .map(Map.Entry::getKey).collect(Collectors.toUnmodifiableSet());
+    }
+
     private static Optional<String> seriesOf(String planName, Collection<String> series) {
         String[] words = planName.strip().split("\\s+");
         return words.length >= 2 && words[0].equalsIgnoreCase("Ubot") && series.contains(words[1])
@@ -141,35 +161,49 @@ public class ProductNameIndex {
         }
         try {
             List<PlanFee> plans = new ArrayList<>();
-            List<Named> names = load(plans);
+            Map<ProductType, List<List<String>>> sentences = new EnumMap<>(ProductType.class);
+            List<Named> names = load(plans, sentences);
             List<String> series = planSeries(plans.stream().map(PlanFee::name).toList());
-            Snapshot loaded = new Snapshot(names, series, overview(plans, series), now);
+            Map<ProductType, Set<String>> common = new EnumMap<>(ProductType.class);
+            sentences.forEach((type, perProduct) -> common.put(type, commonSentences(perProduct)));
+            Snapshot loaded = new Snapshot(names, series, overview(plans, series), common, now);
             snapshot = loaded;
             return loaded;
         } catch (RuntimeException exception) {
             // 이름 보강은 도구 선택을 돕는 단계라, 실패해도 FAQ 카테고리와 키워드로 고른 도구로 진행합니다.
             log.warn("상품 이름 목록을 불러오지 못했습니다", exception);
-            return cached != null ? cached : new Snapshot(List.of(), List.of(), new PlanSeriesOverview(List.of()), now);
+            return cached != null ? cached
+                    : new Snapshot(List.of(), List.of(), new PlanSeriesOverview(List.of()), Map.of(), now);
         }
     }
 
-    /** 판매 중인 상품 이름을 모으고, 요금제는 시리즈 개요를 만들도록 월정액과 함께 plans에도 담습니다. */
-    private List<Named> load(List<PlanFee> plans) {
+    /**
+     * 판매 중인 상품 이름을 모으고, 요금제는 시리즈 개요를 만들도록 월정액과 함께 plans에도 담습니다.
+     * 상품마다 다듬은 설명 문장은 종류별로 sentences에 담습니다.
+     */
+    private List<Named> load(List<PlanFee> plans, Map<ProductType, List<List<String>>> sentences) {
         List<Named> names = new ArrayList<>();
         planRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false)).forEach(plan -> {
             names.add(new Named(ProductType.PLAN, plan.getName()));
+            sentences.computeIfAbsent(ProductType.PLAN, type -> new ArrayList<>()).add(ProductDescriptions.of(plan));
             if (StringUtils.hasText(plan.getName())) {
                 plans.add(new PlanFee(plan.getName(), plan.getMonthlyFee()));
             }
         });
-        addonServiceRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false))
-                .forEach(addon -> names.add(new Named(ProductType.ADDON, addon.getName())));
-        bundleProductRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false))
-                .forEach(bundle -> names.add(new Named(ProductType.BUNDLE, bundle.getName())));
+        addonServiceRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false)).forEach(addon -> {
+            names.add(new Named(ProductType.ADDON, addon.getName()));
+            sentences.computeIfAbsent(ProductType.ADDON, type -> new ArrayList<>()).add(ProductDescriptions.of(addon));
+        });
+        bundleProductRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false)).forEach(bundle -> {
+            names.add(new Named(ProductType.BUNDLE, bundle.getName()));
+            sentences.computeIfAbsent(ProductType.BUNDLE, type -> new ArrayList<>()).add(ProductDescriptions.of(bundle));
+        });
         roamingProductRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false))
                 .forEach(roaming -> {
                     names.add(new Named(ProductType.ROAMING, roaming.getName()));
                     names.add(new Named(ProductType.ROAMING, roaming.getCountry()));
+                    sentences.computeIfAbsent(ProductType.ROAMING, type -> new ArrayList<>())
+                            .add(ProductDescriptions.of(roaming));
                 });
         return names.stream().filter(named -> StringUtils.hasText(named.name())).distinct().toList();
     }
@@ -181,6 +215,6 @@ public class ProductNameIndex {
     }
 
     private record Snapshot(List<Named> names, List<String> planSeries, PlanSeriesOverview planOverview,
-            Instant loadedAt) {
+            Map<ProductType, Set<String>> commonSentences, Instant loadedAt) {
     }
 }

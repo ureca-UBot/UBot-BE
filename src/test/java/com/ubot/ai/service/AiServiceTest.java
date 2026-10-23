@@ -364,9 +364,9 @@ class AiServiceTest {
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
-            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 59", 59000, "설명"),
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 59", 59000, List.of(), List.of()),
                     "- Ubot 밸런스 59 | 월정액 59,000원 | 약정 할인 적용 시 월 44,250원");
-            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 69", 69000, "설명"),
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 69", 69000, List.of(), List.of()),
                     "- Ubot 밸런스 69 | 월정액 69,000원 | 약정 할인 적용 시 월 51,750원");
             return new LlmResponseDto("{\"answer\":\"Ubot 밸런스 59의 월정액은 59,000원입니다.\","
                     + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
@@ -434,7 +434,7 @@ class AiServiceTest {
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
-            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 실속 LTE 500MB/60분", 3300, "설명"),
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 실속 LTE 500MB/60분", 3300, List.of(), List.of()),
                     "- Ubot 실속 LTE 500MB/60분 | LTE | 대상 일반 | 월정액 3,300원");
             recorder.note(overview.answer());
             recorder.searched(overview);
@@ -450,8 +450,8 @@ class AiServiceTest {
 
     private static void recordPremiumListing(LlmRequestDto request) {
         var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
-        var premium89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, "설명");
-        var premium99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, "설명");
+        var premium89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, List.of(), List.of());
+        var premium99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, List.of(), List.of());
         recorder.record(premium89, "- Ubot 프리미엄 89 | 5G | 대상 일반 | 월정액 89,000원");
         recorder.record(premium99, "- Ubot 프리미엄 99 | 5G | 대상 일반 | 월정액 99,000원");
         recorder.searched(new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99)));
@@ -464,7 +464,7 @@ class AiServiceTest {
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             ((ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY)).record(
-                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, "통화연결음"), "- Ubot 컬러링 | 월 990원");
+                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of()), "- Ubot 컬러링 | 월 990원");
             return new LlmResponseDto("{\"answer\":\"Ubot 컬러링 요금은 확인할 수 없습니다.\","
                     + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
         });

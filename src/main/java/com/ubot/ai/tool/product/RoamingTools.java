@@ -3,6 +3,7 @@ package com.ubot.ai.tool.product;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.ToolFormats;
 import com.ubot.roaming.entity.RoamingProduct;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class RoamingTools {
             + "없으면 그 지역 전용 로밍 상품은 없다고 안내하세요.";
 
     private final ProductCatalogQuery productCatalogQuery;
+    private final ProductNameIndex productNameIndex;
 
     @Tool(description = "Ubot 해외 로밍 상품의 국가, 일 요금, 데이터 제공량을 조회한다. 결과는 최대 5개이며 일 요금이 낮은 순이다. "
             + "사용자가 나라를 말했으면 country에 그 나라 이름을 넣는다. 결과에는 로밍 상품을 판매하는 나라 목록도 함께 나온다.")
@@ -53,7 +55,7 @@ public class RoamingTools {
             log.info("로밍 상품 조회 도구: country={}, name={}, listRequested={}, 결과={}건 중 {}건", country, name,
                     listRequested, found.total(), found.items().size());
             String result = ProductToolResults.format(PRODUCT_LABEL, "일 요금 낮은 순", found, RoamingTools::line,
-                    RoamingProduct::getDescription, RoamingTools::card, recorder,
+                    ProductDescriptions::of, this::card, recorder,
                     ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false, String.join(", ", countries),
                             ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)));
             return result + "\n" + countriesLine;
@@ -77,7 +79,15 @@ public class RoamingTools {
                 + " | 데이터 " + ProductToolResults.data(roaming.getDataAmountMb());
     }
 
-    private static ProductCard card(RoamingProduct roaming) {
-        return new ProductCard(ProductType.ROAMING, roaming.getName(), roaming.getDailyFee(), roaming.getDescription());
+    /** 카드에는 나라와 데이터 제공량, 설명의 고유 문장을 담습니다. */
+    private ProductCard card(RoamingProduct roaming) {
+        List<String> specs = new ArrayList<>();
+        if (StringUtils.hasText(roaming.getCountry())) {
+            specs.add(roaming.getCountry().strip());
+        }
+        specs.add("데이터 " + ProductToolResults.data(roaming.getDataAmountMb()));
+        return new ProductCard(ProductType.ROAMING, roaming.getName(), roaming.getDailyFee(), specs,
+                ProductDescriptions.highlights(ProductDescriptions.of(roaming),
+                        productNameIndex.commonSentences(ProductType.ROAMING)));
     }
 }

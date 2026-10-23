@@ -3,6 +3,7 @@ package com.ubot.ai.tool.product;
 import com.ubot.addon.entity.AddonService;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.ToolFormats;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
@@ -19,6 +20,7 @@ public class AddonTools {
     static final String PRODUCT_LABEL = "부가서비스";
 
     private final ProductCatalogQuery productCatalogQuery;
+    private final ProductNameIndex productNameIndex;
 
     @Tool(description = "Ubot 부가서비스의 월 요금과 설명을 조회한다. 결과는 최대 5개이며 월 요금이 낮은 순이다.")
     public String searchAddons(
@@ -32,7 +34,7 @@ public class AddonTools {
             log.info("부가서비스 조회 도구: name={}, listRequested={}, 결과={}건 중 {}건", name, listRequested,
                     found.total(), found.items().size());
             return ProductToolResults.format(PRODUCT_LABEL, "월 요금 낮은 순", found, AddonTools::line,
-                    AddonService::getDescription, AddonTools::card, recorder,
+                    ProductDescriptions::of, this::card, recorder,
                     ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false,
                             ProductCatalogQuery.displayName(name, ProductCatalogQuery.ADDON_WORDS)));
         } catch (RuntimeException exception) {
@@ -47,7 +49,9 @@ public class AddonTools {
                 + " | 월 " + ToolFormats.won(addon.getMonthlyFee());
     }
 
-    private static ProductCard card(AddonService addon) {
-        return new ProductCard(ProductType.ADDON, addon.getName(), addon.getMonthlyFee(), addon.getDescription());
+    /** 부가서비스는 요금 말고 수치 컬럼이 없어 카드에 설명의 고유 문장만 담습니다. */
+    private ProductCard card(AddonService addon) {
+        return new ProductCard(ProductType.ADDON, addon.getName(), addon.getMonthlyFee(), List.of(),
+                ProductDescriptions.highlights(ProductDescriptions.of(addon), productNameIndex.commonSentences(ProductType.ADDON)));
     }
 }
