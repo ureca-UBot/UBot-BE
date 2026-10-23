@@ -239,7 +239,9 @@ class GuardReviewPostgresIntegrationTest {
 		var flyway = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").load();
 		var migrated = flyway.migrate();
 		flyway.validate();
-		assertThat(flyway.info().current().getVersion().toString()).isEqualTo("49");
+		// 이후 PR이 마이그레이션을 더해도 깨지지 않도록 버전을 고정하지 않고, 남은 마이그레이션이 없는지와 V49 이상인지만 봅니다.
+		assertThat(flyway.info().pending()).isEmpty();
+		assertThat(flyway.info().current().getVersion().isAtLeast("49")).isTrue();
 
 		assertThat(db.queryForObject(
 				"SELECT source_key FROM guard_review_items WHERE source_fingerprint='legacy-fingerprint'",
@@ -259,7 +261,7 @@ class GuardReviewPostgresIntegrationTest {
 				Integer.class)).isEqualTo(6);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
 		Files.writeString(artifacts.resolve("migration-result.json"),
-				JSON.writeValueAsString(Map.of("version", "49", "upgradeMigrations", migrated.migrationsExecuted,
+				JSON.writeValueAsString(Map.of("version", flyway.info().current().getVersion().toString(), "upgradeMigrations", migrated.migrationsExecuted,
 						"sixTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
 						"extensions", db.queryForList("SELECT extname,extversion FROM pg_extension ORDER BY extname"),
 						"server", db.queryForObject("SHOW server_version", String.class))));
