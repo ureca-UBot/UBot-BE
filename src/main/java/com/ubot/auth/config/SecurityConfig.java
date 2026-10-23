@@ -92,6 +92,7 @@ public class SecurityConfig {
 								"/bundle-products", "/bundle-products/**",
 								"/addon-services", "/addon-services/**",
 								"/roaming-products", "/roaming-products/**",
+								"/home-products", "/home-products/**",
 								"/notices", "/notices/**")
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()

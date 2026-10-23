@@ -1,7 +1,9 @@
 package com.ubot.subscription.repository;
 
 import java.util.List;
+import java.util.Optional;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,4 +20,29 @@ public interface SubscriptionBundleRepository extends JpaRepository<Subscription
 			""")
 	List<SubscriptionBundle> findAllBySubscriptionIdAndUserId(
 			@Param("subscriptionId") Long subscriptionId, @Param("userId") Long userId);
+
+	@Query("""
+			select count(record) > 0 from SubscriptionBundle record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.status = com.ubot.subscription.enums.SubscriptionBundleStatus.ACTIVE
+			""")
+	boolean existsActiveBySubscriptionId(@Param("subscriptionId") Long subscriptionId);
+
+	// 대표 회선이 가장 먼저 가입하므로 가입 순서로 정렬하면 대표 회선이 맨 앞에 온다.
+	@EntityGraph(attributePaths = { "subscription", "subscription.user", "bundleProduct" })
+	@Query("""
+			select record from SubscriptionBundle record
+			where record.bundleGroup.bundleGroupId = :bundleGroupId
+			  and record.status = com.ubot.subscription.enums.SubscriptionBundleStatus.ACTIVE
+			order by record.joinedAt asc, record.subscriptionBundleId asc
+			""")
+	List<SubscriptionBundle> findActiveMembers(@Param("bundleGroupId") Long bundleGroupId);
+
+	// 한 회선은 이용 중인 결합 하나에만 들어간다(uq_subscription_bundles_active).
+	@Query("""
+			select record from SubscriptionBundle record
+			where record.subscription.subscriptionId = :subscriptionId
+			  and record.status = com.ubot.subscription.enums.SubscriptionBundleStatus.ACTIVE
+			""")
+	Optional<SubscriptionBundle> findActiveBySubscriptionId(@Param("subscriptionId") Long subscriptionId);
 }
