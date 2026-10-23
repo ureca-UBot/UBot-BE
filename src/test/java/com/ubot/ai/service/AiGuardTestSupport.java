@@ -19,7 +19,6 @@ public final class AiGuardTestSupport {
             LlmRequestDto request = call.getArgument(0);
             String schema = request.generationOptions().schemaName();
             return new LlmResponseDto(switch (schema) {
-                case "input_safety" -> "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\"}";
                 case "whole_answer_guard" -> "{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"모의 응답\"}";
                 case "input_safety_and_planning" -> {
                     var json = JsonMapper.builder().build();

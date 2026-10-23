@@ -30,11 +30,11 @@ class AiGuardTransportTest {
         server.expect(requestTo("http://guard.invalid/v1/chat/completions")).andExpect(req -> {
             var body = JsonMapper.builder().build().readTree(((MockClientHttpRequest) req).getBodyAsString());
             assertThat(body.get("model").asString()).isEqualTo(AiGuardModelService.MODEL);
-            assertThat(body.get("max_tokens").asInt()).isEqualTo(128);
+            assertThat(body.get("max_tokens").asInt()).isEqualTo(512);
             assertThat(body.get("temperature").asDouble()).isZero();
-            assertThat(body.get("response_format").get("json_schema").get("name").asString()).isEqualTo("input_safety");
+            assertThat(body.get("response_format").get("json_schema").get("name").asString()).isEqualTo("input_safety_and_planning");
         }).andRespond(withSuccess(reply(), MediaType.APPLICATION_JSON));
-        client.generateAnswer(request().withGenerationOptions("input_safety", 128, true));
+        client.generateAnswer(request().withGenerationOptions("input_safety_and_planning", 512, true));
         server.verify(); server.reset();
         server.expect(requestTo("http://guard.invalid/v1/chat/completions")).andExpect(req -> {
             var body = JsonMapper.builder().build().readTree(((MockClientHttpRequest) req).getBodyAsString());
@@ -55,7 +55,7 @@ class AiGuardTransportTest {
         try {
             server.expect(requestTo("http://guard.invalid/v1/chat/completions"))
                     .andRespond(withServerError().body("PRIVATE_QUESTION_OR_MODEL_DATA"));
-            assertThatThrownBy(() -> client.generateAnswer(request().withGenerationOptions("input_safety", 128, true)))
+            assertThatThrownBy(() -> client.generateAnswer(request().withGenerationOptions("input_safety_and_planning", 512, true)))
                     .isInstanceOfSatisfying(LlmException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(LlmErrorCode.LLM_SERVICE_UNAVAILABLE);
                         assertThat(e.getCause()).isNull();

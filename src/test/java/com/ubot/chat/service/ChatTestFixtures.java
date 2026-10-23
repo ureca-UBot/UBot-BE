@@ -52,8 +52,6 @@ final class ChatTestFixtures {
 	static com.ubot.ai.service.AiInputGuardService inputAiGuard(SubQuestionPromptService prompts, LlmService llm) {
 		return mock(com.ubot.ai.service.AiInputGuardService.class, invocation -> {
 			String current = invocation.getArgument(1);
-			boolean planning = invocation.getArgument(3);
-			if (!planning) return List.of(current);
 			List<com.ubot.ai.dto.ConversationTurn> history = invocation.getArgument(2);
 			return com.ubot.prompt.format.SubQuestionFormat.parse(
 					llm.generateJudgment(prompts.createPrompt(current, history)).answer());

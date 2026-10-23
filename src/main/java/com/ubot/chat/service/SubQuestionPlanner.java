@@ -13,7 +13,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 /** 기존 경로 분류·검색어 보호·멀티턴 판정을 유지하며 입력 안전 검사와 질문 정리를 연결합니다.
- * 표지가 있으면 안전 판정과 정리를 한 번에, 원문 검색 경로에서는 안전 판정만 수행합니다.
+ * 기존 분류기가 필요한 시점에만 안전 판정과 질문 정리를 한 번에 수행합니다. 별도 보조 검사는 없습니다.
  */
 @Slf4j
 @Service
@@ -54,8 +54,6 @@ public class SubQuestionPlanner {
 	SubQuestionPlan plan(AnswerAttemptsHistory attempt, String question) {
 		if (!enabled) {
 			// 끄면 원문 하나로 검색합니다. 원문 먼저 검색 경로를 타야 FAQ 시맨틱 캐시도 보고, 기준 미달이어도 판정하지 않습니다(judge).
-			// 질문 정리를 꺼도 입력 안전 검사는 끄지 않습니다.
-			aiInputGuardService.inspect(attempt.getQuestion(), question, List.of(), false);
 			return SubQuestionPlan.searchFirst(question, List.of(), QuestionRouter.Route.none());
 		}
 		List<ConversationTurn> history;
@@ -70,7 +68,6 @@ public class SubQuestionPlanner {
 		}
 		QuestionRouter.Route route = questionRouter.route(question, !history.isEmpty());
 		if (!route.needsJudge()) {
-			aiInputGuardService.inspect(attempt.getQuestion(), question, history, false);
 			log.info("판정할 표지가 없어 원문으로 먼저 검색합니다: 시도ID={}, 이전대화수={}", attempt.getId(), history.size());
 			return SubQuestionPlan.searchFirst(question, history, route);
 		}
@@ -84,7 +81,6 @@ public class SubQuestionPlanner {
 
 	SubQuestionPlan judge(AnswerAttemptsHistory attempt, SubQuestionPlan searchFirst, String question) {
 		if (!enabled) {
-			aiInputGuardService.inspect(attempt.getQuestion(), question, searchFirst.history(), false);
 			return SubQuestionPlan.original(question, SubQuestionPlan.Source.ORIGINAL);
 		}
 		return judge(attempt, question, searchFirst.history(), searchFirst.route());
@@ -93,7 +89,7 @@ public class SubQuestionPlanner {
 	private SubQuestionPlan judge(AnswerAttemptsHistory attempt, String question, List<ConversationTurn> history, QuestionRouter.Route route) {
 		long startedAt = System.nanoTime();
 		// BLOCK·REVIEW·호출/파싱 실패를 원문 검색으로 대체해 통과시키지 않습니다.
-		List<String> rawQueries = aiInputGuardService.inspect(attempt.getQuestion(), question, history, true);
+		List<String> rawQueries = aiInputGuardService.inspect(attempt.getQuestion(), question, history);
 		SubQuestionGuard.Result guarded = subQuestionGuard.check(question, history, rawQueries);
 		List<SubQuestionPlan.SubQuestion> items = guarded.items().stream()
 				.map(item -> new SubQuestionPlan.SubQuestion(item.searchQuery(), item.userText())).toList();

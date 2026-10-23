@@ -30,14 +30,13 @@ public class AiGuardPromptService {
         this.words = words;
     }
 
-    public LlmRequestDto input(String original, String current, List<ConversationTurn> history, boolean planning) {
+    public LlmRequestDto input(String original, String current, List<ConversationTurn> history) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("original_question", original);
         data.put("current_question", current);
         data.put("history", history);
         data.put("forbidden_words", words.getActiveForbiddenWords());
-        return request(planning ? "input-integrated" : "input-safety", data,
-                planning ? "input_safety_and_planning" : "input_safety", planning ? 512 : 128);
+        return request("input-integrated", data, "input_safety_and_planning", 512);
     }
 
     public LlmRequestDto output(String answer, List<String> evidenceIds, AnswerMaterials materials, StoreMapResult stores) {

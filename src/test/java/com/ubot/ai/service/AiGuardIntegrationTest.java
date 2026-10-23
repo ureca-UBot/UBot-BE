@@ -48,7 +48,7 @@ class AiGuardIntegrationTest {
     void 코드에서_차단하면_정상_질문이_섞여도_AI를_호출하지_않는다() {
         doThrow(new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED))
                 .when(words).validateForbiddenWord(any());
-        assertThatThrownBy(() -> input.inspect("문제 표현. " + QUESTION, QUESTION, List.of(), true))
+        assertThatThrownBy(() -> input.inspect("문제 표현. " + QUESTION, QUESTION, List.of()))
                 .isInstanceOf(ForbiddenWordException.class);
         verifyNoInteractions(model);
     }
@@ -58,7 +58,7 @@ class AiGuardIntegrationTest {
         var history = List.of(new ConversationTurn("기존 질문", "기존 답변"));
         when(model.generate(any())).thenReturn(new LlmResponseDto(
                 "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\":[\"로밍 신청 방법\"]}"));
-        assertThat(input.inspect(QUESTION, QUESTION, history, true)).containsExactly("로밍 신청 방법");
+        assertThat(input.inspect(QUESTION, QUESTION, history)).containsExactly("로밍 신청 방법");
         var request = ArgumentCaptor.forClass(LlmRequestDto.class);
         verify(model).generate(request.capture());
         var data = JsonMapper.builder().build().readTree(request.getValue().messages().getLast().content());
@@ -69,19 +69,12 @@ class AiGuardIntegrationTest {
     }
 
     @Test
-    void 안전_전용_경로도_판정하며_질문을_고쳐_쓰지_않는다() {
-        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason\":\"SAFE\"}"));
-        assertThat(input.inspect(QUESTION, QUESTION, List.of(), false)).containsExactly(QUESTION);
-        verify(model).generate(argThat(r -> r.generationOptions().maxTokens() == 128));
-    }
-
-    @Test
     void 입력_AI_차단과_보류를_구분하고_정상_부분만_통과시키지_않는다() {
         when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"BLOCK\",\"reason\":\"INJECTION\",\"sub_questions\":[]}"));
-        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of(), true))
+        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of()))
                 .isInstanceOfSatisfying(GlobalException.class, e -> assertThat(e.getErrorCode()).isEqualTo(ChatErrorCode.PROMPT_INJECTION_DETECTED));
         when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"REVIEW\",\"reason\":\"UNCERTAIN\",\"sub_questions\":[]}"));
-        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of(), true))
+        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of()))
                 .isInstanceOfSatisfying(LlmException.class, e -> assertThat(e.getErrorCode()).isEqualTo(LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED));
     }
 
@@ -93,14 +86,14 @@ class AiGuardIntegrationTest {
             "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\":[\"정상\"]} {}"})
     void 잘못된_통합_판정은_허용이나_원문_검색으로_바꾸지_않는다(String response) {
         when(model.generate(any())).thenReturn(new LlmResponseDto(response));
-        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of(), true))
+        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of()))
                 .isInstanceOfSatisfying(LlmException.class, e -> assertThat(e.getErrorCode()).isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
     }
 
     @Test
     void 타임아웃을_보류나_허용으로_바꾸거나_내부에서_재시도하지_않는다() {
         when(model.generate(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
-        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of(), true))
+        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, List.of()))
                 .isInstanceOfSatisfying(LlmException.class, e -> assertThat(e.getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT));
         verify(model, times(1)).generate(any());
     }

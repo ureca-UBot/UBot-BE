@@ -23,19 +23,19 @@ public class AiInputGuardService {
     private final AiGuardPromptService prompts;
     private final ChatInputGuardService codeGuard;
 
-    /** 정리가 필요한 경로는 안전 판정과 정리를 한 번에, 나머지는 안전 판정만 수행합니다. */
-    public List<String> inspect(String original, String current, List<ConversationTurn> history, boolean planning) {
+    /** 기존 분류기가 필요한 시점에 안전 판정과 질문 정리를 한 번에 수행합니다. */
+    public List<String> inspect(String original, String current, List<ConversationTurn> history) {
         // Worker 이외에서 직접 호출되어도 코드 차단을 건너뛰지 않습니다.
         codeGuard.prepareQuestion(original);
         long start = System.nanoTime();
         try {
-            var response = model.generate(prompts.input(original, current, history, planning));
-            var verdict = AiGuardFormat.parseInput(response == null ? null : response.answer(), planning);
-            log.info("입력 AI 가드: 단계={}, 판정={}, 사유={}, 처리시간={}ms",
-                    planning ? "INTEGRATED" : "SAFETY", verdict.decision(), verdict.reason(), elapsed(start));
+            var response = model.generate(prompts.input(original, current, history));
+            var verdict = AiGuardFormat.parseInput(response == null ? null : response.answer());
+            log.info("입력 AI 가드: 단계=INTEGRATED, 판정={}, 사유={}, 처리시간={}ms",
+                    verdict.decision(), verdict.reason(), elapsed(start));
             if (verdict.decision() == Decision.BLOCK) throw new ChatException(ChatErrorCode.PROMPT_INJECTION_DETECTED);
             if (verdict.decision() == Decision.REVIEW) throw new LlmException(LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED);
-            return planning ? verdict.subQuestions() : List.of(current);
+            return verdict.subQuestions();
         } catch (GlobalException exception) {
             if (exception.getErrorCode() != ChatErrorCode.PROMPT_INJECTION_DETECTED
                     && exception.getErrorCode() != LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED) {

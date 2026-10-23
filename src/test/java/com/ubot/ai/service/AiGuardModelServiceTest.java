@@ -58,9 +58,9 @@ class AiGuardModelServiceTest {
                 new ClassPathResource(prefix + "provenance.json").getContentAsString(StandardCharsets.UTF_8));
         assertThat(manifest.get("model").asString()).isEqualTo(AiGuardModelService.MODEL);
         var resources = manifest.get("resources");
-        assertThat(resources.size()).isEqualTo(6);
+        assertThat(resources.size()).isEqualTo(4);
         for (String file : List.of("input-integrated-system.txt", "input-integrated-schema.json",
-                "input-safety-system.txt", "input-safety-schema.json", "output-safety-system.txt", "output-safety-schema.json")) {
+                "output-safety-system.txt", "output-safety-schema.json")) {
             byte[] bytes = new ClassPathResource(prefix + file).getContentAsByteArray();
             assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)))
                     .as(file).isEqualTo(resources.get(file).get("sha256").asString());

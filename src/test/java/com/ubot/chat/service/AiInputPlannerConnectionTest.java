@@ -6,11 +6,16 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.service.AiGuardModelService;
 import com.ubot.ai.service.AiInputGuardService;
+import com.ubot.ai.service.AiService;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.repository.ConversationTurnRepository;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
+import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
@@ -19,6 +24,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class AiInputPlannerConnectionTest {
     private final AiGuardModelService model = mock(AiGuardModelService.class);
@@ -38,14 +44,82 @@ class AiInputPlannerConnectionTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void 원문_검색이나_질문정리_비활성화에서도_안전_검사를_생략하지_않는다(boolean enabled) {
+    void 기존_원문검색이나_질문정리_비활성화_경로에서는_AI를_호출하지_않는다(boolean enabled) {
         when(router.route(any(), anyBoolean())).thenReturn(QuestionRouter.Route.none());
-        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason\":\"SAFE\"}"));
         var plan = planner(enabled).plan(attempt);
         assertThat(plan.searchFirst()).isTrue();
         assertThat(plan.searchQueries()).containsExactly(attempt.getQuestion());
-        verify(model).generate(argThat(r -> r.generationOptions().schemaName().equals("input_safety")));
-        verifyNoInteractions(guard);
+        verifyNoInteractions(model, guard, detector);
+    }
+
+    @Test
+    void 질문정리를_끄면_검색실패_뒤에도_기존처럼_원문을_유지하고_AI를_호출하지_않는다() {
+        var disabled = planner(false);
+        var first = disabled.plan(attempt);
+
+        var retried = disabled.judge(attempt, first);
+
+        assertThat(retried.searchQueries()).containsExactly(attempt.getQuestion());
+        assertThat(retried.source()).isEqualTo(SubQuestionPlan.Source.ORIGINAL);
+        verifyNoInteractions(model, guard, detector);
+    }
+
+    @Test
+    void 원문검색이_충분하면_답변을_생성하되_통합_AI나_보조_AI를_호출하지_않는다() {
+        when(router.route(any(), anyBoolean())).thenReturn(QuestionRouter.Route.none());
+        var vectors = ChatTestFixtures.vectorService();
+        var source = new FaqSearchResponseDto(1L, "로밍 이용 방법", "앱에서 신청합니다.", .9, Intent.GENERAL);
+        when(vectors.getSimilarList(attempt.getQuestion(), 3)).thenReturn(List.of(source));
+        var answer = mock(AiService.class);
+        when(answer.generateAnswer(any())).thenReturn(new AiAnswer("앱에서 신청합니다.", null, false));
+        var processor = processor(vectors, answer);
+
+        var result = processor.generateAnswer(attempt, null, () -> { });
+
+        assertThat(result.isFailed()).isFalse();
+        assertThat(result.answer().answer()).isEqualTo("앱에서 신청합니다.");
+        verify(vectors, times(1)).getSimilarList(attempt.getQuestion(), 3);
+        verify(answer, times(1)).generateAnswer(any());
+        verifyNoInteractions(model, guard, detector);
+    }
+
+    @Test
+    void 기존_원문검색이_부족할_때만_통합_AI를_한번_호출하고_정리한_질문을_검색한다() {
+        when(router.route(any(), anyBoolean())).thenReturn(QuestionRouter.Route.none());
+        var vectors = ChatTestFixtures.vectorService();
+        var weak = new FaqSearchResponseDto(1L, "로밍", "안내", .5, Intent.GENERAL);
+        var sufficient = new FaqSearchResponseDto(2L, "로밍 신청 방법", "앱에서 신청합니다.", .9, Intent.GENERAL);
+        when(vectors.getSimilarList(attempt.getQuestion(), 3)).thenReturn(List.of(weak));
+        when(vectors.getSimilarList("로밍 신청 방법", 3)).thenReturn(List.of(sufficient));
+        when(model.generate(any())).thenReturn(new LlmResponseDto(
+                "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\":[\"로밍 신청 방법\"]}"));
+        when(guard.check(any(), any(), any())).thenReturn(new SubQuestionGuard.Result(
+                List.of(new SubQuestionGuard.Item("로밍 신청 방법", attempt.getQuestion())), false,
+                java.util.EnumSet.noneOf(SubQuestionGuard.Reason.class)));
+        var answer = mock(AiService.class);
+        when(answer.generateAnswer(any())).thenReturn(new AiAnswer("앱에서 신청합니다.", null, false));
+
+        var result = processor(vectors, answer).generateAnswer(attempt, null, () -> { });
+
+        assertThat(result.isFailed()).isFalse();
+        var order = inOrder(vectors, model, guard, detector, answer);
+        order.verify(vectors).getSimilarList(attempt.getQuestion(), 3);
+        order.verify(model).generate(argThat(request -> request.generationOptions().schemaName()
+                .equals("input_safety_and_planning")));
+        order.verify(guard).check(any(), any(), any());
+        order.verify(detector).isMultiTurn(any(), any(), any(), any());
+        order.verify(vectors).getSimilarList("로밍 신청 방법", 3);
+        order.verify(answer).generateAnswer(any());
+        verify(model, times(1)).generate(any());
+    }
+
+    private ChatAnswerProcessor processor(com.ubot.faq.service.FaqVectorService vectors, AiService answer) {
+        var processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vectors), answer,
+                ChatTestFixtures.collector(), planner(true), ChatTestFixtures.disabledCache(),
+                ChatTestFixtures.passthroughSentenceFilter(), code);
+        ReflectionTestUtils.setField(processor, "topK", 3);
+        ReflectionTestUtils.setField(processor, "confidenceThreshold", .75);
+        return processor;
     }
 
     @Test

@@ -33,17 +33,16 @@ public final class AiGuardFormat {
     public record OutputVerdict(Decision decision, List<String> reasons) {
     }
 
-    public static InputVerdict parseInput(String response, boolean planning) {
-        JsonNode root = object(response, planning ? Set.of("decision", "reason", "sub_questions")
-                : Set.of("decision", "reason"));
+    public static InputVerdict parseInput(String response) {
+        JsonNode root = object(response, Set.of("decision", "reason", "sub_questions"));
         Decision decision = decision(root);
         String reason = text(root.get("reason"));
         if (!INPUT_REASONS.contains(reason)
                 || decision == Decision.ALLOW && !"SAFE".equals(reason)
                 || decision == Decision.BLOCK && Set.of("SAFE", "UNCERTAIN").contains(reason)
                 || decision == Decision.REVIEW && !"UNCERTAIN".equals(reason)) throw invalid();
-        List<String> questions = planning ? strings(root.get("sub_questions")) : List.of();
-        if (planning && (decision == Decision.ALLOW ? questions.isEmpty() : !questions.isEmpty())) throw invalid();
+        List<String> questions = strings(root.get("sub_questions"));
+        if (decision == Decision.ALLOW ? questions.isEmpty() : !questions.isEmpty()) throw invalid();
         return new InputVerdict(decision, reason, questions);
     }
 
