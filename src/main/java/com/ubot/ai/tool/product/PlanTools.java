@@ -3,11 +3,11 @@ package com.ubot.ai.tool.product;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.ToolFormats;
 import com.ubot.ai.tool.product.ProductCatalogQuery.PlanCondition;
+import com.ubot.ai.tool.product.ProductToolResults.InvalidValueException;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.enums.NetworkType;
 import com.ubot.plan.enums.PlanTargetGroup;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -30,7 +30,6 @@ import org.springframework.util.StringUtils;
 public class PlanTools {
 
     static final String PRODUCT_LABEL = "요금제";
-    static final String INVALID_VALUE_MESSAGE = "'%s'은(는) %s에 쓸 수 없는 값입니다. %s 중 하나를 넣거나 비워서 다시 호출하세요.";
     static final String NO_CONTRACT_DISCOUNT = "선택약정 할인 미적용(무약정 요금제)";
 
     private final ProductCatalogQuery productCatalogQuery;
@@ -65,8 +64,8 @@ public class PlanTools {
         PlanSort sort;
         try {
             network = parseNetwork(networkType);
-            target = parseEnum(PlanTargetGroup.class, targetGroup, "targetGroup");
-            sort = parseEnum(PlanSort.class, sortBy, "sortBy");
+            target = ProductToolResults.parseEnum(PlanTargetGroup.class, targetGroup, "targetGroup");
+            sort = ProductToolResults.parseEnum(PlanSort.class, sortBy, "sortBy");
         } catch (InvalidValueException exception) {
             log.info("요금제 조회 도구 조건 오류: {}", exception.getMessage());
             return exception.getMessage();
@@ -217,25 +216,7 @@ public class PlanTools {
         if (normalized.equals("LTE") || normalized.equals("4G")) {
             return NetworkType.LTE;
         }
-        throw new InvalidValueException(String.format(INVALID_VALUE_MESSAGE, value, "networkType", "5G, LTE"));
+        throw new InvalidValueException(String.format(ProductToolResults.INVALID_VALUE_MESSAGE, value, "networkType", "5G, LTE"));
     }
 
-    private static <E extends Enum<E>> E parseEnum(Class<E> type, String value, String parameter) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        try {
-            return Enum.valueOf(type, value.strip().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException exception) {
-            String allowed = String.join(", ", Arrays.stream(type.getEnumConstants()).map(Enum::name).toList());
-            throw new InvalidValueException(String.format(INVALID_VALUE_MESSAGE, value, parameter, allowed));
-        }
-    }
-
-    /** LLM이 넣은 조건 값을 해석할 수 없을 때 재요청 문구를 돌려주려고 씁니다. */
-    private static final class InvalidValueException extends RuntimeException {
-        InvalidValueException(String message) {
-            super(message);
-        }
-    }
 }

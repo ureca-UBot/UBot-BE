@@ -11,7 +11,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.util.StringUtils;
 
 /**
- * 상품 조회 도구 4개가 같이 쓰는 결과 문구입니다. 도구 결과는 호출을 정한 뒤에 읽으므로 여기 둔 안내는 호출 여부에 영향을 주지 않습니다.
+ * 상품 조회 도구 4개가 같이 쓰는 결과 문구와 조건 값 해석입니다. 도구 결과는 호출을 정한 뒤에 읽으므로 여기 둔 안내는 호출 여부에 영향을 주지 않습니다.
  * 조회한 상품은 도구가 LLM에 돌려준 행 그대로 ProductDataRecorder에 남겨 출력 검사 근거와 화면용 카드로 씁니다.
  */
 final class ProductToolResults {
@@ -22,6 +22,7 @@ final class ProductToolResults {
             + "조건을 바꿔 다시 물어봐 달라고 안내하세요.";
     static final String MORE_RESULTS_MESSAGE = "조건에 맞는 %s이(가) 더 있습니다. 나머지를 원하면 조건을 좁혀 물어봐 달라고 안내하세요.";
     static final String COMMON_LINE = "아래 %s 모두 공통: %s";
+    static final String INVALID_VALUE_MESSAGE = "'%s'은(는) %s에 쓸 수 없는 값입니다. %s 중 하나를 넣거나 비워서 다시 호출하세요.";
     // 네 도구가 같은 뜻으로 받는 목록 요청 표시입니다. 표시가 있고 상품이 2개 이상이면 답변을 코드가 목록으로 만듭니다.
     static final String LIST_REQUESTED_DESCRIPTION = "사용자가 상품 목록이나 종류를 물으면 true. "
             + "특정 상품 하나의 정보를 물으면 비운다.";
@@ -106,6 +107,29 @@ final class ProductToolResults {
         List<String> words = Arrays.stream(qualifiers).filter(StringUtils::hasText).map(String::strip).toList();
         String subject = words.isEmpty() ? productLabel : String.join(" ", words) + " " + productLabel;
         return hiddenConditions || words.isEmpty() ? "조건에 맞는 " + subject : subject;
+    }
+
+    /**
+     * LLM이 넣은 열거형 조건 값을 해석합니다. 비어 있으면 null이고, 대소문자와 앞뒤 공백은 가리지 않습니다.
+     * 값 이름에 없는 값이면 쓸 수 있는 값을 알려 주는 재요청 문구를 담아 InvalidValueException을 던집니다.
+     */
+    static <E extends Enum<E>> E parseEnum(Class<E> type, String value, String parameter) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, value.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            String allowed = String.join(", ", Arrays.stream(type.getEnumConstants()).map(Enum::name).toList());
+            throw new InvalidValueException(String.format(INVALID_VALUE_MESSAGE, value, parameter, allowed));
+        }
+    }
+
+    /** LLM이 넣은 조건 값을 해석할 수 없을 때 재요청 문구를 돌려주려고 씁니다. */
+    static final class InvalidValueException extends RuntimeException {
+        InvalidValueException(String message) {
+            super(message);
+        }
     }
 
     /** DB 규칙(1GB = 1000MB)대로 보여 줍니다. 1000MB 이상이면 GB로, 소수점은 필요할 때만 씁니다. */

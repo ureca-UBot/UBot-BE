@@ -1,8 +1,10 @@
 package com.ubot.ai.tool.product;
 
 import com.ubot.addon.entity.AddonService;
+import com.ubot.addon.enums.AddonCategory;
 import com.ubot.addon.repository.AddonServiceRepository;
 import com.ubot.bundle.entity.BundleProduct;
+import com.ubot.bundle.enums.BundleType;
 import com.ubot.bundle.repository.BundleProductRepository;
 import com.ubot.common.entity.AdminManagedEntity;
 import com.ubot.common.enums.MasterStatus;
@@ -13,6 +15,7 @@ import com.ubot.plan.enums.PlanTargetGroup;
 import com.ubot.plan.repository.PlanRepository;
 import com.ubot.roaming.entity.RoamingProduct;
 import com.ubot.roaming.repository.RoamingProductRepository;
+import jakarta.persistence.criteria.JoinType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -96,14 +99,39 @@ public class ProductCatalogQuery {
         return Found.of(planRepository.findAll(specification, PageRequest.of(0, LIMIT, sort)));
     }
 
-    public Found<AddonService> searchAddons(String name) {
-        return Found.of(addonServiceRepository.findAll(active(name, ADDON_WORDS),
+    /** category가 null이면 분류를 가리지 않습니다. */
+    public Found<AddonService> searchAddons(String name, AddonCategory category) {
+        Specification<AddonService> specification = active(name, ADDON_WORDS);
+        if (category != null) {
+            specification = specification.and((root, query, builder) -> builder.equal(root.get("category"), category));
+        }
+        return Found.of(addonServiceRepository.findAll(specification,
                 PageRequest.of(0, LIMIT, Sort.by(Order.asc("monthlyFee"), Order.asc("addonServiceId")))));
     }
 
-    /** 결합은 요금이 아니라 할인액이 있어 할인이 큰 순으로 돌려줍니다. */
-    public Found<BundleProduct> searchBundles(String name) {
-        return Found.of(bundleProductRepository.findAll(active(name, BUNDLE_WORDS),
+    /**
+     * 결합은 요금이 아니라 할인액이 있어 할인이 큰 순으로 돌려줍니다. null인 조건은 걸지 않습니다.
+     * 회선 수가 비어 있는 결합은 회선 수 제한이 없어(가족 오래함께: 2회선 이상) 어떤 회선 수에도 함께 돌려주고,
+     * 실제 조건은 설명으로 판단하게 합니다.
+     * 도구는 이 트랜잭션이 끝난 뒤 행을 만들므로, 지연 로딩인 홈 결합의 인터넷 상품을 함께 가져옵니다.
+     */
+    public Found<BundleProduct> searchBundles(String name, BundleType bundleType, Integer lineCount) {
+        Specification<BundleProduct> specification = active(name, BUNDLE_WORDS);
+        if (bundleType != null) {
+            specification = specification.and((root, query, builder) -> builder.equal(root.get("bundleType"), bundleType));
+        }
+        if (lineCount != null) {
+            specification = specification.and((root, query, builder) -> builder.or(
+                    builder.isNull(root.get("lineCount")), builder.equal(root.get("lineCount"), lineCount)));
+        }
+        specification = specification.and((root, query, builder) -> {
+            // 페이지 조회의 전체 건수 쿼리에는 fetch join을 걸 수 없어 상품 조회에만 겁니다.
+            if (!Long.class.equals(query.getResultType()) && !long.class.equals(query.getResultType())) {
+                root.fetch("homeProduct", JoinType.LEFT);
+            }
+            return builder.conjunction();
+        });
+        return Found.of(bundleProductRepository.findAll(specification,
                 PageRequest.of(0, LIMIT, Sort.by(Order.desc("discountAmount"), Order.asc("bundleProductId")))));
     }
 

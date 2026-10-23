@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 상품 조회 도구 4개가 실제 DB에서 조건·정렬·5건 상한·판매 상태를 지키는지 확인합니다. */
@@ -138,7 +139,7 @@ class ProductToolsIntegrationTest {
         insertBundle("Ubot " + mark + " 친구 2인", 6000,
                 "친구 휴대폰 2회선. 각 회선 월정액 19,000원 이상 이용 시 결합 전체 월 6,000원 할인. 조건 미충족 다음 달 할인 종료.");
 
-        String result = bundleTools.searchBundles(mark, null, toolContext);
+        String result = bundleTools.searchBundles(mark, null, null, null, toolContext);
 
         assertThat(result).contains("각 회선 월정액 19,000원 이상 이용 시 결합 전체 월 6,000원 할인.");
         assertThat(recorder.cards()).singleElement().satisfies(card -> assertThat(card.highlights())
@@ -151,7 +152,7 @@ class ProductToolsIntegrationTest {
         insertAddon("Ubot " + mark + " 컬러링", 990, "통화연결음 변경. 월 990원, 부가세 포함. 해지 전까지 월 단위 유지.");
         insertAddon("Ubot " + mark + " 표시", 0, "발신번호 표시. 월 0원, 부가세 포함. 해지 전까지 월 단위 유지.");
 
-        String result = addonTools.searchAddons(mark, null, toolContext);
+        String result = addonTools.searchAddons(mark, null, null, toolContext);
 
         assertThat(result).contains(String.format(ProductToolResults.COMMON_LINE, "부가서비스", "부가세 포함. 해지 전까지 월 단위 유지."))
                 .contains("Ubot " + mark + " 표시 | 월 0원 | 발신번호 표시.\n")
@@ -194,7 +195,7 @@ class ProductToolsIntegrationTest {
         insertAddon("Ubot " + mark + " 비싼", 9900, "가상 영상 라이브러리");
         insertAddon("Ubot " + mark + " 무료", 0, "발신번호 표시");
 
-        String result = addonTools.searchAddons(mark, null, toolContext);
+        String result = addonTools.searchAddons(mark, null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 부가서비스 2건 중 2건(월 요금 낮은 순)")
                 .contains("Ubot " + mark + " 무료 | 월 0원 | 발신번호 표시.");
@@ -209,11 +210,86 @@ class ProductToolsIntegrationTest {
         insertBundle("Ubot " + mark + " 2인", 6000);
         insertBundle("Ubot " + mark + " 4인", 20000);
 
-        String result = bundleTools.searchBundles("Ubot " + mark, null, toolContext);
+        String result = bundleTools.searchBundles("Ubot " + mark, null, null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 결합 상품 2건 중 2건(할인액 큰 순)")
                 .contains("결합 전체 월 20,000원 할인");
         assertThat(result.indexOf("4인")).isLessThan(result.indexOf("2인"));
+    }
+
+    @Test
+    @DisplayName("부가서비스는 분류로 거르고, 이름 없이 분류만 있으면 분류 말을 목록 주어로 쓴다")
+    void addonsByCategory() {
+        insertAddon("Ubot " + mark + " 컬러링", 990, "통화연결음 변경", "CALL");
+        insertAddon("Ubot " + mark + " 착신", 0, "착신전환", "CALL");
+        insertAddon("Ubot " + mark + " 스팸", 0, "스팸 차단", "BLOCKING");
+
+        String result = addonTools.searchAddons(mark, "call", null, toolContext);
+
+        assertThat(result).startsWith("조건에 맞는 부가서비스 2건 중 2건").contains("컬러링", "착신").doesNotContain("스팸");
+
+        var byCategory = new ProductDataRecorder();
+        addonTools.searchAddons(null, "CALL", true, new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, byCategory)));
+        assertThat(byCategory.listing()).hasValueSatisfying(found ->
+                assertThat(((ProductListing) found).subject()).isEqualTo("통화 부가서비스"));
+    }
+
+    @Test
+    @DisplayName("결합은 종류와 회선 수로 거르고, 회선 수 제한이 없는 결합은 어떤 회선 수에도 함께 돌려준다")
+    void bundlesByTypeAndLineCount() {
+        insertBundle("Ubot " + mark + " 가족 4인", 20000, "가족 4회선", "FAMILY", 4);
+        insertBundle("Ubot " + mark + " 친구 4인", 9000, "친구 4회선", "ETC", 4);
+        insertBundle("Ubot " + mark + " 가족 2인", 6000, "가족 2회선", "FAMILY", 2);
+        insertBundle("Ubot " + mark + " 오래함께", 10000, "휴대폰 2회선 이상", "FAMILY", null);
+
+        assertThat(bundleTools.searchBundles(mark, null, 4, null, toolContext))
+                .startsWith("조건에 맞는 결합 상품 3건 중 3건").contains("가족 4인", "친구 4인", "오래함께")
+                .doesNotContain("가족 2인");
+
+        var byType = new ProductDataRecorder();
+        String family = bundleTools.searchBundles(mark, "family", 4, true,
+                new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, byType)));
+        assertThat(family).startsWith("조건에 맞는 결합 상품 2건 중 2건").contains("가족 4인", "오래함께");
+        assertThat(byType.listing()).hasValueSatisfying(found ->
+                assertThat(((ProductListing) found).subject()).isEqualTo("조건에 맞는 " + mark + " 결합 상품"));
+    }
+
+    @Test
+    @DisplayName("부가서비스 분류나 결합 종류에 쓸 수 없는 값이면 쓸 수 있는 값과 함께 다시 호출하라고 돌려준다")
+    void invalidCategoryAndBundleTypeAskToRetry() {
+        assertThat(addonTools.searchAddons(mark, "MUSIC", null, toolContext))
+                .contains("'MUSIC'은(는) category에 쓸 수 없는 값입니다").contains("DATA_CHARGE, VOICE_CHARGE");
+        assertThat(bundleTools.searchBundles(mark, "COUPLE", null, null, toolContext))
+                .contains("'COUPLE'은(는) bundleType에 쓸 수 없는 값입니다").contains("FAMILY, HOME, DUO, ETC");
+        assertThat(recorder.cards()).isEmpty();
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("홈 결합은 필요한 인터넷 상품 이름을 행과 카드에 쓴다(조회 트랜잭션이 끝난 뒤에도 읽힌다)")
+    void homeBundleShowsInternetProduct() {
+        // 테스트 트랜잭션 안에서는 지연 로딩 오류가 가려지므로 트랜잭션 밖에서 넣고 지웁니다.
+        String homeCode = UUID.randomUUID().toString();
+        String bundleCode = UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+                INSERT INTO home_products (code, name, product_type, speed_mbps, monthly_fee)
+                VALUES (?, ?, 'INTERNET', 100, 22000)
+                """, homeCode, "Ubot " + mark + " 인터넷 100M");
+        jdbcTemplate.update("""
+                INSERT INTO bundle_products (code, name, discount_amount, description, bundle_type, line_count, home_product_id)
+                SELECT ?, ?, 3300, '휴대폰 1회선과 인터넷 이용 시 할인', 'HOME', 1, home_product_id FROM home_products WHERE code = ?
+                """, bundleCode, "Ubot " + mark + " 홈 결합", homeCode);
+        try {
+            String result = bundleTools.searchBundles(mark, "HOME", null, null, toolContext);
+
+            assertThat(result).contains("Ubot " + mark + " 홈 결합 | 결합 전체 월 3,300원 할인 | "
+                    + BundleTools.HOME_PRODUCT_PREFIX + "Ubot " + mark + " 인터넷 100M");
+            assertThat(recorder.cards()).singleElement().satisfies(card -> assertThat(card.specs())
+                    .containsExactly(BundleTools.HOME_PRODUCT_PREFIX + "Ubot " + mark + " 인터넷 100M"));
+        } finally {
+            jdbcTemplate.update("DELETE FROM bundle_products WHERE code = ?", bundleCode);
+            jdbcTemplate.update("DELETE FROM home_products WHERE code = ?", homeCode);
+        }
     }
 
     @Test
@@ -307,8 +383,8 @@ class ProductToolsIntegrationTest {
 
         assertThat(planTools.searchPlans("밸런스" + mark + "59 요금제", null, null, null, null, null, null, null, toolContext))
                 .startsWith("조건에 맞는 요금제 1건 중 1건");
-        assertThat(addonTools.searchAddons(mark + "컬러링 서비스", null, toolContext)).startsWith("조건에 맞는 부가서비스 1건 중 1건");
-        assertThat(bundleTools.searchBundles(mark + " 가족 결합", null, toolContext)).startsWith("조건에 맞는 결합 상품 1건 중 1건");
+        assertThat(addonTools.searchAddons(mark + "컬러링 서비스", null, null, toolContext)).startsWith("조건에 맞는 부가서비스 1건 중 1건");
+        assertThat(bundleTools.searchBundles(mark + " 가족 결합", null, null, null, toolContext)).startsWith("조건에 맞는 결합 상품 1건 중 1건");
         assertThat(roamingTools.searchRoaming(null, mark + " 베이직 로밍", null, toolContext)).startsWith("조건에 맞는 로밍 상품 1건 중 1건");
     }
 
@@ -317,7 +393,7 @@ class ProductToolsIntegrationTest {
     void recordsReturnedLines() {
         insertAddon("Ubot " + mark + " 컬러링", 990, "통화연결음 변경");
 
-        String result = addonTools.searchAddons(mark, null, toolContext);
+        String result = addonTools.searchAddons(mark, null, null, toolContext);
 
         assertThat(recorder.describe()).isNotBlank();
         assertThat(result).contains(recorder.describe());
@@ -339,8 +415,12 @@ class ProductToolsIntegrationTest {
     }
 
     private void insertAddon(String name, int fee, String description) {
-        jdbcTemplate.update("INSERT INTO addon_services (code, name, monthly_fee, description) VALUES (?, ?, ?, ?)",
-                UUID.randomUUID().toString(), name, fee, description);
+        insertAddon(name, fee, description, "ETC");
+    }
+
+    private void insertAddon(String name, int fee, String description, String category) {
+        jdbcTemplate.update("INSERT INTO addon_services (code, name, monthly_fee, description, category) VALUES (?, ?, ?, ?, ?)",
+                UUID.randomUUID().toString(), name, fee, description, category);
     }
 
     private void insertBundle(String name, int discount) {
@@ -348,8 +428,14 @@ class ProductToolsIntegrationTest {
     }
 
     private void insertBundle(String name, int discount, String description) {
-        jdbcTemplate.update("INSERT INTO bundle_products (code, name, discount_amount, description) VALUES (?, ?, ?, ?)",
-                UUID.randomUUID().toString(), name, discount, description);
+        insertBundle(name, discount, description, "ETC", null);
+    }
+
+    private void insertBundle(String name, int discount, String description, String bundleType, Integer lineCount) {
+        jdbcTemplate.update("""
+                INSERT INTO bundle_products (code, name, discount_amount, description, bundle_type, line_count)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID().toString(), name, discount, description, bundleType, lineCount);
     }
 
     private void insertRoaming(String name, int dailyFee, long dataMb, String country) {
