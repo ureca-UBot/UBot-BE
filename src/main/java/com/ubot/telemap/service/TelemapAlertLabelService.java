@@ -7,11 +7,14 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
@@ -48,13 +51,16 @@ public class TelemapAlertLabelService {
     private final LlmService llmService;
     private final TelemapProperties telemapProperties;
     private final Resource systemPromptResource;
+    private final PlatformTransactionManager transactionManager;
 
+    @Autowired
     public TelemapAlertLabelService(
             SurgingAlertRepository surgingAlertRepository,
             UserRepository userRepository,
             NotificationService notificationService,
             LlmService llmService,
             TelemapProperties telemapProperties,
+            PlatformTransactionManager transactionManager,
             @Value("${prompt.telemap-alert-subject.system-location:classpath:prompts/telemap-alert-subject-system.txt}")
             Resource systemPromptResource
     ) {
@@ -64,14 +70,47 @@ public class TelemapAlertLabelService {
         this.llmService = llmService;
         this.telemapProperties = telemapProperties;
         this.systemPromptResource = systemPromptResource;
+        this.transactionManager = transactionManager;
     }
 
-    @Transactional
+    public TelemapAlertLabelService(
+            SurgingAlertRepository surgingAlertRepository,
+            UserRepository userRepository,
+            NotificationService notificationService,
+            LlmService llmService,
+            TelemapProperties telemapProperties,
+            Resource systemPromptResource
+    ) {
+        this(surgingAlertRepository, userRepository, notificationService, llmService, telemapProperties,
+                null, systemPromptResource);
+    }
+
     public void labelAndNotify(long alertId) {
+        AlertLabelInput input = inTransaction(() -> loadInput(alertId));
+        String subject = StringUtils.hasText(input.subject()) ? input.subject() : generateSubjectOrFallback(input);
+        inTransaction(() -> {
+            saveSubjectAndNotify(alertId, subject);
+            return null;
+        });
+    }
+
+    private AlertLabelInput loadInput(long alertId) {
+        SurgingAlert alert = surgingAlertRepository.findById(alertId)
+                .orElseThrow(() -> new TelemapException(TelemapErrorCode.SURGING_ALERT_NOT_FOUND));
+        return new AlertLabelInput(
+                alert.getRegion().name(),
+                alert.getSubject(),
+                List.copyOf(alert.getQuestionSnapshots()),
+                alert.getQuestionCount(),
+                alert.getWindowMinutes()
+        );
+    }
+
+    private void saveSubjectAndNotify(long alertId, String generatedSubject) {
         SurgingAlert alert = surgingAlertRepository.findById(alertId)
                 .orElseThrow(() -> new TelemapException(TelemapErrorCode.SURGING_ALERT_NOT_FOUND));
         if (!StringUtils.hasText(alert.getSubject())) {
-            alert.updateSubject(generateSubjectOrFallback(alert));
+            alert.updateSubject(generatedSubject);
         }
         notificationService.createSurgingAlertNotifications(
                 alert,
@@ -79,6 +118,22 @@ public class TelemapAlertLabelService {
                         .map(user -> user.getId())
                         .toList()
         );
+    }
+
+    private <T> T inTransaction(Supplier<T> action) {
+        if (transactionManager == null) return action.get();
+        return new TransactionTemplate(transactionManager).execute(status -> action.get());
+    }
+
+    private String generateSubjectOrFallback(AlertLabelInput input) {
+        try {
+            String subject = parseSubject(callLlm(input));
+            if (subject != null) return subject;
+            log.warn("Surging alert subject LLM response was invalid; using fallback subject.");
+        } catch (RuntimeException exception) {
+            log.warn("Surging alert subject generation failed; using fallback subject.", exception);
+        }
+        return input.regionName() + " 지역 유사 문의 급증";
     }
 
     private String generateSubjectOrFallback(SurgingAlert alert) {
@@ -102,6 +157,26 @@ public class TelemapAlertLabelService {
                 .append("지역: ").append(alert.getRegion().name())
                 .append("\n집계 시간: 최근 ").append(alert.getWindowMinutes()).append("분")
                 .append("\n집계 건수: ").append(alert.getQuestionCount())
+                .append("\n질문 목록:");
+        snapshots.forEach(snapshot -> user.append("\n- ").append(snapshot.question()));
+        LlmRequestDto request = new LlmRequestDto(List.of(
+                new LlmMessageRequestDto(LlmMessageRole.SYSTEM, readSystemPrompt()),
+                new LlmMessageRequestDto(LlmMessageRole.USER, user.toString())
+        )).withResponseSchema(RESPONSE_SCHEMA);
+        LlmResponseDto response = llmService.generateAnswer(request);
+        return response.answer();
+    }
+
+    private String callLlm(AlertLabelInput input) {
+        List<SurgingQuestionSnapshot> allSnapshots = input.questionSnapshots();
+        long skipCount = Math.max(0, allSnapshots.size() - telemapProperties.getMaxQuestionsForSubject());
+        List<SurgingQuestionSnapshot> snapshots = allSnapshots.stream()
+                .skip(skipCount)
+                .toList();
+        StringBuilder user = new StringBuilder()
+                .append("지역: ").append(input.regionName())
+                .append("\n집계 시간: 최근 ").append(input.windowMinutes()).append("분")
+                .append("\n집계 건수: ").append(input.questionCount())
                 .append("\n질문 목록:");
         snapshots.forEach(snapshot -> user.append("\n- ").append(snapshot.question()));
         LlmRequestDto request = new LlmRequestDto(List.of(
@@ -142,5 +217,14 @@ public class TelemapAlertLabelService {
         schema.put("required", List.of("subject"));
         schema.put("additionalProperties", false);
         return Collections.unmodifiableMap(schema);
+    }
+
+    private record AlertLabelInput(
+            String regionName,
+            String subject,
+            List<SurgingQuestionSnapshot> questionSnapshots,
+            int questionCount,
+            int windowMinutes
+    ) {
     }
 }

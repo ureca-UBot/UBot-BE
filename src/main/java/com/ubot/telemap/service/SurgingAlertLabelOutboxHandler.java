@@ -22,6 +22,11 @@ public class SurgingAlertLabelOutboxHandler implements OutboxEventHandler {
     }
 
     @Override
+    public boolean runsOutsideTransaction() {
+        return true;
+    }
+
+    @Override
     public void handle(JsonNode payload) {
         JsonNode alertId = payload.get("alertId");
         if (alertId == null || alertId.isNull()) {

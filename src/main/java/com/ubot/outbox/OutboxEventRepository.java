@@ -50,6 +50,19 @@ public class OutboxEventRepository {
         ).stream().findFirst();
     }
 
+    /** FOR UPDATE로 잡은 이벤트를 다른 worker가 처리하지 못하도록 lease를 남긴다. */
+    public void lease(long id, long leaseSeconds) {
+        jdbcTemplate.update(
+                """
+                UPDATE outbox_events
+                SET next_attempt_at = LOCALTIMESTAMP + make_interval(secs => ?)
+                WHERE id = ?
+                """,
+                leaseSeconds,
+                id
+        );
+    }
+
     public long countPending(OutboxEventType type, int maxRetries) {
         return jdbcTemplate.queryForObject(
                 """

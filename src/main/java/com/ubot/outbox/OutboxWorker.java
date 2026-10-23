@@ -25,6 +25,7 @@ public class OutboxWorker {
     public static final int MAX_RETRIES = 5;
     static final int BATCH_SIZE = 20;
     static final long RETRY_BASE_DELAY_SECONDS = 10;
+    static final long EXTERNAL_HANDLER_LEASE_SECONDS = 300;
 
     private final OutboxEventRepository outboxRepository;
     private final Map<OutboxEventType, OutboxEventHandler> handlers = new EnumMap<>(OutboxEventType.class);
@@ -45,21 +46,31 @@ public class OutboxWorker {
         for (int i = 0; i < BATCH_SIZE; i++) {
             OutboxEvent[] locked = {null};
             try {
-                Optional<OutboxEvent> processed = transactionTemplate.execute(status -> {
+                ProcessResult result = transactionTemplate.execute(status -> {
                     Optional<OutboxEvent> next = outboxRepository.lockNext(MAX_RETRIES);
-                    next.ifPresent(event -> {
-                        locked[0] = event;
-                        OutboxEventHandler handler = handlers.get(event.type());
-                        if (handler == null) {
-                            throw new IllegalStateException("처리할 수 없는 대기열 작업입니다: " + event.type());
-                        }
-                        handler.handle(event.payload());
-                        outboxRepository.delete(event.id());
-                    });
-                    return next;
+                    if (next.isEmpty()) return ProcessResult.empty();
+
+                    OutboxEvent event = next.get();
+                    locked[0] = event;
+                    OutboxEventHandler handler = handlers.get(event.type());
+                    if (handler == null) {
+                        throw new IllegalStateException("처리할 수 없는 대기열 작업입니다: " + event.type());
+                    }
+                    if (handler.runsOutsideTransaction()) {
+                        outboxRepository.lease(event.id(), EXTERNAL_HANDLER_LEASE_SECONDS);
+                        return ProcessResult.claimed(event, handler);
+                    }
+                    handler.handle(event.payload());
+                    outboxRepository.delete(event.id());
+                    return ProcessResult.completed();
                 });
-                if (processed == null || processed.isEmpty()) {
+                if (result == null || !result.found()) {
                     return;
+                }
+                if (result.claimed() != null) {
+                    result.claimed().handler().handle(result.claimed().event().payload());
+                    transactionTemplate.executeWithoutResult(status ->
+                            outboxRepository.delete(result.claimed().event().id()));
                 }
             } catch (RuntimeException exception) {
                 if (locked[0] == null) {
@@ -76,6 +87,23 @@ public class OutboxWorker {
                 }
                 return;
             }
+        }
+    }
+
+    private record ClaimedEvent(OutboxEvent event, OutboxEventHandler handler) {
+    }
+
+    private record ProcessResult(boolean found, ClaimedEvent claimed) {
+        private static ProcessResult empty() {
+            return new ProcessResult(false, null);
+        }
+
+        private static ProcessResult completed() {
+            return new ProcessResult(true, null);
+        }
+
+        private static ProcessResult claimed(OutboxEvent event, OutboxEventHandler handler) {
+            return new ProcessResult(true, new ClaimedEvent(event, handler));
         }
     }
 }
