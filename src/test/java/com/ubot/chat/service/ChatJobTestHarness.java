@@ -15,6 +15,7 @@ import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.repository.ChatJobQueueRepository;
+import com.ubot.chat.job.repository.ChatJobQueueRepository.Claim;
 import com.ubot.chat.job.repository.ChatJobRepository;
 import com.ubot.chat.job.service.ChatJobCompletionService;
 import com.ubot.chat.job.service.ChatJobQueryService;
@@ -51,7 +52,8 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 final class ChatJobTestHarness {
 	static final ChatWorkerProperties WORKER_PROPERTIES = new ChatWorkerProperties(
 			1, false, Duration.ofSeconds(2), "test-worker", Duration.ofMinutes(10), Duration.ofSeconds(30),
-			Duration.ofMinutes(5), 3, Duration.ofSeconds(15), Duration.ofHours(24));
+			Duration.ofMinutes(5), 3, Duration.ofSeconds(15), Duration.ofHours(24), Duration.ofSeconds(180),
+			Duration.ofMinutes(1), Duration.ofSeconds(20), Duration.ofSeconds(5));
 
 	final ChatJobRepository jobRepository = mock(ChatJobRepository.class);
 	final ChatJobQueueRepository queueRepository = mock(ChatJobQueueRepository.class);
@@ -175,7 +177,7 @@ final class ChatJobTestHarness {
 					LocalDateTime startedAt = call.getArgument(1);
 					ReflectionTestUtils.setField(job, "status", ChatJobStatus.RUNNING);
 					ReflectionTestUtils.setField(job, "startedAt", startedAt);
-					return startedAt;
+					return new Claim(startedAt, startedAt.plus(WORKER_PROPERTIES.executionTimeout()));
 				}));
 	}
 

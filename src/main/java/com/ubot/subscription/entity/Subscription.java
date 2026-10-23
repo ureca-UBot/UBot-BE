@@ -84,6 +84,36 @@ public class Subscription extends BusinessEntity {
 	@Column(name = "sim_deactivated_at")
 	private LocalDateTime simDeactivatedAt;
 
+	// 마지막으로 요금제를 바꾼 시각. 요금제 변경 월 1회 제한에 쓴다.
+	@Column(name = "plan_changed_at")
+	private LocalDateTime planChangedAt;
+
+	/** 새 회선. SIM 정보는 개통 후 따로 등록하므로 비워 둔다. 처음 고른 요금제는 변경 횟수에 넣지 않는다. */
+	public static Subscription create(User user, Plan plan, String phoneNumber, LocalDateTime now) {
+		return Subscription.builder()
+				.user(user)
+				.plan(plan)
+				.phoneNumber(phoneNumber)
+				.status(SubscriptionStatus.ACTIVE)
+				.activatedAt(now)
+				.build();
+	}
+
+	/** 회선 해지. 등록된 SIM이 있으면 함께 비활성화한다. */
+	public void terminate(LocalDateTime now) {
+		this.status = SubscriptionStatus.TERMINATED;
+		this.terminatedAt = now;
+		if (this.simType != null && this.simDeactivatedAt == null) {
+			this.simStatus = SimStatus.DEACTIVATED;
+			this.simDeactivatedAt = now;
+		}
+	}
+
+	public void changePlan(Plan plan, LocalDateTime changedAt) {
+		this.plan = plan;
+		this.planChangedAt = changedAt;
+	}
+
 	@PrePersist
 	private void initializeMetadata() {
 		initializeTimestamps();

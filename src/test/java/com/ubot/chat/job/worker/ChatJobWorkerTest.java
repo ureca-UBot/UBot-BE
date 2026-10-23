@@ -1,6 +1,7 @@
 package com.ubot.chat.job.worker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -24,6 +25,7 @@ import com.ubot.chat.job.dto.ChatRequestContext;
 import com.ubot.chat.job.entity.ChatJob;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.repository.ChatJobQueueRepository;
+import com.ubot.chat.job.repository.ChatJobQueueRepository.Claim;
 import com.ubot.chat.job.repository.ChatJobRepository;
 import com.ubot.chat.job.service.ChatJobCompletionService;
 import com.ubot.chat.job.service.ChatJobCompletionService.Completion;
@@ -46,8 +48,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,6 +78,8 @@ class ChatJobWorkerTest {
 	private final AnswerAttemptsHistoryRepository attempts = mock(AnswerAttemptsHistoryRepository.class);
 	private final Deque<ReceivedChatJob> unread = new ArrayDeque<>();
 	private final Map<Long, ChatJob> storedJobs = new HashMap<>();
+	// 선점 SQL이 deadline_at을 잡을 때 쓰는 실행 한도. 기본 선점 mock이 이 값으로 마감을 돌려줌
+	private Duration claimedExecution = Duration.ofSeconds(180);
 	private ChatJobWorker worker;
 
 	@AfterEach
@@ -159,12 +166,66 @@ class ChatJobWorkerTest {
 	void executionDoesNotRestartTimeoutAfterClaimDelay() {
 		queueJobs(1);
 		LocalDateTime expiredStart = LocalDateTime.now().minusMinutes(10);
-		when(queue.claim(anyLong(), any())).thenReturn(Optional.of(expiredStart));
+		when(queue.claim(anyLong(), any())).thenReturn(claimed(expiredStart));
 		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 		worker.processAvailableJobs();
 		verify(completion).complete(1L, expiredStart,
 				ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT), RegionSido.SEOUL);
+		verify(stream).ack("message-1");
+	}
+
+	@Test
+	@DisplayName("대기 시간은 선점 시각이 아니라 기다리기 직전에 남은 시간으로 잡는다")
+	void remainingTimeIsRecomputedRightBeforeWaiting() throws Exception {
+		LocalDateTime deadline = LocalDateTime.now().plus(Duration.ofMillis(300));
+		Thread.sleep(150);
+		var waited = new AtomicLong(-1);
+		var future = new FutureTask<>(() -> "답변") {
+			@Override
+			public String get(long timeout, TimeUnit unit) {
+				waited.set(unit.toMillis(timeout));
+				return "답변";
+			}
+		};
+
+		assertThat(ChatJobWorker.awaitUntil(future, deadline)).isEqualTo("답변");
+		assertThat(waited.get()).isBetween(0L, 150L);
+	}
+
+	@Test
+	@DisplayName("결과가 마감을 넘겨 돌아오면 성공이 아니라 시간 초과로 본다")
+	void resultReturnedAfterDeadlineIsTimeout() {
+		LocalDateTime deadline = LocalDateTime.now().plus(Duration.ofMillis(50));
+		// 정해진 대기 시간을 넘겨 돌아오는 GC·스케줄링 지연을 재현함
+		var late = new FutureTask<>(() -> "답변") {
+			@Override
+			public String get(long timeout, TimeUnit unit) throws InterruptedException {
+				Thread.sleep(unit.toMillis(timeout) + 50);
+				return "답변";
+			}
+		};
+
+		assertThatThrownBy(() -> ChatJobWorker.awaitUntil(late, deadline)).isInstanceOf(TimeoutException.class);
+	}
+
+	@Test
+	void executionStopsAtStoredDeadlineEvenIfExecutionWindowIsLonger() throws Exception {
+		queueJobs(1);
+		// 접수 후 전체 기한이 먼저 끝나는 경우처럼, 저장된 마감이 실행 한도(180초)보다 먼저 옴
+		when(queue.claim(anyLong(), any())).thenAnswer(call -> claimed(STARTED_AT, Duration.ofMillis(200)));
+		var interrupted = new CountDownLatch(1);
+		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
+			try { new CountDownLatch(1).await(10, TimeUnit.SECONDS); }
+			catch (InterruptedException exception) { interrupted.countDown(); throw new java.util.concurrent.CancellationException(); }
+			return answered();
+		});
+		worker = worker(1, Duration.ofSeconds(20));
+		long began = System.nanoTime();
+		worker.processAvailableJobs();
+		assertThat(Duration.ofNanos(System.nanoTime() - began)).isLessThan(Duration.ofSeconds(1));
+		assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
+		verify(completion).complete(eq(1L), any(), eq(ChatJobOutcome.failed(ChatErrorCode.RESPONSE_TIMEOUT)), any());
 		verify(stream).ack("message-1");
 	}
 
@@ -295,7 +356,7 @@ class ChatJobWorkerTest {
 		ReflectionTestUtils.setField(storedJobs.get(1L), "status", ChatJobStatus.RUNNING);
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
 		LocalDateTime takenAt = STARTED_AT.plusMinutes(10);
-		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(takenAt));
+		when(queue.takeOver(eq(1L), any(), any())).thenReturn(claimed(takenAt));
 		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 
@@ -321,7 +382,7 @@ class ChatJobWorkerTest {
 		ReflectionTestUtils.setField(job, "heartbeatAt", LocalDateTime.now().minusMinutes(2));
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
 		LocalDateTime takenAt = STARTED_AT.plusMinutes(2);
-		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(takenAt));
+		when(queue.takeOver(eq(1L), any(), any())).thenReturn(claimed(takenAt));
 		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 
@@ -544,7 +605,8 @@ class ChatJobWorkerTest {
 
 	private ChatJobWorker worker(int concurrency, Duration shutdownWait) {
 		var properties = new ChatWorkerProperties(concurrency, true, Duration.ofMillis(50), "test-worker",
-				Duration.ofMinutes(10), Duration.ofSeconds(30), RECLAIM_IDLE, 3, Duration.ofMinutes(1), Duration.ofHours(24));
+				Duration.ofMinutes(10), Duration.ofSeconds(30), RECLAIM_IDLE, 3, Duration.ofMinutes(1), Duration.ofHours(24),
+				Duration.ofSeconds(180), HEARTBEAT_TIMEOUT, Duration.ofSeconds(20), Duration.ofSeconds(5));
 		return new ChatJobWorker(stream, results, queue, jobs, completion, processor, attempts, properties, shutdownWait);
 	}
 
@@ -570,6 +632,7 @@ class ChatJobWorkerTest {
 	@Test
 	void timeoutFreesSlotAndDiscardsLateAnswerEvenIfModelIgnoresInterrupt() throws Exception {
 		queueJobs(2);
+		claimedExecution = Duration.ofMillis(100);
 		CountDownLatch release = new CountDownLatch(1);
 		CountDownLatch returned = new CountDownLatch(1);
 		when(processor.process(any(), any(), any(), any())).thenAnswer(call -> {
@@ -584,7 +647,8 @@ class ChatJobWorkerTest {
 		});
 		var properties = new ChatWorkerProperties(1, true, Duration.ofMillis(10), "test-worker",
 				Duration.ofMinutes(10), Duration.ofSeconds(30), RECLAIM_IDLE, 3,
-				Duration.ofMinutes(1), Duration.ofHours(24), Duration.ofMillis(100));
+				Duration.ofMinutes(1), Duration.ofHours(24), Duration.ofMillis(100),
+				HEARTBEAT_TIMEOUT, Duration.ofSeconds(20), Duration.ofSeconds(5));
 		worker = new ChatJobWorker(stream, results, queue, jobs, completion, processor, attempts, properties);
 		var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
 		worker.observeWith(registry);
@@ -611,7 +675,8 @@ class ChatJobWorkerTest {
 		when(queue.heartbeat(anyLong(), any(), any())).thenReturn(1);
 		var properties = new ChatWorkerProperties(1, true, Duration.ofMillis(10), "test-worker",
 				Duration.ofMinutes(10), Duration.ofSeconds(30), Duration.ofMillis(90), 3,
-				Duration.ofMinutes(1), Duration.ofHours(24));
+				Duration.ofMinutes(1), Duration.ofHours(24), Duration.ofSeconds(180),
+				Duration.ofMillis(90), Duration.ofSeconds(20), Duration.ofSeconds(5));
 		worker = new ChatJobWorker(stream, results, queue, jobs, completion, processor, attempts, properties);
 		try {
 			worker.start();
@@ -646,7 +711,7 @@ class ChatJobWorkerTest {
 		ReflectionTestUtils.setField(job, "status", ChatJobStatus.RUNNING);
 		ReflectionTestUtils.setField(job, "heartbeatAt", LocalDateTime.now().minusMinutes(2));
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
-		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(STARTED_AT.plusMinutes(2)));
+		when(queue.takeOver(eq(1L), any(), any())).thenReturn(claimed(STARTED_AT.plusMinutes(2)));
 		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 		var registry = observe(worker);
@@ -663,7 +728,7 @@ class ChatJobWorkerTest {
 		staleJobs(1, 1);
 		ReflectionTestUtils.setField(storedJobs.get(1L), "status", ChatJobStatus.RUNNING);
 		when(queue.claim(anyLong(), any())).thenReturn(Optional.empty());
-		when(queue.takeOver(eq(1L), any(), any())).thenReturn(Optional.of(STARTED_AT.plusMinutes(10)));
+		when(queue.takeOver(eq(1L), any(), any())).thenReturn(claimed(STARTED_AT.plusMinutes(10)));
 		when(processor.process(any(), any(), any(), any())).thenReturn(answered());
 		worker = worker(1, Duration.ofSeconds(20));
 		var registry = observe(worker);
@@ -695,7 +760,8 @@ class ChatJobWorkerTest {
 		when(queue.heartbeat(anyLong(), any(), any())).thenReturn(0);
 		var properties = new ChatWorkerProperties(1, true, Duration.ofMillis(10), "test-worker",
 				Duration.ofMinutes(10), Duration.ofSeconds(30), Duration.ofMillis(90), 3,
-				Duration.ofMinutes(1), Duration.ofHours(24));
+				Duration.ofMinutes(1), Duration.ofHours(24), Duration.ofSeconds(180),
+				Duration.ofMillis(90), Duration.ofSeconds(20), Duration.ofSeconds(5));
 		worker = new ChatJobWorker(stream, results, queue, jobs, completion, processor, attempts, properties);
 		var registry = observe(worker);
 		try {
@@ -785,7 +851,7 @@ class ChatJobWorkerTest {
 		queueJobs(1);
 		when(queue.claim(eq(1L), any())).thenAnswer(call -> {
 			storedJobs.get(1L).fail();
-			return Optional.of(STARTED_AT);
+			return claimed(STARTED_AT);
 		});
 		worker = worker(1, Duration.ofSeconds(20));
 		worker.processAvailableJobs();
@@ -869,11 +935,22 @@ class ChatJobWorkerTest {
 			messages.add(new ReceivedChatJob("message-" + id, new ChatJobMessage(id, CONTEXT)));
 		}
 		when(jobs.findById(anyLong())).thenAnswer(call -> Optional.ofNullable(storedJobs.get(call.<Long>getArgument(0))));
-		when(queue.claim(anyLong(), any())).thenAnswer(call -> Optional.ofNullable(call.<Long>getArgument(0) == 1L ? STARTED_AT : call.<LocalDateTime>getArgument(1)));
+		// 다른 테스트가 stub을 다시 걸 때 matcher 값(null)으로도 호출되므로 null이면 빈 값을 돌려줌
+		when(queue.claim(anyLong(), any())).thenAnswer(call -> Optional.ofNullable(
+						call.<Long>getArgument(0) == 1L ? STARTED_AT : call.<LocalDateTime>getArgument(1))
+				.map(startedAt -> new Claim(startedAt, startedAt.plus(claimedExecution))));
 		when(completion.complete(anyLong(), any(), any(), any())).thenReturn(new Completion(true, null));
 		when(attempts.findById(anyLong())).thenAnswer(call -> Optional.of(AnswerAttemptsHistory.builder()
 				.id(call.getArgument(0)).userId(1L).question("질문").attemptCount(1).status("PENDING").build()));
 		return messages;
+	}
+
+	private static Optional<Claim> claimed(LocalDateTime startedAt) {
+		return claimed(startedAt, Duration.ofSeconds(180));
+	}
+
+	private static Optional<Claim> claimed(LocalDateTime startedAt, Duration executionTimeout) {
+		return Optional.of(new Claim(startedAt, startedAt.plus(executionTimeout)));
 	}
 
 	private static ChatJobOutcome answered() {

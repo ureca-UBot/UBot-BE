@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,11 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @Slf4j
 public class ChatAttemptsService {
+	// 답변 없음(CHAT-012·013)과 입력 가드 거절(CHAT-022·023). 질문이 같으면 다시 시도해도 결과가 같음
+	private static final Set<ErrorCode> SAME_RESULT_FAILURES = Set.of(
+			ChatErrorCode.NO_FAQ, ChatErrorCode.INSUFFICIENT_FAQ,
+			ChatErrorCode.PROMPT_INJECTION_DETECTED, ChatErrorCode.NO_USABLE_QUESTION);
+
 	@Value("${CHAT_MAX_ATTEMPTS:3}")
 	private int maxAttempts;
 
@@ -321,6 +327,10 @@ public class ChatAttemptsService {
 		// 출력 가드가 거절한 질문은 API를 직접 재호출해도 새 시도를 만들지 않습니다.
 		if (attempt.getErrorCode() == LlmErrorCode.LLM_OUTPUT_REJECTED
 				|| attempt.getErrorCode() == ChatErrorCode.USER_CANCELLED) {
+			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
+		}
+		// 같은 질문이면 다시 시도해도 결과가 같은 실패. 자동 재시도가 같은 검색·검사를 반복하지 않게 막음
+		if (SAME_RESULT_FAILURES.contains(attempt.getErrorCode())) {
 			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}
 		return Optional.empty();

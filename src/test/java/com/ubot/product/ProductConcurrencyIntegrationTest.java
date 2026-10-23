@@ -253,9 +253,9 @@ class ProductConcurrencyIntegrationTest {
                         "나중 수정", null, NetworkType.FIVE_G, PlanTargetGroup.GENERAL,
                         10000, 1000L, false, null, 100, false, 100, false, 1000L, null, null));
                 case BUNDLE -> bundleService.updateBundleProduct(adminId, id,
-                        new AdminBundleProductUpdateRequestDto("나중 수정", null, 10000));
+                        new AdminBundleProductUpdateRequestDto("나중 수정", null, 10000, null, null, null));
                 case ADDON -> addonService.updateAddonService(adminId, id,
-                        new AdminAddonServiceUpdateRequestDto("나중 수정", null, 10000));
+                        new AdminAddonServiceUpdateRequestDto("나중 수정", null, 10000, null));
                 case ROAMING -> roamingService.updateRoamingProduct(adminId, id,
                         new AdminRoamingProductUpdateRequestDto("나중 수정", null, 10000, 1000L, "일본"));
             }

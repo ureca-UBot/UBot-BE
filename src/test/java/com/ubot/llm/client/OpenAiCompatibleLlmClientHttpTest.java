@@ -6,6 +6,11 @@ import static org.mockito.Mockito.mock;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,6 +95,97 @@ class OpenAiCompatibleLlmClientHttpTest {
 		// 출력 스키마가 없는 요청에는 response_format을 보내지 않습니다.
 		assertThat(body.has("response_format")).isFalse();
 		assertThat(result.answer()).isEqualTo("가까운 매장에서 재발급할 수 있습니다.");
+	}
+
+	@Test
+	void workerScopeRetriesUnavailableAndClearsScopeBeforeOtherCalls() {
+		server.respond(503, "{\"error\":\"loading model\"}");
+		server.respond(completion("\"복구된 답변\"", "stop"));
+		var waits = new AtomicInteger();
+		var answer = LlmRecovery.observe(Duration.ofMillis(5), () -> {},
+				waits::incrementAndGet, () -> client.generateAnswer(question("질문")));
+		assertThat(answer.answer()).isEqualTo("복구된 답변");
+		assertThat(waits.get()).isEqualTo(1);
+		assertThat(server.requests()).hasSize(2);
+		server.respond(503, "{\"error\":\"unavailable\"}");
+		assertFailure(question("다른 API 호출"), LlmErrorCode.LLM_SERVICE_UNAVAILABLE);
+		assertThat(server.requests()).hasSize(3);
+	}
+
+	@Test
+	void cancellingBackoffDoesNotSendAnotherRequest() throws Exception {
+		server.respond(503, "{\"error\":\"unavailable\"}");
+		var waiting = new CountDownLatch(1);
+		var finished = new CountDownLatch(1);
+		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+			var task = executor.submit(() -> {
+				try {
+					LlmRecovery.observe(Duration.ofSeconds(10), () -> {},
+							waiting::countDown, () -> client.generateAnswer(question("질문")));
+				} catch (CancellationException expected) {
+					finished.countDown();
+				}
+			});
+			assertThat(waiting.await(2, TimeUnit.SECONDS)).isTrue();
+			task.cancel(true);
+			assertThat(finished.await(1, TimeUnit.SECONDS)).isTrue();
+			assertThat(server.requests()).hasSize(1);
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(ints = {400, 401, 404, 429})
+	void workerScopeDoesNotRetryClientErrors(int status) {
+		server.respond(status, "{\"error\":\"invalid request\"}");
+		LlmRecovery.observe(Duration.ofMillis(5), () -> {},
+				() -> { throw new AssertionError("4xx를 재시도하면 안 됩니다."); }, () -> {
+					assertFailure(question("질문"), LlmErrorCode.LLM_SERVICE_UNAVAILABLE); return null;
+				});
+		assertThat(server.requests()).hasSize(1);
+	}
+
+	@Test
+	void workerScopeRetriesConnectionDroppedBeforeResponse() {
+		server.drop();
+		server.respond(completion("\"복구된 답변\"", "stop"));
+		var waits = new AtomicInteger();
+		var answer = LlmRecovery.observe(Duration.ofMillis(5), () -> {},
+				waits::incrementAndGet, () -> client.generateAnswer(question("질문")));
+		assertThat(answer.answer()).isEqualTo("복구된 답변");
+		assertThat(waits.get()).isEqualTo(1);
+		assertThat(server.requests()).hasSize(2);
+	}
+
+	@Test
+	void workerScopeDoesNotRetryUnknownContentType() {
+		// 프록시 오류 페이지처럼 JSON이 아닌 응답은 기다려도 바뀌지 않으므로 바로 실패
+		server.respond(200, "text/html", "<html>bad gateway</html>");
+		LlmRecovery.observe(Duration.ofMillis(5), () -> {},
+				() -> { throw new AssertionError("알 수 없는 응답 형식을 재시도하면 안 됩니다."); }, () -> {
+					assertFailure(question("질문"), LlmErrorCode.LLM_SERVICE_UNAVAILABLE); return null;
+				});
+		assertThat(server.requests()).hasSize(1);
+	}
+
+	@Test
+	void workerScopeDoesNotRepeatCompletedToolWhenNextHttpRequestFails() {
+		var calls = new AtomicInteger();
+		ToolCallback tool = new ToolCallback() {
+			public ToolDefinition getToolDefinition() {
+				return ToolDefinition.builder().name("readOnce").description("조회")
+						.inputSchema("{\"type\":\"object\",\"properties\":{}}").build();
+			}
+			public String call(String input) { calls.incrementAndGet(); return "조회 결과"; }
+		};
+		server.respond(toolCall("readOnce", "{}"));
+		server.respond(503, "{\"error\":\"loading\"}");
+		server.respond(completion("\"최종 답변\"", "stop"));
+		var request = question("질문").withTools(List.of(tool), Map.of());
+		var answer = LlmRecovery.observe(Duration.ofMillis(5), () -> {}, () -> {},
+				() -> client.generateAnswer(request));
+		assertThat(answer.answer()).isEqualTo("최종 답변");
+		assertThat(calls.get()).isEqualTo(1);
+		assertThat(server.requests()).hasSize(3);
 	}
 
 	@Test
