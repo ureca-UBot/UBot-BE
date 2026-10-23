@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.pgvector.PGvector;
 import com.ubot.chat.entity.QuestionLog;
@@ -50,6 +51,7 @@ public class TelemapSurgingQuestionService {
     private final TelemapProperties telemapProperties;
     private final OutboxEventRepository outboxEventRepository;
 
+    @Transactional
     public void registerQuestion(long questionLogId) {
         if (surgingQuestionRepository.existsByQuestionLogId(questionLogId)) return;
 

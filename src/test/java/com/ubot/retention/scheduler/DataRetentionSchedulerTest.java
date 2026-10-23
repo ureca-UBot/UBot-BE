@@ -3,7 +3,6 @@ package com.ubot.retention.scheduler;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -69,10 +68,23 @@ class DataRetentionSchedulerTest {
 	@DisplayName("재시도 한도를 모두 소진하면 예외를 밖으로 전파하지 않는다")
 	void stopsAfterThreeRetries() {
 		doThrow(new QueryTimeoutException("계속 실패")).when(jdbcTemplate).execute(PURGE_SQL);
+		when(telemapRetentionService.purge(NOW)).thenReturn(new RetentionResult(0, 0, 0, 0));
 
 		assertThatCode(scheduler::purgeExpiredData).doesNotThrowAnyException();
 
 		verify(jdbcTemplate, times(4)).execute(PURGE_SQL);
-		verify(telemapRetentionService, never()).purge(NOW);
+		verify(telemapRetentionService).purge(NOW);
+	}
+
+	@Test
+	@DisplayName("통신 지도 보존 작업 실패는 기존 보존 작업을 다시 실행하지 않는다")
+	void retriesTelemapRetentionIndependently() {
+		when(telemapRetentionService.purge(NOW))
+				.thenThrow(new QueryTimeoutException("계속 실패"));
+
+		assertThatCode(scheduler::purgeExpiredData).doesNotThrowAnyException();
+
+		verify(jdbcTemplate).execute(PURGE_SQL);
+		verify(telemapRetentionService, times(4)).purge(NOW);
 	}
 }

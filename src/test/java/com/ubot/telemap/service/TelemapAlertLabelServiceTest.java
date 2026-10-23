@@ -70,8 +70,8 @@ class TelemapAlertLabelServiceTest {
         assertThat(request.getValue().hasResponseSchema()).isTrue();
         assertThat(request.getValue().messages()).hasSize(2);
         assertThat(request.getValue().messages().get(1).content())
-                .contains("지역: SEOUL", "집계 시간: 최근 10분", "집계 건수: 3", "질문 1", "질문 2")
-                .doesNotContain("질문 3");
+                .contains("지역: SEOUL", "집계 시간: 최근 10분", "집계 건수: 3", "질문 2", "질문 3")
+                .doesNotContain("질문 1");
     }
 
     @Test

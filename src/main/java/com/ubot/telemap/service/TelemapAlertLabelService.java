@@ -11,6 +11,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
@@ -65,6 +66,7 @@ public class TelemapAlertLabelService {
         this.systemPromptResource = systemPromptResource;
     }
 
+    @Transactional
     public void labelAndNotify(long alertId) {
         SurgingAlert alert = surgingAlertRepository.findById(alertId)
                 .orElseThrow(() -> new TelemapException(TelemapErrorCode.SURGING_ALERT_NOT_FOUND));
@@ -91,8 +93,10 @@ public class TelemapAlertLabelService {
     }
 
     private String callLlm(SurgingAlert alert) {
-        List<SurgingQuestionSnapshot> snapshots = alert.getQuestionSnapshots().stream()
-                .limit(telemapProperties.getMaxQuestionsForSubject())
+        List<SurgingQuestionSnapshot> allSnapshots = alert.getQuestionSnapshots();
+        long skipCount = Math.max(0, allSnapshots.size() - telemapProperties.getMaxQuestionsForSubject());
+        List<SurgingQuestionSnapshot> snapshots = allSnapshots.stream()
+                .skip(skipCount)
                 .toList();
         StringBuilder user = new StringBuilder()
                 .append("지역: ").append(alert.getRegion().name())
