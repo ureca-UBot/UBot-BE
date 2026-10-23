@@ -18,9 +18,7 @@ public enum JwtErrorCode implements ErrorCode {
     DUPLICATED_CREATE_REFRESH_TOKEN(HttpStatus.CONFLICT, "JWT-006", "이미 RefreshToken이 생성되었습니다."),
     EXPIRED_ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "JWT-007", "해당 AccessToken은 만료된 토큰입니다."),
     REFRESH_TOKEN_REUSED(HttpStatus.UNAUTHORIZED, "JWT-008", "이미 사용된 RefreshToken입니다. 다시 로그인해주세요."),
-    REVOKED_ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "JWT-009", "로그아웃된 AccessToken입니다. 다시 로그인해주세요."),
-    // 로그아웃 여부를 확인하지 못한 상태. 토큰이 무효라는 뜻이 아니므로 401이 아닌 503으로 재시도를 유도함
-    REVOCATION_CHECK_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "JWT-010", "로그인 상태를 확인할 수 없습니다. 잠시 후 다시 시도해주세요.");
+    REVOKED_ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "JWT-009", "로그아웃된 AccessToken입니다. 다시 로그인해주세요.");
 
     private final HttpStatus status;
     private final String code;

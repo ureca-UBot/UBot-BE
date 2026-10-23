@@ -13,9 +13,6 @@ import reactor.core.publisher.Mono;
 
 import lombok.extern.slf4j.Slf4j;
 
-import com.ubot.auth.exception.JwtErrorCode;
-import com.ubot.auth.exception.MyJwtException;
-
 @Slf4j
 @Service
 public class AccessTokenRevocationService {
@@ -56,10 +53,11 @@ public class AccessTokenRevocationService {
 					.timeout(lookupTimeout, Mono.error(() -> new QueryTimeoutException("접근 토큰 차단 조회 시간 초과")))
 					.block();
 		} catch (QueryTimeoutException e) {
-			// 로그아웃 여부를 모르는 상태라 통과시키지 않음. 연결 오류처럼 바로 실패한 조회는 아래 정책을 따름
-			log.warn("접근 토큰 차단 정보를 제한 시간 안에 확인하지 못해 요청을 거부합니다: 사용자ID={}, 제한시간={}ms",
+			// Redis 장애와 같은 정책으로 차단 없이 진행함. 느려질 때마다 요청이 실패하지 않게 함
+			// 매 요청마다 남으므로 스택트레이스 없이 기록함
+			log.warn("접근 토큰 차단 정보를 제한 시간 안에 확인하지 못해 차단 없이 진행합니다: 사용자ID={}, 제한시간={}ms",
 					userId, lookupTimeout.toMillis());
-			throw new MyJwtException(JwtErrorCode.REVOCATION_CHECK_UNAVAILABLE);
+			return false;
 		} catch (DataAccessException e) {
 			log.warn("접근 토큰 차단 정보를 조회하지 못해 차단 없이 진행합니다: 사용자ID={}", userId, e);
 			return false;

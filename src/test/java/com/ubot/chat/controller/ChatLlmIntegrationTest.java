@@ -263,22 +263,18 @@ class ChatLlmIntegrationTest {
 
 	@ParameterizedTest
 	@EnumSource(value = ChatErrorCode.class, names = {"NO_FAQ", "INSUFFICIENT_FAQ"})
-	void evidenceFailureAllowsRetryUntilConfiguredLimitWithoutCallingLlm(ChatErrorCode code) throws Exception {
+	void evidenceFailureIsNotRetriedBecauseSameQuestionGivesSameResult(ChatErrorCode code) throws Exception {
 		when(vector.getSimilarList("질문", 3)).thenReturn(code == ChatErrorCode.NO_FAQ
 				? List.of() : List.of(new FaqSearchResponseDto(faqId, "q", "a", 0.74, Intent.GENERAL)));
 		String body = complete(post("/chat/questions").contentType("application/json")
 				.content("{\"question\":\"질문\"}"), code);
-		assertThat(body).contains("\"status\":\"FAILED\"", "\"retryable\":true", code.getMessage());
+		assertThat(body).contains("\"status\":\"FAILED\"", "\"retryable\":false", code.getMessage());
 		String key = keyFrom(body);
-		for (int count = 2; count <= maxAttempts; count++) {
-			body = complete(post("/chat/questions/retries").header("Idempotency-Key", key), code);
-			assertThat(body).contains("\"attemptCount\":" + count, key, "\"retryable\":" + (count < maxAttempts));
-		}
 		mvc.perform(post("/chat/questions/retries").header("Authorization", authorization)
 				.header("Idempotency-Key", key)).andExpect(status().isConflict())
 				.andExpect(jsonPath("$.success").value(false))
-				.andExpect(jsonPath("$.code").value(ChatErrorCode.LIMIT_REACHED.getCode()));
-		assertThat(attempts.findAll()).hasSize(maxAttempts).allSatisfy(attempt -> {
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.RETRY_NOT_ALLOWED.getCode()));
+		assertThat(attempts.findAll()).hasSize(1).allSatisfy(attempt -> {
 			assertThat(attempt.getIdempotencyKey()).isEqualTo(key);
 			assertThat(attempt.getStatus()).isEqualTo("FAIL");
 			assertThat(attempt.getErrorCode()).isEqualTo(code);

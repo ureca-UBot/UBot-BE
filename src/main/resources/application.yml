@@ -102,7 +102,7 @@ app:
     secret: ${JWT_SECRET}
     access-token-expiration-millis: ${JWT_ACCESS_TOKEN_EXPIRATION_MILLIS:3600000}
     refresh-token-expiration-days: ${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:14}
-    # 로그아웃 기록(Redis) 조회 한도. 넘기면 로그아웃 여부를 몰라 JWT-010(503)으로 거절함
+    # 로그아웃 기록(Redis) 조회 한도. 넘기면 Redis 장애와 같이 경고 로그만 남기고 차단 없이 진행함
     revocation-lookup-timeout: ${JWT_REVOCATION_LOOKUP_TIMEOUT:200ms}
 
 ranking:

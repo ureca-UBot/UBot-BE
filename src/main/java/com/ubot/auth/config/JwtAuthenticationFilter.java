@@ -101,15 +101,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			return;
 		}
 
-		boolean revoked;
-		try {
-			revoked = accessTokenRevocationService.isRevoked(userId, jwtUtil.getIssuedAt(token));
-		} catch (MyJwtException exception) {
-			// 차단 조회 시간 초과(JWT-010). 토큰을 지우지 않고 다시 시도하도록 503으로 응답함
-			resolveException(request, response, exception);
-			return;
-		}
-		if (revoked) {
+		if (accessTokenRevocationService.isRevoked(userId, jwtUtil.getIssuedAt(token))) {
 			log.info("로그아웃된 접근 토큰이 전달되었습니다: 사용자ID={}, 경로={}", userId, request.getRequestURI());
 			resolveException(request, response, new MyJwtException(JwtErrorCode.REVOKED_ACCESS_TOKEN));
 			return;

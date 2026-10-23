@@ -2,18 +2,12 @@ package com.ubot.auth.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import com.ubot.auth.exception.JwtErrorCode;
-import com.ubot.auth.exception.MyJwtException;
 import com.ubot.auth.service.AccessTokenRevocationService;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.job.service.ChatJobReadExecutor;
@@ -64,20 +58,6 @@ class JwtAuthenticationFilterTest {
 		filter.doFilter(request("POST", "/chat/jobs/12/cancel"), new MockHttpServletResponse(), new MockFilterChain());
 		verifyNoMoreInteractions(reads);
 		verify(users, times(4)).findByIdAndDeletedAtIsNull(7L);
-	}
-
-	@Test
-	void revocationLookupTimeoutStopsRequestWithUnavailableCode() throws Exception {
-		when(revocations.isRevoked(eq(7L), any()))
-				.thenThrow(new MyJwtException(JwtErrorCode.REVOCATION_CHECK_UNAVAILABLE));
-		var chain = new MockFilterChain();
-
-		filter.doFilter(request("GET", "/users/me"), new MockHttpServletResponse(), chain);
-
-		verify(resolver).resolveException(any(), any(), isNull(), argThat(exception ->
-				exception instanceof MyJwtException jwt && jwt.getErrorCode() == JwtErrorCode.REVOCATION_CHECK_UNAVAILABLE));
-		assertThat(chain.getRequest()).as("다음 필터로 넘기지 않음").isNull();
-		verifyNoInteractions(users, reads);
 	}
 
 	private static MockHttpServletRequest request(String method, String path) {

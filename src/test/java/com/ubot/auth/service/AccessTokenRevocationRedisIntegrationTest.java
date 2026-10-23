@@ -3,8 +3,6 @@ package com.ubot.auth.service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
-import com.ubot.auth.exception.JwtErrorCode;
-import com.ubot.auth.exception.MyJwtException;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -16,7 +14,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("Redis 장애 중 접근 토큰 차단 조회")
 class AccessTokenRevocationRedisIntegrationTest {
@@ -44,17 +41,15 @@ class AccessTokenRevocationRedisIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("Redis 응답이 멈추면 빠르게 거부하고 복구 후에는 기존 차단 기록을 적용한다")
-	void rejectsPausedRedisLookupQuicklyAndResumesRevocationWithoutChangingOtherCommands() {
+	@DisplayName("Redis 응답이 멈춰도 빠르게 반환하고 복구 후에는 기존 차단 기록을 적용한다")
+	void boundsPausedRedisLookupAndResumesRevocationWithoutChangingOtherCommands() {
 		redis.opsForValue().set("auth:access-revoked-before:7", "1000500");
 		assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000100))).isTrue();
 		Duration originalTimeout = connection.getClientConfiguration().getCommandTimeout();
 		REDIS.getDockerClient().pauseContainerCmd(REDIS.getContainerId()).exec();
 		try {
 			long started = System.nanoTime();
-			assertThatThrownBy(() -> service.isRevoked(7L, Instant.ofEpochMilli(1000100)))
-					.isInstanceOfSatisfying(MyJwtException.class, exception -> assertThat(exception.getErrorCode())
-							.isEqualTo(JwtErrorCode.REVOCATION_CHECK_UNAVAILABLE));
+			assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000100))).isFalse();
 			assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
 		} finally {
 			REDIS.getDockerClient().unpauseContainerCmd(REDIS.getContainerId()).exec();

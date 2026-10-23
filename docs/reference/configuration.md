@@ -147,7 +147,7 @@ src/main/resources/
 | `JWT_SECRET` | `JwtUtil` | 안내 문구 (**변경 필수**) | 없음 |
 | `JWT_ACCESS_TOKEN_EXPIRATION_MILLIS` | `JwtUtil` | `600000` (10분) | `3600000` (1시간) |
 | `JWT_REFRESH_TOKEN_EXPIRATION_DAYS` | `RefreshTokenService` | `14` | `14` |
-| `JWT_REVOCATION_LOOKUP_TIMEOUT` | `AccessTokenRevocationService`: 로그아웃 기록(Redis) 조회 한도. 넘기면 `JWT-010`(503)으로 거절. 바로 실패하는 Redis 연결 오류는 차단 없이 통과 | `200ms` | `200ms` |
+| `JWT_REVOCATION_LOOKUP_TIMEOUT` | `AccessTokenRevocationService`: 로그아웃 기록(Redis) 조회 한도. 넘기면 Redis 연결 오류와 같이 경고 로그만 남기고 차단 없이 통과 | `200ms` | `200ms` |
 | `CORS_ALLOWED_ORIGINS` | `SecurityConfig` | (빈 값) | (빈 값, 같은 origin만 허용) |
 | `SPRING_PROFILES_ACTIVE` | OS 환경변수로 제공하면 프로필 선택. CD는 서버 `.env`의 이 값이 `prod`인지 검사 | `local` | `.env`에 적는 것만으로는 프로필을 바꾸지 못함 |
 | `ALERTS_ENABLED` | `render-alert-config.sh`: 알림 규칙을 만들지 여부. `false`면 빈 규칙을 만들고 Alertmanager 설정과 Webhook secret을 지움([장애 알림](../how-to/alerting.md)) | `false` | 렌더러 기본 `false`. Spring에서 읽지 않음 |

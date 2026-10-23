@@ -4,10 +4,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import com.ubot.auth.exception.JwtErrorCode;
-import com.ubot.auth.exception.MyJwtException;
-
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
@@ -18,7 +14,6 @@ import org.springframework.data.redis.core.ValueOperations;
 import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -76,13 +71,13 @@ class AccessTokenRevocationServiceTest {
 	}
 
 	@Test
-	@DisplayName("Redis가 응답하지 않으면 조회를 취소하고 로그아웃 여부를 모르므로 요청을 거부한다")
-	void rejectsStalledLookupAfterCancellingIt() {
+	@DisplayName("Redis가 응답하지 않으면 조회를 취소하고 Redis 장애와 같이 요청을 막지 않는다")
+	void allowsStalledLookupAfterCancellingIt() {
 		AtomicBoolean cancelled = new AtomicBoolean();
 		when(reads.get(anyString())).thenReturn(Mono.<String>never().doOnCancel(() -> cancelled.set(true)));
 
 		long started = System.nanoTime();
-		assertRevocationCheckUnavailable(() -> service.isRevoked(7L, Instant.ofEpochSecond(999)));
+		assertThat(service.isRevoked(7L, Instant.ofEpochSecond(999))).isFalse();
 
 		assertThat(cancelled).isTrue();
 		assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
@@ -93,12 +88,7 @@ class AccessTokenRevocationServiceTest {
 	void checksRevocationAgainAfterRedisRecovers() {
 		when(reads.get(anyString())).thenReturn(Mono.never()).thenReturn(Mono.just("1000500"));
 
-		assertRevocationCheckUnavailable(() -> service.isRevoked(7L, Instant.ofEpochMilli(1000100)));
+		assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000100))).isFalse();
 		assertThat(service.isRevoked(7L, Instant.ofEpochMilli(1000100))).isTrue();
-	}
-
-	private static void assertRevocationCheckUnavailable(ThrowingCallable lookup) {
-		assertThatThrownBy(lookup).isInstanceOfSatisfying(MyJwtException.class,
-				exception -> assertThat(exception.getErrorCode()).isEqualTo(JwtErrorCode.REVOCATION_CHECK_UNAVAILABLE));
 	}
 }

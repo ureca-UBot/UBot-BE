@@ -71,7 +71,7 @@ com.ubot
 - 게스트 질문은 실시간 검색어 랭킹 집계에서 제외합니다(`ranking_eligible = false`). 승계된 과거 게스트 질문도 그대로 제외하고, 로그인 이후 생성된 질문부터 집계합니다.
 - Access token 서명 키는 `JWT_SECRET`(Base64, 32바이트 이상)이며 기동 시점에 디코딩합니다. 값이 올바르지 않으면 애플리케이션이 뜨지 않습니다.
 - Refresh token은 사용자당 1개(`refresh_tokens.user_id` UNIQUE)입니다. 로그인과 재발급 때마다 새 값으로 교체하므로, 다른 기기에서 로그인하면 이전 refresh token은 쓸 수 없습니다. 로그아웃은 refresh token을 삭제합니다. DB에는 refresh token의 SHA-256 해시만 저장하고, 교체 직전 해시(`previous_token`)로 재사용을 감지합니다. 로그인 실패 횟수는 Redis(`login:fail:*`, 15분 TTL)에 둡니다.
-- 로그아웃하거나 refresh token 재사용이 감지되면 Redis(`auth:access-revoked-before:<사용자ID>`, access token 유효 시간만큼 TTL)에 그 시각을 남기고, 그 전에 발급된 access token은 만료 전이어도 `JWT-009`로 거부합니다. Redis에 연결할 수 없으면 로그인 실패 제한과 이 차단은 경고 로그만 남기고 통과시킵니다. 단, 차단 조회가 200ms 안에 끝나지 않으면 로그아웃 여부를 모르는 상태라 `JWT-010`(503)으로 거부합니다.
+- 로그아웃하거나 refresh token 재사용이 감지되면 Redis(`auth:access-revoked-before:<사용자ID>`, access token 유효 시간만큼 TTL)에 그 시각을 남기고, 그 전에 발급된 access token은 만료 전이어도 `JWT-009`로 거부합니다. Redis에 연결할 수 없으면 로그인 실패 제한과 이 차단은 경고 로그만 남기고 통과시킵니다. 차단 조회가 200ms(`JWT_REVOCATION_LOOKUP_TIMEOUT`) 안에 끝나지 않을 때도 같습니다.
 - 보안 기능을 우회하지 않으려면 다음을 지킵니다.
     - Refresh token은 `RefreshTokenService.issue()`·`rotate()`로만 발급합니다. `RefreshTokenRepository`에 직접 저장하면 원문이 저장되고 재발급이 실패합니다. 소셜 로그인·사용자 전환처럼 새로 토큰을 주는 기능도 같은 메서드를 씁니다.
     - `JwtAuthenticationFilter`의 토큰 검사 생략 경로와 `SecurityConfig`의 `permitAll`에는 사용자 정보를 쓰지 않는 공개 조회 경로만 넣습니다. 생략 경로에서는 로그아웃 차단도 확인하지 않습니다.
