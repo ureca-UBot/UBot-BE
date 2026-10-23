@@ -50,10 +50,11 @@ public final class AiGuardFormat {
         JsonNode root = object(response, Set.of("decision", "reason_codes", "explanation"));
         Decision decision = decision(root);
         List<String> reasons = strings(root.get("reason_codes"));
-        if (reasons.isEmpty() || reasons.size() > 4 || !OUTPUT_REASONS.containsAll(reasons)
+        // 명시적인 ALLOW의 빈 사유는 허용하되 BLOCK·REVIEW의 사유 누락이나 SAFE 모순은 거절합니다.
+        if (reasons.size() > 4 || !OUTPUT_REASONS.containsAll(reasons)
                 || text(root.get("explanation")).codePointCount(0, text(root.get("explanation")).length()) > 240
-                || decision == Decision.ALLOW && !reasons.equals(List.of("SAFE"))
-                || decision != Decision.ALLOW && reasons.contains("SAFE")) throw invalid();
+                || decision == Decision.ALLOW && !reasons.isEmpty() && !reasons.equals(List.of("SAFE"))
+                || decision != Decision.ALLOW && (reasons.isEmpty() || reasons.contains("SAFE"))) throw invalid();
         return new OutputVerdict(decision, reasons);
     }
 

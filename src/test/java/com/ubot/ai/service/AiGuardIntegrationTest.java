@@ -109,13 +109,14 @@ class AiGuardIntegrationTest {
         verify(model, times(1)).generate(any());
     }
 
-    @Test
-    void 출력_허용은_답변을_수정하지_않으며_원문_없는_사유만_로그에_남긴다() {
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "[\"SAFE\"]"})
+    void 출력_허용은_답변을_수정하지_않으며_원문_없는_사유만_로그에_남긴다(String reasons) {
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AiLlmOutputGuardService.class);
         var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         appender.start(); logger.addAppender(appender);
         try {
-            when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"PRIVATE_MODEL_TEXT\"}"));
+            when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":" + reasons + ",\"explanation\":\"PRIVATE_MODEL_TEXT\"}"));
             output.validate(ANSWER, List.of("9999"), materials(), null);
             assertThat(appender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
                     .doesNotContain(ANSWER, QUESTION, "PRIVATE_MODEL_TEXT"));
@@ -151,6 +152,47 @@ class AiGuardIntegrationTest {
         when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"안전\"}"));
         assertThat(ai.validateCachedAnswer(materials(), ANSWER, "1").answer()).isEqualTo(ANSWER);
         verify(code).inspectAnswer(any(), any(), any(), any()); verify(model).generate(any()); verifyNoInteractions(generation);
+    }
+
+    @Test
+    void 실제_출력_코드가_전체를_차단하면_후단_AI를_호출하지_않는다() {
+        var generation = mock(LlmService.class);
+        var prompt = mock(PromptService.class);
+        var code = new AiOutputGuardService(words);
+        var ai = new AiService(prompt, generation, mock(AiToolRegistry.class), code, output);
+        when(prompt.createPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
+        when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\"" + ANSWER
+                + " 환불 처리가 완료되었습니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
+
+        assertThatThrownBy(() -> ai.generateAnswer(materials()))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        verify(generation, times(1)).generateAnswer(any());
+        verifyNoInteractions(model);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "[\"SAFE\"]"})
+    void 실제_출력_코드를_통과한_캐시는_AI_허용_후_원문을_유지한다(String reasons) {
+        var generation = mock(LlmService.class);
+        var code = new AiOutputGuardService(words);
+        var ai = new AiService(mock(PromptService.class), generation, mock(AiToolRegistry.class), code, output);
+        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":"
+                + reasons + ",\"explanation\":\"안전\"}"));
+
+        assertThat(ai.validateCachedAnswer(materials(), ANSWER, "잘못 적은 번호").answer()).isEqualTo(ANSWER);
+        verify(model, times(1)).generate(any());
+        verifyNoInteractions(generation);
+    }
+
+    @Test
+    void 출력_AI_타임아웃도_허용이나_재시도로_바꾸지_않는다() {
+        when(model.generate(any())).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
+
+        assertThatThrownBy(() -> output.validate(ANSWER, List.of(), materials(), null))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT));
+        verify(model, times(1)).generate(any());
     }
 
     @Test
