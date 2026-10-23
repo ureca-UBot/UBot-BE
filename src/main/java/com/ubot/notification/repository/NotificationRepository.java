@@ -13,6 +13,9 @@ import java.util.Optional;
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
     List<Notification> findTop50ByUserIdOrderByCreatedAtDescNotificationIdDesc(Long userId);
 
+    List<Notification> findTop50ByUserIdAndTypeOrderByCreatedAtDescNotificationIdDesc(
+            Long userId, com.ubot.notification.enums.NotificationType type);
+
     Optional<Notification> findByNotificationIdAndUserId(Long notificationId, Long userId);
 
     long countByUserIdAndReadAtIsNull(Long userId);

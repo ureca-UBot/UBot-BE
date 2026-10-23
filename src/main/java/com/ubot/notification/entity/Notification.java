@@ -37,6 +37,9 @@ public class Notification {
 	@Column(name = "surging_alert_id")
 	private Long surgingAlertId;
 
+	@Column(name = "guard_review_candidate_id")
+	private Long guardReviewCandidateId;
+
 	@Column(name = "read_at")
 	private LocalDateTime readAt;
 
