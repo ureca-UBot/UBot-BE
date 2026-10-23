@@ -678,6 +678,13 @@ public class AiOutputGuardService {
         this.metrics = metrics;
     }
 
+    /** 후보 단어 검증 전용입니다. 동일한 문장 분리·금칙어 검사만 재사용하고 FAQ 사실 검사는 실행하지 않습니다. */
+    public String previewForbiddenWordStage(String answer) {
+        if (answer == null || answer.isBlank()) return "";
+        return splitSentences(answer).stream().filter(sentence -> !containsForbiddenWord(sentence))
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
     /** 검사에 사용한 기존 규칙의 식별자입니다. FAQ 번호·사용자 문구는 식별자로 쓰지 않습니다. */
     private enum GuardRule {
         FORBIDDEN_WORD, SENSITIVE_DISCLOSURE, POLICY_OVERRIDE, THIRD_PARTY_LOOKUP, HOSTILE_CONTENT,

@@ -12,6 +12,7 @@ import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -34,8 +35,12 @@ public class ForbiddenWordService {
 	private final ForbiddenWordRepository forbiddenWordRepository;
 	private final ApplicationEventPublisher eventPublisher;
 
+	@NonNull
+	private final ForbiddenWordCatalogLock catalogLock;
+
 	@Transactional
 	public ForbiddenWordResponseDto createForbiddenWord(ForbiddenWordCreateRequestDto requestDto) {
+		catalogLock.acquire();
 		String word = normalizeWord(requestDto.word());
 		if (forbiddenWordRepository.existsByWord(word)) {
 			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST);
@@ -44,12 +49,8 @@ public class ForbiddenWordService {
 		LocalDateTime now = LocalDateTime.now();
 		ForbiddenWord forbiddenWord;
 		try {
-			forbiddenWord = forbiddenWordRepository.saveAndFlush(ForbiddenWord.builder()
-					.word(word)
-					.status(ForbiddenWordStatus.ACTIVE)
-					.createdAt(now)
-					.updatedAt(now)
-					.build());
+			forbiddenWord = forbiddenWordRepository.saveAndFlush(ForbiddenWord.builder().word(word)
+					.status(ForbiddenWordStatus.ACTIVE).createdAt(now).updatedAt(now).build());
 		} catch (DataIntegrityViolationException exception) {
 			// 중복 확인 이후 다른 관리자가 같은 단어를 먼저 저장한 경우입니다.
 			throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_EXIST);
@@ -72,7 +73,9 @@ public class ForbiddenWordService {
 	}
 
 	@Transactional
-	public ForbiddenWordResponseDto updateForbiddenWord(Long forbiddenWordId, ForbiddenWordUpdateRequestDto requestDto) {
+	public ForbiddenWordResponseDto updateForbiddenWord(Long forbiddenWordId,
+			ForbiddenWordUpdateRequestDto requestDto) {
+		catalogLock.acquire();
 		ForbiddenWord forbiddenWord = getForbiddenWordForUpdate(forbiddenWordId);
 
 		String word = normalizeWord(requestDto.word());
@@ -95,9 +98,9 @@ public class ForbiddenWordService {
 	}
 
 	@Transactional
-	public ForbiddenWordResponseDto updateForbiddenWordStatus(
-			Long forbiddenWordId, ForbiddenWordStatusUpdateRequestDto requestDto
-	) {
+	public ForbiddenWordResponseDto updateForbiddenWordStatus(Long forbiddenWordId,
+			ForbiddenWordStatusUpdateRequestDto requestDto) {
+		catalogLock.acquire();
 		ForbiddenWord forbiddenWord = getForbiddenWordForUpdate(forbiddenWordId);
 
 		if (requestDto.status() == null) {

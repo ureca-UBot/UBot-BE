@@ -39,6 +39,7 @@ class DataRetentionPurgeIntegrationTest {
 	private final List<Long> storeIds = new ArrayList<>();
 	private final List<Long> groupIds = new ArrayList<>();
 	private final List<Long> questionLogIds = new ArrayList<>();
+	private final List<Long> bundleProductIds = new ArrayList<>();
 
 	private final LocalDateTime now = LocalDateTime.now();
 	private final LocalDateTime fourMonthsAgo = now.minusMonths(4);
@@ -52,6 +53,14 @@ class DataRetentionPurgeIntegrationTest {
 		}
 		// 구독이 회원 삭제를 막으므로 먼저 지우고, 나머지는 회원·마스터 삭제의 CASCADE로 정리합니다.
 		for (Long userId : userIds) {
+			// 결합 기록과 그룹이 회선 삭제를 막으므로 먼저 지웁니다.
+			jdbcTemplate.update("""
+					DELETE FROM subscription_bundles WHERE subscription_id IN (SELECT subscription_id FROM subscriptions WHERE user_id = ?)
+					""", userId);
+			jdbcTemplate.update("""
+					DELETE FROM bundle_groups
+					WHERE representative_subscription_id IN (SELECT subscription_id FROM subscriptions WHERE user_id = ?)
+					""", userId);
 			jdbcTemplate.update("DELETE FROM subscriptions WHERE user_id = ?", userId);
 			jdbcTemplate.update("DELETE FROM store_reservations WHERE user_id = ?", userId);
 			jdbcTemplate.update("DELETE FROM retention.withdrawn_user_records WHERE user_id = ?", userId);
@@ -66,6 +75,9 @@ class DataRetentionPurgeIntegrationTest {
 		}
 		for (Long planId : planIds) {
 			jdbcTemplate.update("DELETE FROM plans WHERE plan_id = ?", planId);
+		}
+		for (Long bundleProductId : bundleProductIds) {
+			jdbcTemplate.update("DELETE FROM bundle_products WHERE bundle_product_id = ?", bundleProductId);
 		}
 		for (Long storeId : storeIds) {
 			jdbcTemplate.update("DELETE FROM stores WHERE store_id = ?", storeId);
@@ -253,6 +265,43 @@ class DataRetentionPurgeIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("보존 기간이 지난 종료 결합은 그룹을 먼저 지운 뒤 대표 회선을 지우고, 이용 중 그룹의 대표 회선은 남긴다")
+	void purgesEndedBundleGroupBeforeRepresentative() {
+		Long userId = createUser(null);
+		Long planId = createPlan(null);
+		LocalDateTime sixYearsAgo = now.minusYears(6);
+		Long bundleProductId = jdbcTemplate.queryForObject("""
+				INSERT INTO bundle_products (code, name, discount_amount) VALUES (?, '보관 테스트 결합', 1000)
+				RETURNING bundle_product_id
+				""", Long.class, "RT_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+		bundleProductIds.add(bundleProductId);
+
+		// 대표 회선이 빠지면서 함께 끝난 결합: 기록·그룹·대표 회선 모두 보존 기간이 지났다.
+		Long endedLine = createTerminatedSubscription(userId, planId, sixYearsAgo);
+		Long endedGroup = jdbcTemplate.queryForObject("""
+				INSERT INTO bundle_groups (representative_subscription_id, status, ended_at) VALUES (?, 'ENDED', ?)
+				RETURNING bundle_group_id
+				""", Long.class, endedLine, sixYearsAgo);
+		jdbcTemplate.update("""
+				INSERT INTO subscription_bundles (subscription_id, bundle_product_id, bundle_group_id, joined_at,
+				    ended_at, status, product_name_snapshot, applied_discount_amount)
+				VALUES (?, ?, ?, ?, ?, 'ENDED', '보관 테스트 결합', 1000)
+				""", endedLine, bundleProductId, endedGroup, now.minusYears(7), sixYearsAgo);
+		// 앱 규칙이 깨져 그룹이 이용 중으로 남은 경우: 배치는 실패하지 않고 대표 회선과 그룹을 남긴다.
+		Long brokenLine = createTerminatedSubscription(userId, planId, sixYearsAgo);
+		Long activeGroup = jdbcTemplate.queryForObject("""
+				INSERT INTO bundle_groups (representative_subscription_id) VALUES (?) RETURNING bundle_group_id
+				""", Long.class, brokenLine);
+
+		purge();
+
+		assertThat(exists("bundle_groups", "bundle_group_id", endedGroup)).isFalse();
+		assertThat(exists("subscriptions", "subscription_id", endedLine)).isFalse();
+		assertThat(exists("bundle_groups", "bundle_group_id", activeGroup)).isTrue();
+		assertThat(exists("subscriptions", "subscription_id", brokenLine)).isTrue();
+	}
+
+	@Test
 	@DisplayName("트랜잭션 안에서 호출하면 프로시저 안의 COMMIT 때문에 실패한다")
 	void failsInsideTransaction() {
 		assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
@@ -420,6 +469,15 @@ class DataRetentionPurgeIntegrationTest {
 				""", Long.class, "RT-" + UUID.randomUUID().toString().substring(0, 8), deletedAt);
 		planIds.add(id);
 		return id;
+	}
+
+	private Long createTerminatedSubscription(Long userId, Long planId, LocalDateTime terminatedAt) {
+		return jdbcTemplate.queryForObject("""
+				INSERT INTO subscriptions (user_id, plan_id, phone_number, status, activated_at, terminated_at)
+				VALUES (?, ?, ?, 'TERMINATED', ?, ?)
+				RETURNING subscription_id
+				""", Long.class, userId, planId, "010-" + UUID.randomUUID().toString().substring(0, 8),
+				terminatedAt.minusYears(2), terminatedAt);
 	}
 
 	private void createSubscription(Long userId, Long planId, LocalDateTime terminatedAt) {
