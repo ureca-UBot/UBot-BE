@@ -12,6 +12,7 @@ import com.ubot.llm.exception.LlmException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -82,6 +83,15 @@ public class LlmService {
 
     /** 관리자 분석은 줄을 서지 않습니다. 여유가 없으면 호출자가 다음 주기로 미룹니다. */
     public Optional<LlmResponseDto> tryGenerateBackgroundJudgment(LlmRequestDto request) {
+        return tryGenerateBackgroundJudgment(request, () -> llmClient.generateAnswer(request));
+    }
+
+    /** 전용 관리자 모델도 기존 채팅 우선 입장 제어와 지표를 공유합니다. */
+    public Optional<LlmResponseDto> tryGenerateBackgroundJudgment(
+            LlmRequestDto request, Supplier<LlmResponseDto> modelCall) {
+        if (modelCall == null) {
+            throw new IllegalArgumentException("백그라운드 모델 호출이 필요합니다.");
+        }
         checkCancellation();
         validateRequest(request);
         if (!backgroundPermits.tryAcquire()) {
@@ -91,7 +101,7 @@ public class LlmService {
             if (!tryAcquireBackgroundPermit()) {
                 return Optional.empty();
             }
-            return Optional.of(generateWithPermit(request, false));
+            return Optional.of(generateWithPermit(false, modelCall));
         } finally {
             backgroundPermits.release();
         }
@@ -145,6 +155,10 @@ public class LlmService {
     }
 
     private LlmResponseDto generateWithPermit(LlmRequestDto request, boolean reportAnswerProgress) {
+        return generateWithPermit(reportAnswerProgress, () -> llmClient.generateAnswer(request));
+    }
+
+    private LlmResponseDto generateWithPermit(boolean reportAnswerProgress, Supplier<LlmResponseDto> modelCall) {
         // 실제 모델 통신은 LlmClient 구현체에 맡깁니다. 차례를 기다린 시간은 llm.permit.wait로 따로 셈
 		long startedAt = System.nanoTime();
 		String outcome = "error";
@@ -153,7 +167,7 @@ public class LlmService {
 			if (reportAnswerProgress) {
 				AnswerProgress.report(Phase.GENERATING);
 			}
-			LlmResponseDto response = llmClient.generateAnswer(request);
+			LlmResponseDto response = modelCall.get();
 			if(response == null)
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 

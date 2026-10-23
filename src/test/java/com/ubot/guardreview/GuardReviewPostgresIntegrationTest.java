@@ -83,6 +83,23 @@ class GuardReviewPostgresIntegrationTest {
 	final CustomUserDetails admin = identity(99, UserRole.ADMIN), otherAdmin = identity(100, UserRole.ADMIN),
 			normal = identity(1, UserRole.USER);
 
+	private static com.ubot.guardreview.service.ReviewModelClient reviewModel(LlmClient client) {
+		var model = org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewModelClient.class);
+		org.mockito.Mockito.when(model.generateJudgment(org.mockito.ArgumentMatchers.any()))
+				.thenAnswer(call -> client.generateAnswer(call.getArgument(0)));
+		return model;
+	}
+	private static com.ubot.guardreview.service.ReviewModelRuntime fakeRuntime() {
+		return (runId, checkLease) -> new com.ubot.guardreview.service.ReviewModelRuntime.Session() {
+			@Override
+			public void ensureValid() {
+				checkLease.run();
+			}
+			@Override
+			public void close() {
+			}
+		};
+	}
 	@Configuration(proxyBeanMethods = false)
 	@EnableWebMvc
 	@EnableWebSecurity
@@ -120,7 +137,11 @@ class GuardReviewPostgresIntegrationTest {
 		}
 		@Bean
 		ReviewAnalyzer analyzer() {
-			return new LlmReviewAnalyzer(new LlmService(MODEL));
+			return new LlmReviewAnalyzer(new LlmService(MODEL), reviewModel(MODEL));
+		}
+		@Bean
+		com.ubot.guardreview.service.ReviewModelRuntime modelRuntime() {
+			return fakeRuntime();
 		}
 		@Bean
 		ReviewEmbedding embedding() {
@@ -1045,16 +1066,27 @@ class GuardReviewPostgresIntegrationTest {
 		source("validation-priority-third", "후보:실험금칙표현 세 번째 질문", "모델 응답 3");
 		long analysis = full();
 		assertThat(repo.run(analysis).total()).isEqualTo(3);
-		worker.poll();
+		// Queue validation after the first result has been saved, while the batch is still running.
+		var validationId = new AtomicLong();
+		var priority = org.mockito.Mockito.spy(repo);
+		org.mockito.Mockito.doAnswer(invocation -> {
+			if (validationId.get() == 0)
+				validationId.set(validateSelection(selection(word("실험금칙표현"))));
+			return invocation.callRealMethod();
+		}).when(priority).hasRunnableValidation();
+		var active = new ReviewWorker(priority, workerContext.getBean(ReviewAnalyzer.class), fakeRuntime(),
+				workerContext.getBean(ReviewEmbedding.class), reviews, work, validator,
+				workerContext.getBean(ReviewAlertService.class), workerContext.getBean(ReviewLeaseService.class));
+		active.poll();
 		assertThat(repo.run(analysis).status()).isEqualTo("RUNNING");
 		assertThat(repo.run(analysis).processed()).isEqualTo(1);
 		assertThat(MODEL.calls.get()).isEqualTo(1);
 
-		// A real administrator request arrives while the earlier analysis still has two items.
-		long validation = validateSelection(selection(word("실험금칙표현")));
+		// The queued administrator request has priority over the two remaining analysis items.
+		long validation = validationId.get();
 		assertThat(validation).isGreaterThan(analysis);
 		assertThat(repo.run(validation).status()).isEqualTo("QUEUED");
-		worker.poll();
+		active.poll();
 
 		assertThat(repo.run(validation).status()).isEqualTo("COMPLETED");
 		var result = JSON.readValue(repo.run(validation).result(), Validation.class);
@@ -1064,9 +1096,9 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(repo.run(analysis).processed()).isEqualTo(1);
 		assertThat(MODEL.calls.get()).isEqualTo(1);
 
-		worker.poll();
-		assertThat(repo.run(analysis).processed()).isEqualTo(2);
-		assertThat(MODEL.calls.get()).isEqualTo(2);
+		active.poll();
+		assertThat(repo.run(analysis).processed()).isEqualTo(3);
+		assertThat(MODEL.calls.get()).isEqualTo(3);
 		drain(analysis);
 		assertThat(repo.run(analysis).status()).isEqualTo("COMPLETED");
 		assertThat(repo.run(analysis).processed()).isEqualTo(3);
@@ -1299,7 +1331,7 @@ class GuardReviewPostgresIntegrationTest {
 					return validator.validate(invocation.getArgument(0), invocation.getArgument(1),
 							invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4));
 				});
-		var active = new ReviewWorker(repo, workerContext.getBean(ReviewAnalyzer.class),
+		var active = new ReviewWorker(repo, workerContext.getBean(ReviewAnalyzer.class), fakeRuntime(),
 				workerContext.getBean(ReviewEmbedding.class), reviews, work, slow,
 				workerContext.getBean(ReviewAlertService.class), workerContext.getBean(ReviewLeaseService.class));
 		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -1348,7 +1380,7 @@ class GuardReviewPostgresIntegrationTest {
 			return new LlmResponseDto("가짜 채팅 답변");
 		});
 		var shared = new LlmService(client, 2);
-		var background = new ReviewWorker(repo, new LlmReviewAnalyzer(shared),
+		var background = new ReviewWorker(repo, new LlmReviewAnalyzer(shared, reviewModel(client)), fakeRuntime(),
 				workerContext.getBean(ReviewEmbedding.class), reviews, work, validator,
 				workerContext.getBean(ReviewAlertService.class), workerContext.getBean(ReviewLeaseService.class));
 		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
