@@ -12,8 +12,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.IntSummaryStatistics;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -64,6 +66,15 @@ public class ProductNameIndex {
         return found.size() == 1 ? Optional.of(found.getFirst()) : Optional.empty();
     }
 
+    /**
+     * 판매 중인 요금제를 시리즈별로 묶은 개요입니다. 시리즈 판별(planSeries)과 같은 목록에서 만들어, 질문에서 알아보는 시리즈와
+     * 개요에 보여 주는 시리즈가 같습니다. 요금제 목록을 불러오지 못했으면 비어 있습니다.
+     */
+    public Optional<PlanSeriesOverview> planOverview() {
+        PlanSeriesOverview overview = current().planOverview();
+        return overview.groups().isEmpty() ? Optional.empty() : Optional.of(overview);
+    }
+
     /** 질문에 요금제 시리즈 이름이 하나라도 있는지입니다. 둘 이상이라 하나로 정하지 못한 경우도 참입니다. */
     public boolean mentionsPlanSeries(String question) {
         return !planSeriesIn(question, current().planSeries()).isEmpty();
@@ -96,6 +107,32 @@ public class ProductNameIndex {
         return counts.entrySet().stream().filter(entry -> entry.getValue() >= 2).map(Map.Entry::getKey).sorted().toList();
     }
 
+    /** 시리즈마다 개수와 월정액 범위를 모으고, 시리즈에 들지 않는 요금제는 이름 그대로 하나씩 둡니다. */
+    static PlanSeriesOverview overview(Collection<PlanFee> plans, Collection<String> series) {
+        Map<String, List<PlanFee>> bySeries = plans.stream()
+                .collect(Collectors.groupingBy(plan -> seriesOf(plan.name(), series).orElse(""), Collectors.toList()));
+        List<PlanSeriesOverview.Group> groups = new ArrayList<>();
+        bySeries.forEach((name, members) -> {
+            if (name.isEmpty()) {
+                members.forEach(plan -> groups.add(
+                        new PlanSeriesOverview.Group(plan.name().strip(), false, 1, plan.fee(), plan.fee())));
+                return;
+            }
+            IntSummaryStatistics fees = members.stream().map(PlanFee::fee).filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue).summaryStatistics();
+            boolean priced = fees.getCount() > 0;
+            groups.add(new PlanSeriesOverview.Group(name, true, members.size(),
+                    priced ? fees.getMin() : null, priced ? fees.getMax() : null));
+        });
+        return new PlanSeriesOverview(groups);
+    }
+
+    private static Optional<String> seriesOf(String planName, Collection<String> series) {
+        String[] words = planName.strip().split("\\s+");
+        return words.length >= 2 && words[0].equalsIgnoreCase("Ubot") && series.contains(words[1])
+                ? Optional.of(words[1]) : Optional.empty();
+    }
+
     private Snapshot current() {
         Snapshot cached = snapshot;
         Instant now = clock.instant();
@@ -103,22 +140,28 @@ public class ProductNameIndex {
             return cached;
         }
         try {
-            List<Named> names = load();
-            List<String> planNames = names.stream().filter(named -> named.type() == ProductType.PLAN).map(Named::name).toList();
-            Snapshot loaded = new Snapshot(names, planSeries(planNames), now);
+            List<PlanFee> plans = new ArrayList<>();
+            List<Named> names = load(plans);
+            List<String> series = planSeries(plans.stream().map(PlanFee::name).toList());
+            Snapshot loaded = new Snapshot(names, series, overview(plans, series), now);
             snapshot = loaded;
             return loaded;
         } catch (RuntimeException exception) {
             // 이름 보강은 도구 선택을 돕는 단계라, 실패해도 FAQ 카테고리와 키워드로 고른 도구로 진행합니다.
             log.warn("상품 이름 목록을 불러오지 못했습니다", exception);
-            return cached != null ? cached : new Snapshot(List.of(), List.of(), now);
+            return cached != null ? cached : new Snapshot(List.of(), List.of(), new PlanSeriesOverview(List.of()), now);
         }
     }
 
-    private List<Named> load() {
+    /** 판매 중인 상품 이름을 모으고, 요금제는 시리즈 개요를 만들도록 월정액과 함께 plans에도 담습니다. */
+    private List<Named> load(List<PlanFee> plans) {
         List<Named> names = new ArrayList<>();
-        planRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false))
-                .forEach(plan -> names.add(new Named(ProductType.PLAN, plan.getName())));
+        planRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false)).forEach(plan -> {
+            names.add(new Named(ProductType.PLAN, plan.getName()));
+            if (StringUtils.hasText(plan.getName())) {
+                plans.add(new PlanFee(plan.getName(), plan.getMonthlyFee()));
+            }
+        });
         addonServiceRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false))
                 .forEach(addon -> names.add(new Named(ProductType.ADDON, addon.getName())));
         bundleProductRepository.findAll(ProductSpecification.filter(null, MasterStatus.ACTIVE, false))
@@ -134,6 +177,10 @@ public class ProductNameIndex {
     private record Named(ProductType type, String name) {
     }
 
-    private record Snapshot(List<Named> names, List<String> planSeries, Instant loadedAt) {
+    record PlanFee(String name, Integer fee) {
+    }
+
+    private record Snapshot(List<Named> names, List<String> planSeries, PlanSeriesOverview planOverview,
+            Instant loadedAt) {
     }
 }

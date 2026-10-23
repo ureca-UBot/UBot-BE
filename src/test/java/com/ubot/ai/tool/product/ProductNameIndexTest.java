@@ -16,6 +16,24 @@ class ProductNameIndexTest {
     }
 
     @Test
+    void 시리즈마다_개수와_월정액_범위를_모으고_시리즈가_아닌_요금제는_이름_그대로_둔다() {
+        List<ProductNameIndex.PlanFee> plans = List.of(
+                new ProductNameIndex.PlanFee("Ubot 프리미엄 99", 99000),
+                new ProductNameIndex.PlanFee("Ubot 프리미엄 89", 89000),
+                new ProductNameIndex.PlanFee("Ubot 실속 LTE 1GB", 3900),
+                new ProductNameIndex.PlanFee("Ubot 실속 LTE 500MB", 3300),
+                new ProductNameIndex.PlanFee("Ubot 통화 전용", 4900));
+
+        PlanSeriesOverview overview = ProductNameIndex.overview(plans, List.of("실속", "프리미엄"));
+
+        assertThat(overview.groups()).containsExactly(
+                new PlanSeriesOverview.Group("실속", true, 2, 3300, 3900),
+                new PlanSeriesOverview.Group("프리미엄", true, 2, 89000, 99000),
+                new PlanSeriesOverview.Group("Ubot 통화 전용", false, 1, 4900, 4900));
+        assertThat(overview.total()).isEqualTo(5);
+    }
+
+    @Test
     void 시리즈_이름_바로_뒤에_요금제가_올_때만_찾는다() {
         List<String> series = List.of("데이터", "프리미엄", "밸런스");
 

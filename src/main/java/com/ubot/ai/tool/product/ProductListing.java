@@ -14,7 +14,8 @@ import java.util.List;
  * @param total    조건에 맞는 전체 상품 수
  * @param products 돌려준 상품. total보다 적을 수 있습니다.
  */
-public record ProductListing(String subject, String order, long total, List<ProductCard> products) {
+public record ProductListing(String subject, String order, long total, List<ProductCard> products)
+        implements ProductListAnswer {
 
     public ProductListing {
         products = List.copyOf(products);
@@ -24,6 +25,7 @@ public record ProductListing(String subject, String order, long total, List<Prod
      * "프리미엄 요금제는 다음 5가지가 있습니다." 뒤에 상품을 한 줄씩 씁니다.
      * 돌려준 상품보다 조건에 맞는 상품이 많으면 전체 수와 정렬 기준을 함께 밝힙니다.
      */
+    @Override
     public String answer() {
         StringBuilder text = new StringBuilder(subject).append(topicParticle(subject)).append(' ');
         if (total > products.size()) {

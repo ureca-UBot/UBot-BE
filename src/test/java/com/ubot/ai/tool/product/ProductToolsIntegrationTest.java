@@ -247,7 +247,9 @@ class ProductToolsIntegrationTest {
 
         planTools.searchPlans(mark + " 요금제", null, null, null, null, null, null, true, toolContext);
 
-        assertThat(recorder.listing()).hasValueSatisfying(listing -> {
+        assertThat(recorder.listing()).hasValueSatisfying(found -> {
+            assertThat(found).isInstanceOf(ProductListing.class);
+            ProductListing listing = (ProductListing) found;
             assertThat(listing.subject()).isEqualTo(mark + " 요금제");
             assertThat(listing.total()).isEqualTo(2);
             assertThat(listing.answer()).startsWith(mark + " 요금제는 다음 2가지가 있습니다.\n- Ubot " + mark + " 89 (월 89,000원)");

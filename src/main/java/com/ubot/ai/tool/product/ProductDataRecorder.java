@@ -20,7 +20,7 @@ public class ProductDataRecorder {
     // 도구 실행과 결과 확인이 다른 스레드에서 일어나도 기록이 빠지지 않게 합니다.
     private final List<ProductCard> cards = new CopyOnWriteArrayList<>();
     private final List<String> lines = new CopyOnWriteArrayList<>();
-    private final List<Optional<ProductListing>> searches = new CopyOnWriteArrayList<>();
+    private final List<Optional<ProductListAnswer>> searches = new CopyOnWriteArrayList<>();
     private final String question;
 
     public ProductDataRecorder() {
@@ -48,7 +48,7 @@ public class ProductDataRecorder {
     }
 
     /** 도구가 조회를 한 번 마쳤습니다. 목록 요청이 아니었거나 상품이 2개 미만이면 listing은 null입니다. */
-    public void searched(ProductListing listing) {
+    public void searched(ProductListAnswer listing) {
         searches.add(Optional.ofNullable(listing));
     }
 
@@ -56,7 +56,7 @@ public class ProductDataRecorder {
      * 조회가 한 번뿐이었고 그 조회가 목록 요청이었을 때의 목록입니다.
      * 여러 번 조회했으면 질문이 여러 상품을 묻는 것이라 목록 답변 하나로 대신하지 않습니다.
      */
-    public Optional<ProductListing> listing() {
+    public Optional<ProductListAnswer> listing() {
         return searches.size() == 1 ? searches.getFirst() : Optional.empty();
     }
 

@@ -22,6 +22,7 @@ import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolFixtures;
 import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.product.PlanSeriesOverview;
 import com.ubot.ai.tool.product.ProductDataRecorder;
 import com.ubot.ai.tool.product.ProductListing;
 import com.ubot.ai.tool.product.ProductType;
@@ -420,6 +421,31 @@ class AiServiceTest {
 
         assertThat(answer.answer()).isEqualTo("Ubot 프리미엄 89와 Ubot 프리미엄 99가 있습니다.");
         assertThat(answer.status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void 시리즈_개요_답변은_출력_검사를_그대로_통과하고_카드를_붙이지_않는다() {
+        var materials = AnswerMaterials.builder("요금제 종류 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createPrompt("요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        var overview = new PlanSeriesOverview(List.of(
+                new PlanSeriesOverview.Group("실속", true, 13, 3300, 19800),
+                new PlanSeriesOverview.Group("프리미엄", true, 5, 89000, 129000)));
+        // 요금제 도구가 월정액 낮은 순 행을 돌려주고, 개요와 그 수치를 기록한 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 실속 LTE 500MB/60분", 3300, "설명"),
+                    "- Ubot 실속 LTE 500MB/60분 | LTE | 대상 일반 | 월정액 3,300원");
+            recorder.note(overview.answer());
+            recorder.searched(overview);
+            return new LlmResponseDto("{\"answer\":\"요금제 정보가 부족합니다.\",\"evidence_ids\":[],\"status\":\"PARTIAL\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo(overview.answer());
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.productData()).isNull();
     }
 
     private static void recordPremiumListing(LlmRequestDto request) {

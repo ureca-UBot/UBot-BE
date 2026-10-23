@@ -11,7 +11,7 @@ import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.product.ProductDataCardSelector;
 import com.ubot.ai.tool.product.ProductDataRecorder;
-import com.ubot.ai.tool.product.ProductListing;
+import com.ubot.ai.tool.product.ProductListAnswer;
 import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -80,7 +80,7 @@ public class AiService {
         String answer = null;
         String status = null;
         OutputGuardResult inspection = null;
-        Optional<ProductListing> listing = Optional.empty();
+        Optional<ProductListAnswer> listing = Optional.empty();
         if (response != null && StringUtils.hasText(response.answer())) {
             FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
             log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
@@ -94,11 +94,11 @@ public class AiService {
             if (!productRecords.isEmpty()) {
                 inspected = inspected.withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, productRecords));
             }
-            // 목록 요청이면 LLM 답변 대신 도구가 돌려준 상품으로 만든 목록 답변을 씁니다(ProductListing 참고).
+            // 목록 요청이면 LLM 답변 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
             listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
-            listing.ifPresent(found -> log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 상품수={}, 전체={}",
-                    parsed.status(), found.products().size(), found.total()));
-            inspection = aiOutputGuardService.inspectAnswer(listing.map(ProductListing::answer).orElse(parsed.answer()),
+            listing.ifPresent(found -> log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 형식={}, 카드수={}",
+                    parsed.status(), found.getClass().getSimpleName(), found.products().size()));
+            inspection = aiOutputGuardService.inspectAnswer(listing.map(ProductListAnswer::answer).orElse(parsed.answer()),
                     listing.isPresent() ? List.of() : parsed.evidenceIds(), inspected, storeMap);
             // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
             if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
@@ -109,7 +109,8 @@ public class AiService {
         // 도구로 조회만 하고 답변에 쓰지 않은 달은 붙이지 않습니다.
         // 모델이 답을 보류했으면 조회한 기록이 있어도 카드를 붙이지 않습니다. 미응답 판단에 쓰도록 status는 그대로 둡니다.
         // 상품 카드도 도구가 돌려준 상품 중 답변에 이름이 나온 것만 붙입니다. 목록 답변이면 목록의 상품 전부입니다.
-        ProductDataCards productData = listing.isPresent() ? new ProductDataCards(listing.get().products())
+        ProductDataCards productData = listing.isPresent()
+                ? (listing.get().products().isEmpty() ? null : new ProductDataCards(listing.get().products()))
                 : "ABSTAIN".equals(status) ? null
                 : ProductDataCardSelector.select(answer, productDataRecorder.cards());
         // 상품 카드가 나가는 "요금제 종류 알려줘" 같은 답변에는 질문의 "요금제"만으로 내 요금제 카드를 붙이지 않습니다.

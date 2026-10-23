@@ -37,8 +37,8 @@ class PlanToolsTest {
         planTools.searchPlans(null, null, null, null, null, null, null, true, toolContext);
 
         assertThat(searchedCondition().name()).isEqualTo("프리미엄");
-        assertThat(recorder.listing()).hasValueSatisfying(listing ->
-                assertThat(listing.subject()).isEqualTo("프리미엄 요금제"));
+        assertThat(recorder.listing()).hasValueSatisfying(listing -> assertThat(listing)
+                .isInstanceOfSatisfying(ProductListing.class, found -> assertThat(found.subject()).isEqualTo("프리미엄 요금제")));
     }
 
     @Test
@@ -71,8 +71,35 @@ class PlanToolsTest {
 
         planTools.searchPlans(null, null, null, null, null, null, null, true, toolContext);
 
-        assertThat(recorder.listing()).hasValueSatisfying(listing ->
-                assertThat(listing.subject()).isEqualTo("조건에 맞는 요금제"));
+        assertThat(recorder.listing()).hasValueSatisfying(listing -> assertThat(listing)
+                .isInstanceOfSatisfying(ProductListing.class, found -> assertThat(found.subject()).isEqualTo("조건에 맞는 요금제")));
+    }
+
+    @Test
+    void 조건_없는_목록_요청이_결과에_다_들어가지_않으면_시리즈_개요로_답한다() {
+        var overview = new PlanSeriesOverview(List.of(
+                new PlanSeriesOverview.Group("프리미엄", true, 5, 89000, 129000),
+                new PlanSeriesOverview.Group("실속", true, 13, 3300, 19800)));
+        when(nameIndex.planOverview()).thenReturn(Optional.of(overview));
+        List<Plan> cheapest = List.of(plan("Ubot 실속 LTE 500MB/60분"), plan("Ubot 통화 전용"));
+        when(catalog.searchPlans(any())).thenReturn(new Found<>(cheapest, 107));
+
+        planTools.searchPlans(null, null, null, null, null, null, null, true, toolContext);
+
+        assertThat(recorder.listing()).contains(overview);
+        // 개요의 월정액 범위는 조회한 행에 없으므로 출력 검사 근거에 남아야 합니다.
+        assertThat(recorder.describe()).contains("월 89,000원~129,000원");
+    }
+
+    @Test
+    void 조건이_있거나_결과가_다_들어가면_시리즈_개요를_쓰지_않는다() {
+        List<Plan> premium = List.of(plan("Ubot 프리미엄 89"), plan("Ubot 프리미엄 99"));
+        when(catalog.searchPlans(any())).thenReturn(new Found<>(premium, 2));
+
+        planTools.searchPlans(null, "5G", null, null, null, null, null, true, toolContext);
+
+        verify(nameIndex, never()).planOverview();
+        assertThat(recorder.listing()).hasValueSatisfying(listing -> assertThat(listing).isInstanceOf(ProductListing.class));
     }
 
     private PlanCondition searchedCondition() {

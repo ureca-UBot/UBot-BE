@@ -46,6 +46,22 @@ final class ProductToolResults {
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
             String listSubject) {
+        return format(productLabel, order, found, line, description, card, recorder, listSubject, null);
+    }
+
+    /**
+     * 돌려준 상품 대신 다른 목록 답변을 기록할 때 씁니다. 요금제 도구가 조건 없는 목록 요청에 시리즈 개요(PlanSeriesOverview)를 넣습니다.
+     * LLM에 돌려주는 결과는 조회한 상품 행 그대로이고, 목록 답변에만 있는 수치는 호출한 쪽이 recorder.note로 출력 검사 근거에 남깁니다.
+     */
+    static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
+            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            ProductListAnswer listAnswer) {
+        return format(productLabel, order, found, line, description, card, recorder, null, listAnswer);
+    }
+
+    private static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
+            Function<T, String> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            String listSubject, ProductListAnswer listAnswer) {
         if (found.items().isEmpty()) {
             recorder.searched(null);
             return String.format(NOT_FOUND_MESSAGE, productLabel);
@@ -73,7 +89,7 @@ final class ProductToolResults {
         if (found.total() > items.size()) {
             text.append(String.format(MORE_RESULTS_MESSAGE, productLabel));
         }
-        recorder.searched(listSubject == null || items.size() < 2 ? null
+        recorder.searched(listAnswer != null ? listAnswer : listSubject == null || items.size() < 2 ? null
                 : new ProductListing(listSubject, order, found.total(), items.stream().map(card).toList()));
         return text.toString().stripTrailing();
     }
