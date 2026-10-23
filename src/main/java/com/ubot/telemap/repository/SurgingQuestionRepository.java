@@ -22,6 +22,21 @@ public interface SurgingQuestionRepository extends JpaRepository<SurgingQuestion
     );
 
     @Query("""
+            select (count(q) > 0)
+            from SurgingQuestion q
+            where q.cluster.id = :clusterId
+              and q.questionLog.userId = :userId
+              and q.occurredAt >= :windowStart
+              and q.occurredAt <= :windowEnd
+            """)
+    boolean existsByClusterIdAndUserIdAndOccurredAtBetween(
+            @Param("clusterId") Long clusterId,
+            @Param("userId") Long userId,
+            @Param("windowStart") LocalDateTime windowStart,
+            @Param("windowEnd") LocalDateTime windowEnd
+    );
+
+    @Query("""
             select new com.ubot.telemap.dto.SurgingQuestionSnapshot(
                 q.questionLog.id,
                 case

@@ -56,7 +56,7 @@ public class TelemapAlertService {
     @Transactional
     public SurgingAlertDetailResponse markProcessed(Long alertId, Long administratorId) {
         SurgingAlert alert = findAlert(alertId);
-        
+
         if(alert.getSubject()==null)
             throw new TelemapException(TelemapErrorCode.UNPROCESSED_ALERT);
 
