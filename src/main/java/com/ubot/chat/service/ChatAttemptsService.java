@@ -1,7 +1,6 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.SubQuestionFaqs;
-import com.ubot.chat.dto.SurgingQuestionEmbedding;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.exception.ChatErrorCode;
@@ -33,7 +32,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
@@ -255,16 +253,6 @@ public class ChatAttemptsService {
 			String answer,
 			List<SubQuestionFaqs> subQuestions,
 			RegionSido region) {
-		return recordSuccess(lockedAttempt, answer, subQuestions, Map.of(), region);
-	}
-
-	@Transactional(propagation = Propagation.MANDATORY)
-	public Optional<Long> recordSuccess(
-			AnswerAttemptsHistory lockedAttempt,
-			String answer,
-			List<SubQuestionFaqs> subQuestions,
-			Map<Integer, SurgingQuestionEmbedding> questionEmbeddings,
-			RegionSido region) {
 		if (!"PENDING".equals(lockedAttempt.getStatus())) {
 			return Optional.empty();
 		}
@@ -280,7 +268,6 @@ public class ChatAttemptsService {
 				lockedAttempt.getQuestion(),
 				subQuestions,
 				answer,
-				questionEmbeddings,
 				region);
 
 		// 검색 결과 순위는 하위 질문마다 따로 매깁니다. 같은 FAQ가 여러 하위 질문에서 걸리면 각각 남습니다.

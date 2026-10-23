@@ -11,7 +11,6 @@ import com.ubot.ai.service.AiService;
 import com.ubot.ai.service.FaqGapCandidateSelector;
 import com.ubot.chat.context.ChatContext;
 import com.ubot.chat.context.ChatContextCollector;
-import com.ubot.chat.dto.SurgingQuestionEmbedding;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.embedding.service.EmbeddingProfileService;
@@ -131,7 +130,6 @@ public class ChatAnswerProcessor {
 			checkCancellation.run();
 			// 시맨틱 캐시는 분리·멀티턴 표지가 없어 원문 하나로 검색하는 이 경로에서만 봅니다.
 			// 표지가 있으면 FAQ 하나의 공식 답변으로 끝내면 나머지 질문이 빠지거나 이전 대화의 맥락을 잃습니다.
-			rememberEmbedding(queryEmbeddings, question, dense.queryVector());
 			FaqCacheDecision cacheDecision = faqSemanticCacheService.evaluate(requestedIntent, dense.candidates());
 			checkCancellation.run();
 			Optional<FaqSearchResponseDto> cachedFaq = cacheDecision.faq();
@@ -143,11 +141,11 @@ public class ChatAnswerProcessor {
 				FaqSearchResponseDto officialFaq = cachedFaq.get();
 				log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
 						attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
-				List<SubQuestionFaqs> cachedQuestions = List.of(new SubQuestionFaqs(question, List.of(officialFaq), question));
-				return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false), cachedQuestions,
-						surgingEmbeddings(cachedQuestions, queryEmbeddings));
+				return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false),
+						List.of(new SubQuestionFaqs(question, List.of(officialFaq), question)));
 			}
 			// MISS이면 같은 검색 후보로 이어갑니다. 임베딩·검색은 반복하지 않습니다.
+			rememberEmbedding(queryEmbeddings, question, dense.queryVector());
 			SearchedCandidates original = new SearchedCandidates(
 					faqRetrievalService.rankCandidates(question, dense, topK), dense.queryVector());
 			double threshold = plan.history().isEmpty()
@@ -239,7 +237,7 @@ public class ChatAnswerProcessor {
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		collectOutputGuardCandidates(attempt, answer, materials, queryEmbeddings, unansweredCandidates);
-		return ChatAnswerResult.answered(answer, searched, surgingEmbeddings(searched, queryEmbeddings));
+		return ChatAnswerResult.answered(answer, searched);
 	}
 
 	/**
@@ -331,19 +329,6 @@ public class ChatAnswerProcessor {
 		} catch (RuntimeException exception) {
 			log.warn("검색 벡터의 재사용 정보를 가져오지 못했습니다", exception);
 		}
-	}
-
-	private Map<Integer, SurgingQuestionEmbedding> surgingEmbeddings(List<SubQuestionFaqs> subQuestions,
-			Map<String, QuestionEmbedding> queryEmbeddings) {
-		Map<Integer, SurgingQuestionEmbedding> result = new HashMap<>();
-		for (int index = 0; index < subQuestions.size(); index++) {
-			QuestionEmbedding embedding = queryEmbeddings.get(subQuestions.get(index).searchQuery());
-			if (embedding == null) continue;
-			List<Float> values = new ArrayList<>();
-			for (float value : embedding.vector().toArray()) values.add(value);
-			result.put(index, new SurgingQuestionEmbedding(embedding.profileId(), values));
-		}
-		return result;
 	}
 
 	private void collectOutputGuardCandidates(AnswerAttemptsHistory attempt, AiAnswer answer, AnswerMaterials materials,

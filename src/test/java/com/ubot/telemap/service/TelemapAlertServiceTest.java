@@ -66,6 +66,7 @@ class TelemapAlertServiceTest {
         SurgingAlert processed = alert(6L, SurgingAlertStatus.PROCESSED, administrator);
         when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(administrator));
         when(alerts.findById(6L)).thenReturn(Optional.of(processed));
+        when(alerts.markProcessedIfPending(eq(6L), eq(administrator), any(LocalDateTime.class))).thenReturn(1);
 
         var response = service.markProcessed(6L, 7L);
 
@@ -89,6 +90,7 @@ class TelemapAlertServiceTest {
     @Test
     @DisplayName("존재하지 않거나 탈퇴한 관리자의 처리 요청을 거부한다")
     void rejectsMissingAdministrator() {
+        when(alerts.findById(1L)).thenReturn(Optional.of(alert(1L, SurgingAlertStatus.PENDING, null)));
         when(users.findByIdAndDeletedAtIsNull(77L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.markProcessed(1L, 77L)).isInstanceOf(UserException.class);

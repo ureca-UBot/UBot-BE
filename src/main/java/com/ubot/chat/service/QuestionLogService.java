@@ -1,7 +1,6 @@
 package com.ubot.chat.service;
 
 import com.ubot.ai.dto.SubQuestionFaqs;
-import com.ubot.chat.dto.SurgingQuestionEmbedding;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.util.IpRegionResolver;
@@ -16,7 +15,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -39,7 +37,7 @@ public class QuestionLogService {
 			String userIp
 	){
 		return saveTurn(userId, conversationId, attemptId, question, subQuestions, answer,
-				Map.of(), ipRegionResolver.resolve(userIp).orElse(null));
+				ipRegionResolver.resolve(userIp).orElse(null));
 	}
 
 	/**
@@ -56,20 +54,6 @@ public class QuestionLogService {
 			String question,
 			List<SubQuestionFaqs> subQuestions,
 			String answer,
-			RegionSido regionSido
-	){
-		return saveTurn(userId, conversationId, attemptId, question, subQuestions, answer, Map.of(), regionSido);
-	}
-
-	@Transactional
-	List<QuestionLog> saveTurn(
-			Long userId,
-			Long conversationId,
-			Long attemptId,
-			String question,
-			List<SubQuestionFaqs> subQuestions,
-			String answer,
-			Map<Integer, SurgingQuestionEmbedding> questionEmbeddings,
 			RegionSido regionSido
 	){
 
@@ -97,7 +81,7 @@ public class QuestionLogService {
 					.build());
 		}
 		List<QuestionLog> savedQuestionLogs = questionLogRepository.saveAllAndFlush(questionLogs);
-		telemapOutboxService.enqueueSurgingQuestions(savedQuestionLogs, questionEmbeddings);
+		telemapOutboxService.enqueueSurgingQuestions(savedQuestionLogs);
 		return savedQuestionLogs;
 	}
 
