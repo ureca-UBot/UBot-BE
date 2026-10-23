@@ -3,6 +3,7 @@ package com.ubot.ai.service;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import com.pgvector.PGvector;
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.chat.service.ChatInputGuardService;
 import com.ubot.chat.service.ChatPromptInjectionService;
@@ -29,7 +30,7 @@ public final class GuardPipelineFixtures {
         return filter;
     }
     public static ChatInputGuardService input() {
-        return new ChatInputGuardService(words(), new ChatPromptInjectionService());
+        return new ChatInputGuardService(words(), new ChatPromptInjectionService(), new AiInputGuardProperties());
     }
     public static AiOutputGuardService output() { return new AiOutputGuardService(words()); }
     public static FaqSearchResponseDto unrelatedFaq() {

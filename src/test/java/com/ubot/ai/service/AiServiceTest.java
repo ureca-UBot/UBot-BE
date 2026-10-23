@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.config.AiOutputGuardProperties;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
@@ -87,7 +88,8 @@ class AiServiceTest {
                 .thenReturn(List.of(ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
         var wordFilter = new ForbiddenWordFilterService(words);
         wordFilter.refreshForbiddenWordCache();
-        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter), org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class));
+        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter),
+                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class), new AiOutputGuardProperties());
     }
 
     @Test

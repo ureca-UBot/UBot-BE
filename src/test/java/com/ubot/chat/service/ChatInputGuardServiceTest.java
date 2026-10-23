@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.common.ErrorCode;
@@ -35,7 +36,7 @@ class ChatInputGuardServiceTest {
 	private final ForbiddenWordRepository repository = mock(ForbiddenWordRepository.class);
 	private final ForbiddenWordFilterService forbiddenWordFilterService = new ForbiddenWordFilterService(repository);
 	private final ChatInputGuardService service = new ChatInputGuardService(
-			forbiddenWordFilterService, new ChatPromptInjectionService());
+			forbiddenWordFilterService, new ChatPromptInjectionService(), new AiInputGuardProperties());
 
 	@BeforeEach
 	void prepareInMemoryWordFixture() {
@@ -298,7 +299,7 @@ class ChatInputGuardServiceTest {
 		ChatPromptInjectionService prompt = mock(ChatPromptInjectionService.class);
 		ForbiddenWordException failure = new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_NOT_FOUND);
 		doThrow(failure).when(filter).validateForbiddenWord("요금제 알려줘");
-		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt).prepareQuestion("요금제 알려줘"))
+		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt, new AiInputGuardProperties()).prepareQuestion("요금제 알려줘"))
 				.isSameAs(failure);
 		verifyNoInteractions(prompt);
 	}
@@ -309,7 +310,7 @@ class ChatInputGuardServiceTest {
 		ChatPromptInjectionService prompt = mock(ChatPromptInjectionService.class);
 		ChatException failure = new ChatException(ChatErrorCode.INTERNAL_ERROR);
 		doThrow(failure).when(prompt).validatePromptInjection("요금제 알려줘");
-		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt).prepareQuestion("요금제 알려줘"))
+		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt, new AiInputGuardProperties()).prepareQuestion("요금제 알려줘"))
 				.isSameAs(failure);
 	}
 
@@ -319,7 +320,7 @@ class ChatInputGuardServiceTest {
 		ChatPromptInjectionService prompt = mock(ChatPromptInjectionService.class);
 		IllegalStateException failure = new IllegalStateException("test inspection failure");
 		doThrow(failure).when(filter).validateForbiddenWord("요금제 알려줘");
-		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt).prepareQuestion("요금제 알려줘"))
+		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt, new AiInputGuardProperties()).prepareQuestion("요금제 알려줘"))
 				.isSameAs(failure);
 	}
 
@@ -329,7 +330,7 @@ class ChatInputGuardServiceTest {
 		ChatPromptInjectionService prompt = mock(ChatPromptInjectionService.class);
 		GlobalException failure = new ChatException(ChatErrorCode.INTERNAL_ERROR);
 		doThrow(failure).when(prompt).validatePreparedRequests(List.of("요금제 알려줘.", "매장 알려줘"));
-		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt).prepareQuestion("요금제 알려줘. 매장 알려줘"))
+		assertThatThrownBy(() -> new ChatInputGuardService(filter, prompt, new AiInputGuardProperties()).prepareQuestion("요금제 알려줘. 매장 알려줘"))
 				.isSameAs(failure);
 	}
 

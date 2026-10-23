@@ -1,5 +1,6 @@
 package com.ubot.ai.service;
 
+import com.ubot.ai.config.AiOutputGuardProperties;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
@@ -26,6 +27,7 @@ import com.ubot.prompt.service.PromptService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
@@ -42,6 +44,7 @@ public class AiService {
     private final AiToolRegistry toolRegistry;
     private final AiOutputGuardService aiOutputGuardService;
     private final AiLlmOutputGuardService aiLlmOutputGuardService;
+    private final AiOutputGuardProperties outputGuardProperties;
 
     public AiAnswer generateAnswer(AnswerMaterials materials) {
         // ChatAnswerProcessor가 intent별로 모은 자료를 받습니다. DB를 다시 조회하지 않습니다.
@@ -67,7 +70,7 @@ public class AiService {
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
         // 빈 응답 판단은 ChatAnswerProcessor가 합니다.
         LlmResponseDto response = llmService.generateAnswer(request);
-        // 기존 파서와 출력 가드로 한 번 검사하고, 후보 선별에는 상태가 아닌 실제 검사 결과를 전달합니다.
+        // 기존 파서로 응답을 읽고, 켜져 있는 출력 검사의 결과를 후속 처리에 전달합니다.
         StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
         String answer = null;
         String status = null;
@@ -75,12 +78,7 @@ public class AiService {
         if (response != null && StringUtils.hasText(response.answer())) {
             FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
             log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
-            // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
-            String toolRecords = userDataRecorder.describe();
-            AnswerMaterials inspected = toolRecords.isEmpty() ? materials
-                    : materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
-                            userDataRecorder.cards());
-            inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
+            inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), materials, storeMap, userDataRecorder);
             // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
             answer = inspection.answer();
             status = parsed.status();
@@ -95,17 +93,34 @@ public class AiService {
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData);
     }
 
-    /** 공식 FAQ 캐시도 코드·AI 출력 검사를 거칩니다. 생성 모델·임베딩을 다시 호출하지 않습니다. */
+    /** 출력 검사가 켜져 있으면 공식 FAQ 캐시도 검사합니다. 생성 모델·임베딩을 다시 호출하지 않습니다. */
     public AiAnswer validateCachedAnswer(AnswerMaterials materials, String answer, String evidenceId) {
-        OutputGuardResult result = inspectOutput(answer, List.of(evidenceId), materials, null);
+        OutputGuardResult result = inspectOutput(answer, List.of(evidenceId), materials, null, null);
         return new AiAnswer(result.answer(), null, false, null, result);
     }
 
     private OutputGuardResult inspectOutput(String answer, List<String> evidenceIds,
-            AnswerMaterials materials, StoreMapResult stores) {
-        OutputGuardResult result = aiOutputGuardService.inspectAnswer(answer, evidenceIds, materials, stores);
+            AnswerMaterials materials, StoreMapResult stores, UserDataRecorder userDataRecorder) {
+        // 꺼져 있으면 코드 검사·프롬프트 생성·AI 슬롯 대기·HTTP 호출 전에 반환합니다.
+        // 검사 사유를 만들지 않아 후속 처리에서 출력 가드 거절로 분류되지 않습니다.
+        if (!outputGuardProperties.isEnabled()) {
+            return new OutputGuardResult(answer, false, Set.of());
+        }
+        // 도구 조회 기록을 검사 근거로 보강하는 작업도 출력 검사를 실행할 때만 합니다.
+        AnswerMaterials inspected = materials;
+        if (userDataRecorder != null) {
+            String toolRecords = userDataRecorder.describe();
+            if (!toolRecords.isEmpty()) {
+                inspected = materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
+                        userDataRecorder.cards());
+            }
+        }
+        OutputGuardResult result = aiOutputGuardService.inspectAnswer(answer, evidenceIds, inspected, stores);
         if (result.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-        aiLlmOutputGuardService.validate(result.answer(), evidenceIds, materials, stores);
+        // LLM 검사만 꺼도 코드 검사 결과는 유지하며, 추가 프롬프트·모델 슬롯은 사용하지 않습니다.
+        if (outputGuardProperties.isLlmEnabled()) {
+            aiLlmOutputGuardService.validate(result.answer(), evidenceIds, inspected, stores);
+        }
         return result;
     }
 

@@ -3,6 +3,7 @@ package com.ubot.chat.service;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
@@ -66,7 +67,7 @@ final class ChatTestFixtures {
 	}
 
 	static ChatInputGuardService inputGuard(ForbiddenWordFilterService filter) {
-		return new ChatInputGuardService(filter, new ChatPromptInjectionService());
+		return new ChatInputGuardService(filter, new ChatPromptInjectionService(), new AiInputGuardProperties());
 	}
 
 	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */

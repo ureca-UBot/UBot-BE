@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static com.ubot.ai.service.GuardPipelineFixtures.*;
+import com.ubot.ai.config.AiOutputGuardProperties;
 import com.ubot.ai.dto.*;
 import com.ubot.ai.service.*;
 import com.ubot.ai.tool.AiToolRegistry;
@@ -47,7 +48,8 @@ class OutputGuardUnansweredConnectionTest {
     @BeforeEach void setUp() {
         var guard = output();
         var input = input();
-        ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard, org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class));
+        ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard,
+                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class), new AiOutputGuardProperties());
         processor = new ChatAnswerProcessor(retrieval, ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), input, new FaqGapCandidateSelector(input, guard), profiles);
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", .75);

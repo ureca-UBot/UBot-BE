@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.service.AiGuardModelService;
@@ -19,7 +20,9 @@ import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.AiGuardPromptService;
+import com.ubot.prompt.service.SubQuestionPromptService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -30,8 +33,10 @@ class AiInputPlannerConnectionTest {
     private final AiGuardModelService model = mock(AiGuardModelService.class);
     private final ConversationTurnRepository turns = mock(ConversationTurnRepository.class);
     private final ForbiddenWordFilterService words = mock(ForbiddenWordFilterService.class);
-    private final ChatInputGuardService code = new ChatInputGuardService(words, new ChatPromptInjectionService());
-    private final AiInputGuardService safety = new AiInputGuardService(model, new AiGuardPromptService(words), code);
+    private final ChatInputGuardService code = new ChatInputGuardService(words, new ChatPromptInjectionService(),
+            new AiInputGuardProperties());
+    private final AiInputGuardService safety = new AiInputGuardService(model, new AiGuardPromptService(words), code,
+            new AiInputGuardProperties(), mock(SubQuestionPromptService.class), mock(LlmService.class));
     private final QuestionRouter router = mock(QuestionRouter.class);
     private final SubQuestionGuard guard = mock(SubQuestionGuard.class);
     private final MultiTurnDetector detector = mock(MultiTurnDetector.class);

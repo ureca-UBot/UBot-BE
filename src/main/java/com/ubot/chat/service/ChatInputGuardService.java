@@ -1,5 +1,6 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
@@ -23,6 +24,7 @@ public class ChatInputGuardService {
 
 	private final ForbiddenWordFilterService forbiddenWordFilterService;
 	private final ChatPromptInjectionService chatPromptInjectionService;
+	private final AiInputGuardProperties properties;
 
 	private static final Pattern GRAPHEME = Pattern.compile("\\X");
 	private static final Pattern GREETING = Pattern.compile(
@@ -57,12 +59,15 @@ public class ChatInputGuardService {
 	public String prepareQuestion(String question) {
 		List<String> requests = prepareCandidates(question);
 		if (requests.isEmpty()) throw new ChatException(ChatErrorCode.NO_USABLE_QUESTION);
-		String previous = null;
-		for (String request : requests) {
-			validateRequest(request, previous);
-			previous = request;
+		// OFF에서도 이모지·인사 정리와 빈 질문 검증은 유지하고 차단 검사만 생략합니다.
+		if (properties.isEnabled()) {
+			String previous = null;
+			for (String request : requests) {
+				validateRequest(request, previous);
+				previous = request;
+			}
+			validateCombinedRequests(requests);
 		}
-		validateCombinedRequests(requests);
 		return String.join("\n", requests);
 	}
 
