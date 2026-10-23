@@ -56,7 +56,7 @@ public class ChatAnswerProcessor {
 	@Value("${CHAT_TOP_K:3}")
 	private int topK;
 
-	@Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}")
+	@Value("${faq.confidence-threshold}")
 	private double confidenceThreshold;
 
 	/**
