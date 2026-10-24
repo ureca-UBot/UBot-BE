@@ -79,14 +79,29 @@ public class PlanTools {
                     name = series.get();
                 }
             }
+            // "무제한이 아닌 요금제만" 찾는 질문은 거의 없는데, 작은 모델은 이 값을 습관처럼 false로 채워 무제한 요금제를 빠뜨립니다.
+            Boolean unlimitedOnly = Boolean.TRUE.equals(dataUnlimited) ? Boolean.TRUE : null;
             ProductCatalogQuery.Found<Plan> found = productCatalogQuery.searchPlans(
-                    new PlanCondition(name, network, target, maxMonthlyFee, minDataGb, dataUnlimited, sort));
+                    new PlanCondition(name, network, target, maxMonthlyFee, minDataGb, unlimitedOnly, sort));
             String order = sort == PlanSort.DATA_DESC ? "데이터 많은 순" : "월정액 낮은 순";
             log.info("요금제 조회 도구: name={}, networkType={}, targetGroup={}, maxMonthlyFee={}, minDataGb={}, "
                     + "dataUnlimited={}, sortBy={}, listRequested={}, 결과={}건 중 {}건", name, networkType, targetGroup,
                     maxMonthlyFee, minDataGb, dataUnlimited, sortBy, listRequested, found.total(), found.items().size());
+            // 작은 모델은 "프리미엄 89 요금제"에도 말하지 않은 조건(월정액 상한 등)을 채워 넣어 0건이 되기도 합니다.
+            // 이름만으로 요금제 하나가 정해지면 그 요금제를 묻는 것이므로 다른 조건을 빼고 돌려줍니다.
+            // 이름으로 여러 개가 나오면 "프리미엄 요금제 중 5만원 이하"처럼 사용자가 건 조건일 수 있어 그대로 둡니다.
+            if (found.total() == 0 && StringUtils.hasText(name)) {
+                ProductCatalogQuery.Found<Plan> named = productCatalogQuery.searchPlans(
+                        new PlanCondition(name, null, null, null, null, null, sort));
+                if (named.total() == 1) {
+                    log.info("요금제 조회 도구: 조건에 맞는 요금제가 없지만 이름 '{}'에 맞는 요금제가 하나라 다른 조건을 빼고 돌려줍니다",
+                            name);
+                    return ProductToolResults.format(PRODUCT_LABEL, order, named, this::line, ProductDescriptions::of,
+                            this::card, recorder, (String) null);
+                }
+            }
             boolean unfiltered = !StringUtils.hasText(name) && network == null && target == null
-                    && maxMonthlyFee == null && minDataGb == null && dataUnlimited == null;
+                    && maxMonthlyFee == null && minDataGb == null && unlimitedOnly == null;
             // 조건 없이 요금제 종류를 물었는데 결과가 다 들어가지 않으면, 월정액 낮은 순 5개는 종류에 대한 답이 아니므로
             // 시리즈별 개요로 답합니다. 질문에 시리즈 이름이 둘 이상 있어 하나로 정하지 못한 경우도 개요에 그 시리즈들이 보입니다.
             if (Boolean.TRUE.equals(listRequested) && unfiltered && found.total() > ProductCatalogQuery.LIMIT) {
@@ -106,9 +121,9 @@ public class PlanTools {
                 log.info("요금제 조회 도구: 질문에 시리즈 이름이 있는데 조건 없이 조회해 목록 답변을 만들지 않습니다");
             }
             String listSubject = unfilteredSeriesQuestion ? null : ProductToolResults.listSubject(listRequested, PRODUCT_LABEL,
-                    maxMonthlyFee != null || minDataGb != null || Boolean.FALSE.equals(dataUnlimited),
+                    maxMonthlyFee != null || minDataGb != null,
                     network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
-                    Boolean.TRUE.equals(dataUnlimited) ? "데이터 무제한" : null,
+                    unlimitedOnly != null ? "데이터 무제한" : null,
                     ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
             return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
                     this::card, recorder, listSubject);

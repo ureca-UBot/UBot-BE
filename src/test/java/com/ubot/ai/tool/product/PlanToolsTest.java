@@ -2,8 +2,10 @@ package com.ubot.ai.tool.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -102,10 +104,64 @@ class PlanToolsTest {
         assertThat(recorder.listing()).hasValueSatisfying(listing -> assertThat(listing).isInstanceOf(ProductListing.class));
     }
 
+    @Test
+    void 질문에_개수가_있으면_목록_답변과_카드를_그_개수로_줄이고_도구_결과는_그대로_둔다() {
+        var oneRecorder = new ProductDataRecorder("프리미엄 요금제 하나만 알려줘");
+        var oneContext = new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, oneRecorder));
+        List<Plan> premium = List.of(plan("Ubot 프리미엄 89"), plan("Ubot 프리미엄 99"), plan("Ubot 프리미엄 109"));
+        when(catalog.searchPlans(any())).thenReturn(new Found<>(premium, 3));
+
+        String result = planTools.searchPlans("프리미엄", null, null, null, null, null, null, true, oneContext);
+
+        assertThat(result).contains("Ubot 프리미엄 89", "Ubot 프리미엄 99", "Ubot 프리미엄 109");
+        assertThat(oneRecorder.listing()).hasValueSatisfying(listing -> {
+            assertThat(listing.products()).extracting(card -> card.name()).containsExactly("Ubot 프리미엄 89");
+            assertThat(listing.answer()).startsWith("프리미엄 요금제는 3가지가 있으며, 월정액 낮은 순으로 1가지를 안내드립니다.");
+        });
+    }
+
+    @Test
+    void 데이터_무제한_false는_조건으로_쓰지_않는다() {
+        Found<Plan> found = new Found<>(List.of(plan("Ubot 데이터 100GB")), 1);
+        when(catalog.searchPlans(any())).thenReturn(found);
+
+        planTools.searchPlans(null, null, null, null, 100, false, null, null, toolContext);
+
+        assertThat(searchedCondition().dataUnlimited()).isNull();
+    }
+
+    @Test
+    void 조건에_맞는_요금제가_없어도_이름에_맞는_요금제가_하나면_다른_조건을_빼고_돌려준다() {
+        Found<Plan> none = new Found<>(List.of(), 0);
+        Found<Plan> one = new Found<>(List.of(plan("Ubot 프리미엄 89")), 1);
+        when(catalog.searchPlans(any())).thenReturn(none, one);
+
+        String result = planTools.searchPlans("프리미엄 89", "5G", "GENERAL", 89000, 0, null, null, false, toolContext);
+
+        assertThat(result).contains("Ubot 프리미엄 89");
+        ArgumentCaptor<PlanCondition> conditions = ArgumentCaptor.forClass(PlanCondition.class);
+        verify(catalog, times(2)).searchPlans(conditions.capture());
+        assertThat(conditions.getAllValues().get(1))
+                .isEqualTo(new PlanCondition("프리미엄 89", null, null, null, null, null, null));
+    }
+
+    @Test
+    void 이름에_맞는_요금제가_여럿이면_조건에_맞는_요금제가_없다고_돌려준다() {
+        Found<Plan> none = new Found<>(List.of(), 0);
+        Found<Plan> several = new Found<>(List.of(plan("Ubot 프리미엄 89"), plan("Ubot 프리미엄 99")), 5);
+        when(catalog.searchPlans(any())).thenReturn(none, several);
+
+        String result = planTools.searchPlans("프리미엄", null, null, 50000, null, null, null, true, toolContext);
+
+        assertThat(result).doesNotContain("Ubot 프리미엄 89");
+        assertThat(recorder.cards()).isEmpty();
+    }
+
     private PlanCondition searchedCondition() {
         ArgumentCaptor<PlanCondition> condition = ArgumentCaptor.forClass(PlanCondition.class);
-        verify(catalog).searchPlans(condition.capture());
-        return condition.getValue();
+        // 0건이면 이름만으로 한 번 더 조회하므로 첫 조회의 조건을 봅니다.
+        verify(catalog, atLeastOnce()).searchPlans(condition.capture());
+        return condition.getAllValues().getFirst();
     }
 
     private static Plan plan(String name) {
