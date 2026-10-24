@@ -58,6 +58,37 @@ class ProductListingTest {
     }
 
     @Test
+    void 다른_조건_말에_이미_들어_있는_말은_주어에_한_번만_쓴다() {
+        assertThat(ProductToolResults.listSubject(true, "요금제", false, null, "시니어", "시니어")).isEqualTo("시니어 요금제");
+        assertThat(ProductToolResults.listSubject(true, "요금제", false, null, "시니어", "시니어 안심"))
+                .isEqualTo("시니어 안심 요금제");
+        assertThat(ProductToolResults.listSubject(true, "요금제", false, "5G", "청년", "청년"))
+                .isEqualTo("5G 청년 요금제");
+    }
+
+    @Test
+    void 질문에서_보여_달라고_한_상품_수를_찾는다() {
+        assertThat(ProductToolResults.requestedCount("프리미엄 요금제 하나만 알려줘")).hasValue(1);
+        assertThat(ProductToolResults.requestedCount("요금제 하나 추천해줘")).hasValue(1);
+        assertThat(ProductToolResults.requestedCount("시니어 요금제 한 개만")).hasValue(1);
+        assertThat(ProductToolResults.requestedCount("5G 요금제 두 가지 알려줘")).hasValue(2);
+        assertThat(ProductToolResults.requestedCount("요금제 3개 보여줘")).hasValue(3);
+        assertThat(ProductToolResults.requestedCount("부가서비스 넷만 알려줘")).hasValue(4);
+    }
+
+    @Test
+    void 수가_아닌_말은_상품_수로_보지_않는다() {
+        assertThat(ProductToolResults.requestedCount("프리미엄 요금제 종류 알려줘")).isEmpty();
+        assertThat(ProductToolResults.requestedCount("1개월 무료 부가서비스 알려줘")).isEmpty();
+        assertThat(ProductToolResults.requestedCount("하나카드 결합 할인 있어?")).isEmpty();
+        assertThat(ProductToolResults.requestedCount("넷플릭스 부가서비스 알려줘")).isEmpty();
+        assertThat(ProductToolResults.requestedCount("두 달 쓸 로밍 알려줘")).isEmpty();
+        assertThat(ProductToolResults.requestedCount("요금제 14개 다 알려줘")).isEmpty();
+        assertThat(ProductToolResults.requestedCount("요금제 5가지 알려줘")).isEmpty();
+        assertThat(ProductToolResults.requestedCount(null)).isEmpty();
+    }
+
+    @Test
     void 조회가_한_번이고_그_조회가_목록일_때만_목록_답변을_쓴다() {
         var listing = new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(PREMIUM_89, PREMIUM_99));
 

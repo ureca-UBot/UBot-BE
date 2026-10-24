@@ -6,7 +6,10 @@ import com.ubot.ai.tool.product.ProductCatalogQuery.Found;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.OptionalInt;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.util.StringUtils;
 
@@ -26,6 +29,11 @@ final class ProductToolResults {
     // 네 도구가 같은 뜻으로 받는 목록 요청 표시입니다. 표시가 있고 상품이 2개 이상이면 답변을 코드가 목록으로 만듭니다.
     static final String LIST_REQUESTED_DESCRIPTION = "사용자가 상품 목록이나 종류를 물으면 true. "
             + "특정 상품 하나의 정보를 물으면 비운다.";
+    // 1: "하나·둘·셋·넷" 단독 표현. 뒤에 조사·다른 글자가 붙은 "하나로", "넷플릭스"는 제외합니다.
+    // 2: "한·두·세·네" 또는 숫자 1~4 뒤에 "개·가지". "1개월"은 제외합니다.
+    private static final Pattern REQUESTED_COUNT = Pattern.compile(
+            "(?<![가-힣A-Za-z0-9])(?:(하나|둘|셋|넷)(?=만|\\s|$|[.?!,]|알려|추천|골라|보여)"
+                    + "|(한|두|세|네|[1-4])\\s*(?:개|가지)(?!월))");
 
     private ProductToolResults() {
     }
@@ -89,8 +97,10 @@ final class ProductToolResults {
         if (found.total() > items.size()) {
             text.append(String.format(MORE_RESULTS_MESSAGE, productLabel));
         }
+        // "하나만 알려줘"처럼 개수를 말했으면 목록 답변과 카드만 그 개수로 줄입니다. LLM에 돌려준 행과 검사 근거는 그대로입니다.
+        long listed = requestedCount(recorder.question()).orElse(items.size());
         recorder.searched(listAnswer != null ? listAnswer : listSubject == null || items.size() < 2 ? null
-                : new ProductListing(listSubject, order, found.total(), items.stream().map(card).toList()));
+                : new ProductListing(listSubject, order, found.total(), items.stream().limit(listed).map(card).toList()));
         return text.toString().stripTrailing();
     }
 
@@ -104,9 +114,36 @@ final class ProductToolResults {
         if (!Boolean.TRUE.equals(listRequested)) {
             return null;
         }
-        List<String> words = Arrays.stream(qualifiers).filter(StringUtils::hasText).map(String::strip).toList();
+        List<String> qualifierWords = Arrays.stream(qualifiers).filter(StringUtils::hasText).map(String::strip)
+                .distinct().toList();
+        // 대상 "시니어"와 이름 "시니어 안심"처럼 다른 조건 말에 이미 들어 있는 말은 한 번만 씁니다.
+        List<String> words = qualifierWords.stream()
+                .filter(word -> qualifierWords.stream().noneMatch(other -> !other.equals(word)
+                        && Arrays.asList(other.split("\\s+")).contains(word)))
+                .toList();
         String subject = words.isEmpty() ? productLabel : String.join(" ", words) + " " + productLabel;
         return hiddenConditions || words.isEmpty() ? "조건에 맞는 " + subject : subject;
+    }
+
+    /**
+     * 질문에서 "하나만", "두 개", "3가지"처럼 보여 달라고 한 상품 수(1~4)를 찾습니다. 없으면 비어 있습니다.
+     * "1개월", "하나카드", "넷플릭스"처럼 수가 아닌 말은 앞뒤 글자를 보고 거릅니다. 결과는 최대 5개라 다섯 이상은 보지 않습니다.
+     */
+    static OptionalInt requestedCount(String question) {
+        if (!StringUtils.hasText(question)) {
+            return OptionalInt.empty();
+        }
+        Matcher matcher = REQUESTED_COUNT.matcher(question);
+        if (!matcher.find()) {
+            return OptionalInt.empty();
+        }
+        String word = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+        return OptionalInt.of(switch (word) {
+            case "하나", "한", "1" -> 1;
+            case "둘", "두", "2" -> 2;
+            case "셋", "세", "3" -> 3;
+            default -> 4;
+        });
     }
 
     /**
