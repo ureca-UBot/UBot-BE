@@ -115,7 +115,7 @@ class AiGuardSlotMergeConnectionTest {
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto(
                 json.writeValueAsString(Map.of("answers", slots, "evidence_ids", List.of("1", "2", "3")))));
         when(model.generate(any())).thenReturn(new LlmResponseDto(
-                "{\"decision\":\"ALLOW\",\"reason_codes\":[],\"explanation\":\"안전\"}"));
+                "{\"findings\":[]}"));
         if (rejectedIndex >= 0) {
             when(code.inspectAnswer(eq(faqs.get(rejectedIndex).answer()), any(), any(), any()))
                     .thenReturn(new OutputGuardResult(null, true, Set.of(OutputGuardResult.Reason.ANSWER_ERROR)));

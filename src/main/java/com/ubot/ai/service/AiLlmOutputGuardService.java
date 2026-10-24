@@ -5,7 +5,7 @@ import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.common.GlobalException;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
-import com.ubot.prompt.format.AiGuardFormat;
+import com.ubot.prompt.format.AiOutputGuardAssessment;
 import com.ubot.prompt.format.AiGuardFormat.Decision;
 import com.ubot.prompt.service.AiGuardPromptService;
 import java.util.List;
@@ -25,7 +25,7 @@ public class AiLlmOutputGuardService {
         long start = System.nanoTime();
         try {
             var response = model.generate(prompts.output(answer, evidenceIds, materials, stores));
-            var verdict = AiGuardFormat.parseOutput(response == null ? null : response.answer());
+            var verdict = AiOutputGuardAssessment.parse(response == null ? null : response.answer(), answer);
             log.info("출력 AI 가드: 판정={}, 사유={}, 처리시간={}ms", verdict.decision(), verdict.reasons(), elapsed(start));
             if (verdict.decision() == Decision.BLOCK) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
             if (verdict.decision() == Decision.REVIEW) throw new LlmException(LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED);

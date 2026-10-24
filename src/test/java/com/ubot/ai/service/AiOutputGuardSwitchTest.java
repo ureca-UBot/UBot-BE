@@ -186,7 +186,7 @@ class AiOutputGuardSwitchTest {
                 .thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
         when(guardPrompts.output(any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(model.generate(any())).thenReturn(new LlmResponseDto(
-                "{\"decision\":\"ALLOW\",\"reason_codes\":[],\"explanation\":\"정상 안내\"}"));
+                "{\"findings\":[]}"));
 
         assertThat(service.generateAnswer(materials).answer()).isEqualTo(ANSWER);
 

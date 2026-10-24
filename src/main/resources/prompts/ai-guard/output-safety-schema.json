@@ -1,10 +1,88 @@
 {
   "type": "object",
   "properties": {
-    "decision": {"type": "string", "enum": ["ALLOW", "BLOCK", "REVIEW"]},
-    "reason_codes": {"type": "array", "items": {"type": "string", "enum": ["SAFE", "HARMFUL_REQUEST_FOLLOWED", "ABUSIVE_LANGUAGE", "INTERNAL_INFORMATION", "FALSE_EXECUTION", "POLICY_CONTRADICTION", "UNSUPPORTED_CLAIM", "WRONG_SERVICE", "CONDITION_DISTORTION", "INSUFFICIENT_EVIDENCE"]}, "maxItems": 4},
-    "explanation": {"type": "string", "maxLength": 240}
+    "findings": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "certainty": {
+                "type": "string",
+                "enum": [
+                  "CONFIRMED"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "HARMFUL_REQUEST_FOLLOWED",
+                  "ABUSIVE_LANGUAGE",
+                  "INTERNAL_INFORMATION",
+                  "FALSE_EXECUTION",
+                  "POLICY_CONTRADICTION",
+                  "UNSUPPORTED_CLAIM",
+                  "WRONG_SERVICE",
+                  "CONDITION_DISTORTION"
+                ]
+              },
+              "answer_quote": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              }
+            },
+            "required": [
+              "certainty",
+              "type",
+              "answer_quote"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "certainty": {
+                "type": "string",
+                "enum": [
+                  "UNCERTAIN"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "HARMFUL_REQUEST_FOLLOWED",
+                  "ABUSIVE_LANGUAGE",
+                  "INTERNAL_INFORMATION",
+                  "FALSE_EXECUTION",
+                  "POLICY_CONTRADICTION",
+                  "UNSUPPORTED_CLAIM",
+                  "WRONG_SERVICE",
+                  "CONDITION_DISTORTION",
+                  "INSUFFICIENT_EVIDENCE"
+                ]
+              },
+              "answer_quote": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              }
+            },
+            "required": [
+              "certainty",
+              "type",
+              "answer_quote"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
   },
-  "required": ["decision", "reason_codes", "explanation"],
+  "required": [
+    "findings"
+  ],
   "additionalProperties": false
 }

@@ -26,6 +26,7 @@ import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.format.AiGuardFormat;
+import com.ubot.prompt.format.AiOutputGuardAssessment;
 import com.ubot.prompt.service.AiGuardPromptService;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.prompt.service.SubQuestionPromptService;
@@ -107,26 +108,63 @@ class AiGuardIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"BLOCK", "REVIEW"})
     void 출력_AI의_차단과_보류는_답변_전체를_종료한다(String decision) {
-        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"" + decision
-                + "\",\"reason_codes\":[\"UNSUPPORTED_CLAIM\"],\"explanation\":\"확인 사유\"}"));
+        String certainty = "BLOCK".equals(decision) ? "CONFIRMED" : "UNCERTAIN";
+        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"findings\":[{\"certainty\":\"" + certainty
+                + "\",\"type\":\"UNSUPPORTED_CLAIM\",\"answer_quote\":\"" + ANSWER + "\"}]}"));
         assertThatThrownBy(() -> output.validate(ANSWER, List.of("잘못 적은 번호"), materials(), null))
                 .isInstanceOfSatisfying(LlmException.class, e -> assertThat(e.getErrorCode()).isEqualTo(
                         "BLOCK".equals(decision) ? LlmErrorCode.LLM_OUTPUT_REJECTED : LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED));
         verify(model, times(1)).generate(any());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"[]", "[\"SAFE\"]"})
-    void 출력_허용은_답변을_수정하지_않으며_원문_없는_사유만_로그에_남긴다(String reasons) {
+    @Test
+    void 출력_허용은_답변을_수정하지_않으며_원문_없는_사유만_로그에_남긴다() {
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AiLlmOutputGuardService.class);
         var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         appender.start(); logger.addAppender(appender);
         try {
-            when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":" + reasons + ",\"explanation\":\"PRIVATE_MODEL_TEXT\"}"));
+            when(model.generate(any())).thenReturn(new LlmResponseDto("{\"findings\":[]}"));
             output.validate(ANSWER, List.of("9999"), materials(), null);
             assertThat(appender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
                     .doesNotContain(ANSWER, QUESTION, "PRIVATE_MODEL_TEXT"));
         } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CONFIRMED", "UNCERTAIN"})
+    void 출력_차단과_보류의_인용_원문을_오류나_로그에_노출하지_않는다(String certainty) {
+        String privateAnswer = "PRIVATE_MODEL_TEXT 로밍 신청 안내입니다.";
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AiLlmOutputGuardService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            when(model.generate(any())).thenReturn(new LlmResponseDto("{\"findings\":[{\"certainty\":\"" + certainty
+                    + "\",\"type\":\"UNSUPPORTED_CLAIM\",\"answer_quote\":\"PRIVATE_MODEL_TEXT\"}]}"));
+            assertThatThrownBy(() -> output.validate(privateAnswer, List.of(), materials(), null))
+                    .isInstanceOfSatisfying(LlmException.class, error -> {
+                        assertThat(error.getErrorCode()).isEqualTo("CONFIRMED".equals(certainty)
+                                ? LlmErrorCode.LLM_OUTPUT_REJECTED : LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED);
+                        assertThat(error.getMessage()).doesNotContain("PRIVATE_MODEL_TEXT");
+                        assertThat(error.getCause()).isNull();
+                    });
+            assertThat(appender.list).allSatisfy(event -> assertThat(event.getFormattedMessage())
+                    .doesNotContain(privateAnswer, QUESTION, "PRIVATE_MODEL_TEXT"));
+            verify(model, times(1)).generate(any());
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"decision\":\"ALLOW\",\"reason_codes\":[\"FALSE_EXECUTION\"],\"explanation\":\"정상 답변\"}",
+            "{\"findings\":[],\"decision\":\"ALLOW\"}",
+            "{\"findings\":[{\"certainty\":\"CONFIRMED\",\"type\":\"FALSE_EXECUTION\",\"answer_quote\":\"원문에 없는 인용\"}]}"
+    })
+    void 잘못된_출력_판정을_허용하거나_재시도하지_않는다(String response) {
+        when(model.generate(any())).thenReturn(new LlmResponseDto(response));
+        assertThatThrownBy(() -> output.validate(ANSWER, List.of(), materials(), null))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+        verify(model, times(1)).generate(any());
     }
 
     @Test
@@ -145,7 +183,7 @@ class AiGuardIntegrationTest {
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\""+ANSWER+"\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
         when(prompt.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
-        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"안전\"}"));
+        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"findings\":[]}"));
         assertThat(ai.generateAnswer(materials()).answer()).isEqualTo(ANSWER);
         var order = inOrder(generation, code, model);
         order.verify(generation).generateAnswer(any()); order.verify(code).inspectAnswer(any(), any(), any(), any()); order.verify(model).generate(any());
@@ -261,8 +299,8 @@ class AiGuardIntegrationTest {
 
         assertThat(AiGuardFormat.parseInput(model.generate(prompts.input(QUESTION, QUESTION, List.of())).answer())
                 .subQuestions()).containsExactly("질문1", "질문2");
-        assertThat(AiGuardFormat.parseOutput(model.generate(prompts.output(ANSWER, List.of("1"), materials(), null))
-                .answer()).decision()).isEqualTo(AiGuardFormat.Decision.ALLOW);
+        assertThat(AiOutputGuardAssessment.parse(model.generate(prompts.output(ANSWER, List.of("1"), materials(), null))
+                .answer(), ANSWER).decision()).isEqualTo(AiGuardFormat.Decision.ALLOW);
     }
 
     @Test
