@@ -69,6 +69,9 @@ class AiGuardPermitSharingTest {
             assertThat(server.guardCalls.get()).isZero();
             assertThat(sent).isEmpty();
             assertThat(metrics.get("llm.concurrency.in.use").gauge().value()).isEqualTo(1);
+            assertThat(metrics.find("llm.concurrency.limit").tag("client", "guard").gauge()).isNull();
+            assertThat(metrics.get("llm.permit.rejected").tag("client", "guard").counter().count()).isEqualTo(1);
+            assertThat(metrics.find("llm.permit.rejected").tag("client", "chat").counter()).isNull();
 
             server.answerGate.release.countDown();
             join(answer);
@@ -77,6 +80,10 @@ class AiGuardPermitSharingTest {
             assertThat(server.guardCalls.get()).isEqualTo(1);
             assertThat(server.peak.get()).isEqualTo(1);
             assertThat(metrics.get("llm.concurrency.in.use").gauge().value()).isZero();
+            assertThat(metrics.get("llm.requests").tag("client", "guard").tag("kind", "judgment")
+                    .tag("outcome", "success").timer().count()).isEqualTo(1);
+            assertThat(metrics.get("llm.requests").tag("client", "chat").tag("kind", "answer")
+                    .tag("outcome", "success").timer().count()).isEqualTo(1);
             if (guardAlias != null) {
                 assertThat(sent).hasSize(1);
                 assertThat(sent.getFirst().get("model").asString()).isEqualTo(guardAlias);
@@ -107,7 +114,13 @@ class AiGuardPermitSharingTest {
             guardServer.guardGate = new Gate();
             analysis = start(() -> guard.generate(request("guard")), guardFailure);
             guardServer.guardGate.awaitStarted();
+            assertThat(metrics.get("llm.concurrency.limit").tag("client", "chat").gauge().value()).isEqualTo(1);
+            assertThat(metrics.get("llm.concurrency.limit").tag("client", "guard").gauge().value()).isEqualTo(1);
+            assertThat(metrics.get("llm.concurrency.in.use").tag("client", "chat").gauge().value()).isEqualTo(1);
+            assertThat(metrics.get("llm.concurrency.in.use").tag("client", "guard").gauge().value()).isEqualTo(1);
             assertBusy(guard);
+            assertThat(metrics.get("llm.permit.rejected").tag("client", "guard").counter().count()).isEqualTo(1);
+            assertThat(metrics.find("llm.permit.rejected").tag("client", "chat").counter()).isNull();
             assertThat(guardServer.guardCalls.get()).isEqualTo(2);
             assertThat(guardServer.peak.get()).isEqualTo(1);
         } finally {
@@ -118,6 +131,8 @@ class AiGuardPermitSharingTest {
         }
         assertThat(answerFailure.get()).isNull();
         assertThat(guardFailure.get()).isNull();
+        assertThat(metrics.get("llm.concurrency.in.use").tag("client", "chat").gauge().value()).isZero();
+        assertThat(metrics.get("llm.concurrency.in.use").tag("client", "guard").gauge().value()).isZero();
     }
 
     @Test
@@ -137,8 +152,27 @@ class AiGuardPermitSharingTest {
         assertThat(chat.getModelName()).isEqualTo("chat-alias");
         assertThat(guard.generate(request("guard")).answer()).isEqualTo("모의 결과");
         assertThat(sent).hasSize(2);
-        assertThat(metrics.get("llm.requests").tag("kind", "judgment").tag("outcome", "timeout")
+        assertThat(metrics.get("llm.requests").tag("client", "guard").tag("kind", "judgment").tag("outcome", "timeout")
                 .timer().count()).isEqualTo(1);
+        assertThat(metrics.find("llm.requests").tag("client", "chat").tag("outcome", "timeout").timer()).isNull();
+    }
+
+    @Test
+    void sharedGuardAndExistingClassifierHaveSeparateRequestAndWaitMetrics() {
+        var server = new SimulatedModel();
+        var chat = new LlmService(server, 1, metrics);
+        var guard = new AiGuardModelService(chat, Duration.ofMillis(50));
+
+        chat.generateJudgment(request("classifier"));
+        guard.generate(request("guard"));
+
+        for (String client : List.of("chat", "guard")) {
+            assertThat(metrics.get("llm.requests").tag("client", client).tag("kind", "judgment")
+                    .tag("outcome", "success").timer().count()).isEqualTo(1);
+            assertThat(metrics.get("llm.permit.wait").tag("client", client).timer().count()).isEqualTo(1);
+        }
+        assertThat(metrics.find("llm.concurrency.limit").gauges()).hasSize(1);
+        assertThat(metrics.get("llm.concurrency.limit").tag("client", "chat").gauge().value()).isEqualTo(1);
     }
 
     @Test

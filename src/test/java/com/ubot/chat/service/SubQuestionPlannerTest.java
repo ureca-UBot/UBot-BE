@@ -175,24 +175,26 @@ class SubQuestionPlannerTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"timeout", "invalid", "db"})
-	@DisplayName("AI 판정이나 대화 조회 실패를 원문 검색으로 대체하지 않는다")
-	void fallsBackToOriginalOnFailure(String failure) {
+	@ValueSource(strings = {"timeout", "invalid"})
+	@DisplayName("안전 판정 OFF에서 기존 분류기 실패는 원문 검색으로 복구한다")
+	void fallsBackToOriginalWhenSafetyIsOffAndClassificationFails(String failure) {
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		switch (failure) {
 			case "timeout" -> when(llm.generateJudgment(request)).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 			case "invalid" -> when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto("정리할 수 없습니다."));
-			default -> when(turns.findPreviousTurns(anyLong(), anyInt())).thenThrow(new QueryTimeoutException("db"));
 		}
+		var plan = planner(true).plan(attempt(10L, 7L, "유심 재발급"));
+		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
+		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM_FAILED);
+	}
 
-		com.ubot.common.ErrorCode expected = switch (failure) {
-			case "timeout" -> LlmErrorCode.LLM_TIMEOUT;
-			case "invalid" -> LlmErrorCode.LLM_RESPONSE_INVALID;
-			default -> com.ubot.chat.exception.ChatErrorCode.STORAGE_UNAVAILABLE;
-		};
+	@Test
+	void historyDatabaseFailureStillStopsTheTurnEvenWhenSafetyIsOff() {
+		when(turns.findPreviousTurns(anyLong(), anyInt())).thenThrow(new QueryTimeoutException("db"));
 		org.assertj.core.api.Assertions.assertThatThrownBy(() -> planner(true).plan(attempt(10L, 7L, "유심 재발급")))
 				.isInstanceOfSatisfying(com.ubot.common.GlobalException.class,
-					error -> assertThat(error.getErrorCode()).isEqualTo(expected));
+						error -> assertThat(error.getErrorCode()).isEqualTo(com.ubot.chat.exception.ChatErrorCode.STORAGE_UNAVAILABLE));
+		verifyNoInteractions(llm);
 	}
 
 	@Test

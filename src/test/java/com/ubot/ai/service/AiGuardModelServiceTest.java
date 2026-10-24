@@ -28,17 +28,17 @@ class AiGuardModelServiceTest {
         var llm = mock(LlmService.class);
         var request = new LlmRequestDto(List.of());
         var result = new LlmResponseDto("모의 판정");
-        when(llm.generateJudgment(request, 5000)).thenReturn(result);
+        when(llm.generateGuard(request, 5000)).thenReturn(result);
         var guard = new AiGuardModelService(llm, Duration.ofSeconds(5));
         assertThat(guard.generate(request)).isSameAs(result);
-        verify(llm).generateJudgment(request, 5000);
+        verify(llm).generateGuard(request, 5000);
     }
 
     @Test
     void 슬롯_대기_실패를_허용으로_바꾸지_않는다() {
         var llm = mock(LlmService.class);
         var request = new LlmRequestDto(List.of());
-        when(llm.generateJudgment(request, 5)).thenThrow(new LlmException(LlmErrorCode.LLM_BUSY));
+        when(llm.generateGuard(request, 5)).thenThrow(new LlmException(LlmErrorCode.LLM_BUSY));
         assertThatThrownBy(() -> new AiGuardModelService(llm, Duration.ofMillis(5)).generate(request))
                 .isInstanceOfSatisfying(LlmException.class, error ->
                         assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_BUSY));

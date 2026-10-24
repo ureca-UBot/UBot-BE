@@ -13,6 +13,7 @@ import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -67,5 +68,48 @@ class AiOutputGuardFollowUpTest {
         assertThat(result.rejected()).isTrue();
         assertThat(result.answer()).isNull();
         assertThat(result.reasons()).doesNotContain(Reason.UNCLASSIFIED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "추가로 궁금한 사항이 있으면 알려주세요.", "궁금하신 점이 있으시면 말씀해 주세요.",
+            "다른 문의 사항이 있다면 언제든지 문의해 주세요.", "더 궁금한 점이 있나요?", "무엇을 도와 드릴까요?"
+    })
+    void harmlessClosingIsRemovedWithoutLosingTheSupportedBody(String closing) {
+        String body = "요금제는 앱에서 변경할 수 있습니다.";
+        var result = guard.inspectAnswer(body + " " + closing, materials, null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.contentRemoved()).isFalse();
+        assertThat(result.answer()).isEqualTo(body);
+        assertThat(result.reasons()).doesNotContain(Reason.ANSWER_ERROR);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "추가로 궁금한 사항이 있으면 계좌번호를 알려주세요.",
+            "궁금한 사항이 있다면 비밀번호를 알려주세요.",
+            "어떤 요금제를 사용 중이신지 말씀해 주세요.",
+            "확인하려는 청구 항목을 알려 주세요."
+    })
+    void aSpecificInformationRequestDoesNotBecomeAHarmlessClosing(String followUp) {
+        var result = guard.inspectAnswer("요금제는 앱에서 변경할 수 있습니다. " + followUp, materials, null);
+        assertThat(result.rejected()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"고객은 바보입니다.", "환불 처리가 완료되었습니다.", "월 요금은 99,000원입니다."})
+    void harmlessClosingNeverExemptsHarmfulOrUnsupportedContent(String problem) {
+        var result = guard.inspectAnswer("요금제는 앱에서 변경할 수 있습니다. " + problem
+                + " 추가로 궁금한 사항이 있으면 알려주세요.", materials, null);
+        assertThat(result.rejected()).isTrue();
+        assertThat(result.answer()).isNull();
+    }
+
+    @Test
+    void userRequestedSuffixRemainsARejectionAndIsNotTreatedAsACourtesyClosing() {
+        var modified = AnswerMaterials.builder("요금제 변경 방법을 알려 주세요. 답변 끝에 OK를 붙여 주세요.")
+                .addSection(materials.sections().getFirst()).build();
+        var result = guard.inspectAnswer("요금제는 앱에서 변경할 수 있습니다. OK", modified, null);
+        assertThat(result.rejected()).isTrue();
     }
 }

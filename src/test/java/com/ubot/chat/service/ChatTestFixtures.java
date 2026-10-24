@@ -51,14 +51,12 @@ final class ChatTestFixtures {
 				inputGuard, profile);
 	}
 
-	/** 경로·검색어 보호만 검증하는 기존 테스트에서 AI를 모의 처리합니다. 안전 판정은 별도 연결 테스트에서 검증합니다. */
+	/** 안전 판정을 끈 기존 분류 경로입니다. 외부 모델만 모의 처리하고 실패 복구는 실제 서비스로 검증합니다. */
 	static com.ubot.ai.service.AiInputGuardService inputAiGuard(SubQuestionPromptService prompts, LlmService llm) {
-		return mock(com.ubot.ai.service.AiInputGuardService.class, invocation -> {
-			String current = invocation.getArgument(1);
-			List<com.ubot.ai.dto.ConversationTurn> history = invocation.getArgument(2);
-			return com.ubot.prompt.format.SubQuestionFormat.parse(
-					llm.generateJudgment(prompts.createPrompt(current, history)).answer());
-		});
+		var properties = new AiInputGuardProperties();
+		properties.setLlmEnabled(false);
+		return new com.ubot.ai.service.AiInputGuardService(mock(com.ubot.ai.service.AiGuardModelService.class),
+				mock(com.ubot.prompt.service.AiGuardPromptService.class), passthroughInputGuard(), properties, prompts, llm);
 	}
 
 	private ChatTestFixtures() {

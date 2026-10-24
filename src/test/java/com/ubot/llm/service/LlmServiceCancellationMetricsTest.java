@@ -30,7 +30,7 @@ class LlmServiceCancellationMetricsTest {
             new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
 
     enum RequestKind {
-        ANSWER, JUDGMENT, TIMED_JUDGMENT, CUSTOM_JUDGMENT
+        ANSWER, JUDGMENT, TIMED_JUDGMENT, CUSTOM_JUDGMENT, GUARD, CUSTOM_GUARD
     }
 
     @ParameterizedTest
@@ -45,6 +45,8 @@ class LlmServiceCancellationMetricsTest {
                     case JUDGMENT -> service.generateJudgment(request);
                     case TIMED_JUDGMENT -> service.generateJudgment(request, 100);
                     case CUSTOM_JUDGMENT -> service.generateJudgment(request, 100, () -> client.generateAnswer(request));
+                    case GUARD -> service.generateGuard(request, 100);
+                    case CUSTOM_GUARD -> service.generateGuard(request, 100, () -> client.generateAnswer(request));
                 }
             }).isInstanceOf(CancellationException.class);
             assertThat(Thread.currentThread().isInterrupted()).isTrue();
@@ -97,5 +99,47 @@ class LlmServiceCancellationMetricsTest {
                 .timer().count()).isEqualTo(1);
         assertThat(registry.get("llm.concurrency.in.use").gauge().value()).isZero();
         assertThat(service.generateAnswer(request).answer()).isEqualTo("정상 답변");
+    }
+
+    @Test
+    void guardCancellationHasItsOwnTagAndReturnsTheSameSharedPermit() {
+        when(client.generateAnswer(request)).thenThrow(new CancellationException("가드 중단"))
+                .thenReturn(new LlmResponseDto("정상 답변"));
+
+        assertThatThrownBy(() -> service.generateGuard(request, 100)).isInstanceOf(CancellationException.class);
+        assertThat(registry.get("llm.requests").tag("client", "guard").tag("kind", "judgment")
+                .tag("outcome", "cancelled").timer().count()).isEqualTo(1);
+        assertThat(registry.get("llm.concurrency.in.use").tag("client", "chat").gauge().value()).isZero();
+        assertThat(registry.find("llm.concurrency.in.use").tag("client", "guard").gauge()).isNull();
+        assertThat(service.generateAnswer(request).answer()).isEqualTo("정상 답변");
+    }
+
+    @Test
+    void prometheusExportsBothServersAndSeparatesGuardRequestsWithoutLabelConflicts() {
+        var prometheus = new io.micrometer.prometheusmetrics.PrometheusMeterRegistry(
+                io.micrometer.prometheusmetrics.PrometheusConfig.DEFAULT);
+        try {
+            var chat = new LlmService(client, 1, prometheus);
+            var dedicatedGuard = new LlmService(client, 2, prometheus, LlmService.MetricsClient.GUARD);
+            when(client.generateAnswer(request)).thenReturn(new LlmResponseDto("모의 응답"));
+
+            chat.generateJudgment(request);
+            chat.generateGuard(request, 100);
+            dedicatedGuard.generateGuard(request, 100);
+
+            assertThat(prometheus.get("llm.concurrency.limit").tag("client", "chat").gauge().value()).isEqualTo(1);
+            assertThat(prometheus.get("llm.concurrency.limit").tag("client", "guard").gauge().value()).isEqualTo(2);
+            var export = prometheus.scrape();
+            assertThat(export.lines().filter(line -> line.startsWith("llm_concurrency_limit{")))
+                    .hasSize(2);
+            assertThat(export.lines().filter(line -> line.startsWith("llm_requests_seconds_count{")))
+                    .hasSize(2);
+            assertThat(prometheus.get("llm.requests").tag("client", "guard").tag("kind", "judgment")
+                    .tag("outcome", "success").timer().count()).isEqualTo(2);
+            assertThat(prometheus.get("llm.requests").tag("client", "chat").tag("kind", "judgment")
+                    .tag("outcome", "success").timer().count()).isEqualTo(1);
+        } finally {
+            prometheus.close();
+        }
     }
 }

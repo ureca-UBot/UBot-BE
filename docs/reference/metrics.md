@@ -34,13 +34,26 @@ LLM 호출은 대부분 `ai-worker`에서 나오지만, 관리자 기능(미응�
 
 | 지표 | 종류 | 태그 | 의미 |
 |---|---|---|---|
-| `llm_requests_seconds` | histogram | `kind`=`answer`·`judgment`, `outcome`=`success`·`timeout`·`unavailable`·`invalid_response`·`cancelled`·`error` | 모델 서버 호출 시간. 동시 호출 차례를 받은 뒤부터 잼. 요청 형식 오류(LLM-001)는 호출 전이라 세지 않음 |
-| `llm_permit_wait_seconds` | histogram | – | 동시 호출 차례를 기다린 시간. 바로 받으면 0 |
-| `llm_permit_rejected_total` | counter | – | 대기 한도(FAQ AI 검토 등) 안에 차례를 얻지 못해 `LLM_BUSY`로 거절한 호출 |
-| `llm_concurrency_limit` | gauge | – | 동시 호출 상한(`LLM_MAX_CONCURRENT`) |
-| `llm_concurrency_in_use` | gauge | – | 지금 모델 서버에 가 있는 호출 수 |
-| `llm_concurrency_waiting` | gauge | – | 차례를 기다리는 호출 수. 계속 0보다 크면 모델 서버 앞에서 줄을 서고 있음 |
+| `llm_requests_seconds` | histogram | `client`=`chat`·`guard`, `kind`=`answer`·`judgment`, `outcome`=`success`·`timeout`·`unavailable`·`invalid_response`·`cancelled`·`error` | 모델 서버 호출 시간. 동시 호출 차례를 받은 뒤부터 잼. 요청 형식 오류(LLM-001)는 호출 전이라 세지 않음 |
+| `llm_permit_wait_seconds` | histogram | `client`=`chat`·`guard` | 동시 호출 차례를 기다린 시간. 바로 받으면 0. 대기 중 시간 초과·취소도 포함 |
+| `llm_permit_rejected_total` | counter | `client`=`chat`·`guard` | 대기 한도(FAQ AI 검토 등) 안에 차례를 얻지 못해 `LLM_BUSY`로 거절한 호출 |
+| `llm_concurrency_limit` | gauge | `client`=`chat`·`guard` | 해당 서버의 동시 호출 상한 |
+| `llm_concurrency_in_use` | gauge | `client`=`chat`·`guard` | 해당 서버에서 지금 모델을 호출 중인 수 |
+| `llm_concurrency_waiting` | gauge | `client`=`chat`·`guard` | 해당 서버에서 차례를 기다리는 호출 수. 계속 0보다 크면 모델 서버 앞에서 줄을 서고 있음 |
 | `ai_output_guard_total` | counter | `stage`=`body`·`evidence`, `outcome`=`pass`·`filtered`·`rejected`·`warning`, `rule` | 출력 가드 검사 결과. `rule`은 거절한 규칙 이름(`no_safe_content` 등)이고 그 밖에는 `none` |
+
+요청·허가 대기 지표의 `client=chat`은 기존 답변 생성·질문 분류, `client=guard`는 입력·출력 AI 가드입니다.
+동시성 게이지의 `client`는 허가를 소유한 서버를 나타냅니다. 같은 서버를 공유하면 `client=chat` 한 게이지가
+답변 생성·분류·가드의 실제 합산 점유를 표시하고, 별도 서버일 때만 `client=guard` 게이지를 등록합니다.
+두 서버 모두 같은 `client` 태그 키를 써 Prometheus 등록 충돌을 피합니다. 모델명·URL 등 가변값은 태그에 넣지 않습니다.
+요청 지표의 성공은 모델 통신 성공이며 ALLOW 판정과 같지 않습니다. 호출 뒤 판정 JSON 파서·안전 정책의 거절은 판정 로그로 확인합니다.
+
+```promql
+# 입력·출력 AI 가드 모델 호출 p95와 통신 실패율(호출 허가 거절은 별도 counter)
+histogram_quantile(0.95, sum(rate(llm_requests_seconds_bucket{client="guard"}[1h])) by (le))
+(sum(rate(llm_requests_seconds_count{client="guard",outcome!~"success|cancelled"}[1h])) or vector(0))
+  / sum(rate(llm_requests_seconds_count{client="guard"}[1h]))
+```
 
 ## Retrieval
 

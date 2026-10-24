@@ -60,7 +60,7 @@ public class AiGuardModelService {
         };
         // 모델명·프로토콜·API 경로가 달라도 같은 서버라면 기존 허가 안에서 호출합니다.
         return sharedServer ? new Connection(chatLlm, client)
-                : new Connection(new LlmService(client, maxConcurrent, metrics), null);
+                : new Connection(new LlmService(client, maxConcurrent, metrics, LlmService.MetricsClient.GUARD), null);
     }
 
     private static String baseUrl(Environment environment, AiEngine engine) {
@@ -96,8 +96,8 @@ public class AiGuardModelService {
     }
 
     public LlmResponseDto generate(LlmRequestDto request) {
-        return guardClient == null ? llm.generateJudgment(request, permitWaitMillis)
-                : llm.generateJudgment(request, permitWaitMillis, () -> guardClient.generateAnswer(request));
+        return guardClient == null ? llm.generateGuard(request, permitWaitMillis)
+                : llm.generateGuard(request, permitWaitMillis, () -> guardClient.generateAnswer(request));
     }
 
     private record Connection(LlmService llm, LlmClient client) { }

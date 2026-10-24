@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
@@ -26,9 +28,20 @@ import tools.jackson.databind.json.JsonMapper;
 public class AiGuardPromptService {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final ForbiddenWordFilterService words;
+    private final int outputMaxTokens;
 
     public AiGuardPromptService(ForbiddenWordFilterService words) {
+        this(words, 1024);
+    }
+
+    @Autowired
+    public AiGuardPromptService(ForbiddenWordFilterService words,
+            @Value("${AI_OUTPUT_GUARD_MAX_TOKENS:1024}") int outputMaxTokens) {
+        if (outputMaxTokens < 1024 || outputMaxTokens > 4096) {
+            throw new IllegalArgumentException("출력 AI 가드 토큰 한도는 1024~4096이어야 합니다.");
+        }
         this.words = words;
+        this.outputMaxTokens = outputMaxTokens;
     }
 
     public LlmRequestDto input(String original, String current, List<ConversationTurn> history) {
@@ -55,7 +68,7 @@ public class AiGuardPromptService {
         }
         data.put("execution_results", executed);
         data.put("evidence_ids", evidenceIds == null ? List.of() : evidenceIds);
-        return request("output-safety", data, "whole_answer_guard", 320);
+        return request("output-safety", data, "whole_answer_guard", outputMaxTokens);
     }
 
     private LlmRequestDto request(String name, Map<String, Object> data, String schemaName, int maxTokens) {

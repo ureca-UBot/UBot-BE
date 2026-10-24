@@ -102,7 +102,9 @@ app:
     embedding-engine: ${AI_EMBEDDING_ENGINE:}
     embedding-profile-version: ${EMBEDDING_PROFILE_VERSION:1}
     input-guard:
-      # 기본 ON. false이면 입력 코드 차단·AI 안전 판정을 생략하고 공통 정리·기존 분류는 유지합니다.
+      # 기본 ON. false이면 기존 금칙어·프롬프트 주입 코드 검사와 통합 AI 안전 판정을 모두 끕니다.
+      # 코드 검사를 유지하고 AI 안전 판정만 끄려면 enabled=true, llm-enabled=false로 지정합니다.
+      # 공통 정리·기존 질문 분류는 유지합니다.
       # 실행 환경에서 값을 변경한 뒤 애플리케이션을 재시작하면 적용됩니다.
       enabled: ${AI_INPUT_GUARD_ENABLED:true}
       # 기본 ON. false이면 코드 검사 뒤에 기존 질문 정리 전용 분류기를 사용합니다.

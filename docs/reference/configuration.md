@@ -360,6 +360,7 @@ vLLM의 `LLM_MODEL`은 서버의 `LLM_SERVED_MODEL_NAME`과 같아야 합니다.
 | `AI_GUARD_READ_TIMEOUT` | `LLM_READ_TIMEOUT`(기본 `120s`) | 가드 응답 제한 시간 |
 | `AI_GUARD_MAX_CONCURRENT` | `LLM_MAX_CONCURRENT`(기본 `4`) | 별도 가드 서버의 호출 허가 수. 같은 서버에서는 기존 답변 생성 상한을 공유하며 이 값으로 늘리지 않음 |
 | `AI_GUARD_PERMIT_WAIT_TIMEOUT` | `5s` | 가드 호출 허가 대기 시간 |
+| `AI_OUTPUT_GUARD_MAX_TOKENS` | `1024` | 출력 판정 JSON 생성 상한. 허용 1024~4096이며 범위 밖은 시작 시 설정 오류. 입력 판정·답변 생성 한도에는 적용하지 않음 |
 
 가드와 답변 생성이 같은 서버를 사용하면 기존 `LlmService`의 동시 호출 허가·취소·지표 처리를 공유합니다.
 별도 연결 설정이 없으면 전송 클라이언트도 그대로 재사용합니다. 같은 서버에 다른 모델명이나 제한 시간을 지정해도
@@ -370,6 +371,9 @@ vLLM의 `LLM_MODEL`은 서버의 `LLM_SERVED_MODEL_NAME`과 같아야 합니다.
 같은 서버의 허가를 분리하지 않으며, `localhost`·`127.0.0.1`·`[::1]`도 같은 로컬 서버로 봅니다.
 다른 DNS 이름이나 프록시 뒤의 실제 서버가 같은지는 조회하지 않습니다. 같은 모델 서버에는 같은 주소를 사용하세요.
 별도 서버일 때만 가드 전용 허가를 사용하며, 답변 생성의 기존 호출 상한은 변경하지 않습니다.
+요청 시간·실패·허가 대기·포화 지표에는 `client=guard`를 사용해 답변 생성·기존 분류(`client=chat`)와 구분합니다.
+동시성 게이지는 서버의 허가 소유자를 표시합니다. 공유 서버는 `client=chat`의 한 게이지에 가드 점유까지 합산하고,
+별도 가드 서버만 `client=guard` 게이지를 추가합니다. 모델명·주소·질문 등의 가변 태그는 등록하지 않습니다.
 
 입력·출력 가드의 `forbidden_words`에는 해당 요청의 질문·답변·대화·근거·조회 자료에서 매칭된 활성 금칙어만 넣습니다.
 기존 코드 필터의 공백·숨은 문자·전각 문자·대소문자와 단어 경계 규칙을 재사용하며, JSON 필드명이나 서로 다른 필드를
@@ -380,6 +384,10 @@ vLLM의 `LLM_MODEL`은 서버의 `LLM_SERVED_MODEL_NAME`과 같아야 합니다.
 `AI_INPUT_GUARD_ENABLED`, `AI_OUTPUT_GUARD_ENABLED`, `AI_INPUT_LLM_GUARD_ENABLED`,
 `AI_OUTPUT_LLM_GUARD_ENABLED`는 모두 기본 `true`입니다. 로컬에서 AI 가드 없이 개발하려면 두 `*_LLM_GUARD_ENABLED`만
 `false`로 지정할 수 있습니다. 코드 가드는 유지하며, 답변 생성·기존 질문 분류의 모델 설정은 여전히 필요합니다.
+`AI_INPUT_GUARD_ENABLED=false`는 AI 판정뿐 아니라 기존 금칙어·프롬프트 주입 코드 검사까지 끄는 전체 스위치입니다.
+공통 인사·이모지 정리와 빈 질문 검증은 유지합니다. 코드 검사를 유지하려면 전체 스위치는 true로 두고
+`AI_INPUT_LLM_GUARD_ENABLED=false`만 지정하세요. 안전 판정이 OFF인 분류 전용 호출이 실패하면 원문 검색으로 복구하지만,
+활성 안전 판정의 BLOCK·REVIEW·실패와 대화 DB 조회 실패는 원문 검색으로 우회하지 않습니다.
 공식 FAQ 캐시 적중은 출력 코드 검사만 거치고, 새로 생성한 답변은 활성화된 출력 LLM 검사를 거칩니다.
 
 로컬 Ollama를 쓸 때는 `.env.example`의 `OLLAMA_CHAT_MODEL`과 로컬에 준비한 모델명을 맞추세요.

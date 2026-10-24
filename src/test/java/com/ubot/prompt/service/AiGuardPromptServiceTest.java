@@ -1,6 +1,7 @@
 package com.ubot.prompt.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -29,6 +30,58 @@ import tools.jackson.databind.json.JsonMapper;
 class AiGuardPromptServiceTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final ForbiddenWordRepository repository = mock(ForbiddenWordRepository.class);
+
+    @Test
+    void outputHasHeadroomForTheKoreanExplanationWithoutChangingTheInputBudgetOrSchema() {
+        var words = new ForbiddenWordFilterService(repository).preview(Set.of());
+        var defaults = new AiGuardPromptService(words);
+        var configured = new AiGuardPromptService(words, 2048);
+        var materials = AnswerMaterials.builder("문의").build();
+        var expected = defaults.output("안내", List.of(), materials, null);
+        var actual = configured.output("안내", List.of(), materials, null);
+
+        assertThat(expected.generationOptions().maxTokens()).isEqualTo(1024);
+        assertThat(actual.generationOptions().maxTokens()).isEqualTo(2048);
+        assertThat(actual.messages()).isEqualTo(expected.messages());
+        assertThat(actual.responseSchema()).isEqualTo(expected.responseSchema());
+        assertThat(configured.input("문의", "문의", List.of()).generationOptions().maxTokens()).isEqualTo(512);
+        verifyNoInteractions(repository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 320, 1023, 4097})
+    void outputBudgetCannotBeTooSmallOrUnbounded(int tokens) {
+        assertThatThrownBy(() -> new AiGuardPromptService(
+                new ForbiddenWordFilterService(repository).preview(Set.of()), tokens))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void outputBudgetUsesTheEnvironmentSettingWhenSpringCreatesThePromptService() {
+        var words = new ForbiddenWordFilterService(repository).preview(Set.of());
+        new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withBean(ForbiddenWordFilterService.class, () -> words)
+                .withUserConfiguration(AiGuardPromptService.class)
+                .withPropertyValues("AI_OUTPUT_GUARD_MAX_TOKENS=2048").run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var request = context.getBean(AiGuardPromptService.class)
+                            .output("안내", List.of(), AnswerMaterials.builder("문의").build(), null);
+                    assertThat(request.generationOptions().maxTokens()).isEqualTo(2048);
+                });
+    }
+
+    @Test
+    void integratedPlanningRetainsTheExistingRoleInstructionsButUsesItsOwnDecisionContract() throws Exception {
+        var request = prompts(Set.of()).input("현재 질문", "정리할 질문", List.of());
+        var original = new org.springframework.core.io.ClassPathResource("prompts/sub-question-system.txt")
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8).replace("\r\n", "\n");
+        String role = original.substring(0, original.indexOf("출력은 JSON 객체 하나이며")).strip();
+
+        assertThat(request.messages().getFirst().content().replace("\r\n", "\n")).contains(role);
+        assertThat(request.responseSchema()).containsKey("properties");
+        assertThat(JSON.valueToTree(request.responseSchema()).get("properties").propertyNames())
+                .containsExactlyInAnyOrder("decision", "reason", "sub_questions");
+    }
 
     @Test
     void inputIncludesOnlyWordsFoundInTheOriginalCurrentQuestionOrHistory() {

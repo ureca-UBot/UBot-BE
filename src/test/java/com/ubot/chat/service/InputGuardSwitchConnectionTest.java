@@ -139,28 +139,58 @@ class InputGuardSwitchConnectionTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"", "not json", "{\"sub_questions\":[]}"})
-    void planningErrorsAreNotConvertedToAnAllowOrOriginalQuestion(String response) {
+    void disabledSafetyFallsBackToTheOriginalOnClassifierParseFailure(String response) {
         properties.setLlmEnabled(false);
         when(planningPrompts.createPrompt(any(), any())).thenReturn(request);
         when(planningLlm.generateJudgment(request)).thenReturn(new LlmResponseDto(response));
 
-        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, HISTORY))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+        var result = input.inspectForPlanning(QUESTION, QUESTION, HISTORY);
+        assertThat(result.subQuestions()).containsExactly(QUESTION);
+        assertThat(result.planningFailed()).isTrue();
         verify(planningLlm, times(1)).generateJudgment(request);
         verifyNoInteractions(safetyModel, safetyPrompts);
     }
 
+    @ParameterizedTest
+    @CsvSource({"false,true", "true,false", "false,false"})
+    void disabledSafetyRestoresOriginalSearchWithoutRetryingTheClassifier(boolean enabled, boolean llmEnabled) {
+        properties.setEnabled(enabled);
+        properties.setLlmEnabled(llmEnabled);
+        when(turns.findPreviousTurns(1L, 3)).thenReturn(HISTORY);
+        var route = new QuestionRouter.Route(List.of("split"), List.of("history"));
+        when(router.route(QUESTION, true)).thenReturn(route);
+        when(detector.isMultiTurn(QUESTION, HISTORY, List.of(QUESTION), route)).thenReturn(true);
+        when(planningPrompts.createPrompt(any(), any())).thenReturn(request);
+        for (var failure : List.of(LlmErrorCode.LLM_TIMEOUT, LlmErrorCode.LLM_BUSY, LlmErrorCode.LLM_RESPONSE_INVALID)) {
+            doThrow(new LlmException(failure)).when(planningLlm).generateJudgment(request);
+            var plan = planner(true).plan(attempt);
+            assertThat(plan.searchQueries()).containsExactly(QUESTION);
+            assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM_FAILED);
+            assertThat(plan.historyForAnswer()).containsExactlyElementsOf(HISTORY);
+        }
+        verify(planningLlm, times(3)).generateJudgment(request);
+        verifyNoInteractions(safetyModel, safetyPrompts, queryGuard);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+    void historyDatabaseFailureIsNeverReplacedByOriginalSearch(boolean enabled, boolean llmEnabled) {
+        properties.setEnabled(enabled);
+        properties.setLlmEnabled(llmEnabled);
+        when(turns.findPreviousTurns(1L, 3)).thenThrow(new org.springframework.dao.QueryTimeoutException("mock DB failure"));
+        assertThatThrownBy(() -> planner(true).plan(attempt))
+                .isInstanceOfSatisfying(ChatException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ChatErrorCode.STORAGE_UNAVAILABLE));
+        verifyNoInteractions(safetyModel, safetyPrompts, planningLlm, planningPrompts, router);
+    }
+
     @Test
-    void classifierTimeoutIsNotRetriedOrPassedToTheSafetyModel() {
+    void cancelledClassificationDoesNotBecomeAFallbackPlan() {
         properties.setLlmEnabled(false);
         when(planningPrompts.createPrompt(any(), any())).thenReturn(request);
-        when(planningLlm.generateJudgment(request)).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
-
-        assertThatThrownBy(() -> input.inspect(QUESTION, QUESTION, HISTORY))
-                .isInstanceOfSatisfying(LlmException.class,
-                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT));
-        verify(planningLlm, times(1)).generateJudgment(request);
+        when(planningLlm.generateJudgment(request)).thenThrow(new java.util.concurrent.CancellationException());
+        assertThatThrownBy(() -> input.inspectForPlanning(QUESTION, QUESTION, HISTORY))
+                .isInstanceOf(java.util.concurrent.CancellationException.class);
         verifyNoInteractions(safetyModel, safetyPrompts);
     }
 

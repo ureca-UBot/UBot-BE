@@ -737,6 +737,12 @@ public class AiOutputGuardService {
                     + "(?:이|가|은|는)?\\s*(?:있나요|있으신가요|있으실까요|있습니까|있을까요|있으세요)"
                     + "|(?:무엇|어떤\\s*것)(?:을|를)?\\s*(?:도와\\s*드릴까요|도와드릴까요|도와줄까요))"
                     + "[?？.!。！]*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COURTESY_CLOSING = Pattern.compile(
+            "^(?:(?:더|추가로|혹시|그\\s*밖에|그\\s*외에|다른)\\s*)*"
+                    + "(?:궁금(?:하신|한)\\s*(?:점|것|내용|사항)|문의(?:하실|할)?\\s*(?:점|내용|사항))"
+                    + "(?:이|가|은|는)?\\s*(?:있으면|있으시면|있다면|있으시다면|있을\\s*경우)\\s*"
+                    + "(?:언제든(?:지)?\\s*)?(?:알려|말씀(?:해)?|문의(?:해)?)\\s*(?:주세요|주십시오)[.!?。！？]*$",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern FOLLOWUP_INFORMATION_REQUEST = Pattern.compile(
             "(?:(?<input>입력)(?:해|하여)?|알려|말씀(?:해|하여)?|말해|설명(?:해|하여)?|보내|제공(?:해|하여)?)\\s*"
                     + "(?:주(?:세요|십시오|시면|시기\\s*바랍니다)|줘(?:요)?)");
@@ -795,7 +801,7 @@ public class AiOutputGuardService {
         INDEPENDENT_SUPPORT_MISSING, CONTRADICTORY_AVAILABILITY, DOCUMENT_REQUIREMENT,
         SCOPE_MISMATCH, UNSUPPORTED_RESTRICTION, REQUEST_SCOPE_MISMATCH, EMPTY_HEADING,
         RESPONSE_METADATA, INVALID_EVIDENCE_ID, UNPROVIDED_EVIDENCE_ID, EMPTY_ANSWER, NO_SAFE_CONTENT,
-        NO_REQUESTED_ANSWER, NO_USABLE_ANSWER, FOLLOWUP_QUESTION, WHOLE_ANSWER_REJECTION
+        NO_REQUESTED_ANSWER, NO_USABLE_ANSWER, FOLLOWUP_QUESTION, COURTESY_CLOSING, WHOLE_ANSWER_REJECTION
     }
 
     /** 호출마다 생성합니다. 제거 수는 실제 삭제한 문장·절·블록 단위이며 한 단위를 중복 집계하지 않습니다. */
@@ -1093,8 +1099,9 @@ public class AiOutputGuardService {
         filtered = removeUnsupportedRestrictions(filtered, materials, sources, trace);
         recordAnswerChange(reasons, beforeCheck, filtered);
         beforeCheck = filtered;
+        int previousRemovedUnits = trace.removedUnits;
         filtered = removeFollowUpQuestions(filtered, materials, storeMap, trace);
-        recordAnswerChange(reasons, beforeCheck, filtered);
+        if (trace.removedUnits > previousRemovedUnits) recordAnswerChange(reasons, beforeCheck, filtered);
         filtered = filterRequestedScopes(filtered, answer, materials, reasons, trace);
         if (!StringUtils.hasText(filtered) || !filtered.equals(withoutSuffix.strip())
                 && splitSentences(filtered).stream().allMatch(sentence ->
@@ -1143,7 +1150,7 @@ public class AiOutputGuardService {
         return hasHostileContent(inspected, sources) ? GuardRule.HOSTILE_CONTENT : null;
     }
 
-    /** 조회 전 매장 검색 기준 입력은 구분하되, 일반 되묻기와 추가 정보 요구는 기존대로 거절합니다. */
+    /** 단순 마무리는 표현 정리로 구분하고, 실제 추가 정보 요청은 기존대로 거절합니다. */
     private String removeFollowUpQuestions(String answer, AnswerMaterials materials, StoreMapResult storeMap,
             InspectionTrace trace) {
         List<String> kept = new ArrayList<>();
@@ -1153,7 +1160,12 @@ public class AiOutputGuardService {
             addAnswerClauses(sentence, clauses, true, null);
             for (String clause : clauses) {
                 String inspected = inspect(clause);
-                boolean followUp = QUESTION_END.matcher(inspected).find() || GENERIC_FOLLOWUP.matcher(inspected).matches()
+                if (GENERIC_FOLLOWUP.matcher(inspected).matches() || COURTESY_CLOSING.matcher(inspected).matches()) {
+                    trace.cleaned(GuardRule.COURTESY_CLOSING);
+                    removed = true;
+                    continue;
+                }
+                boolean followUp = QUESTION_END.matcher(inspected).find()
                         || hasFollowUpInformationRequest(inspected);
                 if (followUp && !isStoreLocationInputRequest(inspected, materials, storeMap)) {
                     trace.removed(GuardRule.FOLLOWUP_QUESTION);
