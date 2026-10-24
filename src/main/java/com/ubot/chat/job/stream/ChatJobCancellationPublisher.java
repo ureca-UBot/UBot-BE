@@ -1,6 +1,6 @@
 package com.ubot.chat.job.stream;
 
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.worker.ChatJobRunner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,10 +16,10 @@ public class ChatJobCancellationPublisher {
 
 	static final String CHANNEL = "ubot:chat:job:cancel";
 	private final StringRedisTemplate redis;
-	private final ObjectProvider<ChatJobWorker> localWorkers;
+	private final ObjectProvider<ChatJobRunner> localRunners;
 
 	public void publish(long jobId) {
-		localWorkers.ifAvailable(worker -> worker.cancelJob(jobId));
+		localRunners.ifAvailable(runner -> runner.cancelJob(jobId));
 		try {
 			redis.convertAndSend(CHANNEL, Long.toString(jobId));
 		} catch (DataAccessException exception) {

@@ -22,18 +22,30 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(ChatWorkerProperties.class)
 public class ChatWorkerConfig {
 
+	@Bean(destroyMethod = "close")
+	public ChatJobRunner chatJobRunner(ChatJobStream stream, ChatJobResultStore resultStore,
+			ChatJobQueueRepository queueRepository, ChatJobRepository jobRepository,
+			ChatJobCompletionService completionService, ChatJobProcessor jobProcessor,
+			AnswerAttemptsHistoryRepository attempts, ChatWorkerProperties properties, MeterRegistry registry) {
+		var runner = new ChatJobRunner(stream, resultStore, queueRepository, jobRepository,
+				completionService, jobProcessor, attempts, properties);
+		runner.observeWith(registry);
+		return runner;
+	}
+
 	@Bean
-	public ChatJobWorker chatJobWorker(
-			ChatJobStream stream,
-			ChatJobResultStore resultStore,
-			ChatJobQueueRepository queueRepository,
-			ChatJobRepository jobRepository,
-			ChatJobCompletionService completionService,
-			ChatJobProcessor jobProcessor,
-			AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
-			ChatWorkerProperties properties, MeterRegistry registry) {
-		ChatJobWorker worker = new ChatJobWorker(stream, resultStore, queueRepository, jobRepository, completionService, jobProcessor,
-				answerAttemptsHistoryRepository, properties);
+	public ChatJobRecoveryService chatJobRecoveryService(ChatJobStream stream, ChatJobQueueRepository queue,
+			ChatJobRepository jobs, ChatJobCompletionService completion, ChatWorkerProperties properties,
+			ChatJobRunner runner, MeterRegistry registry) {
+		var recovery = new ChatJobRecoveryService(stream, queue, jobs, completion, properties, runner);
+		recovery.observeWith(registry);
+		return recovery;
+	}
+
+	@Bean
+	public ChatJobWorker chatJobWorker(ChatJobStream stream, ChatWorkerProperties properties,
+			ChatJobRunner runner, ChatJobRecoveryService recovery, MeterRegistry registry) {
+		var worker = new ChatJobWorker(stream, properties, runner, recovery);
 		worker.observeWith(registry);
 		return worker;
 	}

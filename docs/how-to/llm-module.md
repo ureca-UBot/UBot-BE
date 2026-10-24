@@ -10,7 +10,8 @@
 ```text
 POST /chat/questions
   → ChatService: 금지어 검사, 답변 시도 기록과 답변 작업(chat_jobs) 생성 → 202 jobId
-  → Redis Streams chat:jobs → ChatJobWorker(APP_ROLE=worker): 메시지를 읽고 작업 선점
+  → Redis Streams chat:jobs → ChatJobWorker(APP_ROLE=worker): 빈 실행 슬롯에서 메시지 소비
+  → ChatJobRunner: 작업 선점, 실행 마감·취소·완료 관리
   → ChatJobProcessor
   → ChatAnswerProcessor: FAQ 검색 및 각 결과의 유사도 필터링, intent별 답변 자료 수집
   → AiService.generateAnswer(AnswerMaterials)
@@ -24,7 +25,7 @@ POST /chat/questions
   → GET /chat/jobs/{jobId}: 답변 조회
 ```
 
-FAQ 질문 벡터로 후보를 검색합니다. 캐시가 승인하지 않으면 `FAQ_RERANK_ENABLED` 설정에 따라 후보를 다시 정렬하고, `CHAT_CONFIDENCE_THRESHOLD`로 질문 벡터 유사도를 검사합니다. 통과한 후보 중 최대 `CHAT_TOP_K`개의 답변 문장을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 LLM에 전달하고, 실제 통과한 FAQ를 참고 로그에 저장합니다. 두 유사도 검사 중 어느 단계에서든 통과한 FAQ가 없으면 `INSUFFICIENT_FAQ`, 검색 결과 자체가 없으면 `NO_FAQ`를 반환합니다.
+FAQ 질문 벡터로 후보를 검색합니다. 캐시가 승인하지 않으면 벡터 검색 순서를 유지하고, `CHAT_CONFIDENCE_THRESHOLD`로 질문 벡터 유사도를 검사합니다. 통과한 후보 중 최대 `CHAT_TOP_K`개의 답변 문장을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 LLM에 전달하고, 실제 통과한 FAQ를 참고 로그에 저장합니다. 두 유사도 검사 중 어느 단계에서든 통과한 FAQ가 없으면 `INSUFFICIENT_FAQ`, 검색 결과 자체가 없으면 `NO_FAQ`를 반환합니다.
 
 프롬프트는 `src/main/resources/prompts/faq-system.txt`(시스템 지침)와
 `faq-user.txt`(사용자 메시지 템플릿)로 분리되어 있고, 두 파일 모두 본문이 들어 있습니다.
@@ -217,7 +218,6 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 |---|---|---|
 | `8000` | `ubot-chat` | 답변 생성 (연결됨) |
 | `8001` | `ubot-embedding` | 임베딩 (연결됨) |
-| `8002` | `ubot-reranker` | Reranker (예정) |
 
 ### Embedding Profile
 

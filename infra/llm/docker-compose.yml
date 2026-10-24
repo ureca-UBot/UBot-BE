@@ -78,44 +78,6 @@ services:
       - --gpu-memory-utilization
       - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.2}
 
-  # 기본으로는 뜨지 않습니다. docker compose --profile reranker 로 띄우고 FAQ_RERANK_ENABLED=true 로 켭니다.
-  vllm-reranker:
-    profiles: ["reranker"]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
-
-    ports:
-      - "${RERANKER_PORT:-8002}:8000"
-
-    ipc: host
-
-    environment:
-      HF_TOKEN: ${HF_TOKEN:-}
-
-    volumes:
-      - hf-cache:/root/.cache/huggingface
-
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-    command:
-      - --model
-      - ${RERANKER_HF_MODEL:-BAAI/bge-reranker-v2-m3}
-      - --served-model-name
-      - ${RERANKER_SERVED_MODEL_NAME:-ubot-reranker}
-      - --runner
-      - pooling
-      - --dtype
-      - ${RERANKER_DTYPE:-float16}
-      - --max-model-len
-      - ${RERANKER_MAX_MODEL_LEN:-8192}
-      - --gpu-memory-utilization
-      - ${VLLM_RERANKER_GPU_MEMORY_UTILIZATION:-0.2}
-
   sglang:
     image: ${SGLANG_IMAGE:-lmsysorg/sglang:latest-runtime}
 

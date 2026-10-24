@@ -910,7 +910,7 @@ AWS L4 환경에서는 아직 확인하지 않았습니다.
 
 # Serving 구조
 
-Chat, Embedding, Reranker는 Port와 Served Model Name을 나눠서 운영합니다.
+Chat, Embedding은 Port와 Served Model Name을 나눠서 운영합니다.
 
 ```text
 :8000
@@ -922,8 +922,6 @@ ubot-embedding
 → Embedding (구성됨)
 
 :8002
-ubot-reranker
-→ Reranker (예정)
 ```
 
 `8002` 서비스는 아직 구성하지 않았습니다.

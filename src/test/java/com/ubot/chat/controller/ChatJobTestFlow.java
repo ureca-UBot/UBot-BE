@@ -5,7 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.common.ErrorCode;
 import jakarta.servlet.http.HttpSession;
 import java.nio.charset.StandardCharsets;
@@ -21,11 +21,11 @@ final class ChatJobTestFlow {
 	private static final Pattern JOB_ID = Pattern.compile("\"jobId\":(\\d+)");
 
 	private final MockMvc mvc;
-	private final ChatJobWorker worker;
+	private final ChatJobTestDriver driver;
 
-	ChatJobTestFlow(MockMvc mvc, ChatJobWorker worker) {
+	ChatJobTestFlow(MockMvc mvc, ChatJobTestDriver driver) {
 		this.mvc = mvc;
-		this.worker = worker;
+		this.driver = driver;
 	}
 
 	MvcResult submit(MockHttpServletRequestBuilder request) throws Exception {
@@ -38,7 +38,7 @@ final class ChatJobTestFlow {
 	// expectedError가 없으면 SUCCEEDED, 있으면 그 코드로 FAILED여야 함. 조회 응답 본문을 돌려줌
 	String complete(MockHttpServletRequestBuilder request, ErrorCode expectedError) throws Exception {
 		MvcResult submitted = submit(request);
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		var result = mvc.perform(statusOf(submitted))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value(expectedError == null ? "SUCCEEDED" : "FAILED"));

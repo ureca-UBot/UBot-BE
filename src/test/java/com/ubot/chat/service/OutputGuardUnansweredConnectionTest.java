@@ -69,9 +69,9 @@ class OutputGuardUnansweredConnectionTest {
 		processor = processorFor(ai);
 		when(planner.plan(attempt, QUESTION)).thenReturn(SubQuestionPlan.original(QUESTION, SubQuestionPlan.Source.ORIGINAL));
 		when(retrieval.searchCandidates(QUESTION, null, 3, 0))
-				.thenReturn(new DenseFaqCandidates(List.of(unrelatedFaq()), 0, vector()));
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(unrelatedFaq()), unrelatedFaq(), false, null));
+				.thenReturn(new DenseFaqCandidates(List.of(unrelatedFaq()), vector()));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(unrelatedFaq()), unrelatedFaq()));
 		when(profiles.getCurrentProfileId()).thenReturn(1L);
 		when(prompts.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(NOTICE));
@@ -97,8 +97,8 @@ class OutputGuardUnansweredConnectionTest {
 	void 상태만으로는_후보를_저장하지_않는다(String status) {
 		var supported = new com.ubot.faq.dto.response.FaqSearchResponseDto(17L, "회선 정지 방법",
 				"회선 정지는 앱에서 신청할 수 있습니다.", .91, com.ubot.faq.enums.Intent.GENERAL);
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(supported), supported, false, null));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(supported), supported));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\"" + NOTICE
 				+ "\",\"status\":\"" + status + "\",\"evidence_ids\":[\"17\"]}"));
 		assertThat(processor.generateAnswer(attempt, null, () -> {}, candidates).isFailed()).isFalse();
@@ -113,8 +113,8 @@ class OutputGuardUnansweredConnectionTest {
 	@Test void 정상_답변과_기존_출력_검사는_유지한다() {
 		var supported = new com.ubot.faq.dto.response.FaqSearchResponseDto(17L, "회선 정지 방법",
 				"회선 정지는 앱에서 신청할 수 있습니다.", .91, com.ubot.faq.enums.Intent.GENERAL);
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(supported), supported, false, null));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(supported), supported));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(supported.answer()));
 		var result = processor.generateAnswer(attempt, null, () -> {}, candidates);
 		assertThat(result.isFailed()).isFalse();
@@ -122,8 +122,8 @@ class OutputGuardUnansweredConnectionTest {
 		assertThat(candidates).isEmpty();
 	}
 	@Test void 검색_미응답은_기존_출처와_재사용_벡터를_유지한다() {
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(), null, false, null));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(), null));
 
 		assertThat(processor.generateAnswer(attempt, null, () -> {}, candidates).errorCode())
 				.isEqualTo(ChatErrorCode.NO_FAQ);

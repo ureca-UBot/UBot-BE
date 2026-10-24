@@ -139,7 +139,7 @@ public class ChatAnswerProcessor {
 			// MISS이면 같은 검색 후보로 이어갑니다. 임베딩·검색은 반복하지 않습니다.
 			rememberEmbedding(queryEmbeddings, question, dense.queryVector());
 			SearchedCandidates original = new SearchedCandidates(
-					faqRetrievalService.rankCandidates(question, dense, topK), dense.queryVector());
+					faqRetrievalService.selectCandidates(dense, topK), dense.queryVector());
 			double threshold = plan.history().isEmpty()
 					? confidenceThreshold : Math.max(confidenceThreshold, searchFirstHistoryThreshold);
 			Double highest = highestSimilarity(original.outcome().rankedCandidates());
@@ -242,20 +242,19 @@ public class ChatAnswerProcessor {
 	private GatedFaqs gate(AnswerAttemptsHistory attempt, int subQuestionIndex, SearchedCandidates candidates,
 			double minimumSimilarity, Runnable checkCancellation) {
 		RetrievalOutcome outcome = candidates.outcome();
-		// Reranker를 켰으면 다시 정렬한 후보 전체가, 아니면 벡터 검색 상위 topK개가 옵니다.
+		// 벡터 검색 상위 topK 후보에 유사도 기준을 적용합니다.
 		List<FaqSearchResponseDto> results = outcome.rankedCandidates();
 		checkCancellation.run();
 		log.info("FAQ 유사도 검색을 완료했습니다: 시도ID={}, 하위질문순번={}, 재검색의도={}, 결과수={}, 최고유사도={}, "
-						+ "Reranker정렬={}, Reranker실패사유={}, 검색결과=[{}]",
+						+ "검색결과=[{}]",
 				attempt.getId(), subQuestionIndex, attempt.getIntent(), results == null ? 0 : results.size(),
-				highestSimilarity(results), outcome.reranked(), outcome.fallbackReason(), formatSearchResults(results));
+				highestSimilarity(results), formatSearchResults(results));
 
 		if (results == null || results.isEmpty()) {
 			log.info("FAQ 검색 결과가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
 			return GatedFaqs.failed(UnansweredReason.NO_FAQ, null);
 		}
-		// 유사도 기준은 코사인 유사도에만 적용합니다. 다시 정렬한 후보 전체에서 거른 뒤에 topK개로 줄여야,
-		// 상위 topK개를 먼저 잘라 그 아래의 기준 통과 후보를 잃는 일이 없습니다.
+		// 코사인 유사도 기준을 통과한 후보를 답변에 사용합니다.
 		List<FaqSearchResponseDto> filteredResults = results.stream()
 				.filter(result -> Double.isFinite(result.similarityScore())
 						&& result.similarityScore() >= minimumSimilarity)
@@ -300,7 +299,7 @@ public class ChatAnswerProcessor {
 	/** 재검색 attempt는 사용자가 고른 intent의 FAQ만, 그 외에는 전체 FAQ에서 검색합니다. */
 	private SearchedCandidates searchFaqs(AnswerAttemptsHistory attempt, String searchQuery) {
 		DenseFaqCandidates dense = faqRetrievalService.searchCandidates(searchQuery, requestedIntent(attempt), topK, 0);
-		return new SearchedCandidates(faqRetrievalService.rankCandidates(searchQuery, dense, topK), dense.queryVector());
+		return new SearchedCandidates(faqRetrievalService.selectCandidates(dense, topK), dense.queryVector());
 	}
 
 	private Intent requestedIntent(AnswerAttemptsHistory attempt) {

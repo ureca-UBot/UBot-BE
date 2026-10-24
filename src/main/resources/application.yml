@@ -142,20 +142,6 @@ faq:
     enabled: ${FAQ_CACHE_ENABLED:false}
     min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
     min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
-  retrieval:
-    rerank:
-      # 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 꺼 두면 Reranker 서버가 없어도 됩니다.
-      enabled: ${FAQ_RERANK_ENABLED:false}
-      candidate-k: ${FAQ_RERANK_CANDIDATE_K:10}
-      model: ${FAQ_RERANK_MODEL:ubot-reranker}
-      base-url: ${FAQ_RERANK_BASE_URL:http://localhost:8002}
-      connect-timeout: ${FAQ_RERANK_CONNECT_TIMEOUT:500ms}
-      read-timeout: ${FAQ_RERANK_READ_TIMEOUT:1500ms}
-      fallback-enabled: ${FAQ_RERANK_FALLBACK_ENABLED:true}
-      # 요청이 몰리거나 Reranker가 연속으로 실패할 때 호출을 건너뛰는 보호 장치
-      max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
-      failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
-      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
   variant:
     sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
 

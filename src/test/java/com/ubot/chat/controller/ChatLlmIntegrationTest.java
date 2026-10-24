@@ -13,7 +13,7 @@ import com.ubot.chat.job.repository.ChatJobRepository;
 import com.ubot.chat.job.service.ChatSubmissionService.SubmissionType;
 import com.ubot.chat.job.stream.ChatJobMessage;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.service.ChatService;
@@ -80,13 +80,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=5"})
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ChatLlmIntegrationTest {
 	@Autowired MockMvc mvc;
 	@Autowired ChatService service;
-	@Autowired ChatJobWorker worker;
+	@Autowired ChatJobTestDriver driver;
 	@Autowired JwtUtil jwt;
 	@Autowired UserRepository users;
 	@Autowired AnswerAttemptsHistoryRepository attempts;
@@ -121,7 +121,7 @@ class ChatLlmIntegrationTest {
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:result:*"));
 		redis.delete(redis.keys("chat:jobs:published:*"));
-		flow = new ChatJobTestFlow(mvc, worker);
+		flow = new ChatJobTestFlow(mvc, driver);
 		unansweredQuestions.deleteAllInBatch();
 		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -160,7 +160,7 @@ class ChatLlmIntegrationTest {
 			assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
 			return new LlmResponseDto("완료");
 		});
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"))
 				.andExpect(jsonPath("$.data.phase").isEmpty())
@@ -214,7 +214,7 @@ class ChatLlmIntegrationTest {
 		verifyNoInteractions(vector);
 		verify(llm, never()).generateAnswer(any());
 
-		assertThat(worker.processAvailableJobs()).isEqualTo(1);
+		assertThat(driver.processAvailableJobs()).isEqualTo(1);
 		mvc.perform(flow.statusOf(submitted)).andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
 	}
 
@@ -365,7 +365,7 @@ class ChatLlmIntegrationTest {
 		var guestSession = new MockHttpSession();
 		var guestJob = flow.submit(post("/chat/questions").session(guestSession)
 				.contentType("application/json").content("{\"question\":\"질문\"}"));
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		User otherUser = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
 				.hashedPassword("test-hash").name("다른 사용자").role(UserRole.USER)
 				.createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
@@ -457,7 +457,7 @@ class ChatLlmIntegrationTest {
 			assertThat(attempts.count()).isEqualTo(2);
 		}
 		assertThat(jdbc.queryForObject("select count(*) from chat_jobs", Integer.class)).isEqualTo(1);
-		assertThat(worker.processAvailableJobs()).isEqualTo(1);
+		assertThat(driver.processAvailableJobs()).isEqualTo(1);
 		var latest = attempts.findFirstByUserIdAndIdempotencyKeyOrderByAttemptCountDesc(user.getId(), key).orElseThrow();
 		assertThat(latest.getStatus()).isEqualTo("SUCCESS");
 	}
@@ -480,7 +480,7 @@ class ChatLlmIntegrationTest {
 		// Worker가 못 가져간 채 대기 한도를 넘긴 작업
 		jdbc.update("update chat_jobs set deadline_at = CURRENT_TIMESTAMP - interval '1 hour'");
 
-		worker.recover();
+		driver.recover();
 
 		String body = mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("FAILED"))
@@ -498,7 +498,7 @@ class ChatLlmIntegrationTest {
 			var initial = attempts.findById(initialAttempt.getId()).orElseThrow();
 			assertThat(initial.getErrorCode()).isEqualTo(ChatErrorCode.VECTOR_SEARCH_FAILED);
 		}
-		assertThat(worker.processAvailableJobs()).as("남은 메시지는 끝난 작업이라 실행하지 않고 ACK만 함").isEqualTo(1);
+		assertThat(driver.processAvailableJobs()).as("남은 메시지는 끝난 작업이라 실행하지 않고 ACK만 함").isEqualTo(1);
 		verify(llm, never()).generateAnswer(any());
 
 		String retried = complete(post("/chat/questions/retries").header("Idempotency-Key", keyFrom(body)));
@@ -513,7 +513,7 @@ class ChatLlmIntegrationTest {
 		// 재발행 등으로 같은 작업의 메시지가 한 번 더 온 상황
 		stream.publish(new ChatJobMessage(ChatJobTestFlow.jobId(submitted), new ChatRequestContext(null, null, null)));
 
-		assertThat(worker.processAvailableJobs()).isEqualTo(2);
+		assertThat(driver.processAvailableJobs()).isEqualTo(2);
 
 		verify(llm, times(1)).generateAnswer(any());
 		assertThat(questions.count()).as("답변 기록은 한 번").isEqualTo(1);
@@ -531,11 +531,11 @@ class ChatLlmIntegrationTest {
 				LocalDateTime.now(), "", ""));
 		ChatJob job = jobs.saveAndFlush(ChatJob.queue(attempt.getId()));
 		jdbc.update("update chat_jobs set created_at = created_at - interval '1 minute'");
-		assertThat(worker.processAvailableJobs()).isZero();
+		assertThat(driver.processAvailableJobs()).isZero();
 
-		worker.recover();
+		driver.recover();
 
-		assertThat(worker.processAvailableJobs()).isEqualTo(1);
+		assertThat(driver.processAvailableJobs()).isEqualTo(1);
 		mvc.perform(get("/chat/jobs/{jobId}", job.getId()).header("Authorization", authorization))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"))
@@ -552,9 +552,9 @@ class ChatLlmIntegrationTest {
 		redis.delete(redis.keys("chat:jobs:published:*"));
 		jdbc.update("update chat_jobs set created_at = created_at - interval '1 minute'");
 
-		worker.recover();
+		driver.recover();
 
-		assertThat(worker.processAvailableJobs()).isEqualTo(1);
+		assertThat(driver.processAvailableJobs()).isEqualTo(1);
 		mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
 		verify(llm, times(1)).generateAnswer(any());
@@ -565,7 +565,7 @@ class ChatLlmIntegrationTest {
 				.contentType("application/json").content("{\"question\":\"질문\"}"));
 		jdbc.update("update chat_jobs set created_at = created_at - interval '1 minute'");
 
-		worker.recover();
+		driver.recover();
 
 		assertThat(redis.opsForStream().size(ChatJobStream.STREAM_KEY)).as("줄 서 있는 메시지만 있음").isEqualTo(1);
 	}
@@ -577,7 +577,7 @@ class ChatLlmIntegrationTest {
 				.contentType("application/json").content("{\"question\":\"질문\"}"));
 		leftByKilledWorker(ChatJobTestFlow.jobId(submitted), 1);
 
-		worker.recover();
+		driver.recover();
 
 		verify(llm, times(1)).generateAnswer(any());
 		assertThat(pendingMessages()).as("넘겨받은 메시지도 ACK").isZero();
@@ -597,10 +597,10 @@ class ChatLlmIntegrationTest {
 		stream.ensureGroup();
 		String messageId = stream.read("dead-worker", 1, null).getFirst().messageId();
 		stream.publish(new ChatJobMessage(jobId, new ChatRequestContext(null, null, null)));
-		assertThat(worker.processAvailableJobs()).isEqualTo(1);
+		assertThat(driver.processAvailableJobs()).isEqualTo(1);
 		leaveIdle(messageId, 1);
 
-		worker.recover();
+		driver.recover();
 
 		verify(llm, times(1)).generateAnswer(any());
 		assertThat(pendingMessages()).isZero();
@@ -613,7 +613,7 @@ class ChatLlmIntegrationTest {
 		// 실행할 때마다 Worker가 죽어 메시지가 이미 최대 횟수(3번) 전달됨
 		leftByKilledWorker(ChatJobTestFlow.jobId(submitted), 3);
 
-		worker.recover();
+		driver.recover();
 
 		verify(llm, never()).generateAnswer(any());
 		assertThat(pendingMessages()).isZero();
@@ -629,7 +629,7 @@ class ChatLlmIntegrationTest {
 		// Redis가 영속화 없이 재시작해 넘겨받을 메시지까지 사라짐
 		redis.delete(ChatJobStream.STREAM_KEY);
 
-		worker.recover();
+		driver.recover();
 
 		verify(llm, never()).generateAnswer(any());
 		mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
@@ -642,7 +642,7 @@ class ChatLlmIntegrationTest {
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("답변"));
 		var submitted = flow.submit(post("/chat/questions").header("Authorization", authorization)
 				.contentType("application/json").content("{\"question\":\"질문\"}"));
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		// 결과 키가 만료되거나 Redis 데이터가 사라짐
 		redis.delete(redis.keys("chat:jobs:result:*"));
 
@@ -751,7 +751,7 @@ class ChatLlmIntegrationTest {
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:published:*"));
 		jdbc.update("update chat_jobs set created_at = CURRENT_TIMESTAMP - interval '1 minute' where job_id = ?", id);
-		worker.recover();
+		driver.recover();
 		stream.ensureGroup();
 		assertThat(stream.read("recovered", 10, null)).singleElement()
 				.satisfies(received -> assertThat(received.message()).isEqualTo(new ChatJobMessage(id, context)));
@@ -768,7 +768,7 @@ class ChatLlmIntegrationTest {
 				.response().jobId();
 		jdbc.update("update chat_jobs set created_at = CURRENT_TIMESTAMP - interval '1 minute' where job_id = ?", lost);
 
-		worker.recover();
+		driver.recover();
 		stream.ensureGroup();
 
 		assertThat(stream.read("recovered", 10, null)).extracting(received -> received.message().jobId())

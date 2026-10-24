@@ -1,6 +1,6 @@
 package com.ubot.chat.job.stream;
 
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.worker.ChatJobRunner;
 import com.ubot.global.config.AppRole;
 import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +22,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 @Slf4j
 public class ChatJobCancellationSubscriber implements MessageListener {
 
-	private final ChatJobWorker worker;
+	private final ChatJobRunner runner;
 	private RedisMessageListenerContainer listener;
 
 	@Bean
@@ -57,6 +57,6 @@ public class ChatJobCancellationSubscriber implements MessageListener {
 			log.warn("답변 작업 취소 알림의 작업 ID가 올바르지 않습니다");
 			return;
 		}
-		worker.cancelJob(jobId);
+		runner.cancelJob(jobId);
 	}
 }
