@@ -45,7 +45,7 @@ public class LlmClientFactory {
                 )
                 .build();
 
-        // temperature는 기본 옵션에 넣어 도구 호출 요청(ChatClient)과 일반 요청에 모두 적용되게 합니다.
+        // temperature는 기본 옵션에 넣어 도구 단계·최종 스키마 재호출·일반 요청에 모두 적용되게 합니다.
         var chatModel = OllamaChatModel.builder()
                 .ollamaApi(ollamaApi)
                 .options(
