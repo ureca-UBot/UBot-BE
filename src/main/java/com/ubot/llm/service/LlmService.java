@@ -11,6 +11,8 @@ import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
+import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -29,12 +31,15 @@ public class LlmService {
     // 모델 서버 동시 호출 상한. 시간 초과로 슬롯을 먼저 돌려줘도 끝나지 않은 호출이 허가를 쥐고 있어 상한을 넘지 않음
     // null이면 제한 없음(단위 테스트)
     private final Semaphore permits;
+    private final Semaphore backgroundPermits = new Semaphore(1);
+    private final int backgroundAdmissionPermits;
     // 지표를 보지 않는 테스트는 전역 레지스트리를 씀. 등록된 저장소가 없으면 기록하지 않음
     private final MeterRegistry metrics;
 
     public LlmService(LlmClient llmClient) {
         this.llmClient = llmClient;
         this.permits = null;
+        this.backgroundAdmissionPermits = 1;
         this.metrics = Metrics.globalRegistry;
     }
 
@@ -57,6 +62,7 @@ public class LlmService {
         }
         this.llmClient = llmClient;
         this.permits = new Semaphore(maxConcurrent, true);
+        this.backgroundAdmissionPermits = Math.min(2, maxConcurrent);
         this.metrics = metrics;
         // 포화도 = in.use / limit. waiting이 계속 0보다 크면 모델 서버 앞에서 줄을 서고 있음
         metrics.gauge("llm.concurrency.limit", permits, ignored -> maxConcurrent);
@@ -74,6 +80,56 @@ public class LlmService {
     public LlmResponseDto generateJudgment(LlmRequestDto request) {
 		return generate(request, false, null);
     }
+
+    /** 관리자 분석은 줄을 서지 않습니다. 여유가 없으면 호출자가 다음 주기로 미룹니다. */
+    public Optional<LlmResponseDto> tryGenerateBackgroundJudgment(LlmRequestDto request) {
+        return tryGenerateBackgroundJudgment(request, () -> llmClient.generateAnswer(request));
+    }
+
+    /** 전용 관리자 모델도 기존 채팅 우선 입장 제어와 지표를 공유합니다. */
+    public Optional<LlmResponseDto> tryGenerateBackgroundJudgment(
+            LlmRequestDto request, Supplier<LlmResponseDto> modelCall) {
+        if (modelCall == null) {
+            throw new IllegalArgumentException("백그라운드 모델 호출이 필요합니다.");
+        }
+        checkCancellation();
+        validateRequest(request);
+        if (!backgroundPermits.tryAcquire()) {
+            return Optional.empty();
+        }
+        try {
+            if (!tryAcquireBackgroundPermit()) {
+                return Optional.empty();
+            }
+            return Optional.of(generateWithPermit(false, modelCall));
+        } finally {
+            backgroundPermits.release();
+        }
+    }
+
+    private boolean tryAcquireBackgroundPermit() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("관리자 분석 LLM 호출이 취소되었습니다.");
+        }
+        if (permits == null) {
+            return true;
+        }
+        try {
+            // 공정한 즉시 시도로 대기 중인 채팅을 앞지르지 않고, 상한 2 이상에서는 마지막 빈 슬롯을 남깁니다.
+            if (!permits.tryAcquire(backgroundAdmissionPermits, 0, TimeUnit.NANOSECONDS)) {
+                return false;
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CancellationException("관리자 분석 LLM 호출이 취소되었습니다.");
+        }
+        // 시작 조건만 원자적으로 확인하고 실제 모델 호출에는 기존 슬롯 하나만 사용합니다.
+        if (backgroundAdmissionPermits > 1) {
+            permits.release(backgroundAdmissionPermits - 1);
+        }
+        return true;
+    }
+
 
 	/** 지정된 시간 안에 모델 호출 슬롯을 얻지 못하면 요청 과다 오류를 반환합니다. */
 	public LlmResponseDto generateJudgment(LlmRequestDto request, long permitWaitTimeoutMillis) {
@@ -95,15 +151,23 @@ public class LlmService {
             AnswerProgress.report(Phase.WAITING_FOR_MODEL);
         }
 		acquirePermit(permitWaitTimeoutMillis);
+        return generateWithPermit(request, reportAnswerProgress);
+    }
+
+    private LlmResponseDto generateWithPermit(LlmRequestDto request, boolean reportAnswerProgress) {
+        return generateWithPermit(reportAnswerProgress, () -> llmClient.generateAnswer(request));
+    }
+
+    private LlmResponseDto generateWithPermit(boolean reportAnswerProgress, Supplier<LlmResponseDto> modelCall) {
         // 실제 모델 통신은 LlmClient 구현체에 맡깁니다. 차례를 기다린 시간은 llm.permit.wait로 따로 셈
 		long startedAt = System.nanoTime();
 		String outcome = "error";
 		try {
-			checkCancellation();
+            checkCancellation();
 			if (reportAnswerProgress) {
 				AnswerProgress.report(Phase.GENERATING);
 			}
-			LlmResponseDto response = llmClient.generateAnswer(request);
+			LlmResponseDto response = modelCall.get();
 			if(response == null)
 				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 

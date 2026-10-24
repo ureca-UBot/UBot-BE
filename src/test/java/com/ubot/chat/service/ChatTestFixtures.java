@@ -8,6 +8,7 @@ import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.UserDataSummarizer;
+import com.ubot.chat.config.ChatRateLimitProperties;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
@@ -28,12 +29,13 @@ import com.ubot.subscription.service.SubscriptionService;
 import com.ubot.usage.service.UsageService;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 /** ChatService 테스트가 공통으로 쓰는 준비물입니다. */
 final class ChatTestFixtures {
 	static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
 
-	/** 기존 단위 테스트에 추가된 후보 선별·프로필 의존성을 모의 객체로 전달합니다. */
+	/** 기존 단위 테스트에 검색 벡터 재사용용 프로필 의존성을 모의 객체로 전달합니다. */
 	static ChatAnswerProcessor processor(com.ubot.faq.retrieval.FaqRetrievalService retrieval,
 			com.ubot.ai.service.AiService ai,
 			ChatContextCollector collector, SubQuestionPlanner planner, FaqSemanticCacheService cache,
@@ -46,7 +48,7 @@ final class ChatTestFixtures {
 		}
 		var profile = mock(com.ubot.embedding.service.EmbeddingProfileService.class);
 		return new ChatAnswerProcessor(retrieval, ai, collector, planner, cache, sentenceFilter,
-				inputGuard, mock(com.ubot.ai.service.FaqGapCandidateSelector.class), profile);
+				inputGuard, profile);
 	}
 
 	/** 경로·검색어 보호만 검증하는 기존 테스트에서 AI를 모의 처리합니다. 안전 판정은 별도 연결 테스트에서 검증합니다. */
@@ -73,6 +75,13 @@ final class ChatTestFixtures {
 	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */
 	static ChatInputGuardService passthroughInputGuard() {
 		return mock(ChatInputGuardService.class, invocation -> invocation.getArgument(0));
+	}
+
+	/** 회원 접수 제한과 무관한 테스트용. Redis를 부르지 않습니다(ChatRateLimitServiceTest에서 검증). */
+	static ChatRateLimitService noRateLimit() {
+		ChatRateLimitProperties properties = new ChatRateLimitProperties();
+		properties.setEnabled(false);
+		return new ChatRateLimitService(mock(StringRedisTemplate.class), properties);
 	}
 
 	static FaqSemanticCacheService disabledCache() {

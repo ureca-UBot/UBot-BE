@@ -44,6 +44,13 @@ public class ForbiddenWordFilterService {
 		return activeForbiddenWords.stream().sorted().toList();
 	}
 
+	/** 검토용 독립 인스턴스입니다. 운영 캐시와 DB에는 쓰지 않습니다. */
+	public ForbiddenWordFilterService preview(Set<String> words) {
+		ForbiddenWordFilterService preview = new ForbiddenWordFilterService(forbiddenWordRepository);
+		preview.activeForbiddenWords = Set.copyOf(words);
+		return preview;
+	}
+
 	@EventListener(ApplicationReadyEvent.class)
 	public void initializeForbiddenWordCache() {
 		refreshForbiddenWordCache();

@@ -1,0 +1,49 @@
+name: ubot-api
+
+# AWS PoC: monitoring on the BE EC2. The API reads this Prometheus through PROMETHEUS_BASE_URL.
+# Prometheus listens on the instance loopback only; view it through an SSM port forwarding session.
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Keep the BE EC2 disk bounded; the API and Worker share this instance.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-7d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-2GB}
+    ports:
+      - '127.0.0.1:${PROMETHEUS_PORT:-19090}:9090'
+    volumes:
+      - ./infra/prometheus/prometheus.aws.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  # PostgreSQL and Redis run on the State EC2; these exporters reach them over the VPC.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: ${POSTGRES_HOST:?Set POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?Set POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0
+    restart: unless-stopped
+    command:
+      - --redis.addr=redis://${REDIS_HOST:?Set REDIS_HOST}:${REDIS_PORT:-6379}
+
+  # Container CPU and memory of the BE EC2 (backend, ai-worker, nginx).
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+volumes:
+  prometheus-data:

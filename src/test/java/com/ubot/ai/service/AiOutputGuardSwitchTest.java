@@ -45,8 +45,13 @@ class AiOutputGuardSwitchTest {
     private final AiGuardModelService model = mock(AiGuardModelService.class);
     private final AiGuardPromptService guardPrompts = mock(AiGuardPromptService.class);
     private final AiOutputGuardProperties properties = new AiOutputGuardProperties();
-    private final AiService service = new AiService(prompts, generation, mock(AiToolRegistry.class), code,
-            new AiLlmOutputGuardService(model, guardPrompts), properties);
+    private final AiService service = new AiService(prompts,
+                generation,
+                mock(AiToolRegistry.class),
+                code,
+                com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
+                new AiLlmOutputGuardService(model, guardPrompts),
+                properties);
     private final AnswerMaterials materials = AnswerMaterials.builder("요금제 변경 방법을 알려 주세요.")
             .addSection(new ContextSection("공식 안내", "요금제는 앱에서 변경할 수 있습니다."))
             .build();
@@ -238,7 +243,7 @@ class AiOutputGuardSwitchTest {
     }
 
     private void prepareGeneration(String response) {
-        when(prompts.createPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
+        when(prompts.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto(response));
     }
 }

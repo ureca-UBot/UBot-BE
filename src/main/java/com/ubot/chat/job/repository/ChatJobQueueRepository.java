@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -19,21 +20,29 @@ public class ChatJobQueueRepository {
 	@Value("${app.chat.worker.execution-timeout:180s}")
 	private Duration executionTimeout = Duration.ofSeconds(180);
 
+	// 선점 결과. startedAt은 실행 토큰, deadline은 저장한 deadline_at(실행 한도와 접수 후 전체 기한 중 이른 시각)
+	public record Claim(LocalDateTime startedAt, LocalDateTime deadline) {
+	}
+
+	private static final RowMapper<Claim> CLAIM = (rs, rowNum) -> new Claim(
+			rs.getObject("started_at", LocalDateTime.class), rs.getObject("deadline_at", LocalDateTime.class));
+
 	public ChatJobQueueRepository(NamedParameterJdbcTemplate jdbc) {
 		this.jdbc = jdbc;
 	}
 
 	// 이미 실행 중이거나 끝났으면 빈 값. now는 애플리케이션 시계
-	public Optional<LocalDateTime> claim(long jobId, LocalDateTime now) {
-		List<LocalDateTime> claimed = jdbc.query("""
+	public Optional<Claim> claim(long jobId, LocalDateTime now) {
+		List<Claim> claimed = jdbc.query("""
 				UPDATE chat_jobs
 				SET execution_status = 'RUNNING',
 				    started_at = :now, heartbeat_at = :now, updated_at = :now,
-				    phase = NULL, phase_updated_at = :phaseTime, deadline_at = :deadline
+				    phase = NULL, phase_updated_at = :phaseTime,
+				    deadline_at = LEAST(:deadline, created_at + make_interval(secs => :maxWait))
 				WHERE job_id = :jobId
 				  AND execution_status = 'QUEUED'
 				  AND COALESCE(deadline_at, created_at + make_interval(secs => :maxWait)) >= CURRENT_TIMESTAMP
-				RETURNING started_at
+				RETURNING started_at, deadline_at
 				""",
 				new MapSqlParameterSource()
 						.addValue("jobId", jobId)
@@ -41,28 +50,30 @@ public class ChatJobQueueRepository {
 						.addValue("phaseTime", now)
 						.addValue("deadline", now.plus(executionTimeout))
 						.addValue("now", now),
-				(rs, rowNum) -> rs.getObject("started_at", LocalDateTime.class));
+				CLAIM);
 		return claimed.stream().findFirst();
 	}
 
 	// heartbeat가 startedBefore보다 오래된 실행만 넘김. 이전 실행은 started_at이 달라 결과를 기록 못 함
-	public Optional<LocalDateTime> takeOver(long jobId, LocalDateTime now, LocalDateTime startedBefore) {
-		List<LocalDateTime> taken = jdbc.query("""
+	public Optional<Claim> takeOver(long jobId, LocalDateTime now, LocalDateTime startedBefore) {
+		List<Claim> taken = jdbc.query("""
 				UPDATE chat_jobs
 				SET started_at = :now, heartbeat_at = :now, updated_at = :now,
-				    phase = NULL, phase_updated_at = :phaseTime, deadline_at = :deadline
+				    phase = NULL, phase_updated_at = :phaseTime,
+				    deadline_at = LEAST(:deadline, created_at + make_interval(secs => :maxWait))
 				WHERE job_id = :jobId
 				  AND execution_status = 'RUNNING'
 				  AND COALESCE(heartbeat_at, started_at) < :startedBefore
-				RETURNING started_at
+				RETURNING started_at, deadline_at
 				""",
 				new MapSqlParameterSource()
 						.addValue("jobId", jobId)
 						.addValue("now", now)
+						.addValue("maxWait", maxQueueWait.toMillis() / 1000.0)
 						.addValue("phaseTime", now)
 						.addValue("deadline", now.plus(executionTimeout))
 						.addValue("startedBefore", startedBefore),
-				(rs, rowNum) -> rs.getObject("started_at", LocalDateTime.class));
+				CLAIM);
 		return taken.stream().findFirst();
 	}
 

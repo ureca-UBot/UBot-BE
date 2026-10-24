@@ -40,7 +40,7 @@ class ChatServiceResearchTest {
     private final ChatAnswerProcessor processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
     private final ChatJobTestHarness harness = new ChatJobTestHarness(attempts, processor);
     private final ChatService service = new ChatService(attempts, ChatTestFixtures.inputGuard(filter), harness.submissionService,
-            ipRegionResolver);
+            ipRegionResolver, ChatTestFixtures.noRateLimit());
 
     @org.junit.jupiter.api.BeforeEach
     void prepareOwnedOriginal() {

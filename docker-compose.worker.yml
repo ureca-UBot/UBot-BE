@@ -1,0 +1,21 @@
+name: ubot-api
+
+services:
+  ai-worker:
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE to an immutable ECR image digest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      APP_ROLE: worker
+      AI_MODE: vllm
+      AI_RUNTIME_MANAGED: 'false'
+      LLM_BASE_URL: http://${NLB_DNS:?Set NLB_DNS}:8000/v1
+      LLM_MODEL: ${LLM_MODEL:-ubot-chat}
+      EMBEDDING_BASE_URL: http://${NLB_DNS:?Set NLB_DNS}:8001/v1
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-ubot-embedding}
+      CHAT_WORKER_CONCURRENCY: ${CHAT_WORKER_CONCURRENCY:-2}
+      FAQ_CACHE_ENABLED: 'true'
+      COUNSEL_EMBEDDING_WORKER_ENABLED: ${COUNSEL_EMBEDDING_WORKER_ENABLED:-true}
+    stop_grace_period: 35s

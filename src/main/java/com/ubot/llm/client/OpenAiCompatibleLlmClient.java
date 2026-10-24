@@ -54,7 +54,6 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 	// 서버가 Thinking Mode를 켜 둔 경우 추론 텍스트가 답변 앞에 붙어 올 수 있어, 최종 답변만 남깁니다.
 	private static final Pattern THINKING_BLOCK = Pattern.compile("(?s)^\\s*<think>.*?</think>\\s*");
 
-	private static final int MAX_LOGGED_BODY_LENGTH = 300;
 	private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 	private static final TypeReference<Map<String, Object>> JSON_OBJECT = new TypeReference<>() {
 	};
@@ -170,12 +169,15 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 		// 완성된 답변을 한 번에 받습니다. 현재 채팅 API는 SSE 스트리밍을 사용하지 않습니다.
 		body.put("stream", false);
 
-		ChatCompletion response = restClient.post()
-				.uri(CHAT_COMPLETIONS_PATH)
-				.contentType(MediaType.APPLICATION_JSON)
-				.body(body)
-				.retrieve()
-				.body(ChatCompletion.class);
+		// 실패한 HTTP 왕복만 반복하므로 이미 끝난 FAQ 검색·도구 실행은 다시 하지 않음
+		ChatCompletion response = LlmRecovery.call(() -> {
+			try {
+				return restClient.post().uri(CHAT_COMPLETIONS_PATH).contentType(MediaType.APPLICATION_JSON)
+						.body(body).retrieve().body(ChatCompletion.class);
+			} catch (RuntimeException exception) {
+				throw translateException(exception, options != null && options.redactErrors());
+			}
+		});
 		return Completion.from(response);
 	}
 
@@ -253,19 +255,13 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             // 가드 입력에는 질문·근거·개인 자료가 있으므로 서버 오류 본문과 원본 예외를 전달하지 않습니다.
             return new LlmException(LlmErrorCode.LLM_SERVICE_UNAVAILABLE);
         }
-		if (exception instanceof RestClientResponseException response) {
-			// 모델 이름 불일치나 도구 호출 미지원 같은 서버 설정 문제를 로그에서 구분할 수 있게 남깁니다.
-			log.warn("LLM 서버가 오류 응답을 반환했습니다: 상태코드={}, 응답={}",
-					response.getStatusCode().value(), abbreviate(response.getResponseBodyAsString()));
+		if (exception instanceof RestClientResponseException response && response.getStatusCode().is4xxClientError()) {
+			// 모델 이름 불일치나 도구 호출 미지원 같은 서버 설정 문제(4xx)를 로그에서 구분하려고 남김
+			// 5xx·연결 실패는 Worker에서는 LlmRecovery가, 그 밖에서는 LlmService가 오류 코드로 기록함
+			log.warn("LLM 서버가 오류 응답을 반환했습니다: 모델={}, 상태코드={}, 예외종류={}",
+					modelName, response.getStatusCode().value(), exception.getClass().getSimpleName());
 		}
 		return new LlmException(LlmErrorCode.LLM_SERVICE_UNAVAILABLE, exception);
-	}
-
-	private String abbreviate(String body) {
-		String singleLine = body.replaceAll("\\s+", " ");
-		return singleLine.length() <= MAX_LOGGED_BODY_LENGTH
-				? singleLine
-				: singleLine.substring(0, MAX_LOGGED_BODY_LENGTH) + "...";
 	}
 
 	/** 응답 하나에서 이 클라이언트가 쓰는 값만 모읍니다. */

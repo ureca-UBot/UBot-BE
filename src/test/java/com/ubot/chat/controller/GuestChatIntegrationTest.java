@@ -204,8 +204,10 @@ class GuestChatIntegrationTest {
 
 		assertThat(complete(retry(systemFailureKey).session(session), null))
 				.contains("\"attemptCount\":2", "\"status\":\"SUCCEEDED\"");
-		assertThat(complete(retry(missingFaqKey).session(session), ChatErrorCode.NO_FAQ))
-				.contains("\"attemptCount\":2");
+		// FAQ 미발견은 같은 질문을 다시 보내도 결과가 같아 재시도를 거절함
+		mvc.perform(retry(missingFaqKey).session(session))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value(ChatErrorCode.RETRY_NOT_ALLOWED.getCode()));
 
 		mvc.perform(question(ANSWERABLE).session(session))
 				.andExpect(status().isTooManyRequests());

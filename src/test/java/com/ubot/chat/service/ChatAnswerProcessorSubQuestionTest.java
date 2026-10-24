@@ -1,6 +1,7 @@
 package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -33,6 +34,8 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -270,8 +273,8 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::searchQuery, SubQuestionFaqs::userText)
 				.containsExactly(
-						org.assertj.core.groups.Tuple.tuple("로밍 신청 방법은 무엇인가요?", "로밍 신청은 어떻게 하고"),
-						org.assertj.core.groups.Tuple.tuple("해외 문자 수신은 무료인가요?", "문자 수신은 무료인가요?"));
+						tuple("로밍 신청 방법은 무엇인가요?", "로밍 신청은 어떻게 하고"),
+						tuple("해외 문자 수신은 무료인가요?", "문자 수신은 무료인가요?"));
 		assertThat(captureMaterials().subQuestions()).extracting(SubQuestionFaqs::userText)
 				.containsExactly("로밍 신청은 어떻게 하고", "문자 수신은 무료인가요?");
 	}
@@ -428,6 +431,109 @@ class ChatAnswerProcessorSubQuestionTest {
 		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(captureMaterials().history()).isEmpty();
+	}
+
+	@Test
+	@DisplayName("모델 자체의 ABSTAIN·CONFLICT만 모으고 출력 가드가 바꾼 칸은 제외한다")
+	void collectsUnansweredBySlotOutcome() {
+		plan("유심 재발급 비용", "eSIM 비용", "해외 로밍 요금");
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
+		when(vector.getSimilarList("eSIM 비용", 3)).thenReturn(List.of(faq(3L, 0.8)));
+		when(vector.getSimilarList("해외 로밍 요금", 3)).thenReturn(List.of(faq(4L, 0.8)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("고지", null, false, "CONFLICT", null, null, List.of(
+				new AiAnswer.SlotOutcome("ABSTAIN", false),
+				new AiAnswer.SlotOutcome("CONFLICT", false),
+				new AiAnswer.SlotOutcome("ABSTAIN", true))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).containsExactly(
+				new UnansweredCandidate(1, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85,
+						UnansweredSource.LLM_MODEL),
+				new UnansweredCandidate(2, "eSIM 비용", "eSIM 비용", UnansweredReason.LLM_CONFLICT, 3L, 0.8,
+						UnansweredSource.LLM_MODEL));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"ABSTAIN", "CONFLICT"})
+	@DisplayName("가드가 바꾼 상태는 모델 자체의 미응답으로 재분류하지 않는다")
+	void doesNotReclassifyGuardChangedStatus(String status) {
+		plan("유심 재발급 비용");
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("고지", null, false, status, null, null,
+				List.of(new AiAnswer.SlotOutcome(status, true))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).isEmpty();
+	}
+
+	@Test
+	@DisplayName("합쳐진 한 칸이 가드로 바뀌어도 모든 하위 질문을 모델 미응답으로 등록하지 않는다")
+	void skipsSingleGuardChangedSlotForAllSubQuestions() {
+		plan("유심 재발급 비용", "eSIM 비용");
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
+		when(vector.getSimilarList("eSIM 비용", 3)).thenReturn(List.of(faq(3L, 0.8)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("고지", null, false, "ABSTAIN", null, null,
+				List.of(new AiAnswer.SlotOutcome("ABSTAIN", true))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).isEmpty();
+	}
+
+	@Test
+	@DisplayName("칸 형식 답변의 ANSWER 칸과 가입 정보를 조회할 수 없어 답하지 못한 칸은 모으지 않고, 검색 단계에서 저장한 하위 질문은 다시 저장하지 않는다")
+	void skipsAnsweredLookupUnavailableAndRetrievalFailedSlots() {
+		plan("유심 재발급", "김치찌개 끓이는 법", "데이터 쉐어링");
+		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9)));
+		when(vector.getSimilarList("김치찌개 끓이는 법", 3)).thenReturn(List.of(faq(5L, 0.8)));
+		when(vector.getSimilarList("데이터 쉐어링", 3)).thenReturn(List.of(faq(6L, 0.5)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false, "PARTIAL", null, null, List.of(
+				new AiAnswer.SlotOutcome("ANSWER", false),
+				// 비로그인으로 가입 정보를 조회할 수 없어 답하지 못한 칸도 FAQ 부족이 아니므로 모으지 않습니다.
+				new AiAnswer.SlotOutcome("ABSTAIN", false, true),
+				new AiAnswer.SlotOutcome("ABSTAIN", false))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).containsExactly(new UnansweredCandidate(3, "데이터 쉐어링", "데이터 쉐어링",
+				UnansweredReason.INSUFFICIENT_FAQ, 6L, 0.5, UnansweredSource.RETRIEVAL));
+	}
+
+	@Test
+	@DisplayName("칸 형식 답변의 OUT_OF_SCOPE 칸은 상담 주제가 아니므로 미응답으로 모으지 않는다")
+	void skipsOutOfScopeSlot() {
+		plan("유심 재발급", "김치찌개 끓이는 법");
+		when(vector.getSimilarList("유심 재발급", 3)).thenReturn(List.of(faq(1L, 0.9)));
+		when(vector.getSimilarList("김치찌개 끓이는 법", 3)).thenReturn(List.of(faq(5L, 0.8)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("답변", null, false, "PARTIAL", null, null, List.of(
+				new AiAnswer.SlotOutcome("ANSWER", false), new AiAnswer.SlotOutcome("OUT_OF_SCOPE", false))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).isEmpty();
+	}
+
+	@Test
+	@DisplayName("칸이 하나뿐이면 그 칸의 결과를 근거를 찾은 모든 하위 질문에 적용한다")
+	void appliesSingleSlotOutcomeToAllSubQuestions() {
+		when(planner.plan(attempt, attempt.getQuestion())).thenReturn(new SubQuestionPlan(List.of(
+				new SubQuestionPlan.SubQuestion("유심 재발급 비용", null),
+				new SubQuestionPlan.SubQuestion("eSIM 발급 비용", null)),
+				SubQuestionPlan.Source.LLM, List.of(), false, null, false));
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(1L, 0.9)));
+		when(vector.getSimilarList("eSIM 발급 비용", 3)).thenReturn(List.of(faq(2L, 0.8)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("고지", null, false, "ABSTAIN", null, null,
+				List.of(new AiAnswer.SlotOutcome("ABSTAIN", false))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).extracting(UnansweredCandidate::subQuestionIndex, UnansweredCandidate::reason,
+						UnansweredCandidate::source)
+				.containsExactly(
+						tuple(1, UnansweredReason.LLM_ABSTAIN, UnansweredSource.LLM_MODEL),
+						tuple(2, UnansweredReason.LLM_ABSTAIN, UnansweredSource.LLM_MODEL));
 	}
 
 	private void plan(String... subQuestions) {

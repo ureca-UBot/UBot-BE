@@ -19,6 +19,7 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.dto.response.ChatJobSubmissionResponseDto;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.service.ChatJobQueryService;
+import com.ubot.chat.job.service.ChatJobReadExecutor;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
 import com.ubot.chat.service.ChatService;
 import com.ubot.chat.util.ClientIpResolver;
@@ -50,7 +51,7 @@ class ChatControllerResearchTest {
     @BeforeEach
     void setup() {
         var controller = new ChatController(service, mock(ChatJobQueryService.class), clientIpResolver,
-                guestConversationService, mock(ConversationService.class));
+                guestConversationService, mock(ConversationService.class), mock(ChatJobReadExecutor.class));
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new HandlerMethodArgumentResolver() {

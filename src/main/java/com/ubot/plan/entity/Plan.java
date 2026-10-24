@@ -172,4 +172,9 @@ public class Plan extends AdminManagedEntity {
         this.status = MasterStatus.INACTIVE;
         markDeleted(administrator);
     }
+
+    // 포함 부가서비스는 별도 표에 있으므로 요금제에는 수정자와 수정 시각만 남긴다.
+    public void markIncludedAddonsUpdated(User administrator) {
+        markUpdated(administrator);
+    }
 }

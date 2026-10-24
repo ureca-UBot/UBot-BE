@@ -134,9 +134,15 @@ class AiGuardIntegrationTest {
         var prompt = mock(PromptService.class);
         var tools = mock(AiToolRegistry.class);
         var code = mock(AiOutputGuardService.class);
-        var ai = new AiService(prompt, generation, tools, code, output, new AiOutputGuardProperties());
+        var ai = new AiService(prompt,
+                generation,
+                tools,
+                code,
+                com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
+                output,
+                new AiOutputGuardProperties());
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\""+ANSWER+"\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
-        when(prompt.createPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
+        when(prompt.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
         when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"안전\"}"));
         assertThat(ai.generateAnswer(materials()).answer()).isEqualTo(ANSWER);
@@ -152,7 +158,12 @@ class AiGuardIntegrationTest {
     void 공식_FAQ_캐시도_출력검사를_거치되_답변_생성은_다시_하지_않는다() {
         var generation = mock(LlmService.class);
         var code = mock(AiOutputGuardService.class);
-        var ai = new AiService(mock(PromptService.class), generation, mock(AiToolRegistry.class), code, output,
+        var ai = new AiService(mock(PromptService.class),
+                generation,
+                mock(AiToolRegistry.class),
+                code,
+                com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
+                output,
                 new AiOutputGuardProperties());
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
         when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"안전\"}"));
@@ -165,9 +176,14 @@ class AiGuardIntegrationTest {
         var generation = mock(LlmService.class);
         var prompt = mock(PromptService.class);
         var code = new AiOutputGuardService(words);
-        var ai = new AiService(prompt, generation, mock(AiToolRegistry.class), code, output,
+        var ai = new AiService(prompt,
+                generation,
+                mock(AiToolRegistry.class),
+                code,
+                com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
+                output,
                 new AiOutputGuardProperties());
-        when(prompt.createPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
+        when(prompt.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\"" + ANSWER
                 + " 환불 처리가 완료되었습니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
 
@@ -183,7 +199,12 @@ class AiGuardIntegrationTest {
     void 실제_출력_코드를_통과한_캐시는_AI_허용_후_원문을_유지한다(String reasons) {
         var generation = mock(LlmService.class);
         var code = new AiOutputGuardService(words);
-        var ai = new AiService(mock(PromptService.class), generation, mock(AiToolRegistry.class), code, output,
+        var ai = new AiService(mock(PromptService.class),
+                generation,
+                mock(AiToolRegistry.class),
+                code,
+                com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
+                output,
                 new AiOutputGuardProperties());
         when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":"
                 + reasons + ",\"explanation\":\"안전\"}"));
