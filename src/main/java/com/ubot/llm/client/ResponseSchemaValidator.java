@@ -112,7 +112,7 @@ final class ResponseSchemaValidator {
 
     /**
      * 검사 순서: 배열인지 → 원소 수가 minItems~maxItems 안인지(칸 수 검사) → 원소마다 items 스키마 검사.
-     * 단, ID 목록({@link #isIdList})의 숫자 원소는 정상으로 봅니다.
+     * 단, 최상위 evidence_ids 목록({@link #isEvidenceIdList})의 숫자 원소는 정상으로 봅니다.
      */
     private static String checkArray(JsonNode node, Map<String, Object> schema, String path) {
         if (node == null || !node.isArray()) return violationAt(path, NOT_ARRAY);
@@ -124,7 +124,7 @@ final class ResponseSchemaValidator {
 
         Map<String, Object> itemSchema = itemSchemaOf(schema);
         if (itemSchema == null) return null;
-        boolean idList = isIdList(itemSchema);
+        boolean idList = isEvidenceIdList(path, itemSchema);
         for (int index = 0; index < node.size(); index++) {
             JsonNode item = node.get(index);
             if (idList && item.isNumber()) continue;
@@ -144,11 +144,12 @@ final class ResponseSchemaValidator {
     }
 
     /**
-     * enum 없는 문자열의 배열은 ID 목록(evidence_ids)입니다. 스키마는 문자열이지만 모델이 {@code [12]}처럼 숫자로 써도
+     * 최상위 evidence_ids에만 숫자 허용 예외를 적용합니다. 스키마는 문자열이지만 모델이 {@code [12]}처럼 숫자로 써도
      * 답변 파싱({@code FaqAnswerFormat.readEvidenceIds})이 그대로 받아들이므로, 형식 오류로 보고 재호출하지 않습니다.
      */
-    private static boolean isIdList(Map<String, Object> itemSchema) {
-        return "string".equals(itemSchema.get("type")) && !itemSchema.containsKey("enum");
+    private static boolean isEvidenceIdList(String path, Map<String, Object> itemSchema) {
+        return "$.evidence_ids".equals(path)
+                && "string".equals(itemSchema.get("type")) && !itemSchema.containsKey("enum");
     }
 
     // 스키마는 Map<String, Object>로 들어오므로 하위 항목을 꺼낼 때 형변환이 필요합니다.

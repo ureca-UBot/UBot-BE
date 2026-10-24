@@ -3,6 +3,7 @@ package com.ubot.llm.client;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ubot.prompt.format.FaqAnswerFormat;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -30,6 +31,20 @@ class ResponseSchemaValidatorTest {
         assertThat(ResponseSchemaValidator.violation(numeric, FaqAnswerFormat.slotSchema(1))).isNull();
         assertThat(ResponseSchemaValidator.violation("{\"answer\":\"답\",\"evidence_ids\":[12],\"status\":\"ANSWER\"}",
                 FaqAnswerFormat.schema())).isNull();
+    }
+
+    @Test
+    void rejectsNumbersInOtherStringArraysAndNestedEvidenceIds() {
+        Map<String, Object> stringArray = Map.of("type", "array", "items", Map.of("type", "string"));
+        Map<String, Object> schema = Map.of("type", "object", "properties", Map.of(
+                "warnings", stringArray,
+                "metadata", Map.of("type", "object", "properties", Map.of("evidence_ids", stringArray))));
+
+        assertThat(ResponseSchemaValidator.violation("{\"warnings\":[123]}", schema))
+                .isEqualTo("$.warnings[0]:not-string");
+        assertThat(ResponseSchemaValidator.violation("{\"metadata\":{\"evidence_ids\":[123]}}", schema))
+                .isEqualTo("$.metadata.evidence_ids[0]:not-string");
+        assertThat(ResponseSchemaValidator.violation("{\"warnings\":[\"주의사항\"]}", schema)).isNull();
     }
 
     @ParameterizedTest
