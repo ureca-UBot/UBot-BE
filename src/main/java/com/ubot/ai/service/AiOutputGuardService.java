@@ -2,13 +2,17 @@ package com.ubot.ai.service;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
-import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.OutputGuardResult.Reason;
+import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
+import com.ubot.ai.dto.UserDataCards.BillingCard;
+import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserRecordClaims;
+import com.ubot.billing.enums.PaymentMethod;
+import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.enums.Intent;
@@ -21,11 +25,14 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.BreakIterator;
 import java.text.Normalizer;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -57,6 +64,18 @@ public class AiOutputGuardService {
             "할인(?:율|금액)?|환불(?:율|금액)?|월정액|(?:월\\s*)?요금|수수료|위약금|배송비"
                     + "|(?:약정|처리|개통)\\s*기간|납부\\s*기한|유효\\s*기간|데이터(?:\\s*(?:제공량|용량))?"
                     + "|건당(?:\\s*요금)?|반경|거리");
+    private static final Pattern MONEY_SELECTOR = Pattern.compile(
+            "(?<![0-9.])([0-9]+(?:\\.[0-9]+)?)\\s*(회선|GB|MB|Mbps|Gbps)(?![a-zA-Z])", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RECORDED_DATE = Pattern.compile(
+            "([0-9]{4})(?:-|년\\s*)([0-9]{1,2})(?:-|월\\s*)([0-9]{1,2})(?:일)?");
+    private static final Pattern INSTALLMENT_HISTORY = Pattern.compile("([0-9]+)\\s*개월\\s*중\\s*([0-9]+)\\s*개월\\s*$");
+    private static final Pattern INSTALLMENT_REMAINING = Pattern.compile("([0-9]+)\\s*개월\\s*(?:남|잔여)");
+    private static final Pattern RECORDED_PHONE = Pattern.compile("([0-9]{4})\\s*회선|\\*{2,}-?([0-9]{4})(?![0-9])");
+    private static final Pattern RECORDED_OTHER_ACTOR = Pattern.compile("친구|동료|이웃|배우자|자녀|타인|다른\\s*(?:고객|회원|사용자|사람)");
+    private static final Pattern RECORDED_INSTALLMENT_AMOUNT = Pattern.compile(
+            "할부(?:금)?(?:의)?\\s*(?:월|매월|한\\s*달)\\s*(?:납부액|납부금|납입액|납입금|금액)"
+                    + "(?:은|는|이|가|[:：])?\\s*(?<amount>" + WON_AMOUNT + ")");
+
     private static final Pattern QUALIFIED_NUMBER = Pattern.compile(
             "(?:이|가|은|는)?\\s*(?:아니|아닙|아닌)|\\s*(?:으로|로)?\\s*잘못|\\s*(?:인가요|입니까|맞나요)");
     private static final Pattern UNCONFIRMED_QUANTITY = Pattern.compile(
@@ -650,6 +669,14 @@ public class AiOutputGuardService {
                     + "(?:의\\s*)?(?:이용|사용)(?:이|가)?\\s*(?<action>정지|해지|해제|차단)(?:되어|되고)\\s*",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern RESTRICTION_QUESTION = Pattern.compile("(" + RESTRICTION_ACTION + ")", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ONLY_BEFORE_RESTRICTION = Pattern.compile(
+            "^(.{1,40}?(?:은|는)\\s+)([^,;.!?。！？\\n]{1,32}?)\\s*(?:전까지만|이전까지만)\\s*("
+                    + RESTRICTION_ACTION + ")(?:할\\s*수\\s*있(?:습니다|어요)|(?:이|가)?\\s*가능(?:합니다|해요)?)[.!。]?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AFTER_LIMIT_CONTEXT = Pattern.compile(
+            "^([^,;.!?。！？\\n]{1,32}?)\\s*(?:이|가)?\\s*(?:지나면|지난\\s*후|이후(?:에는|에|부터)?)\\s+(.+)$");
+    private static final Pattern TARGET_AFTER_LIMIT_CONTEXT = Pattern.compile(
+            "^(.{1,40}?(?:은|는))\\s+([^,;.!?。！？\\n]{1,32}?)\\s*이후(?:에는|에|부터)?\\s*$");
+
     private static final Pattern DERIVED_RESTRICTION_LEAD = Pattern.compile(
             "^(?:(?:(?:계산|합산|차감)\\s*결과|가정\\s*계산으로|예를\\s*들어)\\s*[,，]?\\s*"
                     + "|(?:사용량|요금|금액|비용)(?:을|를)\\s*(?:계산|합산|차감)(?:하면|해도)\\s*"
@@ -714,6 +741,17 @@ public class AiOutputGuardService {
     private static final Pattern FOLLOWUP_INFORMATION_REQUEST = Pattern.compile(
             "(?:(?<input>입력)(?:해|하여)?|알려|말씀(?:해|하여)?|말해|설명(?:해|하여)?|보내|제공(?:해|하여)?)\\s*"
                     + "(?:주(?:세요|십시오|시면|시기\\s*바랍니다)|줘(?:요)?)");
+    // 도구가 받을 검색 기준의 필드만 구분합니다. 특정 답변 문장을 허용 목록으로 두지 않습니다.
+    private static final String STORE_LOCATION_FIELD =
+            "(?:지역(?:명)?|지명|동네(?:\\s*이름)?|역(?:\\s*(?:이름|명))?|위치)";
+    private static final String STORE_LOCATION_FIELD_MODIFIER =
+            "(?:(?:어느|어떤|원하(?:는|시는)|희망(?:하는|하시는)?|정확한|기준(?:이\\s*될)?|현재"
+                    + "|검색할|조회할|찾으시는|매장\\s*검색(?:을\\s*위한)?)\\s*)*";
+    private static final Pattern STORE_LOCATION_INPUT_FIELDS = Pattern.compile(
+            "^" + STORE_LOCATION_FIELD_MODIFIER + STORE_LOCATION_FIELD
+                    + "(?:\\s*(?:이나|또는|혹은|와|과|및|·|/|,)\\s*"
+                    + STORE_LOCATION_FIELD_MODIFIER + STORE_LOCATION_FIELD + ")*"
+                    + "(?:\\s*(?:을|를|이|가|은|는))?\\s*(?:인지|어디(?:인지)?|어느\\s*곳)?$");
     private static final Pattern EXTERNAL_INFORMATION_DESTINATION = Pattern.compile(
             "(?:고객\\s*센터|상담(?:원|사)|매장(?:\\s*직원)?|직원|대리점|통신사|담당자|앱|홈페이지|웹사이트|신청서|화면)"
                     + "(?:에게|한테|으로|로|에(?!서))[^,;.!?。！？\\n]{0,16}$");
@@ -897,6 +935,7 @@ public class AiOutputGuardService {
                 .forEach(source -> facts.addAll(readFacts(inspect(source))));
         // 회원의 청구 금액·데이터량은 일반 수치 검사가 아니라 회선·월·항목을 맞춰 실제 기록과 비교합니다.
         UserRecordClaims userRecords = userRecords(materials);
+        List<ScopedQuantity> moneyEvidence = readMoneyEvidence(materials, sources);
         List<String> faqSources = materials.faqs().stream().map(faq -> faq.answer())
                 .filter(StringUtils::hasText).map(this::inspect).toList();
         // 대상별 근거는 한 번 모아 수치 비교와 뒤의 대상 검사에서 함께 사용합니다.
@@ -974,9 +1013,11 @@ public class AiOutputGuardService {
                 }
                 boolean thirdPartyLookup = hasThirdPartyLookup(inspected);
                 // 회원 기록과 비교한 값은 지운 문장으로 일반 수치 검사를 해, 같은 값을 두 기준으로 판정하지 않습니다.
-                UserRecordClaims.Verdict recordVerdict = userRecords.check(inspected, faqSources);
-                boolean quantityConflict = recordVerdict.conflict()
-                        || hasQuantityConflict(recordVerdict.unhandled(), facts, materials.question());
+                UserRecordClaims.Verdict installmentVerdict = checkRecordedInstallmentAmounts(
+                        withoutRecordedPlanNames(inspected, materials), materials);
+                UserRecordClaims.Verdict recordVerdict = userRecords.check(installmentVerdict.unhandled(), faqSources);
+                boolean quantityConflict = installmentVerdict.conflict() || recordVerdict.conflict()
+                        || hasQuantityConflict(recordVerdict.unhandled(), facts, materials.question(), moneyEvidence);
                 boolean requirementConflict = hasRequirementConflict(inspected, sources);
                 GuardRule policyRule = findPolicyViolation(sentence, inspected, sources, thirdPartyLookup);
                 boolean policyViolation = policyRule != null;
@@ -1052,7 +1093,9 @@ public class AiOutputGuardService {
         beforeCheck = filtered;
         filtered = removeUnsupportedRestrictions(filtered, materials, sources, trace);
         recordAnswerChange(reasons, beforeCheck, filtered);
-        // 되묻기라는 문장 형식 자체는 위반이 아닙니다. 위의 내용 검사에서 실제 문제가 탐지된 경우만 거절합니다.
+        beforeCheck = filtered;
+        filtered = removeFollowUpQuestions(filtered, materials, storeMap, trace);
+        recordAnswerChange(reasons, beforeCheck, filtered);
         filtered = filterRequestedScopes(filtered, answer, materials, reasons, trace);
         if (!StringUtils.hasText(filtered) || !filtered.equals(withoutSuffix.strip())
                 && splitSentences(filtered).stream().allMatch(sentence ->
@@ -1099,6 +1142,43 @@ public class AiOutputGuardService {
         if (hasPolicyOverride(inspected)) return GuardRule.POLICY_OVERRIDE;
         if (thirdPartyLookup) return GuardRule.THIRD_PARTY_LOOKUP;
         return hasHostileContent(inspected, sources) ? GuardRule.HOSTILE_CONTENT : null;
+    }
+
+    /** 조회 전 매장 검색 기준 입력은 구분하되, 일반 되묻기와 추가 정보 요구는 기존대로 거절합니다. */
+    private String removeFollowUpQuestions(String answer, AnswerMaterials materials, StoreMapResult storeMap,
+            InspectionTrace trace) {
+        List<String> kept = new ArrayList<>();
+        boolean removed = false;
+        for (String sentence : splitSentences(answer)) {
+            List<String> clauses = new ArrayList<>();
+            addAnswerClauses(sentence, clauses, true, null);
+            for (String clause : clauses) {
+                String inspected = inspect(clause);
+                boolean followUp = QUESTION_END.matcher(inspected).find() || GENERIC_FOLLOWUP.matcher(inspected).matches()
+                        || hasFollowUpInformationRequest(inspected);
+                if (followUp && !isStoreLocationInputRequest(inspected, materials, storeMap)) {
+                    trace.removed(GuardRule.FOLLOWUP_QUESTION);
+                    removed = true;
+                } else kept.add(clause);
+            }
+        }
+        return removed ? String.join("\n", kept) : answer;
+    }
+
+    private boolean isStoreLocationInputRequest(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
+        // 서버가 선택한 매장 도구 문맥과 실제 조회 결과를 사용합니다. 모델의 status나 문구로 문맥을 만들지 않습니다.
+        if (!materials.tools().contains(AiTool.STORE_SEARCH) || storeMap != null) return false;
+        String content = sentence.replaceFirst("[.!?。！？]+$", "").strip();
+        Matcher request = FOLLOWUP_INFORMATION_REQUEST.matcher(content);
+        if (request.find()) {
+            // 요구하는 필드 전체가 검색 기준이어야 합니다. 다른 정보나 뒤따르는 지시를 함께 허용하지 않습니다.
+            return STORE_LOCATION_INPUT_FIELDS.matcher(content.substring(0, request.start()).strip()).matches()
+                    && content.substring(request.end()).isBlank();
+        }
+        if (!QUESTION_END.matcher(sentence).find()) return false;
+        Matcher ending = QUESTION_END.matcher(content);
+        if (ending.find()) content = content.substring(0, ending.start()).strip();
+        return STORE_LOCATION_INPUT_FIELDS.matcher(content).matches();
     }
 
     /** 명시된 업무·기기만 비교합니다. 모호한 주제나 생략된 대상은 추측하지 않습니다. */
@@ -1758,7 +1838,8 @@ public class AiOutputGuardService {
         }
     }
 
-    private boolean hasQuantityConflict(String sentence, List<QuantityFact> sources, String question) {
+    private boolean hasQuantityConflict(String sentence, List<QuantityFact> sources, String question,
+            List<ScopedQuantity> moneyEvidence) {
         Matcher rewrite = PRICE_REWRITE_ACCEPTED.matcher(sentence);
         while (rewrite.find()) {
             if (!isRejectedOrReported(sentence.substring(rewrite.end()))) return true;
@@ -1774,7 +1855,32 @@ public class AiOutputGuardService {
                 if (!isRejectedOrReported(inspectedQuestion.substring(request.end()))) return true;
             }
         }
+        List<ScopedQuantity> moneyClaims = readMoneyFacts(sentence, question, true);
+        List<QuantityFact> comparedMoney = new ArrayList<>();
+        for (ScopedQuantity claim : moneyClaims) {
+            List<ScopedQuantity> sameTarget = moneyEvidence.stream()
+                    .filter(source -> source.target().equals(claim.target())).toList();
+            if (sameTarget.isEmpty() && claim.target().equals("*")) sameTarget = moneyEvidence.stream()
+                    .filter(source -> source.target().equals("*")).toList();
+            List<ScopedQuantity> sameCondition = sameTarget.stream()
+                    .filter(source -> source.condition().equals(claim.condition())).toList();
+            if (sameCondition.isEmpty()) sameCondition = sameTarget.stream()
+                    .filter(source -> source.condition().isEmpty()).toList();
+            List<ScopedQuantity> comparable = sameCondition.stream()
+                    .filter(source -> sameQuantityMetric(source.quantity(), claim.quantity())).toList();
+            if (comparable.isEmpty() && !claim.condition().isEmpty() && sameTarget.stream()
+                    .anyMatch(source -> !source.condition().isEmpty()
+                            && sameQuantityMetric(source.quantity(), claim.quantity()))) return true;
+            if (!comparable.isEmpty() && comparable.stream()
+                    .noneMatch(source -> source.quantity().accepts(claim.quantity().value()))) return true;
+            // 명시한 다른 상품의 금액과 섞지 않습니다. 조건을 확정할 수 없으면 의미상 정오를 추측하지 않습니다.
+            if (!claim.target().equals("*") || !comparable.isEmpty()) comparedMoney.add(claim.quantity());
+        }
         for (QuantityFact claim : readFacts(sentence, true)) {
+            if (comparedMoney.stream().anyMatch(value -> value.unit().equals(claim.unit())
+                    && value.value().compareTo(claim.value()) == 0)) continue;
+            // 요금제 선택 조건의 GB는 요금 금액이 아닙니다. 실제 데이터 제공량 주장은 기존 검사로 봅니다.
+            if (!moneyClaims.isEmpty() && claim.metric().equals("요금") && claim.unit().matches("gb|mb")) continue;
             // 서류 발급 기간은 아래 서류 검사에서 대상·신청 조건까지 함께 비교합니다.
             if (claim.metric().startsWith("서류발급기간|")) continue;
             List<QuantityFact> sameMetric = sources.stream()
@@ -1787,6 +1893,114 @@ public class AiOutputGuardService {
         }
         return false;
     }
+
+
+    /** 기존 수치 파서를 재사용하고, 금액이 붙은 목록의 대상·선택 조건만 함께 보관합니다. */
+    private List<ScopedQuantity> readMoneyEvidence(AnswerMaterials materials, List<String> sources) {
+        List<ScopedQuantity> evidence = new ArrayList<>();
+        materials.faqs().forEach(faq -> providedSourceSentences(faq.answer(), sources).forEach(sentence ->
+                evidence.addAll(readMoneyFacts(sentence, faq.question(), false))));
+        materials.sections().forEach(section -> providedSourceSentences(section.content(), sources).forEach(sentence ->
+                evidence.addAll(readMoneyFacts(sentence, section.title(), false))));
+        return evidence;
+    }
+
+    private boolean sameQuantityMetric(QuantityFact source, QuantityFact claim) {
+        return source.unit().equals(claim.unit()) && (source.metric().equals(claim.metric())
+                || claim.metric().equals("요금") && source.metric().equals("할인후요금"));
+    }
+
+    private List<ScopedQuantity> readMoneyFacts(String text, String question, boolean claim) {
+        List<ScopedQuantity> result = new ArrayList<>();
+        List<String> sharedMetrics = METRIC.matcher(text).results().map(match -> match.group().replaceAll("\\s+", ""))
+                .map(value -> switch (value) {
+                    case "월요금", "월정액" -> "요금";
+                    case "할인율", "할인금액" -> "할인";
+                    case "환불율", "환불금액" -> "환불";
+                    default -> value;
+                }).filter(value -> value.matches("요금|할인|할인후요금|환불|수수료|위약금|배송비"))
+                .distinct().toList();
+        Matcher amounts = QUANTITY.matcher(text);
+        int previousEnd = 0;
+        while (amounts.find()) {
+            if (amounts.group("money") == null) continue;
+            String after = text.substring(amounts.end());
+            if (claim && isDerivedQuantity(text, amounts.start(), amounts.end())
+                    || QUALIFIED_NUMBER.matcher(after).lookingAt() || UNCONFIRMED_QUANTITY.matcher(after).find()) continue;
+            String local = readQuantityClause(text, amounts.start(), amounts.end());
+            String prefix = text.substring(previousEnd, amounts.start());
+            previousEnd = amounts.end();
+            String target = moneyTarget(local, question);
+            if (target.equals("*")) target = moneyTarget(text, question);
+            String condition = moneyCondition(prefix);
+            if (condition.isEmpty() && claim && StringUtils.hasText(question)) condition = singleMoneyCondition(question);
+            BigDecimal value = readWonValue(amounts.group("money"));
+            if (value == null) continue;
+            List<QuantityFact> localFacts = readFacts(local).stream().filter(fact -> fact.unit().equals("원")
+                    && fact.value().compareTo(value) == 0).toList();
+            boolean listed = !condition.isEmpty();
+            String metric = localFacts.size() == 1 ? localFacts.getFirst().metric()
+                    : sharedMetrics.size() == 1 && listed ? sharedMetrics.getFirst()
+                    : prefix.matches("(?s).*월\\s*$") || listed ? "요금" : null;
+            if (metric == null) continue;
+            String normalizedAmount = metric + " " + amounts.group("money")
+                    + after.substring(0, Math.min(after.length(), 8));
+            List<QuantityFact> parsed = readFacts(normalizedAmount);
+            if (!parsed.isEmpty()) result.add(new ScopedQuantity(localFacts.size() == 1
+                    ? localFacts.getFirst() : parsed.getFirst(), target, condition));
+        }
+        return result;
+    }
+
+    private String moneyTarget(String text, String question) {
+        List<String> services = SERVICE_SCOPE.matcher(text).results().map(match -> serviceName(match.group()))
+                .distinct().toList();
+        if (services.size() == 1) return services.getFirst().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        int end = text.length();
+        Matcher metric = PLAN_PRICE_LABEL.matcher(text);
+        if (metric.find()) end = Math.min(end, metric.start());
+        Matcher selector = MONEY_SELECTOR.matcher(text);
+        if (selector.find()) end = Math.min(end, selector.start());
+        Matcher amount = QUANTITY.matcher(text);
+        if (amount.find()) end = Math.min(end, amount.start());
+        String prefix = text.substring(0, end).replaceFirst("^[\\s,，;；)]+", "")
+                .replaceFirst("(?:요금제)?(?:의|은|는|이|가)?\\s*$", "").strip();
+        String subject = planPriceSubject(prefix);
+        if (CONDITION_SCOPE_MARKER.matcher(prefix).matches()) subject = null;
+        if (subject != null && subject.matches(".*(?:얼마|어떻게|알려|확인|이번달|고객님|회원님).*")) subject = null;
+        if (StringUtils.hasText(question) && !question.equals(text)
+                && !question.matches("(?s).*(?:과|와|및|또는|각각|[/·]).*")
+                && (METRIC.matcher(question).find() || MONEY_SELECTOR.matcher(question).find()
+                || SERVICE_SCOPE.matcher(question).find())) {
+            String named = moneyTarget(question, null);
+            if (subject == null) return named;
+            // 문서의 브랜드 수식어만 생략한 동일 이름을 FAQ 자체 질문으로 확인합니다.
+            if (!named.equals("*") && prefix.toLowerCase(Locale.ROOT).endsWith(" " + named)) return named;
+        }
+        return subject == null ? "*" : subject;
+    }
+
+    private String moneyCondition(String context) {
+        Matcher selector = MONEY_SELECTOR.matcher(context);
+        String selected = "";
+        while (selector.find()) {
+            BigDecimal value = new BigDecimal(selector.group(1));
+            String unit = selector.group(2).toLowerCase(Locale.ROOT);
+            if (unit.equals("gb")) { value = value.multiply(BigDecimal.valueOf(1024)); unit = "mb"; }
+            if (unit.equals("gbps")) { value = value.multiply(BigDecimal.valueOf(1000)); unit = "mbps"; }
+            selected = value.stripTrailingZeros().toPlainString() + unit;
+        }
+        List<String> qualifiers = CONDITION_SCOPE_MARKER.matcher(context).results().map(match -> match.group())
+                .filter(value -> value.matches("미성년자|성인|법인|선불|후불|대리인|명의자|타인|법정대리인|보호자|본인"
+                        + "|온라인|매장|국내|해외|평일|주말|공휴일|[월화수목금토일]요일"))
+                .distinct().sorted().toList();
+        return selected + String.join("", qualifiers);
+    }
+
+    private String singleMoneyCondition(String context) {
+        return MONEY_SELECTOR.matcher(context).results().count() == 1 ? moneyCondition(context) : "";
+    }
+
 
     /** 계산·가정이 적용되는 절의 숫자만 예외로 보고, 별도 확정 주장까지 제외하지 않습니다. */
     private boolean isDerivedQuantity(String sentence, int quantityStart, int quantityEnd) {
@@ -2054,7 +2268,7 @@ public class AiOutputGuardService {
 
     private boolean hasUnsupportedOperation(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
         if (QUESTION_END.matcher(sentence).find()) return false;
-        if (hasActualClaim(TRANSACTION_CLAIM, sentence, materials.question())) return true;
+        if (hasActualClaim(TRANSACTION_CLAIM, withoutRecordedOperations(sentence, materials), materials.question())) return true;
         // 문장이 가리키는 청구서(월·회선)가 회원 기록에 없으면 FAQ 요금이나 기본 회원 정보로 실제 청구를 단정하지 않습니다.
         // 그 청구서가 있으면 실제 조회 결과이므로, 금액은 수치 검사가 그 청구서와 비교합니다.
         if (hasActualClaim(PERSONAL_BILLING_CLAIM, sentence) && !userRecords(materials).hasReferencedBill(sentence)) {
@@ -2068,6 +2282,135 @@ public class AiOutputGuardService {
         if (STORE_SUBJECT.matcher(sentence).find()) return storeMap == null;
         return !USER_SUBJECT.matcher(sentence).find() || !hasUserData(materials);
     }
+
+
+    /** 상품명 안의 수치는 제공량 주장이 아닙니다. 실제 기록에 있는 이름만 비교용 사본에서 가립니다. */
+    private String withoutRecordedPlanNames(String sentence, AnswerMaterials materials) {
+        List<String> names = new ArrayList<>();
+        if (materials.userDataSummary() != null) materials.userDataSummary().subscriptions().forEach(subscription -> {
+            if (subscription.plan() != null) names.add(subscription.plan().summary().name());
+        });
+        if (materials.toolRecords() != null) materials.toolRecords().plans().forEach(plan -> names.add(plan.plan().summary().name()));
+        String result = sentence;
+        for (String name : names.stream().filter(StringUtils::hasText).distinct()
+                .sorted((left, right) -> Integer.compare(right.length(), left.length())).toList()) {
+            result = result.replaceAll("(?<![\\p{L}\\p{N}])" + Pattern.quote(inspect(name))
+                    + "(?=$|\\s|[\"'.,]|(?:은|는|을|를|의)(?=\\s|$)|(?:이며|이고|입니다|이에요))", "상품명");
+        }
+        return result;
+    }
+
+    /** 날짜·납부 이력과 일치하는 과거 서술만 제외합니다. 같은 문장의 새 처리 주장은 계속 검사합니다. */
+    private String withoutRecordedOperations(String sentence, AnswerMaterials materials) {
+        Matcher operation = TRANSACTION_CLAIM.matcher(sentence);
+        StringBuilder result = new StringBuilder(sentence);
+        while (operation.find()) {
+            String context = sentence.substring(0, operation.start());
+            String claim = operation.group();
+            if (BOT_QUERY_SUBJECT.matcher(context).find() || OTHER_QUERY_SUBJECT.matcher(context).find()
+                    || RECORDED_OTHER_ACTOR.matcher(context).find() || claim.contains("드렸")
+                    || context.matches("(?s).*(?:방금|지금|대신|직접)\\s*.*")) continue;
+            boolean recorded = false;
+            var summary = materials.userDataSummary();
+            if (summary != null && summary.profile() != null && claim.matches("가입\\s*했.*")) {
+                LocalDate date = recordDate(context);
+                recorded = date != null && date.equals(summary.profile().joinedAt())
+                        && isRecordedMemberContext(context, summary.profile().name());
+            }
+            if (summary != null && claim.matches("납부\\s*했.*")) {
+                Matcher months = INSTALLMENT_HISTORY.matcher(context.strip());
+                if (months.find()) {
+                    var candidates = summary.subscriptions().stream()
+                            .filter(subscription -> matchesRecordedPhone(sentence, subscription.subscription().phoneNumber()))
+                            .filter(subscription -> subscription.activeContract() != null
+                                    && subscription.activeContract().installment() != null).toList();
+                    recorded = !candidates.isEmpty() && candidates.stream().allMatch(subscription -> {
+                        var installment = subscription.activeContract().installment();
+                        Matcher remaining = INSTALLMENT_REMAINING.matcher(sentence.substring(operation.end()));
+                        return installment.installmentMonths() != null && installment.paidInstallmentMonths() != null
+                                && Integer.parseInt(months.group(1)) == installment.installmentMonths()
+                                && Integer.parseInt(months.group(2)) == installment.paidInstallmentMonths()
+                                && (!remaining.find() || Integer.parseInt(remaining.group(1))
+                                == installment.installmentMonths() - installment.paidInstallmentMonths());
+                    });
+                }
+            }
+            if (claim.matches("(?:납부|결제).*완료(?:되|됐).*")) recorded = hasRecordedPaidBill(sentence, materials);
+            if (recorded) result.replace(operation.start(), operation.end(), " ".repeat(operation.end() - operation.start()));
+        }
+        return result.toString();
+    }
+
+    private boolean hasRecordedPaidBill(String sentence, AnswerMaterials materials) {
+        List<BillingCard> bills = new ArrayList<>();
+        if (materials.userDataSummary() != null) materials.userDataSummary().subscriptions().forEach(subscription -> {
+            String phone = subscription.subscription().phoneNumber();
+            if (subscription.latestBilling() != null) bills.add(BillingCard.of(phone, subscription.latestBilling()));
+            subscription.unpaidBillings().forEach(bill -> bills.add(BillingCard.of(phone, bill)));
+        });
+        if (materials.toolRecords() != null) bills.addAll(materials.toolRecords().billings());
+        var matching = bills.stream().filter(card -> UserRecordClaims.of(null,
+                new UserDataCards(List.of(), List.of(), List.of(card))).hasReferencedBill(sentence)).toList();
+        LocalDate claimedDate = recordDate(sentence);
+        if (RECORDED_DATE.matcher(sentence).find() && claimedDate == null) return false;
+        return !matching.isEmpty() && matching.stream().allMatch(card -> {
+            var bill = card.billing();
+            return bill.paymentStatus() == PaymentStatus.PAID
+                    && (claimedDate == null || bill.paidAt() != null && claimedDate.equals(bill.paidAt().toLocalDate()))
+                    && (!sentence.contains("자동이체") || bill.paymentMethod() == PaymentMethod.AUTO_TRANSFER)
+                    && (!sentence.contains("카드") || bill.paymentMethod() == PaymentMethod.CARD)
+                    && (!sentence.contains("계좌") || bill.paymentMethod() == PaymentMethod.ACCOUNT
+                            || bill.paymentMethod() == PaymentMethod.AUTO_TRANSFER);
+        });
+    }
+
+    private LocalDate recordDate(String text) {
+        Matcher dates = RECORDED_DATE.matcher(text);
+        LocalDate date = null;
+        while (dates.find()) {
+            try { date = LocalDate.of(Integer.parseInt(dates.group(1)), Integer.parseInt(dates.group(2)),
+                    Integer.parseInt(dates.group(3))); }
+            catch (DateTimeException invalid) { return null; }
+        }
+        return date;
+    }
+
+    private boolean matchesRecordedPhone(String sentence, String phone) {
+        Matcher claimed = RECORDED_PHONE.matcher(sentence);
+        if (!claimed.find()) return true;
+        String digits = claimed.group(1) == null ? claimed.group(2) : claimed.group(1);
+        return phone != null && phone.replaceAll("[^0-9]", "").endsWith(digits);
+    }
+
+    private boolean isRecordedMemberContext(String context, String name) {
+        if (StringUtils.hasText(name) && Pattern.compile("^" + Pattern.quote(name)
+                + "(?:님)?(?:은|는|이|가|께서)?(?:\\s|$)").matcher(context).find()) return true;
+        String withoutDate = RECORDED_DATE.matcher(context).replaceAll("").strip();
+        return withoutDate.matches("^(?:(?:고객|회원)(?:님)?(?:은|는|이|가|께서)?\\s*)?(?:에\\s*)?(?:회원\\s*)?$");
+    }
+
+    /** 월 납부액을 청구서의 납부액으로 오인하지 않도록, 해당 회선 할부 기록과 먼저 비교합니다. */
+    private UserRecordClaims.Verdict checkRecordedInstallmentAmounts(String sentence, AnswerMaterials materials) {
+        if (materials.userDataSummary() == null) return new UserRecordClaims.Verdict(sentence, false);
+        Matcher amount = RECORDED_INSTALLMENT_AMOUNT.matcher(sentence);
+        StringBuilder result = new StringBuilder(sentence);
+        boolean conflict = false;
+        while (amount.find()) {
+            BigDecimal value = readWonValue(amount.group("amount"));
+            var installments = materials.userDataSummary().subscriptions().stream()
+                    .filter(subscription -> matchesRecordedPhone(sentence, subscription.subscription().phoneNumber()))
+                    .filter(subscription -> subscription.activeContract() != null
+                            && subscription.activeContract().installment() != null)
+                    .map(subscription -> subscription.activeContract().installment()).toList();
+            List<Integer> expected = installments.stream().map(installment -> installment.monthlyInstallmentAmount())
+                    .filter(Objects::nonNull).distinct().toList();
+            if (value == null || expected.size() != 1) continue;
+            conflict |= value.compareTo(BigDecimal.valueOf(expected.getFirst())) != 0;
+            result.replace(amount.start("amount"), amount.end("amount"), " ".repeat(amount.group("amount").length()));
+        }
+        return new UserRecordClaims.Verdict(result.toString(), conflict);
+    }
+
 
     private boolean hasUnsupportedQueryPromise(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
         Matcher promises = QUERY_PROMISE.matcher(sentence);
@@ -2644,6 +2987,18 @@ public class AiOutputGuardService {
         return removed ? String.join("\n", kept) : answer;
     }
 
+
+    /** 질문에 적힌 하나의 제한 주어만 연결합니다. 서로 다른 제한을 임의로 같은 대상으로 보지 않습니다. */
+    private String resolveRestrictionReference(String key, String question) {
+        if (!key.matches("^(?:이|그|해당)제한.*") || !StringUtils.hasText(question)) return key;
+        String topic = conditionTopicKey(question);
+        int first = topic.indexOf("제한");
+        if (first < 1 || first != topic.lastIndexOf("제한")) return key;
+        String subject = topic.substring(0, first + 2);
+        return key.replaceFirst("^(?:이|그|해당)제한", Matcher.quoteReplacement(subject));
+    }
+
+
     /** 정보 부재 안내의 예외는 제공 대상이 개인 자료일 때만 적용합니다. 서비스 미제공은 계속 검사합니다. */
     private boolean isPersonalDataRestriction(AvailabilityClaim claim) {
         int actionIndex = claim.key().lastIndexOf('|');
@@ -2653,7 +3008,8 @@ public class AiOutputGuardService {
 
     private boolean hasRestrictionEvidence(AvailabilityClaim claim, String question,
             List<AvailabilityClaim> evidence) {
-        if (evidence.stream().anyMatch(source -> source.key().equals(claim.key())
+        String resolved = resolveRestrictionReference(claim.key(), question);
+        if (evidence.stream().anyMatch(source -> source.key().equals(resolved) || source.key().equals(claim.key())
                 || sameConditionTopic(claim.key(), source.key(), question))) return true;
         int actionIndex = claim.key().lastIndexOf('|');
         String topic = claim.key().substring(0, actionIndex);
@@ -2691,6 +3047,10 @@ public class AiOutputGuardService {
             if (setting.matches() && inspect(sentence).startsWith(setting.group(2) + "하면")) {
                 evidence.addAll(readRestrictionClaims(setting.group(1) + sentence, question, true));
             }
+            // '전까지만 가능'은 그 시점 이후 불가의 명시적인 근거입니다. 일반 권고에서는 추론하지 않습니다.
+            Matcher limit = ONLY_BEFORE_RESTRICTION.matcher(inspect(sentence));
+            if (limit.matches()) evidence.addAll(readRestrictionClaims(limit.group(1) + limit.group(2)
+                    + " 이후에는 " + limit.group(3) + "할 수 없습니다.", question, true));
             previous = sentence;
         }
     }
@@ -2781,7 +3141,8 @@ public class AiOutputGuardService {
     private boolean addProvisionRestrictions(String context, String question, boolean source, List<AvailabilityClaim> claims) {
         Matcher provided = RESTRICTION_PROVISION_CONTEXT.matcher(context);
         if (!provided.find()) return false;
-        String scope = context.substring(0, provided.start());
+        String scope = context.substring(0, provided.start())
+                .replaceAll("데이터\\s*전용\\s*(?:상품|요금제)(?:으로|로|이며|이고|인)\\s*", "");
         // 수치를 버리지 않고 기존 숫자·단위 읽기로 표준화합니다. 사람·기간·조건은 그대로 둡니다.
         String quantified = RESTRICTION_PROVISION_LEAD.matcher(scope).replaceAll(lead -> Matcher.quoteReplacement(
                 readFacts("월 요금 " + lead.group("money") + " 데이터 " + lead.group("data")).stream()
@@ -2809,6 +3170,10 @@ public class AiOutputGuardService {
     }
 
     private String restrictionTopic(String context) {
+        Matcher after = AFTER_LIMIT_CONTEXT.matcher(context.strip());
+        if (after.matches()) return conditionTopicKey(after.group(2)) + "|기한이후:" + conditionTopicKey(after.group(1));
+        Matcher targetAfter = TARGET_AFTER_LIMIT_CONTEXT.matcher(context.strip());
+        if (targetAfter.matches()) return conditionTopicKey(targetAfter.group(1)) + "|기한이후:" + conditionTopicKey(targetAfter.group(2));
         context = RESTRICTION_DEVICE_OWNER.matcher(context).replaceAll(device ->
                 Matcher.quoteReplacement(device.group().substring(0, device.group().length() - 1)));
         if (context.contains("쉐어링")) {
@@ -3602,6 +3967,9 @@ public class AiOutputGuardService {
     }
 
     private enum QuantityBound { EXACT, MAXIMUM, MINIMUM, UNCERTAIN }
+
+    private record ScopedQuantity(QuantityFact quantity, String target, String condition) {
+    }
 
     private record QuantityFact(String metric, BigDecimal value, String unit, QuantityBound bound) {
 

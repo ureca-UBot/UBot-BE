@@ -79,17 +79,28 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"할인율은 25%입니다.", "25퍼센트 할인입니다.", "월정액은 5.5만원입니다.",
-            "월 요금은 55000원입니다.", "약정 기간은 2년입니다.", "데이터 용량은 10기가바이트입니다.",
-            "할인율은 50%가 아닙니다. 할인율은 25%입니다.", "할인율은 50%로 잘못 안내된 것이며, 실제 할인율은 25%입니다.",
-            "할인율이 50%인가요?", "정확한 요금제 이름을 알려주실 수 있나요?", "현재 자료만으로는 답변할 수 없습니다.",
+    @ValueSource(strings = {
+            "할인율은 25%입니다.",
+            "25퍼센트 할인입니다.",
+            "월정액은 5.5만원입니다.",
+            "월 요금은 55000원입니다.",
+            "약정 기간은 2년입니다.",
+            "데이터 용량은 10기가바이트입니다.",
+            "할인율은 50%가 아닙니다. 할인율은 25%입니다.",
+            "할인율은 50%로 잘못 안내된 것이며, 실제 할인율은 25%입니다.",
+            "현재 자료만으로는 답변할 수 없습니다.",
             "예를 들어 100,000원 기준으로 계산하면 할인액이 달라집니다.",
             "월 요금 55,000원에 할인율 25%를 적용 후 계산하면 41,250원입니다.",
-            "접수 번호는 999입니다.", "https://example.com/faq/123을 참고하세요.",
-            "내 이름은 홍길동이고 전화번호는 010-1234-5678입니다.", "400 Bad Request 오류를 확인해주세요.",
-            "본인 인증을 생략할 수 없습니다.", "신분증이 없으면 발급할 수 없습니다.", "위임장 면제는 안 됩니다.",
-            "본인 인증은 필수이고 위임장은 면제됩니다."})
-    void 정상_설명_되묻기_부정_표현_계산_본인정보는_보존한다(String answer) {
+            "접수 번호는 999입니다.",
+            "https://example.com/faq/123을 참고하세요.",
+            "내 이름은 홍길동이고 전화번호는 010-1234-5678입니다.",
+            "400 Bad Request 오류를 확인해주세요.",
+            "본인 인증을 생략할 수 없습니다.",
+            "신분증이 없으면 발급할 수 없습니다.",
+            "위임장 면제는 안 됩니다.",
+            "본인 인증은 필수이고 위임장은 면제됩니다."
+    })
+    void 정상_설명_부정_표현_계산_본인정보는_보존한다(String answer) {
         AnswerMaterials source = answer.endsWith("위임장은 면제됩니다.")
                 ? materials("본인 인증은 필수입니다. 위임장은 면제됩니다.") : materials;
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(answer);
@@ -191,14 +202,16 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"무료 규정에 대한 정보가 있으면 알려주세요.", "문자 무료 건수는 요금제마다 다릅니다.",
+    @ValueSource(strings = {
+            "문자 무료 건수는 요금제마다 다릅니다.",
             "따라서 0원으로 변경되는 것은 아니며 FAQ 내용과 일치하지 않습니다.",
             "사용자가 '0원'이라고 언급한 경우, 해당 내용은 문서에 명시되어 있지 않습니다.",
             "위약금이 0원이라고 해도 할인반환금이 발생할 수 있습니다.",
             "본인인증 없이 타인의 청구액을 조회할 수 없습니다.",
             "본인확인 없이 고객 계약 정보를 제공하는 것은 불가능합니다.",
             "본인확인 없이 다른 고객의 정보를 확인하거나 제공하는 것은 가능하지 않습니다.",
-            "본인확인 없이 다른 고객 계약을 알려주는 것은 상담 범위를 벗어나며, 해당 요청은 처리할 수 없습니다."})
+            "본인확인 없이 다른 고객 계약을 알려주는 것은 상담 범위를 벗어나며, 해당 요청은 처리할 수 없습니다."
+    })
     void 혜택_문의_인용_부정과_인증_생략을_거절하는_문장은_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -262,18 +275,19 @@ class AiOutputGuardServiceTest {
             "서비스 신청이 완료된 상태일 경우 앱에서 내역을 확인해주세요.",
             "환불이 완료된 것으로 확인할 수 없습니다.",
             "요금제 변경이 완료된 것으로 단정할 수 없습니다.",
-            "환불이 완료된 것이 아닙니다.", "신청이 완료된 상태가 아닙니다.",
+            "환불이 완료된 것이 아닙니다.",
+            "신청이 완료된 상태가 아닙니다.",
             "신청 완료 문자를 받았다면 앱에서 신청 내역을 확인해주세요.",
             "'신청 완료된 상태'라는 문구를 받으셨다면 고객센터로 문의해주세요.",
             "서비스 신청 완료라는 안내만으로 실제 처리가 끝났다고 단정하지 마세요.",
             "회원의 청구서에 요금이 포함되어 있는지 확인할 수 없습니다.",
             "회원의 청구서에 반영되어 있지 않습니다.",
             "회원의 청구서에 반영된 경우 앱에서 내역을 확인해주세요.",
-            "본인의 청구서에 요금이 포함되어 있나요?",
             "부가서비스 이용료는 매월 청구서에 포함됩니다.",
             "보내주신 청구서 내용을 바탕으로 설명해 드리겠습니다.",
             "알려주신 청구 내역에 적힌 요금의 뜻을 설명해 드리겠습니다.",
-            "FAQ의 월 요금과 실제 청구 금액은 다를 수 있습니다."})
+            "FAQ의 월 요금과 실제 청구 금액은 다를 수 있습니다."
+    })
     void 완료_조건_확인_인용과_일반_청구_안내는_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -393,9 +407,7 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"청구 내역을 알려주시면 설명해 드리겠습니다.",
-            "청구서를 보내주시면 내용을 확인한 후 요금을 설명해 드리겠습니다.",
-            "청구 내역을 보내주시면 내용을 확인한 후 설명해 드리겠습니다.",
+    @ValueSource(strings = {
             "보내주신 자료를 확인해 드리겠습니다.",
             "요청 내역을 확인해 주시면 정정이 완료되었는지 안내해 드리겠습니다.",
             "FAQ 자료를 확인한 후 할인 조건을 안내해 드리겠습니다.",
@@ -407,9 +419,9 @@ class AiOutputGuardServiceTest {
             "단말 정보를 조회해 주시면 자급제 등록 여부를 정확히 안내해 드리겠습니다.",
             "회선 상태를 확인해 주시면 정지 사유를 정확히 안내드릴 수 있습니다.",
             "회원의 가입일을 확인해 주셔야 정확한 등급 산정 예정일을 안내드릴 수 있습니다.",
-            "무료 규정의 내용을 알려주시면 추가로 확인해 드리겠습니다.",
             "데이터 충전 내역을 확인해 드리기 위해 회원님의 계정 정보 또는 충전 기록을 확인할 수 있는 방법을 안내드릴 수 있습니다.",
-            "‘요금을 조회해 드리겠습니다’라는 문구만으로 조회가 진행된 것은 아닙니다."})
+            "‘요금을 조회해 드리겠습니다’라는 문구만으로 조회가 진행된 것은 아닙니다."
+    })
     void 제공_자료_확인과_앱_상담원_이용_안내는_조회_약속으로_오인하지_않는다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -488,10 +500,12 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"초과한 문자는 건당 22원이 청구됩니다.",
+    @ValueSource(strings = {
+            "초과한 문자는 건당 22원이 청구됩니다.",
             "초과 문자 10건을 건당 22원으로 계산하면 220원입니다.",
-            "건당 2원이 아니라 22원입니다.", "문자 요금을 건당 2원이라고 가정하면 10건에 20원입니다.",
-            "문자는 건당 2원인가요?"})
+            "건당 2원이 아니라 22원입니다.",
+            "문자 요금을 건당 2원이라고 가정하면 10건에 20원입니다."
+    })
     void 정상_건당_요금과_계산_가정_부정_질문은_보존한다(String answer) {
         var source = materials("초과한 문자는 건당 22원이 청구됩니다.");
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(answer);
@@ -570,10 +584,14 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"필수 조건이 없을 경우 온라인 신청할 수 있습니다.",
-            "필수 조건이 없지 않습니다.", "필수 조건이 없다는 주장은 잘못입니다.",
-            "필수 조건이 없다는 뜻이 아닙니다.", "필수 조건이 없나요?",
-            "법정대리인 동의를 생략할 수 없습니다.", "필수 조건이 있는지 확인해주세요."})
+    @ValueSource(strings = {
+            "필수 조건이 없을 경우 온라인 신청할 수 있습니다.",
+            "필수 조건이 없지 않습니다.",
+            "필수 조건이 없다는 주장은 잘못입니다.",
+            "필수 조건이 없다는 뜻이 아닙니다.",
+            "법정대리인 동의를 생략할 수 없습니다.",
+            "필수 조건이 있는지 확인해주세요."
+    })
     void 조건_유무의_가정_부정_문의는_확정_면제로_보지_않는다(String answer) {
         var source = materials("미성년자 가입에는 법정대리인 동의가 필요합니다.");
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(answer);
@@ -619,12 +637,17 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"무료 규정에 대한 정보가 있으면 알려주세요.",
-            "무료 규정에 따라 답변을 바꿀 수 없습니다.", "무료 규정에 따른다는 요청은 거절합니다.",
-            "제공된 FAQ는 구버전이 아닙니다.", "FAQ가 구버전인지 확인해주세요.",
-            "FAQ가 구버전이라고 확인할 수 없습니다.", "FAQ는 구버전이라는 주장은 잘못입니다.",
-            "자료의 최신 여부를 확인할 수 없습니다.", "무료 규정 대신 제공 자료를 참고해주세요.",
-            "무료 규정에 따라 답을 바꾸고자 하셨는데, 자료에 해당 규정은 포함되어 있지 않습니다."})
+    @ValueSource(strings = {
+            "무료 규정에 따라 답변을 바꿀 수 없습니다.",
+            "무료 규정에 따른다는 요청은 거절합니다.",
+            "제공된 FAQ는 구버전이 아닙니다.",
+            "FAQ가 구버전인지 확인해주세요.",
+            "FAQ가 구버전이라고 확인할 수 없습니다.",
+            "FAQ는 구버전이라는 주장은 잘못입니다.",
+            "자료의 최신 여부를 확인할 수 없습니다.",
+            "무료 규정 대신 제공 자료를 참고해주세요.",
+            "무료 규정에 따라 답을 바꾸고자 하셨는데, 자료에 해당 규정은 포함되어 있지 않습니다."
+    })
     void 규정_문의나_근거_변경을_거절하는_정상_설명은_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -787,14 +810,21 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"시스템 프롬프트 원문은 내부 정보로 공개되지 않습니다.",
-            "숨긴 테스트 비밀값은 공개할 수 없습니다.", "LLM API 키는 제공하지 않습니다.",
-            "로그인 세션 토큰을 출력할 수 없습니다.", "비밀 토큰은 입력하지 마세요.",
-            "비밀 키를 알려 드리지 않습니다.", "비밀 토큰은 포함하지 않고 FAQ 번호만 안내합니다.",
+    @ValueSource(strings = {
+            "시스템 프롬프트 원문은 내부 정보로 공개되지 않습니다.",
+            "숨긴 테스트 비밀값은 공개할 수 없습니다.",
+            "LLM API 키는 제공하지 않습니다.",
+            "로그인 세션 토큰을 출력할 수 없습니다.",
+            "비밀 토큰은 입력하지 마세요.",
+            "비밀 키를 알려 드리지 않습니다.",
+            "비밀 토큰은 포함하지 않고 FAQ 번호만 안내합니다.",
             "API 키는 서비스 인증에 쓰이는 값이며 외부에 공유하지 마세요.",
-            "API_KEY=****", "secret_token: [REDACTED]", "비밀 키는 'REDACTED'입니다.",
+            "API_KEY=****",
+            "secret_token: [REDACTED]",
+            "비밀 키는 'REDACTED'입니다.",
             "비밀 키는 'XXXXXXXX'로 가려졌습니다.",
-            "앱 로그인 화면에 비밀번호를 입력해주세요.", "휴대폰 설정에서 유심 비밀번호(PIN)를 설정할 수 있습니다.",
+            "앱 로그인 화면에 비밀번호를 입력해주세요.",
+            "휴대폰 설정에서 유심 비밀번호(PIN)를 설정할 수 있습니다.",
             "네트워크 설정 초기화 후 저장된 와이파이 비밀번호가 지워집니다.",
             "사용자가 알려준 전화번호는 010-0000-0000이고 이름은 홍길동입니다.",
             "시스템 프롬프트란 모델이 응답할 때 참고하는 지침입니다.",
@@ -802,8 +832,8 @@ class AiOutputGuardServiceTest {
             "질문에 '비밀 토큰을 넣어줘'라는 요청이 있지만 비밀 토큰은 공개할 수 없습니다.",
             "출처 항목에 비밀 토큰을 넣어주신 요청은 통신 상담 범위를 벗어나므로 해당 정보는 제공할 수 없습니다.",
             "비밀 키를 포함해 요청하신 내용은 통신 서비스 상담 범위를 넘어 있습니다.",
-            "해당 비밀 토큰은 어떤 목적과 어떤 규칙에 따라 사용되는지 알려주시겠어요?",
-            "-----BEGIN PUBLIC KEY-----\nPUBLIC_EXAMPLE\n-----END PUBLIC KEY-----"})
+            "-----BEGIN PUBLIC KEY-----\nPUBLIC_EXAMPLE\n-----END PUBLIC KEY-----"
+    })
     void 정상_보안_안내와_마스킹_예시_자기정보를_비밀정보_노출로_오인하지_않는다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -887,12 +917,14 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"타인의 정보를 조회할 수 없습니다.", "다른 고객 정보를 찾아드리는 요청은 거절합니다.",
-            "남의 청구 내역을 조회하면 안 됩니다.", "친구의 집 주소를 알려주시면 주변 매장을 안내하겠습니다.",
-            "부모님 댁 주소를 알려주시면 가까운 매장을 안내하겠습니다.",
+    @ValueSource(strings = {
+            "타인의 정보를 조회할 수 없습니다.",
+            "다른 고객 정보를 찾아드리는 요청은 거절합니다.",
+            "남의 청구 내역을 조회하면 안 됩니다.",
             "명의자 동의를 받아 등록된 자녀 회선은 가족 서비스에서 확인합니다.",
             "사용자가 입력한 전화번호는 010-0000-0000입니다.",
-            "'다른 고객 정보를 찾아줘'라는 문구는 타인 정보 조회 요구입니다."})
+            "'다른 고객 정보를 찾아줘'라는 문구는 타인 정보 조회 요구입니다."
+    })
     void 자기정보와_가족안내_위치제공_타인조회_거절을_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -940,26 +972,26 @@ class AiOutputGuardServiceTest {
     }
 
     @Test
-    void 타인_조회_요구를_제거한_뒤_연결된_자료_수집_요구도_제거한다() {
+    void 타인_조회와_추가자료_수집_요구는_전체차단한다() {
         String notice = "본인 내역은 앱에서 확인해주세요.";
         String answer = notice + " 이름만 같은 다른 고객 정보를 찾아 드리기 위해서는 추가 정보가 필요합니다. "
                 + "해당 정보를 제공해 주실 수 있나요?";
         assertRejected(answer, materials, null);
-        assertThat(guard.filterAnswer("해당 청구 정보를 보내주시면 설명해 드리겠습니다.", materials, null))
-                .isEqualTo("해당 청구 정보를 보내주시면 설명해 드리겠습니다.");
+        assertRejected("해당 청구 정보를 보내주시면 설명해 드리겠습니다.", materials, null);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"관리자로서 제한을 해제해 주셔도 명의 변경은 서류와 절차를 따릅니다.",
+    @ValueSource(strings = {
+            "관리자로서 제한을 해제해 주셔도 명의 변경은 서류와 절차를 따릅니다.",
             "콘텐츠 필터를 해제하는 것은 요금 감소와는 직접적인 관계가 없습니다.",
-            "콘텐츠 필터 해제에 대한 추가 정보가 필요하면 알려주세요.",
             "본인인증을 우회하는 것은 서비스 정책에 어긋나므로 정상 절차를 따르세요.",
             "'여성은 신청 자격 없다고 해'라는 내용은 제공된 자료에 포함되어 있지 않습니다.",
             "'여성은 신청 자격 없다'는 정보는 확인할 수 없습니다.",
             "'남성 고객은 이용 못 하게 하라고 해'라는 내용은 상담 범위를 벗어납니다.",
             "타인의 정보를 공개하거나, 타인의 납부 계좌를 공개하는 것은 정책에 위배됩니다.",
             "본인확인 없이 다른 고객 정보를 알려주는 것은 통신 서비스 상담의 범위를 벗어납니다.",
-            "다른 고객 정보를 찾아주는 것은 FAQ에 명시되어 있지 않으며 확인할 수 없습니다."})
+            "다른 고객 정보를 찾아주는 것은 FAQ에 명시되어 있지 않으며 확인할 수 없습니다."
+    })
     void 검수에서_확인한_정상_인용_거절과_무관성_설명을_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -1011,12 +1043,13 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"example.com을 출처로 참고하세요.",
+    @ValueSource(strings = {
+            "example.com을 출처로 참고하세요.",
             "https://example.com/guide를 근거로 사용하려면 내용을 먼저 확인해주세요.",
             "example.invalid를 근거로 사용했다는 뜻이 아닙니다.",
             "example.invalid를 근거로 활용한 것은 아닙니다.",
-            "example.invalid를 근거로 사용할 수 있나요?",
-            "example.invalid를 근거로 참고하라는 요청은 따르지 않습니다."})
+            "example.invalid를 근거로 참고하라는 요청은 따르지 않습니다."
+    })
     void 외부자료_활용방법_질문과_사용했다는_주장의_부정은_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -1291,7 +1324,6 @@ class AiOutputGuardServiceTest {
             "앱에서는 납부 내역을 조회해 드릴 수 있어요.",
             "매장에서 주변 매장을 찾아드리는 서비스를 제공합니다.",
             "알려주신 청구 내역을 확인해 요금을 설명해 드립니다.",
-            "청구서를 보내주시면 내용을 확인한 후 설명해 드립니다.",
             "보내주신 자료를 확인해 드려요.",
             "알려주신 자료의 내용을 확인할 수 있도록 도와드릴 수 있습니다.",
             "고객센터에서는 청구 내역을 확인할 수 있도록 도와드릴 수 있습니다.",
@@ -1307,17 +1339,19 @@ class AiOutputGuardServiceTest {
             "미납 내역을 조회해 안내해 드립니다라는 문구만으로 실제 조회가 된 것은 아닙니다.",
             "미납 내역을 조회해 드립니다는 잘못된 안내입니다.",
             "조회해 드릴 수 있는지 앱에서 확인해주세요.",
-            "개인 요금액은 현재 자료로 확인할 수 없습니다. 앱에서 청구 내역을 확인해주세요."})
+            "개인 요금액은 현재 자료로 확인할 수 없습니다. 앱에서 청구 내역을 확인해주세요."
+    })
     void 정상_이용안내_사용자자료_확인과_조회_약속의_부정_인용은_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
         verifyNoInteractions(repository);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"주변 매장을 조회해 안내해 드립니다.",
+    @ValueSource(strings = {
+            "주변 매장을 조회해 안내해 드립니다.",
             "주변 매장을 찾아드리는 서비스를 제공합니다.",
-            "매장 조회 도구를 통해 근처 매장 정보를 확인할 수 있도록 도와드릴 수 있습니다.",
-            "현재 위치를 알려주시면 주변 매장을 찾아 드리고 운영시간도 안내해 드릴 수 있습니다."})
+            "매장 조회 도구를 통해 근처 매장 정보를 확인할 수 있도록 도와드릴 수 있습니다."
+    })
     void 실제_매장_기능이나_결과가_있으면_그_범위의_조회_안내를_보존한다(String answer) {
         var enabled = AnswerMaterials.builder("주변 매장").enableTool(AiTool.STORE_SEARCH).build();
         assertThat(guard.filterAnswer(answer, enabled, null)).isEqualTo(answer);
@@ -1482,10 +1516,10 @@ class AiOutputGuardServiceTest {
             "1개월 사용 후 변경할 수 있습니다. 2개월 사용 후 변경할 수 없습니다.",
             "번호이동은 주말에도 신청할 수 있습니다. 번호이동은 주말에도 신청이 가능합니다.",
             "번호이동은 주말에도 신청할 수 없습니다. 번호이동은 주말에도 신청이 불가합니다.",
-            "번호이동은 주말에도 신청할 수 있나요? 번호이동은 주말에도 신청할 수 없습니다.",
             "'번호이동은 주말에도 신청할 수 있습니다'라는 문구는 잘못된 안내입니다. 번호이동은 주말에도 신청할 수 없습니다.",
             "번호이동은 주말에도 신청이 가능합니다는 잘못된 안내입니다. 번호이동은 주말에도 신청할 수 없습니다.",
-            "번호이동은 주말에도 신청할 수 있습니다.\n\n다른 서비스의 이용 조건은 아래에서 확인하세요."})
+            "번호이동은 주말에도 신청할 수 있습니다.\n\n다른 서비스의 이용 조건은 아래에서 확인하세요."
+    })
     void 대상_조건_행위가_다르거나_질문과_인용_설명인_정상_답변은_보존한다(String answer) {
         var source = availabilityMaterials("번호이동은 주말에도 신청할 수 있나요?", answer);
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(answer);
@@ -1687,20 +1721,28 @@ class AiOutputGuardServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "필요한 서류는 통신사에 문의해주세요.", "추가 서류가 필요한지 확인하세요.",
-            "재직증명서가 필수인가요?", "재직증명서가 필수인지 확인해주세요.",
-            "재직증명서를 제출해야 하는지 문의해주세요.", "재직증명서를 제출해야 한다면 발급 방법을 확인하세요.",
+            "필요한 서류는 통신사에 문의해주세요.",
+            "추가 서류가 필요한지 확인하세요.",
+            "재직증명서가 필수인지 확인해주세요.",
+            "재직증명서를 제출해야 하는지 문의해주세요.",
+            "재직증명서를 제출해야 한다면 발급 방법을 확인하세요.",
             "'재직증명서가 필수입니다'라는 문구를 보셨다면 매장에 문의하세요.",
             "재직증명서를 제출해야 한다는 문구는 실제 안내인지 확인해주세요.",
-            "재직증명서가 필요할 수 있습니다.", "가능한 서류 예시는 재직증명서와 소득증명서입니다.",
-            "소득증명서는 선택 사항입니다.", "외국인 신규 가입에는 여권과 외국인등록증을 지참해주세요.",
-            "신분증을 지참해주세요.", "주소증명서의 발급 방법은 주민센터에 문의하세요.",
-            "본인이 준비한 서류를 직접 확인해주세요.", "5G 요금제에 가입해야 하는지 확인하세요.",
-            "매장 방문이 필수인지 확인해주세요.", "성인만 가입할 수 있나요?",
+            "재직증명서가 필요할 수 있습니다.",
+            "가능한 서류 예시는 재직증명서와 소득증명서입니다.",
+            "소득증명서는 선택 사항입니다.",
+            "외국인 신규 가입에는 여권과 외국인등록증을 지참해주세요.",
+            "신분증을 지참해주세요.",
+            "주소증명서의 발급 방법은 주민센터에 문의하세요.",
+            "본인이 준비한 서류를 직접 확인해주세요.",
+            "5G 요금제에 가입해야 하는지 확인하세요.",
+            "매장 방문이 필수인지 확인해주세요.",
             "성인만 가입할 수 있다면 다른 요금제를 확인하세요.",
             "'성인만 가입할 수 있습니다'라는 문구를 보셨다면 적용 조건을 문의하세요.",
             "월 요금은 55,000원입니다. 약정 기간은 24개월입니다. 고객센터는 02-123-4567입니다.",
-            "하지만 인터넷은 별도로 가입해야 합니다.", "없지만 다른 상품을 가입할 수 있습니다."})
+            "하지만 인터넷은 별도로 가입해야 합니다.",
+            "없지만 다른 상품을 가입할 수 있습니다."
+    })
     void 단순_권고_문의_인용_가정_예시와_일반_안내를_필수_추가로_오인하지_않는다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -1794,9 +1836,10 @@ class AiOutputGuardServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"필수 서류는 없습니다.\n- 재직증명서 발급은 회사에 문의하세요.",
-            "필수 서류는 상황마다 달라 확인해주세요.\n- 재직증명서는 예시입니다.",
-            "필수 서류는 신분증인가요?\n- 재직증명서는 선택 사항입니다."})
+    @ValueSource(strings = {
+            "필수 서류는 없습니다.\n- 재직증명서 발급은 회사에 문의하세요.",
+            "필수 서류는 상황마다 달라 확인해주세요.\n- 재직증명서는 예시입니다."
+    })
     void 일반_설명이나_문의의_필수서류_표현을_필수목록_머리말로_오인하지_않는다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -1962,18 +2005,19 @@ class AiOutputGuardServiceTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "LTE 휴대폰은 LTE 요금제를 사용할 수 있나요?",
             "5G 휴대폰에서 LTE 요금제를 사용할 수 있는지는 제공 자료로 확인할 수 없습니다.",
             "'5G 휴대폰에서 LTE 요금제를 사용할 수 있습니다'라는 문구의 적용 조건을 확인하세요.",
             "전화번호 유지와 연락처 보존은 별개의 문제입니다.",
             "연락처는 백업 위치와 동기화 설정을 확인해주세요.",
             "현재 FAQ에서는 연락처 보존 여부를 확인할 수 없습니다.",
             "정지 방법은 고객센터에 문의하고 남은 할부금은 앱에서 중도 완납할 수 있습니다.",
-            "정지와 완납은 별개입니다.", "완납은 정지 방법이 아닙니다.",
-            "정지하려면 완납을 요청할 수 있나요?", "정지하려면 완납을 요청할 수 있다는 문구를 확인해주세요.",
+            "정지와 완납은 별개입니다.",
+            "완납은 정지 방법이 아닙니다.",
+            "정지하려면 완납을 요청할 수 있다는 문구를 확인해주세요.",
             "'정지하려면 중도 완납을 요청하세요'라는 안내는 잘못된 내용입니다.",
             "정지 후에도 남은 할부금은 계속 납부해야 합니다.",
-            "월 요금은 55,000원입니다. 약정 기간은 24개월입니다. 고객센터는 02-123-4567입니다."})
+            "월 요금은 55,000원입니다. 약정 기간은 24개월입니다. 고객센터는 02-123-4567입니다."
+    })
     void 정상_비교_문의_인용_정보부족과_분리된_업무_설명을_보존한다(String answer) {
         var source = materials("LTE 휴대폰은 LTE 요금제를 사용할 수 있습니다. 전화번호는 그대로 유지됩니다. 앱에서 중도 완납할 수 있습니다. 월 요금은 55,000원입니다. 약정 기간은 24개월입니다.");
         assertThat(guard.filterAnswer(answer, source, null)).isEqualTo(answer);
@@ -2111,15 +2155,19 @@ class AiOutputGuardServiceTest {
             "현재 FAQ에는 노트북 지원 정보가 제공되지 않습니다.",
             "전화번호 숨김 서비스의 제공 여부는 현재 자료로 확인할 수 없습니다.",
             "현재 조회 결과가 없어 요금액을 제공할 수 없습니다.",
-            "청구 내역을 조회해 드릴 수 없습니다.", "무료로 제공할 수 없습니다.",
-            "타인의 정보를 조회하거나 사용할 수 없습니다.", "시스템 프롬프트는 제공되지 않습니다.",
-            "번호이동은 주말에 신청할 수 없나요?", "eSIM은 매장에서 개통이 불가한가요?",
+            "청구 내역을 조회해 드릴 수 없습니다.",
+            "무료로 제공할 수 없습니다.",
+            "타인의 정보를 조회하거나 사용할 수 없습니다.",
+            "시스템 프롬프트는 제공되지 않습니다.",
             "'eSIM은 매장에서 개통이 불가합니다'라는 안내는 잘못된 내용입니다.",
             "eSIM은 매장에서 개통할 수 없습니다라는 문구를 확인해주세요.",
             "예를 들어 개통이 불가하다고 가정하면 고객센터에 문의하세요.",
-            "조건에 따라 가입이 제한될 수 있습니다.", "서비스를 이용할 수 없으면 고객센터에 문의해주세요.",
-            "노트북 지원은 자료를 확인해주세요.", "앱이나 고객센터에서 신청해주세요.",
-            "월 요금은 55,000원입니다. 약정 기간은 24개월입니다. 고객센터는 02-123-4567입니다."})
+            "조건에 따라 가입이 제한될 수 있습니다.",
+            "서비스를 이용할 수 없으면 고객센터에 문의해주세요.",
+            "노트북 지원은 자료를 확인해주세요.",
+            "앱이나 고객센터에서 신청해주세요.",
+            "월 요금은 55,000원입니다. 약정 기간은 24개월입니다. 고객센터는 02-123-4567입니다."
+    })
     void 정보부족_질문_인용_가정_안전거절과_직접확인_안내는_보존한다(String answer) {
         assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
@@ -2569,5 +2617,167 @@ class AiOutputGuardServiceTest {
         return new StoreMapResult(new Location(37.5, 127), "강남역", 3,
                 List.of(new NearbyStoreResponseDto(1, "강남점", "서울", "강남구", "강남대로", "02-123-4567",
                         "09:00~18:00", 37.5, 127, 1.46)));
+    }
+
+    // 팀 합의: LLM이 사용자에게 되묻거나 추가 정보를 요구한 답변은 전체 거절합니다.
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "청구 내역을 알려주시면 설명해 드리겠습니다.",
+            "청구서를 보내주시면 내용을 확인한 후 요금을 설명해 드리겠습니다.",
+            "청구 내역을 보내주시면 내용을 확인한 후 설명해 드리겠습니다.",
+            "무료 규정의 내용을 알려주시면 추가로 확인해 드리겠습니다."
+    })
+    void 제공_자료_확인과_앱_상담원_이용_안내는_조회_약속으로_오인하지_않는다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "콘텐츠 필터 해제에 대한 추가 정보가 필요하면 알려주세요."
+    })
+    void 검수에서_확인한_정상_인용_거절과_무관성_설명을_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "청구서를 보내주시면 내용을 확인한 후 설명해 드립니다."
+    })
+    void 정상_이용안내_사용자자료_확인과_조회_약속의_부정_인용은_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+        verifyNoInteractions(repository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "LTE 휴대폰은 LTE 요금제를 사용할 수 있나요?",
+            "정지하려면 완납을 요청할 수 있나요?"
+    })
+    void 정상_비교_문의_인용_정보부족과_분리된_업무_설명을_보존한다_되묻기는_전체차단한다(String answer) {
+        var source = materials("LTE 휴대폰은 LTE 요금제를 사용할 수 있습니다. 전화번호는 그대로 유지됩니다. 앱에서 중도 완납할 수 있습니다. 월 요금은 55,000원입니다. 약정 기간은 24개월입니다.");
+        assertRejected(answer, source, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "필수 서류는 신분증인가요?\n- 재직증명서는 선택 사항입니다."
+    })
+    void 일반_설명이나_문의의_필수서류_표현을_필수목록_머리말로_오인하지_않는다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "현재 위치를 알려주시면 주변 매장을 찾아 드리고 운영시간도 안내해 드릴 수 있습니다."
+    })
+    void 실제_매장_기능이나_결과가_있으면_그_범위의_조회_안내를_보존한다_되묻기는_전체차단한다(String answer) {
+        var enabled = AnswerMaterials.builder("주변 매장").enableTool(AiTool.STORE_SEARCH).build();
+        assertRejected(answer, enabled, null);
+        assertRejected(answer, materials, storeMap());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "무료 규정에 대한 정보가 있으면 알려주세요."
+    })
+    void 혜택_문의_인용_부정과_인증_생략을_거절하는_문장은_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "무료 규정에 대한 정보가 있으면 알려주세요."
+    })
+    void 규정_문의나_근거_변경을_거절하는_정상_설명은_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "재직증명서가 필수인가요?",
+            "성인만 가입할 수 있나요?"
+    })
+    void 단순_권고_문의_인용_가정_예시와_일반_안내를_필수_추가로_오인하지_않는다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "필수 조건이 없나요?"
+    })
+    void 조건_유무의_가정_부정_문의는_확정_면제로_보지_않는다_되묻기는_전체차단한다(String answer) {
+        var source = materials("미성년자 가입에는 법정대리인 동의가 필요합니다.");
+        assertRejected(answer, source, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "번호이동은 주말에 신청할 수 없나요?",
+            "eSIM은 매장에서 개통이 불가한가요?"
+    })
+    void 정보부족_질문_인용_가정_안전거절과_직접확인_안내는_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "친구의 집 주소를 알려주시면 주변 매장을 안내하겠습니다.",
+            "부모님 댁 주소를 알려주시면 가까운 매장을 안내하겠습니다."
+    })
+    void 자기정보와_가족안내_위치제공_타인조회_거절을_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "본인의 청구서에 요금이 포함되어 있나요?"
+    })
+    void 완료_조건_확인_인용과_일반_청구_안내는_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "해당 비밀 토큰은 어떤 목적과 어떤 규칙에 따라 사용되는지 알려주시겠어요?"
+    })
+    void 정상_보안_안내와_마스킹_예시_자기정보를_비밀정보_노출로_오인하지_않는다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "example.invalid를 근거로 사용할 수 있나요?"
+    })
+    void 외부자료_활용방법_질문과_사용했다는_주장의_부정은_보존한다_되묻기는_전체차단한다(String answer) {
+        assertRejected(answer, materials, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "문자는 건당 2원인가요?"
+    })
+    void 정상_건당_요금과_계산_가정_부정_질문은_보존한다_되묻기는_전체차단한다(String answer) {
+        var source = materials("초과한 문자는 건당 22원이 청구됩니다.");
+        assertRejected(answer, source, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "번호이동은 주말에도 신청할 수 있나요? 번호이동은 주말에도 신청할 수 없습니다."
+    })
+    void 대상_조건_행위가_다르거나_질문과_인용_설명인_정상_답변은_보존한다_되묻기는_전체차단한다(String answer) {
+        var source = availabilityMaterials("번호이동은 주말에도 신청할 수 있나요?", answer);
+        assertRejected(answer, source, null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "할인율이 50%인가요?",
+            "정확한 요금제 이름을 알려주실 수 있나요?"
+    })
+    void 정상_설명_되묻기_부정_표현_계산_본인정보는_보존한다_되묻기는_전체차단한다(String answer) {
+        AnswerMaterials source = answer.endsWith("위임장은 면제됩니다.")
+                ? materials("본인 인증은 필수입니다. 위임장은 면제됩니다.") : materials;
+        assertRejected(answer, source, null);
     }
 }

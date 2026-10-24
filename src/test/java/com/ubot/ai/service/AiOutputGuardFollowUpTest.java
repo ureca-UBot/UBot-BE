@@ -44,11 +44,11 @@ class AiOutputGuardFollowUpTest {
             "청구서를 보내주시면 내용을 확인한 후 설명해 드립니다.",
             "요금제는 앱에서 변경할 수 있습니다. 정확한 요금제 이름을 알려주실 수 있나요?"
     })
-    void preservesSafeClarificationWithoutChangingTheAnswer(String answer) {
+    void rejectsClarificationUnderTheAgreedWholeAnswerPolicy(String answer) {
         var result = guard.inspectAnswer(answer, materials, null);
 
-        assertThat(result.rejected()).isFalse();
-        assertThat(result.answer()).isEqualTo(answer);
+        assertThat(result.rejected()).isTrue();
+        assertThat(result.answer()).isNull();
     }
 
     @ParameterizedTest
