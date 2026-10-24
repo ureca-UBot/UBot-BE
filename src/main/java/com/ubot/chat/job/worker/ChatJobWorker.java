@@ -603,7 +603,8 @@ public class ChatJobWorker implements SmartLifecycle {
 					"code", outcome.isFailed() ? outcome.errorCode().getCode() : "none").increment();
 			if (completion.questionLogId() != null) {
 				saveResultQuietly(message.jobId(),
-						new ChatJobResult(completion.questionLogId(), outcome.store(), outcome.userData()));
+						new ChatJobResult(completion.questionLogId(), outcome.store(), outcome.userData(),
+								outcome.productData()));
 			}
 			// DB 커밋 뒤에만 ACK함
 			ackQuietly(received);

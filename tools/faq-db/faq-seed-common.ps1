@@ -13,15 +13,33 @@ function Copy-FaqSeedCsv {
     }
 }
 
+# FAQ IDs in seed/deleted-faqs.json stay in the CSVs but are loaded as soft-deleted.
+function Get-FaqDeletedIds {
+    param([string] $SeedPath)
+    $path = Join-Path $SeedPath 'deleted-faqs.json'
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    $ids = @((Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json).faqIds | ForEach-Object { [string] $_ })
+    foreach ($id in $ids) {
+        if ($id -notmatch '^[0-9]+$') { throw "Invalid FAQ ID in deleted-faqs.json: $id" }
+    }
+    return $ids
+}
+
 function New-FaqSeedSql {
-    param([string] $TemplatePath)
+    param([string] $TemplatePath, [string[]] $DeletedFaqIds = @())
     $sql = Get-Content -LiteralPath $TemplatePath -Raw -Encoding UTF8
-    if (-not $sql.Contains('-- __FAQ_COPIES__') -or -not $sql.Contains('-- __VARIANT_COPIES__')) {
-        throw "Missing CSV copy markers in $TemplatePath"
+    if (-not $sql.Contains('-- __FAQ_COPIES__') -or -not $sql.Contains('-- __VARIANT_COPIES__') -or
+        -not $sql.Contains('-- __DELETED_FAQS__')) {
+        throw "Missing CSV copy or deleted FAQ markers in $TemplatePath"
     }
     $faqCopies = "\copy seed_faq (faq_id, category, question, answer, intent) FROM '/tmp/baseline-faqs.csv' WITH (FORMAT csv, HEADER true)"
     $variantCopies = "\copy seed_variant (origin_faq_id, variant_id, question) FROM '/tmp/baseline-faq-variants.csv' WITH (FORMAT csv, HEADER true)"
+    $deletedFaqs = ''
+    if ($DeletedFaqIds.Count -gt 0) {
+        $deletedFaqs = "UPDATE faq SET deleted_at = CURRENT_TIMESTAMP WHERE id IN ($($DeletedFaqIds -join ', '));"
+    }
     $sql = $sql.Replace('-- __FAQ_COPIES__', $faqCopies).Replace('-- __VARIANT_COPIES__', $variantCopies)
+    $sql = $sql.Replace('-- __DELETED_FAQS__', $deletedFaqs)
     $path = Join-Path (Split-Path -Parent $TemplatePath) (".ubot-faq-seed-" + [Guid]::NewGuid().ToString('N') + '.sql')
     [IO.File]::WriteAllText($path, $sql, (New-Object System.Text.UTF8Encoding $false))
     return $path

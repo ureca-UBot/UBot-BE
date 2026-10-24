@@ -67,7 +67,8 @@ public class ChatJobQueryService {
 		return ChatJobStatusResponseDto.succeeded(job, attempt,
 				questionLog.getAnswer(),
 				result.map(ChatJobResult::store).orElse(null),
-				result.map(ChatJobResult::userData).orElse(null));
+				result.map(ChatJobResult::userData).orElse(null),
+				result.map(ChatJobResult::productData).orElse(null));
 	}
 
 	// V33 이전 작업 호환용

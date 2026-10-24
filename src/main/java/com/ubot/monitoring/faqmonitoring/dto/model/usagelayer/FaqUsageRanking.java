@@ -4,6 +4,7 @@ public record FaqUsageRanking(
 		FaqUsageByIntent all,
 		FaqUsageByIntent general,
 		FaqUsageByIntent userData,
-		FaqUsageByIntent storeData
+		FaqUsageByIntent storeData,
+		FaqUsageByIntent productData
 ) {
 }
