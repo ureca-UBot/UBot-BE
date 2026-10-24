@@ -117,19 +117,43 @@ class ProductToolsIntegrationTest {
     }
 
     @Test
-    @DisplayName("요금제 카드에는 컬럼으로 만든 핵심 수치와 설명의 고유 문장을 목록으로 담는다")
+    @DisplayName("요금제 카드에는 데이터·음성/문자·테더링 세 줄과 설명의 고유 정보, 네트워크 뱃지와 선택약정 할인가를 담는다")
     void planCardHasSpecsAndHighlights() {
         insertPlan(mark + " 청년", "FIVE_G", "YOUTH", 59000, 24000L, false, 1000,
-                "월 데이터 24GB, 소진 후 최대 1Mbps로 계속 이용. 표시 월정액은 부가세 포함, 기간 한정 할인 없이 유지. "
-                        + "가입 대상 만 19~34세.");
+                "월 데이터 24GB, 소진 후 최대 1Mbps로 계속 이용. 국내 일반 음성 기본제공, 국내 문자 기본제공. "
+                        + "테더링 월 24GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감. 표시 월정액은 부가세 포함, 기간 한정 할인 없이 유지. "
+                        + "테더링 한도 소진 후 테더링 차단. 가입 대상 만 19~34세. 만 35세가 되는 달 말일까지 이용 가능. 이후 일반형 변경 상담 안내.");
+        jdbcTemplate.update("UPDATE plans SET tethering_amount_mb = 24000 WHERE name = ?", mark + " 청년");
 
         planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
 
-        // "표시 월정액은 부가세 포함…"은 판매 중인 요금제 대부분에 있는 문장이라 카드에서 뺍니다.
+        // 테더링·부가세 문장은 판매 중인 요금제 대부분에 있는 공통 문장이라 고유 정보에서 빠지고, 테더링 규칙은 테더링 줄에 붙습니다.
         assertThat(recorder.cards()).singleElement().satisfies(card -> {
-            assertThat(card.specs()).containsExactly("5G", "데이터 24GB(소진 후 최대 1Mbps)", "음성·문자 기본 제공",
-                    "테더링 제공 안 함", "선택약정 25% 할인 시 월 44,250원");
-            assertThat(card.highlights()).containsExactly("가입 대상 만 19~34세");
+            assertThat(card.specs()).containsExactly("월 데이터 24GB, 소진 후 최대 1Mbps", "국내 일반 음성/문자 기본제공",
+                    "테더링 월 24GB, 기본 데이터에서 함께 차감, 한도 소진 후 차단");
+            assertThat(card.highlights()).containsExactly(
+                    "가입 대상 만 19~34세", "만 35세가 되는 달 말일까지 이용 가능", "이후 일반형 변경 상담 안내");
+            assertThat(card.network()).isEqualTo("5G");
+            assertThat(card.feeNote()).isEqualTo("선택약정 25% 할인 시 월 44,250원");
+        });
+    }
+
+    @Test
+    @DisplayName("무제한 요금제 카드는 테더링 차감 조건 없이 쓰고, 무약정 요금제는 선택약정 할인가 문구가 없다")
+    void unlimitedNoContractPlanCard() {
+        insertPlan("Ubot 다이렉트 " + mark, "LTE", "GENERAL", 61000, null, true, null,
+                "월 고속 데이터 무제한. 테더링 월 40GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감. "
+                        + "테더링 한도 소진 후 테더링 차단. 온라인 셀프개통 전용, 약정 없음.");
+        jdbcTemplate.update("UPDATE plans SET tethering_amount_mb = 40000 WHERE name = ?", "Ubot 다이렉트 " + mark);
+
+        planTools.searchPlans(mark, null, null, null, null, null, null, null, toolContext);
+
+        assertThat(recorder.cards()).singleElement().satisfies(card -> {
+            assertThat(card.specs()).containsExactly("월 고속 데이터 무제한", "국내 일반 음성/문자 기본제공",
+                    "테더링 월 40GB, 한도 소진 후 차단");
+            assertThat(card.highlights()).contains("온라인 셀프개통 전용, 약정 없음").doesNotContain("월 고속 데이터 무제한");
+            assertThat(card.network()).isEqualTo("LTE");
+            assertThat(card.feeNote()).isNull();
         });
     }
 

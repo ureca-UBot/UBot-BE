@@ -21,7 +21,8 @@ import org.springframework.util.StringUtils;
  * FAQ가 아니라 이 설명이 원본입니다.
  * 설명에는 "월 데이터 24GB", "월 3,300원"처럼 그 상품의 컬럼 값을 다시 쓴 구절이 섞여 있습니다. 그 값은 행에 이미 있으므로
  * 구절(쉼표로 나눈 단위)이 컬럼 값만 다시 쓴 것이면 뺍니다. 컬럼 값만 다시 쓴 구절은 수량이 모두 그 상품의 컬럼 값과 같고,
- * 수량을 가린 나머지가 행에 있는 항목 이름(종류별 *_LABELS)뿐인 구절입니다.
+ * 수량을 가린 나머지가 행에 있는 항목 이름(종류별 *_LABELS)뿐인 구절입니다. 요금제는 "월 고속 데이터 무제한"처럼
+ * 수량 없는 재서술도 그 요금제 컬럼과 내용이 같으면 뺍니다(planLabels).
  * "테더링 월 24GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감"처럼 수량이 컬럼과 같아도 조건이 붙은 구절은
  * 수량째 남깁니다. 수량만 떼면 무엇의 조건인지 알 수 없기 때문입니다. 항목 이름 목록에 없는 구절도 남깁니다.
  * "각 회선 월정액 19,000원 이상"(결합 조건), "매월 1GB 추가"(부가서비스 충전량)처럼 컬럼에 없는 수량도 규칙이라 남깁니다.
@@ -39,14 +40,21 @@ final class ProductDescriptions {
     // 관리자는 무약정 요금제 설명에 이 구절을 넣습니다(예: "온라인 셀프개통 전용, 약정 없음.").
     private static final Pattern NO_CONTRACT = Pattern.compile("무약정|약정\\s*없음");
     private static final String QUANTITY_MARK = "{}";
-    // 도구 결과 행이 이미 보여 주는 항목입니다. 수량 자리는 QUANTITY_MARK입니다(shape 참고).
+    // 도구 결과 행과 카드가 이미 보여 주는 항목입니다. 수량 자리는 QUANTITY_MARK입니다(shape 참고).
     static final Set<String> PLAN_LABELS = Set.of(
             "월 데이터 {}", "소진 후 최대 {}로 계속 이용", "국내 일반 음성 {}", "국내 문자 {}", "테더링 월 {}");
+    // 수량 없이 컬럼 값을 다시 쓴 구절입니다. 그 요금제 컬럼이 같은 내용일 때만 재서술로 봅니다(planLabels 참고).
+    static final String DATA_UNLIMITED_LABEL = "월 고속 데이터 무제한";
+    static final String VOICE_UNLIMITED_LABEL = "국내 일반 음성 기본제공";
+    static final String SMS_UNLIMITED_LABEL = "국내 문자 기본제공";
+    static final String DATA_BLOCKED_LABEL = "소진 후 데이터 차단";
+    static final String NO_VOICE_SMS_LABEL = "일반 음성·문자 미제공";
+    // 요금제 카드의 테더링 줄이 설명에서 가져오는 규칙입니다. 설명에 있을 때만 카드에 붙습니다(PlanTools 카드 참고).
+    static final String TETHERING_SHARED_RULE = "유한 데이터 상품은 기본 제공량에서 함께 차감";
+    static final String TETHERING_BLOCKED_RULE = "테더링 한도 소진 후 테더링 차단";
     static final Set<String> ADDON_LABELS = Set.of("월 {}");
     static final Set<String> BUNDLE_LABELS = Set.of("결합 전체 월 {} 할인");
     static final Set<String> ROAMING_LABELS = Set.of("일 {}", "데이터 {}");
-    /** 카드에 보여 줄 설명 문장 수입니다. */
-    static final int HIGHLIGHT_LIMIT = 3;
 
     private ProductDescriptions() {
     }
@@ -54,7 +62,30 @@ final class ProductDescriptions {
     static List<String> of(Plan plan) {
         return sentences(plan.getDescription(), quantities(
                 "MB", plan.getDataAmountMb(), "MB", plan.getTetheringAmountMb(), "Kbps", plan.getExhaustedSpeedKbps(),
-                "분", plan.getVoiceMinutes(), "건", plan.getSmsCount(), "원", plan.getMonthlyFee()), PLAN_LABELS);
+                "분", plan.getVoiceMinutes(), "건", plan.getSmsCount(), "원", plan.getMonthlyFee()), planLabels(plan));
+    }
+
+    /** PLAN_LABELS에, 이 요금제 컬럼과 내용이 같은 수량 없는 재서술 구절을 더합니다. */
+    static Set<String> planLabels(Plan plan) {
+        Set<String> labels = new HashSet<>(PLAN_LABELS);
+        boolean noVoice = !plan.isVoiceUnlimited() && isZero(plan.getVoiceMinutes());
+        boolean noSms = !plan.isSmsUnlimited() && isZero(plan.getSmsCount());
+        if (plan.isDataUnlimited()) labels.add(DATA_UNLIMITED_LABEL);
+        if (!plan.isDataUnlimited() && plan.getExhaustedSpeedKbps() == null) labels.add(DATA_BLOCKED_LABEL);
+        if (plan.isVoiceUnlimited()) labels.add(VOICE_UNLIMITED_LABEL);
+        if (plan.isSmsUnlimited()) labels.add(SMS_UNLIMITED_LABEL);
+        if (noVoice && noSms) labels.add(NO_VOICE_SMS_LABEL);
+        return labels;
+    }
+
+    /** 설명에 이 구절이 있는지입니다. 띄어쓰기 차이는 무시합니다. */
+    static boolean mentions(String description, String phrase) {
+        return StringUtils.hasText(description)
+                && description.replaceAll("\\s+", "").contains(phrase.replaceAll("\\s+", ""));
+    }
+
+    private static boolean isZero(Number value) {
+        return value == null || value.longValue() == 0;
     }
 
     static List<String> of(AddonService addon) {
@@ -87,12 +118,12 @@ final class ProductDescriptions {
     }
 
     /**
-     * 카드에 목록으로 보여 줄 상품 고유 문장입니다. 같은 종류 상품 다수에 있는 문장(common, shape로 비교)을 빼고
-     * 앞에서부터 HIGHLIGHT_LIMIT개를 마침표 없이 돌려줍니다.
+     * 카드에 목록으로 보여 줄 상품 고유 정보입니다. 같은 종류 상품 다수에 있는 문장(common, shape로 비교)만 빼고
+     * 모두 마침표 없이 돌려줍니다. 가입 대상·포함 혜택처럼 그 상품에만 있는 정보는 빠짐없이 보여 주려고 개수를 제한하지 않습니다.
      */
     static List<String> highlights(List<String> sentences, Set<String> common) {
         return sentences.stream().filter(sentence -> !common.contains(shape(sentence)))
-                .map(sentence -> sentence.replaceAll("\\.$", "")).limit(HIGHLIGHT_LIMIT).toList();
+                .map(sentence -> sentence.replaceAll("\\.$", "")).toList();
     }
 
     /** 설명에 "약정 없음" 구절이 있는 요금제입니다. 이런 요금제는 선택약정 할인을 받을 수 없습니다. */
@@ -120,23 +151,21 @@ final class ProductDescriptions {
         return QUANTITY.matcher(text).replaceAll(QUANTITY_MARK).replaceAll("\\s+", " ").strip();
     }
 
-    /** 구절에 수량이 있고, 그 수량이 모두 상품의 컬럼 값과 같으며, 수량을 가린 나머지가 행의 항목 이름뿐인지입니다. */
+    /** 수량을 가린 구절이 행의 항목 이름뿐이고, 구절에 수량이 있으면 그 수량이 모두 상품의 컬럼 값과 같은지입니다. */
     private static boolean restatesColumns(String clause, Collection<String> columnQuantities,
             Set<String> columnLabels) {
         if (!columnLabels.contains(shape(clause))) {
             return false;
         }
         Matcher matcher = QUANTITY.matcher(clause);
-        boolean found = false;
         while (matcher.find()) {
             Unit unit = UNITS.get(matcher.group(2));
             BigDecimal value = new BigDecimal(matcher.group(1).replace(",", "")).multiply(BigDecimal.valueOf(unit.factor()));
             if (!columnQuantities.contains(key(unit.base(), value))) {
                 return false;
             }
-            found = true;
         }
-        return found;
+        return true;
     }
 
     private static String key(String unit, BigDecimal value) {

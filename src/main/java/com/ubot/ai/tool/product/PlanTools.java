@@ -7,7 +7,6 @@ import com.ubot.ai.tool.product.ProductToolResults.InvalidValueException;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.enums.NetworkType;
 import com.ubot.plan.enums.PlanTargetGroup;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -155,20 +154,62 @@ public class PlanTools {
                 : "(소진 후 최대 " + ToolFormats.speed(plan.getExhaustedSpeedKbps()) + ")");
     }
 
-    /** 카드에는 행의 핵심 수치(네트워크·데이터·음성·문자·테더링·선택약정)와 설명의 고유 문장을 목록으로 담습니다. */
+    /**
+     * 카드에는 요금제마다 다른 수치를 데이터·음성/문자·테더링 세 줄로 담고(specs), 설명의 고유 정보를 모두 담습니다(highlights).
+     * 네트워크는 화면의 뱃지로, 선택약정 할인가는 요금 아래 문구로 따로 담습니다. 무약정 요금제는 할인가 문구가 없습니다.
+     */
     private ProductCard card(Plan plan) {
-        List<String> specs = new ArrayList<>();
-        if (plan.getNetworkType() != null) {
-            specs.add(networkLabel(plan.getNetworkType()));
-        }
-        specs.add("데이터 " + data(plan));
-        String voice = allowance(plan.isVoiceUnlimited(), plan.getVoiceMinutes(), "분");
-        String sms = allowance(plan.isSmsUnlimited(), plan.getSmsCount(), "건");
-        specs.add(voice.equals(sms) ? "음성·문자 " + voice : "음성 " + voice + ", 문자 " + sms);
-        specs.add("테더링 " + tethering(plan.getTetheringAmountMb()));
-        specs.add(contractFee(plan));
+        List<String> specs = List.of(dataSpec(plan), voiceSmsSpec(plan), tetheringSpec(plan));
+        String network = plan.getNetworkType() == null ? null : networkLabel(plan.getNetworkType());
+        String feeNote = ProductDescriptions.isNoContract(plan.getDescription()) ? null : contractFee(plan);
         return new ProductCard(ProductType.PLAN, plan.getName(), plan.getMonthlyFee(), specs,
-                ProductDescriptions.highlights(ProductDescriptions.of(plan), productNameIndex.commonSentences(ProductType.PLAN)));
+                ProductDescriptions.highlights(ProductDescriptions.of(plan), productNameIndex.commonSentences(ProductType.PLAN)),
+                network, feeNote);
+    }
+
+    private static String dataSpec(Plan plan) {
+        if (plan.isDataUnlimited()) {
+            return ProductDescriptions.DATA_UNLIMITED_LABEL;
+        }
+        Long mb = plan.getDataAmountMb();
+        if (mb != null && mb == 0) {
+            return "데이터 미제공";
+        }
+        return "월 데이터 " + ProductToolResults.data(mb) + (plan.getExhaustedSpeedKbps() == null ? ", 소진 후 차단"
+                : ", 소진 후 최대 " + ToolFormats.speed(plan.getExhaustedSpeedKbps()));
+    }
+
+    private static String voiceSmsSpec(Plan plan) {
+        if (plan.isVoiceUnlimited() && plan.isSmsUnlimited()) {
+            return "국내 일반 음성/문자 기본제공";
+        }
+        String voice = cardAllowance(plan.isVoiceUnlimited(), plan.getVoiceMinutes(), "분");
+        String sms = cardAllowance(plan.isSmsUnlimited(), plan.getSmsCount(), "건");
+        return voice.equals("미제공") && sms.equals("미제공") ? "음성·문자 미제공" : "국내 음성 " + voice + ", 문자 " + sms;
+    }
+
+    /** 테더링 규칙(기본 데이터에서 차감, 한도 소진 후 차단)은 설명이 원본이라 그 요금제 설명에 있을 때만 붙입니다. */
+    private static String tetheringSpec(Plan plan) {
+        Long mb = plan.getTetheringAmountMb();
+        if (mb == null || mb == 0) {
+            return "테더링 미제공";
+        }
+        StringBuilder spec = new StringBuilder("테더링 월 ").append(ProductToolResults.data(mb));
+        if (!plan.isDataUnlimited()
+                && ProductDescriptions.mentions(plan.getDescription(), ProductDescriptions.TETHERING_SHARED_RULE)) {
+            spec.append(", 기본 데이터에서 함께 차감");
+        }
+        if (ProductDescriptions.mentions(plan.getDescription(), ProductDescriptions.TETHERING_BLOCKED_RULE)) {
+            spec.append(", 한도 소진 후 차단");
+        }
+        return spec.toString();
+    }
+
+    private static String cardAllowance(boolean unlimited, Integer amount, String unit) {
+        if (unlimited) {
+            return "기본제공";
+        }
+        return amount == null || amount == 0 ? "미제공" : amount + unit;
     }
 
     private static String allowance(boolean unlimited, Integer amount, String unit) {

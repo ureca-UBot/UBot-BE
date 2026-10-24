@@ -2,6 +2,7 @@ package com.ubot.ai.tool.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -75,7 +76,26 @@ class ProductDescriptionsTest {
     }
 
     @Test
-    void 카드에는_공통_문장을_빼고_앞에서부터_3개만_마침표_없이_보여_준다() {
+    void 수량_없는_재서술은_그_요금제_컬럼과_같을_때만_뺀다() {
+        Set<String> unlimited = new HashSet<>(ProductDescriptions.PLAN_LABELS);
+        unlimited.add(ProductDescriptions.DATA_UNLIMITED_LABEL);
+        String description = "월 고속 데이터 무제한. 데이터 전용.";
+
+        assertThat(ProductDescriptions.sentences(description, Set.of(), unlimited)).containsExactly("데이터 전용.");
+        // 컬럼이 무제한이 아니면 라벨에 없어서, 설명과 컬럼이 어긋난 흔적으로 남깁니다.
+        assertThat(ProductDescriptions.sentences(description, Set.of(), ProductDescriptions.PLAN_LABELS))
+                .containsExactly("월 고속 데이터 무제한.", "데이터 전용.");
+    }
+
+    @Test
+    void 설명의_구절_언급은_띄어쓰기를_무시한다() {
+        assertThat(ProductDescriptions.mentions("테더링 한도 소진 후  테더링 차단.", ProductDescriptions.TETHERING_BLOCKED_RULE)).isTrue();
+        assertThat(ProductDescriptions.mentions("테더링 한도 소진 후 최대 1Mbps.", ProductDescriptions.TETHERING_BLOCKED_RULE)).isFalse();
+        assertThat(ProductDescriptions.mentions(null, ProductDescriptions.TETHERING_BLOCKED_RULE)).isFalse();
+    }
+
+    @Test
+    void 카드에는_공통_문장만_빼고_고유_정보를_모두_마침표_없이_보여_준다() {
         List<String> sentences = List.of("표시 월정액은 부가세 포함.", "테더링 월 4GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감.",
                 "가입 대상 만 0~12세.", "법정대리인 동의 필요.", "가상 Ubot 키즈가드 포함.", "위치 공유는 보호자 연결·동의 후 이용.");
         // 공통 문장은 수량을 가린 틀이라, 테더링 양이 다른 요금제에서 센 틀로도 걸러집니다.
@@ -83,7 +103,7 @@ class ProductDescriptionsTest {
                 ProductDescriptions.shape("테더링 월 24GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감."));
 
         assertThat(ProductDescriptions.highlights(sentences, common))
-                .containsExactly("가입 대상 만 0~12세", "법정대리인 동의 필요", "가상 Ubot 키즈가드 포함");
+                .containsExactly("가입 대상 만 0~12세", "법정대리인 동의 필요", "가상 Ubot 키즈가드 포함", "위치 공유는 보호자 연결·동의 후 이용");
     }
 
     @Test
