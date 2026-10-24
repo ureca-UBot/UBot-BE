@@ -8,7 +8,6 @@ import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.Location;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.service.AiService;
-import com.ubot.ai.service.FaqGapCandidateSelector;
 import com.ubot.chat.context.ChatContext;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
@@ -34,7 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalDouble;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,9 +48,6 @@ import org.springframework.util.StringUtils;
 @Slf4j
 @Component
 public class ChatAnswerProcessor {
-	// 반려 전용 기준을 정하기 전에는 관리자 재등록을 자동 생략하지 않습니다.
-	private static final OptionalDouble REJECTED_DUPLICATE_THRESHOLD = OptionalDouble.empty();
-
 	@Value("${CHAT_TOP_K:3}")
 	private int topK;
 
@@ -73,7 +68,6 @@ public class ChatAnswerProcessor {
 	private final FaqSemanticCacheService faqSemanticCacheService;
 	private final FaqSentenceFilterService faqSentenceFilterService;
 	private final ChatInputGuardService chatInputGuardService;
-	private final FaqGapCandidateSelector faqGapCandidateSelector;
 	private final EmbeddingProfileService embeddingProfileService;
 
 	public ChatAnswerProcessor(
@@ -84,7 +78,6 @@ public class ChatAnswerProcessor {
 			FaqSemanticCacheService faqSemanticCacheService,
 			FaqSentenceFilterService faqSentenceFilterService,
 			ChatInputGuardService chatInputGuardService,
-			FaqGapCandidateSelector faqGapCandidateSelector,
 			EmbeddingProfileService embeddingProfileService) {
 		this.faqRetrievalService = faqRetrievalService;
 		this.aiService = aiService;
@@ -93,7 +86,6 @@ public class ChatAnswerProcessor {
 		this.faqSemanticCacheService = faqSemanticCacheService;
 		this.faqSentenceFilterService = faqSentenceFilterService;
 		this.chatInputGuardService = chatInputGuardService;
-		this.faqGapCandidateSelector = faqGapCandidateSelector;
 		this.embeddingProfileService = embeddingProfileService;
 	}
 
@@ -238,8 +230,6 @@ public class ChatAnswerProcessor {
 		}
 		if (answer.slotOutcomes() != null) {
 			collectSlotUnanswered(attempt, answer.slotOutcomes(), materials, queryEmbeddings, unansweredCandidates);
-		} else {
-			collectOutputGuardCandidates(attempt, answer, materials, queryEmbeddings, unansweredCandidates);
 		}
 		return ChatAnswerResult.answered(answer, searched);
 	}
@@ -336,35 +326,12 @@ public class ChatAnswerProcessor {
 		}
 	}
 
-	private void collectOutputGuardCandidates(AnswerAttemptsHistory attempt, AiAnswer answer, AnswerMaterials materials,
-			Map<String, QuestionEmbedding> queryEmbeddings, List<UnansweredCandidate> unansweredCandidates) {
-		if (attempt.isResearch()) return;
-		List<FaqGapCandidateSelector.Candidate> candidates;
-		try {
-			candidates = faqGapCandidateSelector.select(answer.outputGuardResult(), materials, answer.storeMap());
-		} catch (RuntimeException exception) {
-			// 검토 후보의 부가 처리 실패가 이미 검사한 답변·재시도 정책을 바꾸지 않도록 분리합니다.
-			log.warn("출력 가드의 FAQ 보완 후보를 선별하지 못했습니다: 시도ID={}", attempt.getId(), exception);
-			return;
-		}
-		for (var candidate : candidates) {
-			int index = candidate.subQuestionIndex() - 1;
-			FaqSearchResponseDto bestResult = index >= 0 && index < materials.subQuestions().size()
-					&& !materials.subQuestions().get(index).faqs().isEmpty()
-					? materials.subQuestions().get(index).faqs().getFirst() : null;
-			collectUnanswered(attempt, new UnansweredSubQuestion(candidate.subQuestionIndex(),
-					candidate.searchQuery(), candidate.userText(), UnansweredReason.INSUFFICIENT_FAQ, bestResult),
-					UnansweredSource.OUTPUT_GUARD, queryEmbeddings.get(candidate.searchQuery()), unansweredCandidates);
-		}
-	}
-
 	/**
-	 * 칸 형식 답변에서 답하지 못한 하위 질문을 미응답으로 모읍니다. ANSWER 칸은 답변으로 나갔으므로 미응답이 아니고,
-	 * OUT_OF_SCOPE는 통신 상담 주제가 아니라 FAQ로 보완할 대상이 아니므로 모으지 않습니다.
+	 * 칸 형식 답변에서 모델 자체가 답하지 못한 하위 질문만 미응답으로 모읍니다. ANSWER·OUT_OF_SCOPE와
+	 * 출력 가드가 바꾼 칸은 모으지 않습니다. 가드가 바꾼 상태를 모델 자체의 ABSTAIN·CONFLICT로 취급하지 않습니다.
 	 * <ul>
 	 *   <li>모델이 ABSTAIN: LLM_ABSTAIN / LLM_MODEL</li>
 	 *   <li>모델이 CONFLICT: LLM_CONFLICT / LLM_MODEL</li>
-	 *   <li>모델은 ANSWER였는데 출력 가드가 내용을 지워 ABSTAIN이 됨: INSUFFICIENT_FAQ / OUTPUT_GUARD</li>
 	 * </ul>
 	 * 근거 FAQ를 찾지 못한 하위 질문은 검색 단계에서 이미 저장했으므로 넘깁니다. 칸이 하나뿐이면(원문 조각 없이 나누지 않고 넣은 경우)
 	 * 그 칸의 결과를 모든 하위 질문에 적용합니다. 정책 위반으로 답변 전체가 거부되면 이 단계까지 오지 않습니다.
@@ -379,24 +346,18 @@ public class ChatAnswerProcessor {
 			if (!subQuestion.isAnswered()) continue;
 			AiAnswer.SlotOutcome outcome = outcomes.size() == subQuestions.size() ? outcomes.get(index) : outcomes.getFirst();
 			// 비로그인 등으로 가입 정보를 조회할 수 없어 답하지 못한 것은 FAQ로 보완할 대상이 아닙니다.
-			if (outcome.lookupUnavailable()) continue;
+			if (outcome.lookupUnavailable() || outcome.changedByGuard()) continue;
 			UnansweredReason reason;
-			UnansweredSource source;
-			if (outcome.changedByGuard()) {
-				reason = UnansweredReason.INSUFFICIENT_FAQ;
-				source = UnansweredSource.OUTPUT_GUARD;
-			} else if ("ABSTAIN".equals(outcome.status())) {
+			if ("ABSTAIN".equals(outcome.status())) {
 				reason = UnansweredReason.LLM_ABSTAIN;
-				source = UnansweredSource.LLM_MODEL;
 			} else if ("CONFLICT".equals(outcome.status())) {
 				reason = UnansweredReason.LLM_CONFLICT;
-				source = UnansweredSource.LLM_MODEL;
 			} else {
 				continue;
 			}
 			collectUnanswered(attempt, new UnansweredSubQuestion(index + 1, subQuestion.searchQuery(),
 					subQuestion.userText(), reason, subQuestion.faqs().getFirst()),
-					source, queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates);
+					UnansweredSource.LLM_MODEL, queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates);
 		}
 	}
 
@@ -414,9 +375,7 @@ public class ChatAnswerProcessor {
 				// 안전한 원문 조각이 없으면 제거한 공격을 포함한 원문 전체를 복원하지 않습니다.
 				subQuestion.userText() == null ? "" : subQuestion.userText(), subQuestion.reason(),
 				bestResult == null ? null : bestResult.faqId(), bestResult == null ? null : bestResult.similarityScore(),
-				source, reusableEmbedding == null ? null : reusableEmbedding.profileId(), queryEmbedding,
-				source == UnansweredSource.OUTPUT_GUARD && REJECTED_DUPLICATE_THRESHOLD.isPresent()
-						? REJECTED_DUPLICATE_THRESHOLD.getAsDouble() : null));
+				source, reusableEmbedding == null ? null : reusableEmbedding.profileId(), queryEmbedding, null));
 	}
 
 	private Double highestSimilarity(List<FaqSearchResponseDto> results) {

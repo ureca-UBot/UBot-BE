@@ -68,7 +68,7 @@
   - 답하지 못한 칸의 고지는 코드가 붙입니다(`SubQuestionStatuses`). 하위 질문이 하나이거나 모두 같은 이유면 전체 고지 하나, 아니면 원문 조각을 넣은 하위 고지입니다. 원문 조각 끝의 접속어는 Kiwi로 다듬습니다(`SubQuestionLabels`, "요금은 얼마고" → "요금은 얼마인지").
   - 가입 정보·매장 조회가 실패해 그 조회가 필요한 하위 질문(근거 FAQ의 USER_DATA·STORE_DATA)을 답하지 못했으면 사유별 고지를 씁니다(`LookupFailure`: 비로그인, 사용자 없음, 조회 실패, 회선 선택, 위치 없음, 장소를 찾지 못함 등). 그래서 도구 결과·자료 섹션 문구에는 "안내하세요"·"물어보세요"를 쓰지 않고 사실과 추측 금지만 둡니다.
   - 도구가 붙은 요청은 스키마가 강제되지 않아 칸 수가 하위 질문 수와 다를 수 있습니다(pipeline_test_v4 도구 경로 32건 중 6건). 그때는 칸을 하나로 합쳐 질문 하나로 봅니다. 도구가 없는 요청에서 칸 수가 다르면 LLM-005입니다.
-  - 미응답: 모델이 ABSTAIN → `LLM_ABSTAIN`/`LLM_MODEL`, CONFLICT → `LLM_CONFLICT`/`LLM_MODEL`, 가드가 지워 ABSTAIN → `INSUFFICIENT_FAQ`/`OUTPUT_GUARD`. ANSWER·OUT_OF_SCOPE와 조회 실패로 답하지 못한 칸은 모으지 않습니다.
+  - 미응답: 모델 자체가 ABSTAIN → `LLM_ABSTAIN`/`LLM_MODEL`, CONFLICT → `LLM_CONFLICT`/`LLM_MODEL`인 칸만 모읍니다. 출력 가드가 바꾼 칸은 미응답으로 등록하지 않으며 모델 자체의 미응답으로 재분류하지 않습니다. ANSWER·OUT_OF_SCOPE와 조회 실패로 답하지 못한 칸도 모으지 않습니다. 검색 단계의 기존 미응답 저장은 유지합니다.
 - **지침의 키 이름·status 목록을 바꾸면 `FaqAnswerFormat`(`slotSchema`, `SLOT_STATUSES`)도 함께 바꿔야 합니다.**
 - 외부 파일을 쓰려면 `prompt.faq.slot-system-location`을 지정합니다.
 
