@@ -48,6 +48,12 @@ LLM 호출은 대부분 `ai-worker`에서 나오지만, 관리자 기능(미응�
 두 서버 모두 같은 `client` 태그 키를 써 Prometheus 등록 충돌을 피합니다. 모델명·URL 등 가변값은 태그에 넣지 않습니다.
 요청 지표의 성공은 모델 통신 성공이며 ALLOW 판정과 같지 않습니다. 호출 뒤 판정 JSON 파서·안전 정책의 거절은 판정 로그로 확인합니다.
 
+관리자 운영 개요 API의 기존 `llm` 지연·시간 초과율·오류율·허가 대기는 `client="chat"`만 집계합니다.
+비율의 분자·분모와 `UBotLlmTimeoutRateHigh`의 최소 호출 수에도 같은 필터를 적용하며, 가드 호출로 비율이 희석되거나
+알림이 발화하지 않도록 합니다. 동시성 게이지도 별도 가드 서버를 제외합니다. 다만 같은 서버의 허가를 공유하는 가드의
+실제 점유·대기는 그 채팅 서버 게이지에 포함됩니다. `client` 태그가 없던 과거 series는 이 집계에 포함하지 않습니다.
+관리자 응답 형식·화면은 유지하며, 가드 지표는 `client="guard"`로 아래처럼 별도 조회합니다.
+
 ```promql
 # 입력·출력 AI 가드 모델 호출 p95와 통신 실패율(호출 허가 거절은 별도 counter)
 histogram_quantile(0.95, sum(rate(llm_requests_seconds_bucket{client="guard"}[1h])) by (le))
@@ -118,12 +124,12 @@ histogram_quantile(0.95, sum(rate(chat_worker_execution_seconds_bucket[1h])) by 
 (sum(increase(chat_worker_completed_total{code="CHAT-012"}[1h])) or vector(0))
   / sum(increase(chat_worker_completed_total[1h]))
 
-# LLM 시간 초과 비율
-(sum(increase(llm_requests_seconds_count{outcome="timeout"}[1h])) or vector(0))
-  / sum(increase(llm_requests_seconds_count[1h]))
+# 기존 답변 생성·분류 LLM 시간 초과 비율
+(sum(increase(llm_requests_seconds_count{client="chat",outcome="timeout"}[1h])) or vector(0))
+  / sum(increase(llm_requests_seconds_count{client="chat"}[1h]))
 
 # Worker의 LLM 동시 호출 포화도
-sum(llm_concurrency_in_use{role!="api"}) / sum(llm_concurrency_limit{role!="api"})
+sum(llm_concurrency_in_use{client="chat",role!="api"}) / sum(llm_concurrency_limit{client="chat",role!="api"})
 
 # 출력 가드 거절률
 (sum(increase(ai_output_guard_total{stage="body",outcome="rejected"}[1h])) or vector(0))

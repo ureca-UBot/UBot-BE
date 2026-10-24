@@ -14,6 +14,7 @@ import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.exception.ForbiddenWordException;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -263,6 +264,35 @@ class ForbiddenWordFilterServiceTest {
 		assertThat(service.findMatchingForbiddenWords(null)).isEmpty();
 		assertThat(service.findMatchingForbiddenWords(List.of())).isEmpty();
 		assertThat(service.findMatchingForbiddenWords(java.util.Arrays.asList(null, "", "바", "보"))).isEmpty();
+	}
+
+	@Test
+	void equivalentNormalizedWordsKeepTheirOriginalCatalogEntriesAndPreviewsStayIndependent() {
+		cache("bad", "ＢＡＤ");
+		var preview = service.preview(Set.of("바 보", "x.y"));
+		org.mockito.Mockito.clearInvocations(repository);
+
+		assertThat(service.findMatchingForbiddenWords(List.of("b a d", "b a d"))).containsExactly("bad", "ＢＡＤ");
+		assertThat(service.getActiveForbiddenWords()).containsExactly("bad", "ＢＡＤ");
+		assertThat(preview.findMatchingForbiddenWords(List.of("바 보입니다.", "x . y")))
+				.containsExactly("x.y", "바 보");
+		assertThat(preview.findMatchingForbiddenWords(List.of("b a d"))).isEmpty();
+		assertThat(service.findMatchingForbiddenWords(List.of("바 보입니다."))).isEmpty();
+		org.mockito.Mockito.verifyNoInteractions(repository);
+	}
+
+	@Test
+	void failedRefreshKeepsThePreviousCompleteSnapshotAndALaterRefreshReplacesItsVariants() {
+		cache("ＢＡＤ");
+		when(repository.findAllByStatus(ForbiddenWordStatus.ACTIVE)).thenThrow(new IllegalStateException("DB unavailable"));
+
+		assertThatThrownBy(service::refreshForbiddenWordCache).isInstanceOf(IllegalStateException.class);
+		assertThat(service.findMatchingForbiddenWords(List.of("b a d"))).containsExactly("ＢＡＤ");
+		org.mockito.Mockito.doReturn(List.of(word("바보"))).when(repository).findAllByStatus(ForbiddenWordStatus.ACTIVE);
+		service.refreshForbiddenWordCache();
+
+		assertThat(service.findMatchingForbiddenWords(List.of("b a d"))).isEmpty();
+		assertThat(service.findMatchingForbiddenWords(List.of("바 보입니다."))).containsExactly("바보");
 	}
 
 	private void cache(String... words) {

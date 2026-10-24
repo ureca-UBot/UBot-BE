@@ -1,6 +1,6 @@
 # LLM Timeout Rate High (`UBotLlmTimeoutRateHigh`)
 
-최근 `ALERT_LLM_TIMEOUT_WINDOW` 동안 LLM 호출이 `ALERT_LLM_TIMEOUT_MIN_CALLS`건 이상이고, 그중 시간 초과 비율이 `ALERT_LLM_TIMEOUT_RATIO`를 넘는 상태가 `ALERT_LLM_TIMEOUT_FOR` 동안 이어졌습니다.
+최근 `ALERT_LLM_TIMEOUT_WINDOW` 동안 기존 답변 생성·질문 분류 호출(`client="chat"`)이 `ALERT_LLM_TIMEOUT_MIN_CALLS`건 이상이고, 그중 시간 초과 비율이 `ALERT_LLM_TIMEOUT_RATIO`를 넘는 상태가 `ALERT_LLM_TIMEOUT_FOR` 동안 이어졌습니다. 가드 호출(`client="guard"`)은 분자·분모·최소 호출 수에서 제외합니다.
 
 ## 영향
 
@@ -8,10 +8,10 @@
 
 ## 확인
 
-1. 시간 초과가 답변(`kind="answer"`)인지 판정(`kind="judgment"`)인지: `llm_requests_seconds_count{outcome="timeout"}`
+1. 시간 초과가 답변(`kind="answer"`)인지 판정(`kind="judgment"`)인지: `llm_requests_seconds_count{client="chat",outcome="timeout"}`. 가드는 `client="guard"`로 따로 조회합니다.
 2. 응답 시간: `llm_requests_seconds` p95가 `LLM_READ_TIMEOUT`에 붙어 있는지
 3. 모델 서버 상태: NLB 대상 그룹 health, vLLM 로그(메모리 부족·재시작), GPU 사용률
-4. 동시 호출: `llm_concurrency_in_use`가 상한에 붙어 있고 `llm_concurrency_waiting`이 계속 0보다 큰지
+4. 동시 호출: `llm_concurrency_in_use{client="chat"}`가 상한에 붙어 있고 `llm_concurrency_waiting{client="chat"}`이 계속 0보다 큰지. 같은 서버를 공유하는 가드의 실제 점유·대기도 포함됩니다.
 5. 같은 시각 GPU 대수 변화(스폿 회수, 스케일 인)
 
 ## 조치

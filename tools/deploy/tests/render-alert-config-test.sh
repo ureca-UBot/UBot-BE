@@ -65,7 +65,12 @@ grep -q ') > 0.1' "${RULES}" || fail 'LLM 비율 기준이 규칙에 없음'
 grep -q 'up{job="ubot-backend"} == 0' "${RULES}" || fail 'Worker job 이름이 규칙에 없음'
 grep -q 'for: 30s' "${RULES}" || fail '따옴표로 감싼 기간 값을 읽지 못함'
 grep -q 'for: 2m' "${RULES}" || fail '기본 대기 지속 시간(2m)이 없음'
-grep -q 'llm_requests_seconds_count\[5m\]' "${RULES}" || fail '기본 LLM 계산 기간(5m)이 없음'
+grep -Fq 'llm_requests_seconds_count{client="chat"}[5m]' "${RULES}" || fail '기본 채팅 LLM 계산 기간(5m)이 없음'
+grep -Fq 'llm_requests_seconds_count{client="chat",outcome="timeout"}[5m]' "${RULES}" \
+  || fail 'LLM 시간 초과 분자가 채팅 호출로 한정되지 않음'
+if grep 'llm_requests_seconds_count' "${RULES}" | grep -qv 'client="chat"'; then
+  fail 'LLM 알림의 분모·최소 호출 수에 가드 호출이 섞임'
+fi
 grep -q 'discord_configs:' "${CONFIG}" || fail 'Discord 설정이 없음'
 if grep -q 'slack_configs:' "${CONFIG}"; then fail 'Webhook을 넣지 않은 Slack 설정이 남음'; fi
 if grep -qE '# (BEGIN|END) ' "${CONFIG}"; then fail '채널 구간 표시가 남음'; fi
