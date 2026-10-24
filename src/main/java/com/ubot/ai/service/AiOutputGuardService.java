@@ -5,7 +5,6 @@ import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.OutputGuardResult.Reason;
 import com.ubot.ai.dto.StoreMapResult;
-import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserRecordClaims;
@@ -1119,68 +1118,6 @@ public class AiOutputGuardService {
                     || materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA)
                     || materials.sections().stream().anyMatch(section -> STORE_SUBJECT.matcher(section.title()).find()
                         && MISSING_LOOKUP_DATA.matcher(inspect(section.content())).find()));
-    }
-
-    /**
-     * 후보 선별에서만 사용합니다. 검사에 전달했던 FAQ와 기존 업무·대상 판정으로 부족한 범위를 읽습니다.
-     * 검색 실패는 기존 미응답 경로가 처리하므로 제외하며, 조회 실패·자료 속 지시·모델 오답만으로 후보를 만들지 않습니다.
-     * 원문이나 새 질문은 만들지 않고 기존 안내에서 쓰는 항목명만 돌려줍니다.
-     */
-    List<String> findMissingFaqTopics(SubQuestionFaqs question, AnswerMaterials materials,
-            StoreMapResult storeMap, OutputGuardResult inspection) {
-        if (inspection.rejected() || !StringUtils.hasText(inspection.answer()) || !question.isAnswered()) return List.of();
-        if (question.faqs().stream().noneMatch(faq -> faq.intent() == Intent.GENERAL)) return List.of();
-        if (question.faqs().stream().anyMatch(faq -> StringUtils.hasText(faq.answer())
-                && SOURCE_DIRECTIVE.matcher(inspect(faq.answer())).find())) return List.of();
-
-        // 다른 하위 질문에만 필요한 회원·매장 조회 실패를 현재 질문의 부족으로 가져오지 않습니다.
-        boolean userIntent = question.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA);
-        boolean storeIntent = question.faqs().stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA);
-        List<ContextSection> sections = materials.sections().stream().filter(section ->
-                userIntent && isUserDataSection(section)
-                        || storeIntent && STORE_SUBJECT.matcher(section.title()).find()).toList();
-        AnswerMaterials scoped = new AnswerMaterials(question.searchQuery(), question.faqs(), sections,
-                storeIntent ? materials.tools() : Set.of(), storeIntent ? storeMap : null,
-                List.of(question), materials.history(), userIntent ? materials.userId() : null,
-                userIntent ? materials.userDataSummary() : null, userIntent ? materials.toolRecords() : null);
-        if (hasMissingLookupData(question.searchQuery(), scoped, storeIntent ? storeMap : null)) return List.of();
-
-        List<String> sources = readSources(scoped);
-        List<String> answerSentences = splitSentences(inspection.answer()).stream().map(this::inspect).toList();
-        boolean hasUnansweredNotice = answerSentences.stream().anyMatch(sentence ->
-                ANSWER_UNAVAILABLE.matcher(sentence).find() || sentence.contains(UNANSWERED_SCOPE_NOTICE));
-        if (!hasUnansweredNotice) return List.of();
-
-        // 일반적인 거절 문구나 status만으로 누락을 추정하지 않고, 해석할 수 있는 기존 요청 범위만 비교합니다.
-        return readRequestedScopes(inspect(question.searchQuery())).stream()
-                .filter(request -> !hasFaqTopicEvidence(request, scoped, sources))
-                .filter(request -> answerSentences.stream()
-                        .filter(sentence -> !ANSWER_UNAVAILABLE.matcher(sentence).find()
-                                && !sentence.contains(UNANSWERED_SCOPE_NOTICE)
-                                && !QUESTION_END.matcher(sentence).find())
-                        .noneMatch(sentence -> hasRequestCoverage(sentence, request, question.searchQuery())))
-                .map(this::readRequestLabel).distinct().toList();
-    }
-
-    private boolean hasFaqTopicEvidence(ScopedAnswerFact request, AnswerMaterials materials, List<String> sources) {
-        if (sources.stream().filter(source -> !ANSWER_UNAVAILABLE.matcher(source).find())
-                .anyMatch(source -> hasRequestCoverage(source, request, materials.question()))) return true;
-        for (var faq : materials.faqs()) {
-            if (!StringUtils.hasText(faq.question())) continue;
-            List<ScopedAnswerFact> topics = readRequestedScopes(inspect(faq.question()));
-            if (topics.size() != 1) continue;
-            ScopedAnswerFact topic = topics.getFirst();
-            boolean same = request.kind() == topic.kind()
-                    && (request.kind() == AnswerScopeKind.BUSINESS_OPERATION
-                        ? request.target().equals(topic.target()) : compatibleDevice(request.target(), topic.target()));
-            // FAQ 질문에만 대상이 있는 정상 답변을 근거 누락으로 오인하지 않습니다.
-            if (same && providedSourceSentences(faq.answer(), sources).stream()
-                    .anyMatch(sentence -> !ANSWER_UNAVAILABLE.matcher(sentence).find()
-                            && !QUESTION_END.matcher(sentence).find()
-                            && !GENERIC_FOLLOWUP.matcher(sentence).matches()
-                            && !INDEPENDENT_CHECK_GUIDANCE.matcher(sentence).find())) return true;
-        }
-        return false;
     }
 
     private List<ScopedAnswerFact> readRequestedScopes(String question) {
