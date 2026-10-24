@@ -44,8 +44,13 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 **출력 강제.** `PromptService.createSlotPrompt`가 칸 수만큼의 칸을 요구하는 JSON Schema(`FaqAnswerFormat.slotSchema(칸 수)`)를 `LlmRequestDto.responseSchema`에 싣고,
 각 클라이언트가 이를 모델 서버에 넘깁니다. Ollama는 요청의 `format`, vLLM은 `response_format`(`json_schema`, `strict`)입니다.
 칸 수는 프롬프트에 "하위 질문 N" 제목으로 나눠 넣은 경우만 하위 질문 수이고 나머지는 1입니다.
-**매장·가입 정보 도구가 붙은 요청에는 스키마를 걸지 않습니다.** 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없기 때문입니다.
-이 경우 형식은 프롬프트로만 요구하므로, 모델이 칸 수를 틀리거나 JSON을 코드 블록으로 감싸거나 일반 문장으로 답할 수 있습니다.
+**도구 단계는 스키마 없이 진행하고, 최종 형식이 잘못됐을 때만 스키마로 1회 재호출합니다(on-broken, #287).**
+최종 초안이 요청 스키마의 필수 필드·타입·status·칸 수에 맞으면 그대로 사용합니다. 코드 블록으로 감싼 정상 JSON도 허용합니다.
+형식이 잘못됐으면 기존 질문·자료·도구 실행 결과를 유지하고 도구 정의 없이 다시 생성합니다. 잘못된 초안은 대화에 넣지 않습니다.
+재호출 결과도 검증하며, 다시 형식이 잘못되면 `LLM-005`입니다. 서버 오류·타임아웃·길이 제한은 이 형식 복구를 유발하지 않습니다.
+실제 도구를 실행하지 않았어도 도구가 제공된 요청이면 적용합니다. 칸 수는 실제 요청 스키마를 따르므로 원문을 나누지 못해 1칸으로 요청한 경우는 정상입니다.
+본문의 정답 여부와 출력 가드 결과는 형식 재호출 조건이 아닙니다. 기존 출력 가드와 코드 고지는 이후에 그대로 적용합니다.
+추가 설정 없이 Ollama와 OpenAI 호환 클라이언트 모두 적용하며, 로그에는 초안 검증 사유·재호출 여부·최종 검증 결과만 기록합니다.
 
 **생성 옵션.** temperature는 `LlmClient.TEMPERATURE`(0)로 고정해 두 엔진 모두 보냅니다. 지정하지 않으면 모델 기본값
 (`qwen3:4b-instruct-2507-q4_K_M`은 0.7)이 쓰여 같은 질문에도 답이 달라집니다. LLM_Test 평가도 temperature 0입니다.
@@ -58,10 +63,10 @@ LLM을 호출하지 않고 `CHAT-014`(`답변 프롬프트가 준비되지 않�
 
 | 모델 출력 | 처리 |
 |---|---|
-| 칸 형식 JSON (코드 블록으로 감싼 것 포함) | 위 서버 처리. 칸 수가 맞지 않으면 도구 경로는 칸을 하나로 합쳐 질문 하나로 보고, 그 밖의 경로는 `LLM-005` |
+| 칸 형식 JSON (코드 블록으로 감싼 것 포함) | 위 서버 처리. 도구 경로의 칸 수 오류는 먼저 on-broken으로 복구하며, 최종 형식 오류는 `LLM-005`. 기존 칸 합치기는 레거시 대체 처리로 유지 |
 | 칸의 status가 목록에 없는 값 | `LLM-005`(`LLM_RESPONSE_INVALID`) |
 | 단일 형식 JSON(`answer`·`status`) | `answer` 값을 답변으로 사용하고 본문 전체를 가드로 검사(칸 처리 없음) |
-| `{`로 시작하지 않는 일반 문장 | 문장 전체를 답변으로 사용 (도구 경로 등 스키마를 걸지 않은 경우) |
+| `{`로 시작하지 않는 일반 문장 | 스키마가 있는 도구 경로는 on-broken 복구 대상. 스키마 없는 요청의 기존 일반 문장 파싱은 유지 |
 | JSON처럼 보이지만 읽을 수 없음, 단일 형식에서 `answer`가 없거나 빈 문자열 | `LLM-005`로 실패. 원문 JSON을 사용자에게 보여 주지 않음 |
 
 2026-10-12 이전에 저장된 답변은 JSON 문자열 그대로입니다. UBot-FE의 `getAnswerText`는 JSON이면 안쪽 `answer`를,
@@ -158,7 +163,7 @@ LLM_MODEL=ubot-chat
 
 - `LLM_BASE_URL`은 `/v1`까지 적고, `LLM_MODEL`은 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에 있습니다.
 - 제한 시간은 두 구현체 모두 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다. 자동 재시도는 하지 않습니다.
-- 도구가 붙은 요청(매장 FAQ)은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회)는 `OllamaClient`와 같습니다. vLLM은 `--enable-auto-tool-choice`와 `--tool-call-parser`로 실행되어 있어야 하며(`infra/llm`에 반영), 그렇지 않으면 도구가 붙은 요청을 거절합니다.
+- 도구가 붙은 요청은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회, 도구 실행 라운드 최대 8회)는 `OllamaClient`와 같습니다. 최종 형식 오류에 한해 도구 없이 스키마 재호출 1회를 적용합니다. vLLM은 `--enable-auto-tool-choice`와 `--tool-call-parser`로 실행되어 있어야 하며(`infra/llm`에 반영), 그렇지 않으면 도구가 붙은 요청을 거절합니다.
 - 생성 옵션(temperature, Thinking Mode 등)은 요청에 넣지 않고 서버 기본 설정을 따릅니다. Qwen3의 Thinking Mode는 모델 서버 설정 `VLLM_ENABLE_THINKING`(기본 `false`)으로 정합니다. Thinking을 켠 서버에서 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다.
 - 실패는 Ollama와 같은 `LlmErrorCode`로 바꿉니다. 서버가 4xx·5xx로 응답하면 `LLM-003`으로 처리하고, 상태 코드와 응답 본문 앞부분을 경고 로그에 남깁니다.
 - 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 구현체가 요청에 넣는 모델 이름이 남습니다. `ChatAttemptsService`가 설정을 직접 읽지 않고 `LlmService.getModelName()`으로 받습니다. `ollama`면 `OLLAMA_CHAT_MODEL`, `vllm`이면 `LLM_MODEL` 값입니다.

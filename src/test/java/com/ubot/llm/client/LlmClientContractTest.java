@@ -17,6 +17,7 @@ import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.prompt.format.FaqAnswerFormat;
 import com.ubot.location.dto.LocationSearchResponse;
 import com.ubot.location.service.LocationService;
 import com.ubot.store.dto.NearbyStoreResponseDto;
@@ -31,6 +32,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.metadata.ToolMetadata;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -43,6 +47,9 @@ abstract class LlmClientContractTest {
 
 	private static final String STORE_QUESTION = "강남역 근처 매장 알려줘";
 	private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
+	private static final String VALID_SLOT = """
+			{"answers":[{"answer":"강남점입니다.","status":"ANSWER"}],"evidence_ids":[]}
+			""".strip();
 
 	private final StoreService storeService = mock(StoreService.class);
 	private final LocationService locationService = mock(LocationService.class);
@@ -91,6 +98,115 @@ abstract class LlmClientContractTest {
 		var answer = client().generateAnswer(question("유심 재발급 방법"));
 
 		assertThat(answer.answer()).isEqualTo("가까운 매장에서 재발급할 수 있습니다.");
+		assertThat(server.requests()).hasSize(1);
+	}
+
+	@Test
+	void validToolDraftDoesNotRecallOrAttachSchema() {
+		server.respond(toolCallResponse("findNearbyStores", Map.of("place", "강남역")));
+		server.respond(answerResponse(VALID_SLOT));
+		assertThat(client().generateAnswer(slotRequest()).answer()).isEqualTo(VALID_SLOT);
+		assertThat(server.requests()).hasSize(2);
+		for (var body : server.requests()) {
+			assertThat(body.has("format")).isFalse();
+			assertThat(body.has("response_format")).isFalse();
+		}
+		verify(locationService, times(1)).search("강남역");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {
+			"일반 문장", "{\"answers\":[{\"answer\":\"답변\"}],\"evidence_ids\":[]}"
+	})
+	void repairsOnlyBrokenToolDraftWithoutRepeatingTools(String broken) {
+		server.respond(toolCallResponse("findNearbyStores", Map.of("place", "강남역")));
+		server.respond(answerResponse(broken));
+		server.respond(answerResponse(VALID_SLOT));
+		assertThat(client().generateAnswer(slotRequest()).answer()).isEqualTo(VALID_SLOT);
+		assertThat(server.requests()).hasSize(3);
+		assertSchemaOnlyRequest();
+		// 최종 초안은 제외하고 도구 실행 이력까지만 유지합니다.
+		assertThat(server.requests().getLast().get("messages")).isEqualTo(server.requests().get(1).get("messages"));
+		assertThat(server.requests().getLast().get("messages").toString()).contains("강남점");
+		verify(locationService, times(1)).search("강남역");
+	}
+
+	@Test
+	void brokenDraftWithoutActualToolCallStillRecalls() {
+		server.respond(answerResponse("일반 문장"));
+		server.respond(answerResponse(VALID_SLOT));
+		assertThat(client().generateAnswer(slotRequest()).answer()).isEqualTo(VALID_SLOT);
+		assertThat(server.requests()).hasSize(2);
+		assertSchemaOnlyRequest();
+		verify(locationService, times(0)).search("강남역");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"일반 문장", "{\"answers\":[],\"evidence_ids\":[]}"})
+	void invalidRepairFailsWithoutAnotherRecall(String invalid) {
+		server.respond(answerResponse("일반 문장"));
+		server.respond(answerResponse(invalid));
+		assertFailure(client(), slotRequest(), LlmErrorCode.LLM_RESPONSE_INVALID);
+		assertThat(server.requests()).hasSize(2);
+	}
+
+	@Test
+	void truncatedToolDraftIsNotAFormatRecall() {
+		server.respond(truncatedResponse("{\"answers\":"));
+		assertFailure(client(), slotRequest(), LlmErrorCode.LLM_RESPONSE_INVALID);
+		assertThat(server.requests()).hasSize(1);
+	}
+
+	@Test
+	void recallDoesNotRepeatToolWhenServerFails() {
+		server.respond(toolCallResponse("findNearbyStores", Map.of("place", "강남역")));
+		server.respond(answerResponse("일반 문장"));
+		server.respond(500, "{\"error\":\"server error\"}");
+		assertFailure(client(), slotRequest(), LlmErrorCode.LLM_SERVICE_UNAVAILABLE);
+		assertThat(server.requests()).hasSize(3);
+		verify(locationService, times(1)).search("강남역");
+	}
+
+	@Test
+	void unexpectedToolCallInRepairFailsWithoutExecutingIt() {
+		server.respond(answerResponse("일반 문장"));
+		server.respond(toolCallResponse("findNearbyStores", Map.of("place", "강남역")));
+		assertFailure(client(), slotRequest(), LlmErrorCode.LLM_RESPONSE_INVALID);
+		assertThat(server.requests()).hasSize(2);
+		verify(locationService, times(0)).search("강남역");
+	}
+
+	@Test
+	void returnDirectToolResultSkipsFormatRecall() {
+		ToolCallback direct = new ToolCallback() {
+			@Override
+			public ToolDefinition getToolDefinition() {
+				return ToolDefinition.builder().name("directTool").description("결과를 그대로 답변으로 씁니다.")
+						.inputSchema("{\"type\":\"object\",\"properties\":{}}").build();
+			}
+
+			@Override
+			public ToolMetadata getToolMetadata() {
+				return ToolMetadata.builder().returnDirect(true).build();
+			}
+
+			@Override
+			public String call(String toolInput) {
+				return "도구 결과";
+			}
+		};
+		server.respond(toolCallResponse("directTool", Map.of()));
+		var request = question("질문").withTools(List.of(direct), Map.of())
+				.withResponseSchema(FaqAnswerFormat.slotSchema(1));
+		// 도구 결과를 그대로 답변으로 쓰는 경우는 두 구현체 모두 형식 검사·재호출 대상이 아닙니다.
+		assertThat(client().generateAnswer(request).answer()).isEqualTo("도구 결과");
+		assertThat(server.requests()).hasSize(1);
+	}
+
+	@Test
+	void formatRecallDoesNotRunWithoutTools() {
+		server.respond(answerResponse("일반 문장"));
+		client().generateAnswer(question("질문").withResponseSchema(FaqAnswerFormat.slotSchema(1)));
 		assertThat(server.requests()).hasSize(1);
 	}
 
@@ -204,6 +320,21 @@ abstract class LlmClientContractTest {
 
 	private LlmClient client() {
 		return createClient(server.url(), MODEL_NAME, Duration.ofSeconds(3));
+	}
+
+	private LlmRequestDto slotRequest() {
+		return storeQuestion().withResponseSchema(FaqAnswerFormat.slotSchema(1));
+	}
+
+	/** 엔진별 HTTP 표현 차이를 이곳에서만 검사합니다. */
+	private void assertSchemaOnlyRequest() {
+		var last = server.requests().getLast();
+		assertThat(!last.has("tools") || last.get("tools").isEmpty()).isTrue();
+		var schema = chatPath().equals("/api/chat") ? last.get("format")
+				: last.get("response_format").get("json_schema").get("schema");
+		assertThat(schema).isEqualTo(JSON_MAPPER.valueToTree(FaqAnswerFormat.slotSchema(1)));
+		assertThat(schema.get("properties").get("answers").get("items").get("properties").propertyNames())
+				.containsExactly("answer", "status");
 	}
 
 	private LlmRequestDto question(String content) {

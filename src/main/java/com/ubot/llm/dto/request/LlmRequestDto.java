@@ -9,7 +9,8 @@ import org.springframework.ai.tool.ToolCallback;
 
 /**
  * 프롬프트 담당이 구성한 메시지를 순서대로 전달합니다. 도구가 있으면 도구와 서버 측 도구 문맥도 함께 전달합니다.
- * responseSchema가 있으면 모델 출력을 이 JSON Schema로 강제합니다(도구가 있는 요청은 제외, 각 LlmClient 참고).
+ * responseSchema가 있으면 모델 출력을 이 JSON Schema로 강제합니다. 도구 경로는 최종 형식이 잘못됐을 때만
+ * 도구 없이 스키마를 적용해 1회 재호출합니다(각 LlmClient 참고).
  */
 public record LlmRequestDto(
         List<LlmMessageRequestDto> messages,

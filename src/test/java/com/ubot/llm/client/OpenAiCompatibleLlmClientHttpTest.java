@@ -215,11 +215,14 @@ class OpenAiCompatibleLlmClientHttpTest {
 	void doesNotSendResponseSchemaWhenToolsAreOffered() {
 		var recorder = new StoreSearchRecorder();
 		server.respond(toolCall("findNearbyStores", ""));
-		server.respond(completion("\"위치를 알려 주세요.\"", "stop"));
+		var mapper = tools.jackson.databind.json.JsonMapper.builder().build();
+		String finalAnswer = mapper.writeValueAsString(Map.of("answer", "위치를 알려 주세요.",
+				"evidence_ids", List.of(), "status", "ABSTAIN"));
+		server.respond(completion(mapper.writeValueAsString(finalAnswer), "stop"));
 
 		client.generateAnswer(storeQuestion(recorder).withResponseSchema(schema()));
 
-		// 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없으므로, 도구가 있는 요청에는 보내지 않습니다.
+		// 도구 단계는 스키마 없이 진행하며, 정상 형식의 최종 답변은 재호출하지 않습니다.
 		assertThat(server.requests()).hasSize(2)
 				.allSatisfy(body -> {
 					assertThat(body.has("response_format")).isFalse();
