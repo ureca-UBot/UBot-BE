@@ -16,9 +16,12 @@ import com.ubot.monitoring.operationmonitoring.exception.OperationMonitoringExce
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -116,8 +119,8 @@ class ServiceOperationMonitoringServiceTest {
                 return List.of(series(Map.of("code", "CHAT-012"), 0.1), series(Map.of("code", "CHAT-016"), 0.05));
             }
             if (query.contains("by (reason)")) return List.of(series(Map.of("reason", "heartbeat"), 2.0));
-            if (query.contains("llm_requests_seconds_bucket{kind=\"answer\"}[1h]")) return List.of(series(Map.of(), 4.2));
-            if (query.contains("llm_concurrency_limit{role!=\"api\"}")) return List.of(series(Map.of(), 6.0));
+            if (query.contains("llm_requests_seconds_bucket{client=\"chat\",kind=\"answer\"}[1h]")) return List.of(series(Map.of(), 4.2));
+            if (query.contains("llm_concurrency_limit{client=\"chat\",role!=\"api\"}")) return List.of(series(Map.of(), 6.0));
             if (query.contains("faq_retrieval_top_similarity_bucket[1h])) by (le)")) {
                 return List.of(series(Map.of("le", "0.6"), 3.0), series(Map.of("le", "+Inf"), 10.0));
             }
@@ -173,5 +176,50 @@ class ServiceOperationMonitoringServiceTest {
                 com.ubot.monitoring.operationmonitoring.dto.ServiceMonitoringOverviewResponse.ServiceStatus.DOWN);
         assertThat(overview.worker().queued()).isEqualTo(17.0);
         assertThat(overview.worker().failuresPerSecond()).isEqualTo(2.0);
+    }
+
+    @ParameterizedTest
+    @EnumSource(ServiceMonitoringRange.class)
+    void existingLlmOverviewExcludesGuardCallsFromEverySelectorAndDenominator(ServiceMonitoringRange range) {
+        when(prometheusQueryClient.query(any(), any())).thenAnswer(invocation -> {
+            String query = invocation.getArgument(0);
+            if (!query.contains("llm_")) return List.of();
+            var selectors = Pattern.compile("llm_[a-z_]+(?:\\{([^}]*)})?").matcher(query);
+            while (selectors.find()) {
+                assertThat(selectors.group(1)).as("기존 채팅 지표 selector: %s", selectors.group())
+                        .isNotNull().contains("client=\"chat\"");
+            }
+            if (query.contains("outcome=\"timeout\"")) return List.of(series(Map.of(), 0.02));
+            if (query.contains("outcome!~")) return List.of(series(Map.of(), 0.04));
+            if (query.contains("kind=\"judgment\"")) return List.of(series(Map.of(), 1.2));
+            return List.of(series(Map.of(), 4.0));
+        });
+        when(prometheusQueryClient.queryRange(any(), any(), any(), any())).thenReturn(List.of());
+
+        var llm = service.getOverview(range).llm();
+
+        assertThat(llm.p95JudgmentSeconds()).isEqualTo(1.2);
+        assertThat(llm.timeoutRatio()).isEqualTo(0.02);
+        assertThat(llm.errorRatio()).isEqualTo(0.04);
+        assertThat(llm.concurrencyLimit()).isEqualTo(4.0);
+    }
+
+    @Test
+    void guardOnlyDataDoesNotAppearAsChatLatencyOrCapacity() {
+        when(prometheusQueryClient.query(any(), any())).thenAnswer(invocation -> {
+            String query = invocation.getArgument(0);
+            // 채팅 series가 없고 guard series만 있는 경우를 모의합니다.
+            if (query.contains("llm_") && !query.contains("client=\"chat\"")) return List.of(series(Map.of(), 99.0));
+            return List.of();
+        });
+        when(prometheusQueryClient.queryRange(any(), any(), any(), any())).thenReturn(List.of());
+
+        var llm = service.getOverview(ServiceMonitoringRange.ONE_HOUR).llm();
+
+        assertThat(llm.p95JudgmentSeconds()).isNull();
+        assertThat(llm.timeoutRatio()).isNull();
+        assertThat(llm.errorRatio()).isNull();
+        assertThat(llm.concurrencyLimit()).isNull();
+        assertThat(llm.p95PermitWaitSeconds()).isNull();
     }
 }

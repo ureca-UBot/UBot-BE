@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -69,7 +71,9 @@ class ChatAnswerProcessorSemanticCacheTest {
         verify(vectors).getSimilarList(QUESTION, 10);
         verify(vectors).searchWithVector(QUESTION, null, 10);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(reranker, ai, collector, unanswered);
+        verifyNoInteractions(reranker, collector, unanswered);
+        verify(ai).validateCachedAnswer(any(), eq(best.answer()), eq(String.valueOf(best.faqId())));
+        verify(ai, never()).generateAnswer(any());
     }
 
     @Test

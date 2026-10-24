@@ -1,5 +1,8 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.mockito.ArgumentMatchers.any;
@@ -74,6 +77,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class UserDataCardIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
 
 	// 사용자 A(회선 1개)와 B(회선 2개)의 12개월 사용량·청구서가 들어 있는 평가용 데이터입니다. 기준일은 2026-10-12입니다.
 	private static final String SEED = "evaluation/user_data_seed.sql";
@@ -111,6 +116,7 @@ class UserDataCardIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+        AiGuardTestSupport.allow(guardModel);
 		FaqSearchMockSupport.bridgeSearch(vector);
 		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);

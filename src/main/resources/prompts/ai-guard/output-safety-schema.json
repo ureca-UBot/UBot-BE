@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {"type": "string", "enum": ["ALLOW", "BLOCK", "REVIEW"]},
+    "reason_codes": {"type": "array", "items": {"type": "string", "enum": ["SAFE", "HARMFUL_REQUEST_FOLLOWED", "ABUSIVE_LANGUAGE", "INTERNAL_INFORMATION", "FALSE_EXECUTION", "POLICY_CONTRADICTION", "UNSUPPORTED_CLAIM", "WRONG_SERVICE", "CONDITION_DISTORTION", "INSUFFICIENT_EVIDENCE"]}, "maxItems": 4},
+    "explanation": {"type": "string", "maxLength": 240}
+  },
+  "required": ["decision", "reason_codes", "explanation"],
+  "additionalProperties": false
+}

@@ -133,7 +133,10 @@ public class ChatAnswerProcessor {
 				FaqSearchResponseDto officialFaq = cachedFaq.get();
 				log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
 						attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
-				return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false),
+				AnswerMaterials cachedMaterials = AnswerMaterials.builder(preparedQuestion)
+						.addFaqs(List.of(officialFaq)).build().withHistory(plan.historyForAnswer());
+				return ChatAnswerResult.answered(aiService.validateCachedAnswer(cachedMaterials, officialFaq.answer(),
+								String.valueOf(officialFaq.faqId())),
 						List.of(new SubQuestionFaqs(question, List.of(officialFaq), question)));
 			}
 			// MISS이면 같은 검색 후보로 이어갑니다. 임베딩·검색은 반복하지 않습니다.

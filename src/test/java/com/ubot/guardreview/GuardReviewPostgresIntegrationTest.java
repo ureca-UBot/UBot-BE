@@ -532,11 +532,24 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(result.cases()).hasSize(5168);
 		assertThat(result.falsePositives()).isZero();
 		assertThat(result.regressions()).isZero();
-		// The only baseline mismatch is the deliberately added candidate detection fixture, resolved after application.
-		assertThat(result.baselineFailures()).isEqualTo(1);
+		// 과거 문장 삭제 시험지의 혼합 질문은 현재 정책에서 입력 전체가 차단됩니다.
+		var mixedInputIds = api.getBean(ReviewValidationService.class).dataset().stream()
+				.filter(c -> c.stage() == Stage.INPUT && !c.preserve().isEmpty() && !c.remove().isEmpty())
+				.map(GoldenCase::id).collect(java.util.stream.Collectors.toSet());
+		assertThat(mixedInputIds).hasSize(1390);
+		var expectedBaselineFailures = new java.util.HashSet<>(mixedInputIds);
+		expectedBaselineFailures.add("ATTACK-WORD");
+		assertThat(result.baselineFailures()).isEqualTo(expectedBaselineFailures.size());
+		assertThat(result.cases().stream().filter(CaseResult::baselineFailure).map(CaseResult::id))
+				.containsExactlyInAnyOrderElementsOf(expectedBaselineFailures);
+		assertThat(result.cases().stream().filter(c -> mixedInputIds.contains(c.id()))).allSatisfy(c -> {
+			assertThat(c.before()).isEmpty();
+			assertThat(c.after()).isEmpty();
+			assertThat(c.newDetection()).isFalse();
+		});
 		assertThat(result.newDetections()).isEqualTo(1);
-		assertThat(result.cases().stream().filter(CaseResult::baselineFailure))
-				.allMatch(c -> c.id().equals("ATTACK-WORD") && c.newDetection());
+		assertThat(result.cases().stream().filter(CaseResult::newDetection).map(CaseResult::id))
+				.containsExactly("ATTACK-WORD");
 		approve(v, s, 200);
 		assertThat(count("forbidden_words")).isEqualTo(baseline.length + 1);
 	}

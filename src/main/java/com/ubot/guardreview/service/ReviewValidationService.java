@@ -9,6 +9,7 @@ import static com.ubot.guardreview.model.ReviewModels.CaseResult;
 import static com.ubot.guardreview.model.ReviewModels.Validation;
 
 import com.ubot.ai.service.AiOutputGuardService;
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.chat.service.ChatInputGuardService;
 import com.ubot.chat.service.ChatPromptInjectionService;
 import com.ubot.common.GlobalException;
@@ -106,7 +107,8 @@ public class ReviewValidationService {
 	private String run(Stage stage, String text, ForbiddenWordFilterService preview) {
 		try {
 			return switch (stage) {
-				case INPUT -> new ChatInputGuardService(preview, promptGuard).prepareQuestion(text);
+				// 후보 미리보기는 운영 스위치와 별개로 기존 입력 검사를 실행합니다.
+				case INPUT -> new ChatInputGuardService(preview, promptGuard, new AiInputGuardProperties()).prepareQuestion(text);
 				case OUTPUT -> new AiOutputGuardService(preview).previewForbiddenWordStage(text);
 				case COUNSEL -> {
 					preview.validateForbiddenWord(text);
