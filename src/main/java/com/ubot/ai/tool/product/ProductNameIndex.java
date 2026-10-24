@@ -78,7 +78,7 @@ public class ProductNameIndex {
     }
 
     /**
-     * 같은 종류 판매 상품의 1/3 이상(최소 2개)에 똑같이 있는 설명 문장입니다. "표시 월정액은 부가세 포함"처럼
+     * 같은 종류 판매 상품의 1/3 이상(최소 2개)에 있는 설명 문장의 틀(ProductDescriptions.shape)입니다. "표시 월정액은 부가세 포함"처럼
      * 상품마다 반복되는 문장이라 카드에는 보여 주지 않습니다. 목록을 불러오지 못했으면 비어 있습니다.
      */
     public Set<String> commonSentences(ProductType type) {
@@ -137,10 +137,14 @@ public class ProductNameIndex {
         return new PlanSeriesOverview(groups);
     }
 
-    /** 상품마다 다듬은 설명 문장 목록을 받아, 여러 상품에 똑같이 있는 문장을 고릅니다(commonSentences 참고). */
+    /**
+     * 상품마다 다듬은 설명 문장 목록을 받아, 여러 상품에 있는 문장을 고릅니다(commonSentences 참고).
+     * 수량만 다른 문장("테더링 월 24GB이며 …", "테더링 월 20GB이며 …")도 같은 문장으로 세도록 틀(ProductDescriptions.shape)로 돌려줍니다.
+     */
     static Set<String> commonSentences(List<List<String>> sentencesByProduct) {
-        Map<String, Long> counts = sentencesByProduct.stream().flatMap(sentences -> sentences.stream().distinct())
-                .collect(Collectors.groupingBy(sentence -> sentence, Collectors.counting()));
+        Map<String, Long> counts = sentencesByProduct.stream()
+                .flatMap(sentences -> sentences.stream().map(ProductDescriptions::shape).distinct())
+                .collect(Collectors.groupingBy(shape -> shape, Collectors.counting()));
         int products = sentencesByProduct.size();
         return counts.entrySet().stream()
                 .filter(entry -> entry.getValue() >= 2 && entry.getValue() * 3 >= products)

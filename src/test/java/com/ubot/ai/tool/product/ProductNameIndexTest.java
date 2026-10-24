@@ -60,4 +60,15 @@ class ProductNameIndexTest {
         assertThat(ProductNameIndex.commonSentences(sentences)).containsExactlyInAnyOrder("부가세 포함.", "가입 대상 만 19~34세.");
         assertThat(ProductNameIndex.commonSentences(List.of(List.of("부가세 포함.")))).isEmpty();
     }
+
+    @Test
+    void 수량만_다른_문장은_같은_공통_문장으로_센다() {
+        List<List<String>> sentences = List.of(
+                List.of("테더링 월 24GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감."),
+                List.of("테더링 월 20GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감."),
+                List.of("가입 대상 만 65세 이상."));
+
+        assertThat(ProductNameIndex.commonSentences(sentences))
+                .containsExactly(ProductDescriptions.shape("테더링 월 4GB이며 유한 데이터 상품은 기본 제공량에서 함께 차감."));
+    }
 }
