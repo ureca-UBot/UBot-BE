@@ -8,6 +8,8 @@ import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.UserDataCards.BillingCard;
 import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserRecordClaims;
 import com.ubot.billing.enums.PaymentMethod;
@@ -270,6 +272,15 @@ public class AiOutputGuardService {
     private static final Pattern USER_SUBJECT = Pattern.compile("회원\\s*정보|사용자\\s*정보|이름|거주\\s*지역|가입일");
     private static final Pattern OTHER_QUERY_SUBJECT = Pattern.compile(
             "요금|사용량|미납|환불|결제|납부|로밍|위약금|가입\\s*상태|신청\\s*상태|처리\\s*상태");
+    /** 상품 조회 도구가 실제로 조회하는 대상입니다. 회원 기록(ACCOUNT_RECORD)과 함께 쓰인 문장은 해당하지 않습니다. */
+    private static final Pattern PRODUCT_SUBJECT = Pattern.compile("요금제|부가\\s*서비스|결합\\s*상품|로밍\\s*상품|상품");
+    /**
+     * 회원 본인의 가입 상품을 가리키는 말입니다. "고객님의 요금제를 조회했습니다"는 카탈로그가 아니라 회원 기록 조회를 말하므로
+     * 상품 조회 결과가 있어도 사실로 보지 않습니다. "제"·"내"는 "제공"·"내용"과 구분하려고 뒤에 공백이 올 때만 봅니다.
+     */
+    private static final Pattern PERSONAL_PRODUCT_OWNER = Pattern.compile(
+            "고객\\s*님|회원\\s*님|(?<![가-힣])(?:내|제|저의|나의)\\s|(?:사용|이용)\\s*(?:중인|하시는|하고\\s*계신)"
+                    + "|가입(?:하신|되어\\s*있는|된)|쓰(?:시는|고\\s*계신)");
     private static final Pattern CONDITION = Pattern.compile(
             "경우|때에는|한해|한정|제외|없으면|이어야"
                     + "|(?:법정대리인|보호자)[^,;.!?。！？\\n]{0,40}(?:함께\\s*방문|같이\\s*방문|동행|동반)"
@@ -746,6 +757,16 @@ public class AiOutputGuardService {
     private static final Pattern FOLLOWUP_INFORMATION_REQUEST = Pattern.compile(
             "(?:(?<input>입력)(?:해|하여)?|알려|말씀(?:해|하여)?|말해|설명(?:해|하여)?|보내|제공(?:해|하여)?)\\s*"
                     + "(?:주(?:세요|십시오|시면|시기\\s*바랍니다)|줘(?:요)?)");
+    private static final String PRODUCT_SEARCH_FIELD = "(?:요금제|상품|부가\\s*서비스|로밍\\s*상품|결합\\s*상품)"
+            + "(?:\\s*(?:종류|유형|조건))?|종류|조건|5G|LTE|월\\s*(?:요금|정액)|데이터\\s*(?:양|용량)";
+    private static final String PRODUCT_SEARCH_FIELDS = "(?:" + PRODUCT_SEARCH_FIELD + ")"
+            + "(?:\\s*(?:이나|나|또는|혹은|및|와|과|[·/,])\\s*(?:" + PRODUCT_SEARCH_FIELD + "))*";
+    private static final Pattern PRODUCT_SEARCH_PREFERENCES = Pattern.compile(
+            "^(?:원하(?:는|시는)|희망(?:하는|하시는)|선호(?:하는|하시는))\\s*" + PRODUCT_SEARCH_FIELDS
+                    + "(?:\\s*\\(" + PRODUCT_SEARCH_FIELDS + "\\))?(?:을|를)?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PRODUCT_SEARCH_GUIDANCE = Pattern.compile(
+            "^(?:해당|조건에\\s*맞는|선택하신|원하시는)\\s*(?:요금제|상품|부가\\s*서비스|로밍\\s*상품|결합\\s*상품)"
+                    + "(?:을|를)?\\s*안내(?:해\\s*)?드(?:립니다|려요)$");
     // 도구가 받을 검색 기준의 필드만 구분합니다. 특정 답변 문장을 허용 목록으로 두지 않습니다.
     private static final String STORE_LOCATION_FIELD =
             "(?:지역(?:명)?|지명|동네(?:\\s*이름)?|역(?:\\s*(?:이름|명))?|위치)";
@@ -1167,7 +1188,8 @@ public class AiOutputGuardService {
                 }
                 boolean followUp = QUESTION_END.matcher(inspected).find()
                         || hasFollowUpInformationRequest(inspected);
-                if (followUp && !isStoreLocationInputRequest(inspected, materials, storeMap)) {
+                boolean productSearchGuidance = followUp && !kept.isEmpty() && isProductSearchGuidance(inspected, materials);
+                if (followUp && !isStoreLocationInputRequest(inspected, materials, storeMap) && !productSearchGuidance) {
                     trace.removed(GuardRule.FOLLOWUP_QUESTION);
                     removed = true;
                 } else kept.add(clause);
@@ -1190,6 +1212,17 @@ public class AiOutputGuardService {
         Matcher ending = QUESTION_END.matcher(content);
         if (ending.find()) content = content.substring(0, ending.start()).strip();
         return STORE_LOCATION_INPUT_FIELDS.matcher(content).matches();
+    }
+
+    private boolean isProductSearchGuidance(String sentence, AnswerMaterials materials) {
+        // 실제 상품 조회 결과가 있고 답변 본문을 먼저 제공한 때만 검색 선호 조건 안내로 봅니다.
+        // 개인정보·현재 가입 내역 요청이나 별도 지시는 허용하는 필드·후속 문장에 포함되지 않습니다.
+        if (!hasProductData(materials) || materials.tools().stream().noneMatch(ProductType::isProductTool)) return false;
+        String content = sentence.replaceFirst("[.!。]+$", "").strip();
+        Matcher request = FOLLOWUP_INFORMATION_REQUEST.matcher(content);
+        if (!request.find() || !request.group().endsWith("주시면")) return false;
+        return PRODUCT_SEARCH_PREFERENCES.matcher(content.substring(0, request.start()).strip()).matches()
+                && PRODUCT_SEARCH_GUIDANCE.matcher(content.substring(request.end()).strip()).matches();
     }
 
     /** 명시된 업무·기기만 비교합니다. 모호한 주제나 생략된 대상은 추측하지 않습니다. */
@@ -1822,8 +1855,12 @@ public class AiOutputGuardService {
                             && sameQuantityMetric(source.quantity(), claim.quantity()))) return true;
             if (!comparable.isEmpty() && comparable.stream()
                     .noneMatch(source -> source.quantity().accepts(claim.quantity().value()))) return true;
-            // 명시한 다른 상품의 금액과 섞지 않습니다. 조건을 확정할 수 없으면 의미상 정오를 추측하지 않습니다.
-            if (!claim.target().equals("*") || !comparable.isEmpty()) comparedMoney.add(claim.quantity());
+            // 실제로 비교했거나 별도 상품으로 구분되는 근거가 있을 때만 일반 수치 비교에서 제외합니다.
+            // 이름만 있고 대상별 근거를 읽지 못했다는 이유로 기존 수치 검사를 건너뛰지는 않습니다.
+            if (!comparable.isEmpty() || !claim.target().equals("*")
+                    && moneyEvidence.stream().anyMatch(source -> !source.target().equals("*"))) {
+                comparedMoney.add(claim.quantity());
+            }
         }
         for (QuantityFact claim : readFacts(sentence, true)) {
             if (comparedMoney.stream().anyMatch(value -> value.unit().equals(claim.unit())
@@ -1902,9 +1939,6 @@ public class AiOutputGuardService {
     }
 
     private String moneyTarget(String text, String question) {
-        List<String> services = SERVICE_SCOPE.matcher(text).results().map(match -> serviceName(match.group()))
-                .distinct().toList();
-        if (services.size() == 1) return services.getFirst().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
         int end = text.length();
         Matcher metric = PLAN_PRICE_LABEL.matcher(text);
         if (metric.find()) end = Math.min(end, metric.start());
@@ -1914,6 +1948,14 @@ public class AiOutputGuardService {
         if (amount.find()) end = Math.min(end, amount.start());
         String prefix = text.substring(0, end).replaceFirst("^[\\s,，;；)]+", "")
                 .replaceFirst("(?:요금제)?(?:의|은|는|이|가)?\\s*$", "").strip();
+        // 상품 조회의 표 형식은 첫 열이 상품명이고, 뒤 열의 테더링·제공량은 그 상품의 속성입니다.
+        // 속성의 서비스 이름을 상품 가격의 대상으로 가져오지 않습니다.
+        int column = prefix.indexOf('|');
+        if (column >= 0) prefix = prefix.substring(0, column).strip();
+        prefix = prefix.replaceFirst("^[-*•]\\s+", "");
+        List<String> services = SERVICE_SCOPE.matcher(prefix.isEmpty() ? text : prefix).results()
+                .map(match -> serviceName(match.group())).distinct().toList();
+        if (services.size() == 1) return services.getFirst().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
         String subject = planPriceSubject(prefix);
         if (CONDITION_SCOPE_MARKER.matcher(prefix).matches()) subject = null;
         if (subject != null && subject.matches(".*(?:얼마|어떻게|알려|확인|이번달|고객님|회원님).*")) subject = null;
@@ -2227,6 +2269,10 @@ public class AiOutputGuardService {
         boolean storeProgress = STORE_SUBJECT.matcher(sentence).find() && hasActualClaim(STORE_PROGRESS_CLAIM, sentence);
         if (!hasActualClaim(QUERY_CLAIM, sentence) && !storeProgress) return false;
         if (STATIC_SOURCE.matcher(sentence).find() && !sentence.contains("조회") && !sentence.contains("검색")) return false;
+        // 상품 조회 도구가 실제로 상품을 돌려줬으면 상품을 조회했다는 문장은 사실입니다. 금액은 수치 검사가 도구 결과와 비교합니다.
+        if (hasProductData(materials) && PRODUCT_SUBJECT.matcher(sentence).find()
+                && !ACCOUNT_RECORD.matcher(sentence).find()
+                && !PERSONAL_PRODUCT_OWNER.matcher(sentence).find()) return false;
         if (OTHER_QUERY_SUBJECT.matcher(sentence).find()) return true;
         if (STORE_SUBJECT.matcher(sentence).find()) return storeMap == null;
         return !USER_SUBJECT.matcher(sentence).find() || !hasUserData(materials);
@@ -2440,6 +2486,10 @@ public class AiOutputGuardService {
             if (!conditions.group().equals("경우") && !conditions.group().equals("때에는")) return false;
         }
         return true;
+    }
+
+    private boolean hasProductData(AnswerMaterials materials) {
+        return materials.sections().stream().anyMatch(section -> ProductDataRecorder.SECTION_TITLE.equals(section.title()));
     }
 
     private boolean isUserDataSection(ContextSection section) {

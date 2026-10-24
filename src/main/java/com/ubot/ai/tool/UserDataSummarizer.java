@@ -1,5 +1,9 @@
 package com.ubot.ai.tool;
 
+import static com.ubot.ai.tool.ToolFormats.speed;
+import static com.ubot.ai.tool.ToolFormats.valueOrUnknown;
+import static com.ubot.ai.tool.ToolFormats.won;
+
 import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.dto.UserDataSummary.Profile;
 import com.ubot.ai.dto.UserDataSummary.SubscriptionSummary;
@@ -39,7 +43,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 /**
  * USER_DATA 질문에서 도구 호출을 줄이려고 LLM에 미리 넣는 사용자 정보를 조회하고 문자열로 정리합니다.
@@ -74,7 +77,7 @@ public class UserDataSummarizer {
     static final String SUMMARY_BILLING_SEPARATOR = " 기준: 총 ";
     static final String BILLING_BASIS_NOTE = "이 청구서를 근거로 답할 때는 이 기준을 밝힌다.";
 
-    private static final String UNKNOWN = "정보 없음";
+    private static final String UNKNOWN = ToolFormats.UNKNOWN;
 
     private final UserService userService;
     private final SubscriptionService subscriptionService;
@@ -385,14 +388,6 @@ public class UserDataSummarizer {
         return mb >= 1024 ? String.format(Locale.ROOT, "%.1fGB", mb / 1024.0) : mb + "MB";
     }
 
-    private static String speed(int kbps) {
-        return kbps >= 1000 && kbps % 1000 == 0 ? kbps / 1000 + "Mbps" : kbps + "Kbps";
-    }
-
-    static String won(Integer amount) {
-        return amount == null ? UNKNOWN : String.format(Locale.ROOT, "%,d원", amount);
-    }
-
     private static String subscriptionStatusLabel(SubscriptionStatus status) {
         if (status == null) return UNKNOWN;
         return switch (status) {
@@ -431,12 +426,5 @@ public class UserDataSummarizer {
 
     static LocalDate toDate(LocalDateTime dateTime) {
         return dateTime == null ? null : dateTime.toLocalDate();
-    }
-
-    static String valueOrUnknown(Object value) {
-        if (value instanceof String text) {
-            return StringUtils.hasText(text) ? text : UNKNOWN;
-        }
-        return value == null ? UNKNOWN : value.toString();
     }
 }

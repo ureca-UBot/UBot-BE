@@ -83,7 +83,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
 		Completion completion;
 		try {
-			// 도구가 있는 요청에는 출력 스키마를 걸지 않습니다. 스키마로 출력을 묶으면 모델이 도구 호출을 낼 수 없습니다.
+			// 도구 단계는 스키마 없이 진행하고, 최종 형식 오류에만 도구 없는 스키마 재호출을 적용합니다.
 			completion = request.hasTools()
 					? completeWithTools(messages, request)
                     : complete(messages, List.of(), request.responseSchema(), request.generationOptions());
@@ -97,9 +97,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 		}
 
 		// 빈 결과·길이 제한으로 잘린 결과·도구 실행이 끝난 뒤에도 남은 도구 호출은 정상 답변으로 쓰지 않습니다.
-		if (completion == null || completion.hasToolCalls() || completion.isTruncated()) {
-			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
-		}
+		validateCompletion(completion);
 
 		// 추론 과정은 제외하고 최종 답변 문자열만 꺼냅니다.
 		String answer = removeThinking(completion.content());
@@ -116,6 +114,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
 	/** LLM이 도구를 요청하는 동안, 도구 실행 결과를 대화에 붙여 다시 호출합니다. */
 	private Completion completeWithTools(List<Message> messages, LlmRequestDto request) {
+		// 1. 도구를 사용할 동안에는 스키마를 걸지 않습니다.
 		ToolCallingChatOptions options = ToolCallingChatOptions.builder()
 				.toolCallbacks(request.toolCallbacks())
 				.toolContext(request.toolContext())
@@ -131,15 +130,48 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 			if (++rounds > 8) throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 			ToolExecutionResult result = toolCallingManager.executeToolCalls(
 					new Prompt(conversation, options), completion.toChatResponse());
+			conversation = result.conversationHistory();
 			if (result.returnDirect()) {
 				// 결과를 그대로 답변으로 쓰는 도구는 LLM을 다시 부르지 않습니다.
 				return Completion.ofText(
 						ToolExecutionResult.buildGenerations(result).getFirst().getOutput().getText());
 			}
-			conversation = result.conversationHistory();
 			completion = complete(conversation, request.toolCallbacks(), null);
 		}
-		return completion;
+
+		// 2. 도구 단계가 끝났습니다. 응답 없음·길이 제한은 재호출하지 않고 기존 오류로 처리합니다.
+		validateCompletion(completion);
+		if (!request.hasResponseSchema()) {
+			return completion;
+		}
+		String answer = removeThinking(completion.content());
+		String formatError = ResponseSchemaValidator.violation(answer, request.responseSchema());
+		log.info("LLM 최종 답변 형식을 검사했습니다: 제공자=openai-compatible, 재호출={}, 형식오류={}",
+				formatError != null, formatError);
+		if (formatError == null) {
+			return completion;
+		}
+
+		// 3. 형식이 틀렸을 때만 한 번 다시 생성합니다. 도구 실행 이력은 유지하고, 기존 답변은 넣지 않습니다.
+		if (Thread.currentThread().isInterrupted()) {
+			throw new java.util.concurrent.CancellationException("LLM 요청이 취소되었습니다.");
+		}
+		Completion schemaResponse = complete(conversation, List.of(), request.responseSchema());
+		validateCompletion(schemaResponse);
+
+		String schemaAnswer = removeThinking(schemaResponse.content());
+		String remainingError = ResponseSchemaValidator.violation(schemaAnswer, request.responseSchema());
+		log.info("LLM 스키마 재호출 결과를 검사했습니다: 제공자=openai-compatible, 형식오류={}", remainingError);
+		if (remainingError != null) {
+			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+		}
+		return schemaResponse;
+	}
+
+	private void validateCompletion(Completion completion) {
+		if (completion == null || completion.hasToolCalls() || completion.isTruncated()) {
+			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+		}
 	}
 
 	private Completion complete(List<Message> conversation, List<ToolCallback> tools, Map<String, Object> responseSchema) {

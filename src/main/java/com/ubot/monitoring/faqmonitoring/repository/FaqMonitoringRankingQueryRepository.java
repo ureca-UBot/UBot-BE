@@ -124,7 +124,8 @@ public class FaqMonitoringRankingQueryRepository {
 				toDto(null, rows.get("ALL")),
 				toDto(Intent.GENERAL, rows.get(Intent.GENERAL.name())),
 				toDto(Intent.USER_DATA, rows.get(Intent.USER_DATA.name())),
-				toDto(Intent.STORE_DATA, rows.get(Intent.STORE_DATA.name()))
+				toDto(Intent.STORE_DATA, rows.get(Intent.STORE_DATA.name())),
+				toDto(Intent.PRODUCT_DATA, rows.get(Intent.PRODUCT_DATA.name()))
 		);
 	}
 
@@ -216,7 +217,8 @@ public class FaqMonitoringRankingQueryRepository {
 				toSimilarityDto(rows.get("ALL")),
 				toSimilarityDto(rows.get(Intent.GENERAL.name())),
 				toSimilarityDto(rows.get(Intent.USER_DATA.name())),
-				toSimilarityDto(rows.get(Intent.STORE_DATA.name()))
+				toSimilarityDto(rows.get(Intent.STORE_DATA.name())),
+				toSimilarityDto(rows.get(Intent.PRODUCT_DATA.name()))
 		);
 	}
 

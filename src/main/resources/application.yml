@@ -175,6 +175,10 @@ faq:
   variant:
     sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
 
+product:
+  # 요금제 조회 도구가 약정 할인가를 계산하는 선택약정 할인율(%). FAQ의 선택약정 할인율 문장과 같아야 합니다(ContractDiscountConsistencyTest).
+  contract-discount-percent: ${PRODUCT_CONTRACT_DISCOUNT_PERCENT:25}
+
 kiwi:
   # 하위 질문 가드가 쓰는 형태소 분석기 모델 디렉터리. Gradle downloadKiwi 작업이 .kiwi/model에 받고, Docker 이미지는 KIWI_MODEL_PATH로 지정합니다.
   model-path: ${KIWI_MODEL_PATH:.kiwi/model}

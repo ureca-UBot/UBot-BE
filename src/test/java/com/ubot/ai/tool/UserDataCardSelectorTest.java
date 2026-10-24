@@ -49,6 +49,16 @@ class UserDataCardSelectorTest {
     }
 
     @Test
+    void 상품_카드가_함께_나가면_질문의_요금제만으로는_내_요금제_카드를_붙이지_않는다() {
+        // "요금제 종류 알려줘"는 상품 목록을 묻는 질문이라 내 요금제 카드가 상품 카드와 섞이면 안 됩니다.
+        assertThat(UserDataCardSelector.select("요금제 종류 알려줘", "Ubot 밸런스 59는 월 59,000원입니다.", ONE_LINE, false)
+                .plans()).isEmpty();
+        // 답변에 내 요금제 이름이 나오면 그때는 붙입니다.
+        assertThat(UserDataCardSelector.select("요금제 종류 알려줘", "지금 쓰시는 5G 스탠다드보다 싼 요금제가 있습니다.",
+                ONE_LINE, false).plans()).hasSize(1);
+    }
+
+    @Test
     void 질문으로_붙이는_규칙은_요금제에만_쓴다() {
         // 청구서·사용량은 답변에 그 기록이 나와야만 붙입니다.
         UserDataCards cards = UserDataCardSelector.select("이번 달 요금 얼마야? 데이터는?", "61,950원입니다.", ONE_LINE);

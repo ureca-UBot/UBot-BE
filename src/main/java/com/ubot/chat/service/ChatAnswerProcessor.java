@@ -291,7 +291,8 @@ public class ChatAnswerProcessor {
 			}
 			originalFaqs.add(faq);
 			promptFaqs.add(new FaqSearchResponseDto(faq.faqId(), faq.question(), answer,
-					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable()));
+					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable(),
+					faq.categoryName()));
 		}
 		if (originalFaqs.isEmpty()) {
 			log.info("답변 근거로 사용할 FAQ가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);
