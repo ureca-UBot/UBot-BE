@@ -16,6 +16,7 @@ import com.ubot.notification.repository.NotificationRepository;
 import com.ubot.reservation.entity.StoreReservation;
 import com.ubot.subscription.entity.SubscriptionRoaming;
 import com.ubot.usage.repository.DataUsageTarget;
+import com.ubot.telemap.entity.SurgingAlert;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +37,24 @@ public class NotificationService {
             Locale.KOREAN);
     private static final DateTimeFormatter DUE_DATE_FORMAT = DateTimeFormatter.ofPattern("M월 d일", Locale.KOREAN);
     private final NotificationRepository notificationRepository;
+
+    @Transactional
+    public void createSurgingAlertNotifications(SurgingAlert alert, List<Long> administratorIds) {
+        String subject = alert.getSubject();
+        String title = "[급증 감지] " + subject;
+        String message = alert.getRegion().name() + " 지역에서 최근 " + alert.getWindowMinutes()
+                + "분간 유사 문의 " + alert.getQuestionCount() + "건이 감지되었습니다.";
+        LocalDateTime now = LocalDateTime.now();
+        administratorIds.forEach(administratorId -> notificationRepository.insertSurgingAlertIfAbsent(
+                administratorId,
+                NotificationType.SURGING_ALERT.name(),
+                title,
+                message,
+                alert.getId(),
+                NotificationType.SURGING_ALERT.name() + ":" + alert.getId() + ":" + administratorId,
+                now
+        ));
+    }
 
     @Transactional
     public void createReservationNotification(StoreReservation reservation, NotificationType type) {
