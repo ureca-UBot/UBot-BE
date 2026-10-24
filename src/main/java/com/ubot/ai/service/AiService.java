@@ -92,17 +92,29 @@ public class AiService {
 
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
         // 빈 응답 판단은 ChatAnswerProcessor가 합니다.
-        LlmResponseDto response = llmService.generateAnswer(request);
+        LlmResponseDto response;
+        try {
+            response = llmService.generateAnswer(request);
+        } catch (LlmException exception) {
+            // 목록 답변은 LLM 답변을 쓰지 않으므로, 도구 조회 뒤 LLM의 마지막 응답만 깨졌으면 목록으로 답합니다.
+            if (exception.getErrorCode() != LlmErrorCode.LLM_RESPONSE_INVALID || !listingAnswerable(materials)
+                    || productDataRecorder.listing().isEmpty()) {
+                throw exception;
+            }
+            log.warn("LLM 응답이 올바르지 않지만 상품 목록 요청이라 목록 답변으로 답합니다");
+            response = null;
+        }
         // 기존 파서와 출력 가드로 한 번 검사하고, 후보 선별에는 상태가 아닌 실제 검사 결과를 전달합니다.
         StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
         String answer = null;
         String status = null;
         OutputGuardResult inspection = null;
-        Optional<ProductListAnswer> listing = Optional.empty();
         List<AiAnswer.SlotOutcome> slotOutcomes = null;
-        if (response != null && StringUtils.hasText(response.answer())) {
-            FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
-            log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
+        boolean responded = response != null && StringUtils.hasText(response.answer());
+        // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
+        // LLM 답변은 읽지 않으므로 LLM 응답이 비었거나 깨졌어도 목록으로 답합니다.
+        Optional<ProductListAnswer> listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
+        if (responded || listing.isPresent()) {
             // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
             String toolRecords = userDataRecorder.describe();
             AnswerMaterials inspected = toolRecords.isEmpty() ? materials
@@ -113,30 +125,34 @@ public class AiService {
             if (!productRecords.isEmpty()) {
                 inspected = inspected.withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, productRecords));
             }
-            // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
-            listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
             if (listing.isPresent()) {
-                log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 형식={}, 카드수={}",
-                        parsed.status(), listing.get().getClass().getSimpleName(), listing.get().products().size());
+                log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM응답={}, 형식={}, 카드수={}",
+                        responded ? "있음" : "없음", listing.get().getClass().getSimpleName(),
+                        listing.get().products().size());
                 inspection = aiOutputGuardService.inspectAnswer(listing.get().answer(), List.of(), inspected, storeMap);
                 // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
                 if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
                 answer = inspection.answer();
                 status = SubQuestionStatuses.ANSWER;
-            } else if (parsed.slots() != null) {
-                SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
-                        lookupFailures(materials, storeRecorder, userDataRecorder));
-                answer = slotResult.answer();
-                status = slotResult.status();
-                inspection = slotResult.inspection();
-                slotOutcomes = slotResult.outcomes();
             } else {
-                // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
-                inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected, storeMap);
-                // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
-                if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-                answer = inspection.answer();
-                status = parsed.status();
+                FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
+                log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
+                if (parsed.slots() != null) {
+                    SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
+                            lookupFailures(materials, storeRecorder, userDataRecorder));
+                    answer = slotResult.answer();
+                    status = slotResult.status();
+                    inspection = slotResult.inspection();
+                    slotOutcomes = slotResult.outcomes();
+                } else {
+                    // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
+                    inspection = aiOutputGuardService.inspectAnswer(parsed.answer(), parsed.evidenceIds(), inspected,
+                            storeMap);
+                    // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+                    if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                    answer = inspection.answer();
+                    status = parsed.status();
+                }
             }
         }
         // 가입 정보 카드는 도구로 조회한 기록과 미리 넣은 요약 중, 답변에 쓰인 기록만 합칩니다.

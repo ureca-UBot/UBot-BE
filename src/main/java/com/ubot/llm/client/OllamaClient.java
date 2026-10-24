@@ -86,6 +86,7 @@ public class OllamaClient implements LlmClient {
         // 모델의 별도 thinking 정보는 제외하고 최종 답변 문자열만 꺼냅니다.
         String answer = response.getResult().getOutput().getText();
         if (!StringUtils.hasText(answer)) {
+            log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=빈 답변, 종료사유={}", finishReason(response));
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
         return new LlmResponseDto(answer);
@@ -120,6 +121,7 @@ public class OllamaClient implements LlmClient {
             checkInterrupted();
             toolRounds++;
             if (toolRounds > MAX_TOOL_ROUNDS) {
+                log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=도구 호출 {}회 초과", MAX_TOOL_ROUNDS);
                 throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
             }
 
@@ -166,10 +168,21 @@ public class OllamaClient implements LlmClient {
     }
 
     private void validateResponse(ChatResponse response) {
-        if (response == null || response.getResult() == null || response.getResult().getOutput() == null
-                || response.hasToolCalls() || response.hasFinishReasons(Set.of("length"))) {
+        String reason = response == null ? "응답 없음"
+                : response.getResult() == null || response.getResult().getOutput() == null ? "결과 없음"
+                : response.hasToolCalls() ? "도구 호출이 남음"
+                : response.hasFinishReasons(Set.of("length")) ? "길이 제한으로 잘림"
+                : null;
+        if (reason != null) {
+            // LLM-005는 원인이 여러 가지라 실패 사유를 남겨 둡니다.
+            log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유={}, 종료사유={}", reason, finishReason(response));
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
+    }
+
+    private static String finishReason(ChatResponse response) {
+        return response == null || response.getResult() == null || response.getResult().getMetadata() == null ? null
+                : response.getResult().getMetadata().getFinishReason();
     }
 
     private void checkInterrupted() {
@@ -204,6 +217,7 @@ public class OllamaClient implements LlmClient {
                 return new LlmException(LlmErrorCode.LLM_TIMEOUT, exception);
             }
             if (cause instanceof HttpMessageConversionException) {
+                log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=응답 해석 실패, 원인={}", cause.toString());
                 return new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID, exception);
             }
         }

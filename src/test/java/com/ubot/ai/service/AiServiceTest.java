@@ -450,6 +450,44 @@ class AiServiceTest {
         assertThat(answer.productData()).isNull();
     }
 
+    @Test
+    void 목록_요청을_조회한_뒤_LLM_응답이_깨져도_목록_답변으로_답한다() {
+        var materials = AnswerMaterials.builder("프리미엄 요금제 하나만 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("프리미엄 요금제 하나만 알려줘", List.of(), List.of(), List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            recordPremiumListing(invocation.getArgument(0));
+            throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).startsWith("프리미엄 요금제는 다음 2가지가 있습니다.");
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.productData().products()).extracting(ProductCard::name)
+                .containsExactly("Ubot 프리미엄 89", "Ubot 프리미엄 99");
+    }
+
+    @Test
+    void 목록이_없거나_응답_형식_오류가_아니면_LLM_오류를_그대로_던진다() {
+        var materials = AnswerMaterials.builder("프리미엄 요금제 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("프리미엄 요금제 알려줘", List.of(), List.of(), List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any()))
+                .thenThrow(new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID))
+                .thenAnswer(invocation -> {
+                    recordPremiumListing(invocation.getArgument(0));
+                    throw new LlmException(LlmErrorCode.LLM_TIMEOUT);
+                });
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_TIMEOUT));
+    }
+
     private static void recordPremiumListing(LlmRequestDto request) {
         var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
         var premium89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, List.of(), List.of());
