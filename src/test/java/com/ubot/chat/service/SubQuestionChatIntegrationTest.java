@@ -9,6 +9,8 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -234,7 +236,7 @@ class SubQuestionChatIntegrationTest {
 	@Test
 	@DisplayName("통합 안전 판정이 실패하면 원문 검색으로 우회하지 않는다")
     void failsClosedWhenIntegratedGuardTimesOut() {
-        when(guardModel.generate(argThat(this::isJudge))).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
+        doThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT)).when(guardModel).generate(argThat(this::isJudge));
         var response = ask("유심 재발급이랑 비용");
         assertThat(response.status()).isEqualTo(ChatJobStatus.FAILED);
         assertThat(response.errorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT.getCode());
@@ -253,7 +255,7 @@ class SubQuestionChatIntegrationTest {
 	private void judgeReturns(String... subQuestions) {
 		String json = "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\": ["
 				+ String.join(", ", java.util.Arrays.stream(subQuestions).map(q -> "\"" + q + "\"").toList()) + "]}";
-		when(guardModel.generate(argThat(this::isJudge))).thenReturn(new LlmResponseDto(json));
+		doReturn(new LlmResponseDto(json)).when(guardModel).generate(argThat(this::isJudge));
 	}
 
 	private void answerReturns(String answer) {

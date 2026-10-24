@@ -81,6 +81,24 @@ class ReviewValidationServiceTest {
 		}
 		Validation result = service.validate(List.of(candidate("검증용모욕표현")), Set.of(baselineWords), cases,
 				service.datasetVersion());
+		// 문장 삭제 시절의 혼합 질문도 현재는 전체 차단되며, 기존 불일치로 투명하게 기록합니다.
+		var mixedInputIds = cases.stream()
+				.filter(c -> c.stage() == Stage.INPUT && !c.preserve().isEmpty() && !c.remove().isEmpty())
+				.map(GoldenCase::id).collect(java.util.stream.Collectors.toSet());
+		assertThat(mixedInputIds).hasSize(1390);
+		var expectedBaselineFailures = new java.util.HashSet<>(mixedInputIds);
+		expectedBaselineFailures.add("ATTACK-WORD");
+		assertThat(result.baselineFailures()).isEqualTo(expectedBaselineFailures.size());
+		assertThat(result.cases().stream().filter(CaseResult::baselineFailure).map(CaseResult::id))
+				.containsExactlyInAnyOrderElementsOf(expectedBaselineFailures);
+		assertThat(result.cases().stream().filter(c -> mixedInputIds.contains(c.id()))).allSatisfy(c -> {
+			assertThat(c.before()).isEmpty();
+			assertThat(c.after()).isEmpty();
+			assertThat(c.newDetection()).isFalse();
+		});
+		assertThat(result.newDetections()).isEqualTo(1);
+		assertThat(result.cases().stream().filter(CaseResult::newDetection).map(CaseResult::id))
+				.containsExactly("ATTACK-WORD");
 		assertThat(result.falsePositives()).isZero();
 		assertThat(result.regressions()).isZero();
 		assertThat(result.passed()).isTrue();

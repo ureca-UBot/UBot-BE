@@ -3,6 +3,7 @@ package com.ubot.ai.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 import com.ubot.ai.config.AiInputGuardProperties;
@@ -212,6 +213,82 @@ class AiGuardIntegrationTest {
         assertThat(ai.validateCachedAnswer(materials(), ANSWER, "잘못 적은 번호").answer()).isEqualTo(ANSWER);
         verify(model, times(1)).generate(any());
         verifyNoInteractions(generation);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\n", "\r\n"})
+    void 공식_캐시의_끝_개행은_코드와_AI_검사_후에도_유지한다(String newline) {
+        var generation = mock(LlmService.class);
+        var ai = new AiService(mock(PromptService.class), generation, mock(AiToolRegistry.class),
+                new AiOutputGuardService(words), SubQuestionLabels.withoutMorphology(), output,
+                new AiOutputGuardProperties());
+        when(model.generate(any())).thenReturn(new LlmResponseDto(
+                "{\"decision\":\"ALLOW\",\"reason_codes\":[],\"explanation\":\"안전\"}"));
+
+        String original = ANSWER + newline;
+        var result = ai.validateCachedAnswer(materials(), original, "1");
+
+        assertThat(result.answer()).isEqualTo(original);
+        assertThat(result.outputGuardResult().answer()).isEqualTo(original);
+        verify(model, times(1)).generate(any());
+        verifyNoInteractions(generation);
+    }
+
+    @Test
+    void 캐시_본문의_검사결과는_개행_보존을_이유로_원문으로_되돌리지_않는다() {
+        var code = mock(AiOutputGuardService.class);
+        var ai = new AiService(mock(PromptService.class), mock(LlmService.class), mock(AiToolRegistry.class),
+                code, SubQuestionLabels.withoutMorphology(), output, new AiOutputGuardProperties());
+        var inspected = new OutputGuardResult(ANSWER, false, Set.of(OutputGuardResult.Reason.FORMAT_ERROR));
+        when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(inspected);
+        when(model.generate(any())).thenReturn(new LlmResponseDto(
+                "{\"decision\":\"ALLOW\",\"reason_codes\":[],\"explanation\":\"안전\"}"));
+
+        var result = ai.validateCachedAnswer(materials(), "```\n" + ANSWER + "\n```\n", "1");
+
+        assertThat(result.answer()).isEqualTo(ANSWER);
+        assertThat(result.outputGuardResult()).isSameAs(inspected);
+    }
+
+    @Test
+    void 위험한_캐시는_개행이_있어도_전체_차단하고_AI를_부르지_않는다() {
+        var ai = new AiService(mock(PromptService.class), mock(LlmService.class), mock(AiToolRegistry.class),
+                new AiOutputGuardService(words), SubQuestionLabels.withoutMorphology(), output,
+                new AiOutputGuardProperties());
+
+        assertThatThrownBy(() -> ai.validateCachedAnswer(materials(), ANSWER + " 환불 처리가 완료되었습니다.\n", "1"))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        verifyNoInteractions(model);
+    }
+
+    @Test
+    void 기존_통합_모의응답을_재설정해도_출력_모의응답은_유지한다() {
+        AiGuardTestSupport.allow(model);
+        var planned = new LlmResponseDto(
+                "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\":[\"질문1\",\"질문2\"]}");
+        doReturn(planned).when(model).generate(argThat(this::isInputRequest));
+
+        assertThat(AiGuardFormat.parseInput(model.generate(prompts.input(QUESTION, QUESTION, List.of())).answer())
+                .subQuestions()).containsExactly("질문1", "질문2");
+        assertThat(AiGuardFormat.parseOutput(model.generate(prompts.output(ANSWER, List.of("1"), materials(), null))
+                .answer()).decision()).isEqualTo(AiGuardFormat.Decision.ALLOW);
+    }
+
+    @Test
+    void 기존_통합_모의응답을_타임아웃으로_재설정할_수_있다() {
+        AiGuardTestSupport.allow(model);
+        doThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT)).when(model).generate(argThat(this::isInputRequest));
+
+        assertThatThrownBy(() -> model.generate(prompts.input(QUESTION, QUESTION, List.of())))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT));
+        verify(model, times(1)).generate(any());
+    }
+
+    private boolean isInputRequest(LlmRequestDto request) {
+        return request != null && request.generationOptions() != null
+                && "input_safety_and_planning".equals(request.generationOptions().schemaName());
     }
 
     @Test

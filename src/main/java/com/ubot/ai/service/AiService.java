@@ -298,6 +298,11 @@ public class AiService {
     /** 출력 검사가 켜져 있으면 공식 FAQ 캐시도 검사합니다. 생성 모델·임베딩을 다시 호출하지 않습니다. */
     public AiAnswer validateCachedAnswer(AnswerMaterials materials, String answer, String evidenceId) {
         OutputGuardResult result = inspectOutput(answer, List.of(evidenceId), materials, null, null);
+        // 안전 검사를 통과한 공식 캐시는 바깥 공백·개행만 정리되었을 때 원문 그대로 저장·전달합니다.
+        // 본문이 바뀐 검사 결과를 원문으로 되돌리지는 않습니다.
+        if (answer != null && !answer.equals(result.answer()) && answer.strip().equals(result.answer())) {
+            result = new OutputGuardResult(answer, result.rejected(), result.reasons(), result.contentRemoved());
+        }
         return new AiAnswer(result.answer(), null, false, null, result);
     }
 
