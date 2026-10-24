@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
-import com.ubot.ai.service.AiGuardModelService;
 import com.ubot.llm.dto.request.LlmMessageRequestDto;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.enums.LlmMessageRole;
@@ -22,14 +21,15 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** 메모리 전송 모의 객체를 쓰며 소켓·실제 모델 서버에 접속하지 않습니다. */
 class AiGuardTransportTest {
+    private static final String MODEL = "configured-guard-model";
     @Test
     void 가드만_토큰한도와_스키마이름을_지정하고_기존_답변_요청은_그대로다() {
         var builder = RestClient.builder().baseUrl("http://guard.invalid/v1");
         var server = MockRestServiceServer.bindTo(builder).build();
-        var client = new OpenAiCompatibleLlmClient(builder.build(), AiGuardModelService.MODEL);
+        var client = new OpenAiCompatibleLlmClient(builder.build(), MODEL);
         server.expect(requestTo("http://guard.invalid/v1/chat/completions")).andExpect(req -> {
             var body = JsonMapper.builder().build().readTree(((MockClientHttpRequest) req).getBodyAsString());
-            assertThat(body.get("model").asString()).isEqualTo(AiGuardModelService.MODEL);
+            assertThat(body.get("model").asString()).isEqualTo(MODEL);
             assertThat(body.get("max_tokens").asInt()).isEqualTo(512);
             assertThat(body.get("temperature").asDouble()).isZero();
             assertThat(body.get("response_format").get("json_schema").get("name").asString()).isEqualTo("input_safety_and_planning");
@@ -48,7 +48,7 @@ class AiGuardTransportTest {
     void 가드_서버_오류_본문은_로그나_예외_원인으로_유출하지_않는다() {
         var builder = RestClient.builder().baseUrl("http://guard.invalid/v1");
         var server = MockRestServiceServer.bindTo(builder).build();
-        var client = new OpenAiCompatibleLlmClient(builder.build(), AiGuardModelService.MODEL);
+        var client = new OpenAiCompatibleLlmClient(builder.build(), MODEL);
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(OpenAiCompatibleLlmClient.class);
         var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         appender.start(); logger.addAppender(appender);
@@ -72,7 +72,7 @@ class AiGuardTransportTest {
     }
 
     private String reply() {
-        return "{\"model\":\""+AiGuardModelService.MODEL+"\",\"choices\":[{\"finish_reason\":\"stop\","
+        return "{\"model\":\""+MODEL+"\",\"choices\":[{\"finish_reason\":\"stop\","
                 +"\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}";
     }
 }

@@ -5,6 +5,7 @@ import com.ubot.ai.service.AiGuardTestSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -123,7 +124,7 @@ class ChatSemanticCacheIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status FROM answer_attempts_history ORDER BY attempt_id DESC LIMIT 1",
                 String.class)).isEqualTo("SUCCESS");
         verify(embeddingClient).embed(QUESTION);
-        verifyNoInteractions(llm);
+        verifyNoInteractions(llm, guardModel);
     }
 
     @Test
@@ -135,6 +136,8 @@ class ChatSemanticCacheIntegrationTest {
                 .andExpect(jsonPath("$.data.answer").value("LLM 생성 답변"));
         verify(embeddingClient).embed(QUESTION);
         verify(llm).generateAnswer(any());
+        verify(guardModel).generate(argThat(request -> request != null && request.generationOptions() != null
+                && "whole_answer_guard".equals(request.generationOptions().schemaName())));
     }
 
     @Test
@@ -146,6 +149,8 @@ class ChatSemanticCacheIntegrationTest {
                 .andExpect(jsonPath("$.data.answer").value("승인 해제 후 LLM 답변"));
         verify(embeddingClient).embed(QUESTION);
         verify(llm).generateAnswer(any());
+        verify(guardModel).generate(argThat(request -> request != null && request.generationOptions() != null
+                && "whole_answer_guard".equals(request.generationOptions().schemaName())));
     }
 
     // 접수(202) → Worker 처리 → 상태 조회. 성공한 조회 응답을 돌려줌

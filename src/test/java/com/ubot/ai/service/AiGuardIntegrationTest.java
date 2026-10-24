@@ -156,7 +156,7 @@ class AiGuardIntegrationTest {
     }
 
     @Test
-    void 공식_FAQ_캐시도_출력검사를_거치되_답변_생성은_다시_하지_않는다() {
+    void 공식_FAQ_캐시는_코드만_검사하고_출력_AI와_답변_생성을_호출하지_않는다() {
         var generation = mock(LlmService.class);
         var code = mock(AiOutputGuardService.class);
         var ai = new AiService(mock(PromptService.class),
@@ -167,9 +167,9 @@ class AiGuardIntegrationTest {
                 output,
                 new AiOutputGuardProperties());
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
-        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":[\"SAFE\"],\"explanation\":\"안전\"}"));
         assertThat(ai.validateCachedAnswer(materials(), ANSWER, "1").answer()).isEqualTo(ANSWER);
-        verify(code).inspectAnswer(any(), any(), any(), any()); verify(model).generate(any()); verifyNoInteractions(generation);
+        verify(code).inspectAnswer(any(), any(), any(), any());
+        verifyNoInteractions(model, generation);
     }
 
     @Test
@@ -196,8 +196,8 @@ class AiGuardIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"[]", "[\"SAFE\"]"})
-    void 실제_출력_코드를_통과한_캐시는_AI_허용_후_원문을_유지한다(String reasons) {
+    @ValueSource(strings = {"1", "잘못 적은 번호"})
+    void 실제_출력_코드를_통과한_캐시는_AI_없이_원문을_유지한다(String evidenceId) {
         var generation = mock(LlmService.class);
         var code = new AiOutputGuardService(words);
         var ai = new AiService(mock(PromptService.class),
@@ -207,31 +207,23 @@ class AiGuardIntegrationTest {
                 com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
                 output,
                 new AiOutputGuardProperties());
-        when(model.generate(any())).thenReturn(new LlmResponseDto("{\"decision\":\"ALLOW\",\"reason_codes\":"
-                + reasons + ",\"explanation\":\"안전\"}"));
-
-        assertThat(ai.validateCachedAnswer(materials(), ANSWER, "잘못 적은 번호").answer()).isEqualTo(ANSWER);
-        verify(model, times(1)).generate(any());
-        verifyNoInteractions(generation);
+        assertThat(ai.validateCachedAnswer(materials(), ANSWER, evidenceId).answer()).isEqualTo(ANSWER);
+        verifyNoInteractions(model, generation);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"\n", "\r\n"})
-    void 공식_캐시의_끝_개행은_코드와_AI_검사_후에도_유지한다(String newline) {
+    void 공식_캐시의_끝_개행은_코드_검사_후에도_AI_호출_없이_유지한다(String newline) {
         var generation = mock(LlmService.class);
         var ai = new AiService(mock(PromptService.class), generation, mock(AiToolRegistry.class),
                 new AiOutputGuardService(words), SubQuestionLabels.withoutMorphology(), output,
                 new AiOutputGuardProperties());
-        when(model.generate(any())).thenReturn(new LlmResponseDto(
-                "{\"decision\":\"ALLOW\",\"reason_codes\":[],\"explanation\":\"안전\"}"));
-
         String original = ANSWER + newline;
         var result = ai.validateCachedAnswer(materials(), original, "1");
 
         assertThat(result.answer()).isEqualTo(original);
         assertThat(result.outputGuardResult().answer()).isEqualTo(original);
-        verify(model, times(1)).generate(any());
-        verifyNoInteractions(generation);
+        verifyNoInteractions(model, generation);
     }
 
     @Test
@@ -241,13 +233,11 @@ class AiGuardIntegrationTest {
                 code, SubQuestionLabels.withoutMorphology(), output, new AiOutputGuardProperties());
         var inspected = new OutputGuardResult(ANSWER, false, Set.of(OutputGuardResult.Reason.FORMAT_ERROR));
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(inspected);
-        when(model.generate(any())).thenReturn(new LlmResponseDto(
-                "{\"decision\":\"ALLOW\",\"reason_codes\":[],\"explanation\":\"안전\"}"));
-
         var result = ai.validateCachedAnswer(materials(), "```\n" + ANSWER + "\n```\n", "1");
 
         assertThat(result.answer()).isEqualTo(ANSWER);
         assertThat(result.outputGuardResult()).isSameAs(inspected);
+        verifyNoInteractions(model);
     }
 
     @Test

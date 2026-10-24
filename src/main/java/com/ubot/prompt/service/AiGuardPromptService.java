@@ -18,6 +18,7 @@ import java.util.Map;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /** 검증된 실험 원본을 읽고, 실제 질문·근거·조회 결과만 JSON 자료로 넣습니다. */
@@ -35,7 +36,6 @@ public class AiGuardPromptService {
         data.put("original_question", original);
         data.put("current_question", current);
         data.put("history", history);
-        data.put("forbidden_words", words.getActiveForbiddenWords());
         return request("input-integrated", data, "input_safety_and_planning", 512);
     }
 
@@ -55,11 +55,13 @@ public class AiGuardPromptService {
         }
         data.put("execution_results", executed);
         data.put("evidence_ids", evidenceIds == null ? List.of() : evidenceIds);
-        data.put("forbidden_words", words.getActiveForbiddenWords());
         return request("output-safety", data, "whole_answer_guard", 320);
     }
 
     private LlmRequestDto request(String name, Map<String, Object> data, String schemaName, int maxTokens) {
+        List<String> contents = new ArrayList<>();
+        collectTextValues(JSON.valueToTree(data), contents);
+        data.put("forbidden_words", words.findMatchingForbiddenWords(contents));
         String system = read(name + "-system.txt");
         Map<String, Object> schema;
         try {
@@ -70,6 +72,15 @@ public class AiGuardPromptService {
         return new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.SYSTEM, system),
                 new LlmMessageRequestDto(LlmMessageRole.USER, JSON.writeValueAsString(data))))
                 .withResponseSchema(schema).withGenerationOptions(schemaName, maxTokens, true);
+    }
+
+    private void collectTextValues(JsonNode node, List<String> contents) {
+        if (node.isString()) {
+            contents.add(node.asString());
+        } else if (node.isContainer()) {
+            // JSON 필드명·이스케이프 표기는 검사하지 않고, 실제 문자열 값을 각각 검사합니다.
+            for (JsonNode child : node) collectTextValues(child, contents);
+        }
     }
 
     private String read(String name) {

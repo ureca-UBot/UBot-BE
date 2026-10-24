@@ -56,7 +56,9 @@ class AiGuardModelServiceTest {
         var prefix = "prompts/ai-guard/";
         var manifest = JsonMapper.builder().build().readTree(
                 new ClassPathResource(prefix + "provenance.json").getContentAsString(StandardCharsets.UTF_8));
-        assertThat(manifest.get("model").asString()).isEqualTo(AiGuardModelService.MODEL);
+        // 실험 체크포인트 기록은 보존하며, 실제 API 요청 모델명은 환경 설정을 따릅니다.
+        assertThat(manifest.get("model").asString())
+                .isEqualTo("RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16");
         var resources = manifest.get("resources");
         assertThat(resources.size()).isEqualTo(4);
         for (String file : List.of("input-integrated-system.txt", "input-integrated-schema.json",

@@ -76,6 +76,7 @@ class ForbiddenWordFilterServiceTest {
 		assertThatThrownBy(() -> service.validateForbiddenWord(content))
 				.isInstanceOfSatisfying(ForbiddenWordException.class,
 						e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
+		assertThat(service.findMatchingForbiddenWords(List.of(content))).isNotEmpty();
 	}
 
 	@ParameterizedTest
@@ -86,6 +87,7 @@ class ForbiddenWordFilterServiceTest {
 
 		assertThatThrownBy(() -> service.validateForbiddenWord("b a d"))
 				.isInstanceOf(ForbiddenWordException.class);
+		assertThat(service.findMatchingForbiddenWords(List.of("b a d"))).containsExactly(forbiddenWord);
 	}
 
 	@ParameterizedTest
@@ -101,6 +103,7 @@ class ForbiddenWordFilterServiceTest {
 		cache("바보", "bad", "시발");
 
 		assertThatCode(() -> service.validateForbiddenWord(content)).doesNotThrowAnyException();
+		assertThat(service.findMatchingForbiddenWords(List.of(content))).isEmpty();
 	}
 
 	@Test
@@ -203,6 +206,7 @@ class ForbiddenWordFilterServiceTest {
 		cache("bad", "바보", "fuck");
 
 		assertThatCode(() -> service.validateForbiddenWord(content)).doesNotThrowAnyException();
+		assertThat(service.findMatchingForbiddenWords(List.of(content))).isEmpty();
 	}
 
 	@ParameterizedTest
@@ -231,6 +235,34 @@ class ForbiddenWordFilterServiceTest {
 		assertThatThrownBy(() -> service.validateForbiddenWord(content))
 				.isInstanceOfSatisfying(ForbiddenWordException.class,
 						e -> assertThat(e.getErrorCode()).isEqualTo(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED));
+		assertThat(service.findMatchingForbiddenWords(List.of(content))).isNotEmpty();
+	}
+
+	@Test
+	void matchingReadsOnlyTheActiveCacheAndDoesNotChangeItOrQueryTheDatabase() {
+		cache("바보", "bad", "무관등록어");
+		org.mockito.Mockito.clearInvocations(repository);
+
+		assertThat(service.findMatchingForbiddenWords(List.of("바 보야", "BAD", "바보")))
+				.containsExactly("bad", "바보");
+		assertThat(service.getActiveForbiddenWords()).containsExactly("bad", "무관등록어", "바보");
+		org.mockito.Mockito.verifyNoInteractions(repository);
+	}
+
+	@Test
+	void matchingUsesTheNewSnapshotAfterACacheRefresh() {
+		cache("바보");
+		assertThat(service.findMatchingForbiddenWords(List.of("바보", "멍청이"))).containsExactly("바보");
+		cache("멍청이");
+		assertThat(service.findMatchingForbiddenWords(List.of("바보", "멍청이"))).containsExactly("멍청이");
+	}
+
+	@Test
+	void matchingIgnoresMissingContentsAndDoesNotJoinUnrelatedFields() {
+		cache("바보");
+		assertThat(service.findMatchingForbiddenWords(null)).isEmpty();
+		assertThat(service.findMatchingForbiddenWords(List.of())).isEmpty();
+		assertThat(service.findMatchingForbiddenWords(java.util.Arrays.asList(null, "", "바", "보"))).isEmpty();
 	}
 
 	private void cache(String... words) {

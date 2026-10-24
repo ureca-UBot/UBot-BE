@@ -115,8 +115,11 @@ public class AiService {
             } else {
                 // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
                 inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), inspected, storeMap, null);
-                // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
-                if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                // 칸을 구분할 수 없는 출력은 문제 내용을 일부만 전달하지 않고 기존처럼 거절합니다.
+                if (inspection.rejected() || inspection.contentRemoved()) {
+                    throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                }
+                validateOutputWithAi(inspection.answer(), parsed.evidenceIds(), inspected, storeMap);
                 answer = inspection.answer();
                 status = parsed.status();
             }
@@ -136,8 +139,8 @@ public class AiService {
      * 칸 형식 출력을 하위 질문마다 처리합니다. 답한 칸만 출력 가드로 검사하고, 답하지 못한 하위 질문의 고지는 코드가 붙입니다.
      * <ul>
      *   <li>가드는 칸마다 그 하위 질문(원문 조각)을 질문으로 삼아 검사합니다. 다른 하위 질문의 범위를 이 칸의 누락으로 보지 않게 합니다.</li>
-     *   <li>각 칸의 기존 출력 검사 위치에서 코드 검사와 출력 AI를 순서대로 실행합니다. 꺼진 검사는 호출하지 않습니다.</li>
-     *   <li>출력 가드가 칸을 거부하거나 내용을 삭제하면 답변 전체를 거부합니다(자동 재시도 없음).</li>
+     *   <li>코드 검사는 칸마다 실행하고, 남은 답변과 기존 고지를 합친 뒤 출력 AI로 한 번 검사합니다. 꺼진 검사는 호출하지 않습니다.</li>
+     *   <li>정책 위반은 전체 답변을 거부하고, 그 외 거절·내용 삭제는 해당 칸을 ABSTAIN으로 제외합니다(자동 재시도 없음).</li>
      *   <li>가입 정보·매장 조회가 실패해 그 조회가 필요한 하위 질문을 답하지 못했으면 일반 고지 대신 사유별 고지를 씁니다.</li>
      *   <li>모든 칸이 답하지 못한 것이면 본문 없이 고지만 냅니다. 같은 기준으로 모두 답하지 못했으면 전체 고지 하나입니다.</li>
      * </ul>
@@ -193,7 +196,8 @@ public class AiService {
                     answers.get(index), parsed.evidenceIds(), scoped, storeMap, null);
             inspected = true;
             reasons.addAll(result.reasons());
-            if (result.rejected() && result.reasons().contains(OutputGuardResult.Reason.POLICY_VIOLATION)) {
+            if ((result.rejected() || result.contentRemoved())
+                    && result.reasons().contains(OutputGuardResult.Reason.POLICY_VIOLATION)) {
                 throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
             }
             if (result.rejected() || result.contentRemoved()) {
@@ -209,13 +213,19 @@ public class AiService {
         List<SubQuestionStatuses.NoticeKey> keys = SubQuestionStatuses.noticeKeys(statuses,
                 lookupTargets(materials, expected), failures);
         String notice = SubQuestionStatuses.notice(keys, noticeLabels(keys, materials.subQuestions()));
+        String answer = SubQuestionStatuses.compose(body, notice);
+        // 원문 질문·근거·대화 문맥은 유지하고, 사용자에게 전달할 답변 전체를 한 번만 판정합니다.
+        // 모든 칸이 제외되어 코드 고지만 남았으면 모델을 호출하지 않습니다.
+        if (StringUtils.hasText(body)) {
+            validateOutputWithAi(answer, parsed.evidenceIds(), materials, storeMap);
+        }
         OutputGuardResult inspection = inspected ? new OutputGuardResult(body, false, reasons) : null;
         List<AiAnswer.SlotOutcome> outcomes = new ArrayList<>();
         for (int index = 0; index < statuses.size(); index++) {
             outcomes.add(new AiAnswer.SlotOutcome(statuses.get(index), changedByGuard[index],
                     keys.get(index).failure() != null));
         }
-        return new SlotResult(SubQuestionStatuses.compose(body, notice), SubQuestionStatuses.combine(statuses), inspection,
+        return new SlotResult(answer, SubQuestionStatuses.combine(statuses), inspection,
                 List.copyOf(outcomes));
     }
 
@@ -295,9 +305,11 @@ public class AiService {
             List<AiAnswer.SlotOutcome> outcomes) {
     }
 
-    /** 출력 검사가 켜져 있으면 공식 FAQ 캐시도 검사합니다. 생성 모델·임베딩을 다시 호출하지 않습니다. */
+    /** 공식 FAQ 캐시는 출력 코드 검사만 거칩니다. 출력 AI·생성 모델·임베딩을 다시 호출하지 않습니다. */
     public AiAnswer validateCachedAnswer(AnswerMaterials materials, String answer, String evidenceId) {
         OutputGuardResult result = inspectOutput(answer, List.of(evidenceId), materials, null, null);
+        // 공식 캐시는 하위 칸이 없으므로 거절되거나 내용이 삭제된 원문을 답변으로 사용하지 않습니다.
+        if (result.rejected() || result.contentRemoved()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         // 안전 검사를 통과한 공식 캐시는 바깥 공백·개행만 정리되었을 때 원문 그대로 저장·전달합니다.
         // 본문이 바뀐 검사 결과를 원문으로 되돌리지는 않습니다.
         if (answer != null && !answer.equals(result.answer()) && answer.strip().equals(result.answer())) {
@@ -322,13 +334,16 @@ public class AiService {
                         userDataRecorder.cards());
             }
         }
-        OutputGuardResult result = aiOutputGuardService.inspectAnswer(answer, evidenceIds, inspected, stores);
-        if (result.rejected() || result.contentRemoved()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-        // LLM 검사만 꺼도 코드 검사 결과는 유지하며, 추가 프롬프트·모델 슬롯은 사용하지 않습니다.
-        if (outputGuardProperties.isLlmEnabled()) {
-            aiLlmOutputGuardService.validate(result.answer(), evidenceIds, inspected, stores);
+        // 코드 결과의 처리 정책은 호출 지점이 결정합니다. 제외할 내용을 후단 AI에 보내지 않습니다.
+        return aiOutputGuardService.inspectAnswer(answer, evidenceIds, inspected, stores);
+    }
+
+    /** 코드 검사를 마친 답변만 검사합니다. 칸 경로는 모든 칸 처리가 끝난 뒤 한 번 호출합니다. */
+    private void validateOutputWithAi(String answer, List<String> evidenceIds,
+            AnswerMaterials materials, StoreMapResult stores) {
+        if (outputGuardProperties.isEnabled() && outputGuardProperties.isLlmEnabled()) {
+            aiLlmOutputGuardService.validate(answer, evidenceIds, materials, stores);
         }
-        return result;
     }
 
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder,

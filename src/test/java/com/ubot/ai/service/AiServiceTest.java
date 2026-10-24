@@ -591,7 +591,7 @@ class AiServiceTest {
     }
 
     @Test
-    void 칸_형식에서도_출력_가드가_오답을_검출하면_답변_전체를_거부한다() {
+    void 칸_형식에서_오답인_칸만_ABSTAIN으로_제외하고_정상_답변은_유지한다() {
         var sources = List.of(
                 new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL),
                 new FaqSearchResponseDto(2L, "가입 장소", "가입은 매장에서 할 수 있습니다.", 0.9, Intent.GENERAL));
@@ -606,9 +606,14 @@ class AiServiceTest {
                 + "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\"}],"
                 + "\"evidence_ids\":[\"1\",\"2\"]}"));
 
-        assertThatThrownBy(() -> aiService.generateAnswer(materials))
-                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
-                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+        assertThat(answer.answer()).startsWith("가입은 매장에서 할 수 있습니다.")
+                .doesNotContain("50%", "고객센터에서 자세한 조건을 확인해주세요.")
+                .contains("할인율", "확인해 드리기 어렵습니다.");
+        assertThat(answer.slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ANSWER", false),
+                new AiAnswer.SlotOutcome("ABSTAIN", true));
         verify(llmService, times(1)).generateAnswer(any());
     }
 

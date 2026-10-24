@@ -30,7 +30,7 @@ class LlmServiceCancellationMetricsTest {
             new LlmMessageRequestDto(LlmMessageRole.USER, "질문")));
 
     enum RequestKind {
-        ANSWER, JUDGMENT, TIMED_JUDGMENT
+        ANSWER, JUDGMENT, TIMED_JUDGMENT, CUSTOM_JUDGMENT
     }
 
     @ParameterizedTest
@@ -44,6 +44,7 @@ class LlmServiceCancellationMetricsTest {
                     case ANSWER -> service.generateAnswer(request);
                     case JUDGMENT -> service.generateJudgment(request);
                     case TIMED_JUDGMENT -> service.generateJudgment(request, 100);
+                    case CUSTOM_JUDGMENT -> service.generateJudgment(request, 100, () -> client.generateAnswer(request));
                 }
             }).isInstanceOf(CancellationException.class);
             assertThat(Thread.currentThread().isInterrupted()).isTrue();

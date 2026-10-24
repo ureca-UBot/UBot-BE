@@ -125,9 +125,10 @@ class AiOutputGuardSwitchTest {
         verifyNoInteractions(guardPrompts, model);
     }
 
-    @Test
-    void disablingOnlyLlmStillChecksCachedAnswersWithCode() {
-        properties.setLlmEnabled(false);
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void cachedAnswersUseCodeOnlyWhetherTheLlmSwitchIsEnabledOrDisabled(boolean llmEnabled) {
+        properties.setLlmEnabled(llmEnabled);
         var codeResult = new OutputGuardResult(ANSWER, false, Set.of());
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(codeResult);
 

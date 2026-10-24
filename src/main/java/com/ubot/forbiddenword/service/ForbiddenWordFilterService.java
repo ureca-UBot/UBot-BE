@@ -14,6 +14,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Locale;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,6 +44,17 @@ public class ForbiddenWordFilterService {
 	/** AI 검사도 DB를 다시 조회하지 않고 코드 검사와 같은 불변 캐시를 사용합니다. */
 	public java.util.List<String> getActiveForbiddenWords() {
 		return activeForbiddenWords.stream().sorted().toList();
+	}
+
+	/** AI 자료에 등장한 활성 금칙어만 반환합니다. 차단·로그·DB 조회 없이 기존 매칭 규칙을 사용합니다. */
+	public List<String> findMatchingForbiddenWords(List<String> contents) {
+		if (contents == null || contents.isEmpty()) return List.of();
+		List<InspectionText> texts = contents.stream().filter(Objects::nonNull)
+				.filter(text -> !text.isEmpty()).distinct()
+				.map(text -> new InspectionText(text, normalizeForInspection(text))).toList();
+		return activeForbiddenWords.stream()
+				.filter(word -> texts.stream().anyMatch(text -> containsForbiddenWord(text.original(), text.normalized(), word)))
+				.sorted().toList();
 	}
 
 	/** 검토용 독립 인스턴스입니다. 운영 캐시와 DB에는 쓰지 않습니다. */
@@ -75,17 +88,23 @@ public class ForbiddenWordFilterService {
 		}
 		String inspectionText = normalizeForInspection(content);
 		for (String forbiddenWord : activeForbiddenWords) {
-			String inspectionWord = normalizeForInspection(forbiddenWord);
-			boolean containsWord = "bad".equals(inspectionWord)
-					? ENGLISH_BAD_WORD.matcher(inspectionText).find()
-					: content.contains(forbiddenWord) || (!inspectionWord.isEmpty() && inspectionText.contains(inspectionWord));
-			if (containsWord || (!inspectionWord.isEmpty() && containsSpacedVariant(inspectionText, inspectionWord))) {
+			if (containsForbiddenWord(content, inspectionText, forbiddenWord)) {
 				log.warn("금칙어가 포함된 입력을 차단했습니다: 입력길이={}", content.length());
 				// 탐지된 단어는 응답에 노출하지 않습니다.
 				throw new ForbiddenWordException(ForbiddenWordErrorCode.FORBIDDEN_WORD_DETECTED);
 			}
 		}
 	}
+
+	private boolean containsForbiddenWord(String content, String inspectionText, String forbiddenWord) {
+		String inspectionWord = normalizeForInspection(forbiddenWord);
+		boolean containsWord = "bad".equals(inspectionWord)
+				? ENGLISH_BAD_WORD.matcher(inspectionText).find()
+				: content.contains(forbiddenWord) || (!inspectionWord.isEmpty() && inspectionText.contains(inspectionWord));
+		return containsWord || (!inspectionWord.isEmpty() && containsSpacedVariant(inspectionText, inspectionWord));
+	}
+
+	private record InspectionText(String original, String normalized) { }
 
 	// 원문은 유지하고 검사용 복사본에서만 숨은 서식 문자·전각 ASCII·대소문자를 정리합니다.
 	private String normalizeForInspection(String content) {

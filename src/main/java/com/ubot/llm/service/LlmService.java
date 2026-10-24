@@ -139,6 +139,18 @@ public class LlmService {
 		return generate(request, false, permitWaitTimeoutMillis);
 	}
 
+    /** 같은 서버의 다른 모델·전송 설정도 기존 동시 호출 허가 안에서 실행합니다. */
+    public LlmResponseDto generateJudgment(LlmRequestDto request, long permitWaitTimeoutMillis,
+            Supplier<LlmResponseDto> modelCall) {
+        if (permitWaitTimeoutMillis <= 0 || modelCall == null) {
+            throw new IllegalArgumentException("양수인 LLM 호출 대기 시간과 모델 호출이 필요합니다.");
+        }
+        checkCancellation();
+        validateRequest(request);
+        acquirePermit(permitWaitTimeoutMillis);
+        return generateWithPermit(false, modelCall);
+    }
+
 	private LlmResponseDto generate(
 			LlmRequestDto request,
 			boolean reportAnswerProgress,

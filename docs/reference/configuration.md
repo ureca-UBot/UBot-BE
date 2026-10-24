@@ -343,6 +343,58 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 
 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#ai-실행-엔진-선택)에 있습니다.
 
+## 입력·출력 AI 가드 모델 설정
+
+가드의 API 모델명은 `AiGuardModelService`에서 실행 환경에 맞게 결정합니다. 설정하지 않은 엔진은
+`AI_MODE`의 답변 생성 엔진을 따릅니다(`custom`이면 `AI_CHAT_ENGINE`). Ollama는 `OLLAMA_CHAT_MODEL`,
+vLLM은 `LLM_MODEL`을 기본 모델명으로 사용합니다. Hugging Face 체크포인트 이름을 요청 모델명으로 고정하지 않습니다.
+vLLM의 `LLM_MODEL`은 서버의 `LLM_SERVED_MODEL_NAME`과 같아야 합니다. 실험에서 선택한 체크포인트와 프롬프트 기록은
+`src/main/resources/prompts/ai-guard/provenance.json`에 그대로 보존합니다.
+
+| 환경변수 | 생략하거나 비웠을 때 | 별도 지정 시 |
+|---|---|---|
+| `AI_GUARD_ENGINE` | 답변 생성 엔진 | `ollama` 또는 `vllm` |
+| `AI_GUARD_BASE_URL` | 선택한 엔진의 기존 주소. Ollama는 `ollama.base-url`/`OLLAMA_BASE_URL`, vLLM은 `LLM_BASE_URL` | 해당 엔진의 가드 전용 주소. vLLM은 `/v1`까지 포함 |
+| `AI_GUARD_MODEL` | Ollama는 `spring.ai.ollama.chat.options.model`/`OLLAMA_CHAT_MODEL`, vLLM은 `LLM_MODEL`(기본 `ubot-chat`) | Ollama 등록 모델명 또는 vLLM의 served model name |
+| `AI_GUARD_CONNECT_TIMEOUT` | `LLM_CONNECT_TIMEOUT`(기본 `3s`) | 가드 연결 제한 시간 |
+| `AI_GUARD_READ_TIMEOUT` | `LLM_READ_TIMEOUT`(기본 `120s`) | 가드 응답 제한 시간 |
+| `AI_GUARD_MAX_CONCURRENT` | `LLM_MAX_CONCURRENT`(기본 `4`) | 별도 가드 서버의 호출 허가 수. 같은 서버에서는 기존 답변 생성 상한을 공유하며 이 값으로 늘리지 않음 |
+| `AI_GUARD_PERMIT_WAIT_TIMEOUT` | `5s` | 가드 호출 허가 대기 시간 |
+
+가드와 답변 생성이 같은 서버를 사용하면 기존 `LlmService`의 동시 호출 허가·취소·지표 처리를 공유합니다.
+별도 연결 설정이 없으면 전송 클라이언트도 그대로 재사용합니다. 같은 서버에 다른 모델명이나 제한 시간을 지정해도
+공유한 허가를 얻은 뒤 해당 설정으로 호출합니다. 취소·시간 초과 후에도 실제 호출이 계속 실행 중이면 허가를 먼저 돌려주지 않습니다.
+가드 대기 한도를 넘으면 `LLM_BUSY`를 반환하며, 이를 안전 판정이나 자동 재시도로 바꾸지 않습니다.
+
+서버는 URL의 프로토콜·호스트·포트로 구분합니다. 호스트 대소문자, 기본 포트 표기, 끝의 `/`나 API 경로 차이로
+같은 서버의 허가를 분리하지 않으며, `localhost`·`127.0.0.1`·`[::1]`도 같은 로컬 서버로 봅니다.
+다른 DNS 이름이나 프록시 뒤의 실제 서버가 같은지는 조회하지 않습니다. 같은 모델 서버에는 같은 주소를 사용하세요.
+별도 서버일 때만 가드 전용 허가를 사용하며, 답변 생성의 기존 호출 상한은 변경하지 않습니다.
+
+입력·출력 가드의 `forbidden_words`에는 해당 요청의 질문·답변·대화·근거·조회 자료에서 매칭된 활성 금칙어만 넣습니다.
+기존 코드 필터의 공백·숨은 문자·전각 문자·대소문자와 단어 경계 규칙을 재사용하며, JSON 필드명이나 서로 다른 필드를
+이어 붙인 문자열은 매칭 대상으로 만들지 않습니다. 캐시를 읽기만 하므로 추가 DB 조회나 등록 변경은 하지 않습니다.
+자료에 없는 금칙어가 늘어도 전달 목록은 늘지 않으며, 매칭된 단어를 개수 순으로 임의 누락시키지 않습니다.
+금칙어 매칭은 프롬프트 자료 선정이며, 인용·피해 신고 등의 안전 판정 기준이나 판정 프롬프트 원본은 변경하지 않습니다.
+
+`AI_INPUT_GUARD_ENABLED`, `AI_OUTPUT_GUARD_ENABLED`, `AI_INPUT_LLM_GUARD_ENABLED`,
+`AI_OUTPUT_LLM_GUARD_ENABLED`는 모두 기본 `true`입니다. 로컬에서 AI 가드 없이 개발하려면 두 `*_LLM_GUARD_ENABLED`만
+`false`로 지정할 수 있습니다. 코드 가드는 유지하며, 답변 생성·기존 질문 분류의 모델 설정은 여전히 필요합니다.
+공식 FAQ 캐시 적중은 출력 코드 검사만 거치고, 새로 생성한 답변은 활성화된 출력 LLM 검사를 거칩니다.
+
+로컬 Ollama를 쓸 때는 `.env.example`의 `OLLAMA_CHAT_MODEL`과 로컬에 준비한 모델명을 맞추세요.
+로컬의 답변 생성은 Ollama로 두고 가드만 별도 vLLM에 보내려면 다음처럼 세 값을 명시합니다.
+
+```properties
+AI_GUARD_ENGINE=vllm
+AI_GUARD_BASE_URL=http://guard-host:8000/v1
+AI_GUARD_MODEL=ubot-guard
+```
+
+`ubot-guard`는 예시이며 실제 가드 서버에 등록한 이름으로 바꿔야 합니다. 반대로 가드만 Ollama를 쓰려면
+`AI_GUARD_ENGINE=ollama`와 Ollama 주소·등록 모델명을 지정합니다. 이 설정은 답변 생성·임베딩 설정을 바꾸지 않으며,
+모델을 자동 다운로드하거나 서버를 실행하지 않습니다. 지정한 주소에 해당 모델이 준비되어 있어야 합니다.
+
 ## 관리자 위험 표현 분석 전용 모델 설정
 
 관리자 `ReviewWorker` 분석은 `Qwen/Qwen3-14B-AWQ`를 사용합니다. 공통 상담·실시간 가드의

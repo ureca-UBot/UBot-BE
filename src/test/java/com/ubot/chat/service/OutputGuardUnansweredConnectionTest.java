@@ -170,8 +170,9 @@ class OutputGuardUnansweredConnectionTest {
 		verify(llm, times(1)).generateAnswer(any());
 	}
 
-	@Test void 가드가_삭제한_답변은_전체_차단하고_모델_미응답이나_Outbox에_등록하지_않는다() {
+	@Test void 가드가_제외한_칸은_ABSTAIN으로_고지하되_모델_미응답이나_Outbox에_등록하지_않는다() {
 		var guard = mock(AiOutputGuardService.class);
+		var outputAi = mock(com.ubot.ai.service.AiLlmOutputGuardService.class);
 		when(guard.inspectAnswer(any(), any(), any(), any()))
 				.thenReturn(new OutputGuardResult("", false, Set.of(OutputGuardResult.Reason.ANSWER_ERROR), true));
 		var guardedAi = new AiService(prompts,
@@ -179,22 +180,26 @@ class OutputGuardUnansweredConnectionTest {
                 mock(AiToolRegistry.class),
                 guard,
                 SubQuestionLabels.withoutMorphology(),
-                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
+                outputAi,
                 new com.ubot.ai.config.AiOutputGuardProperties());
 		var guardedProcessor = processorFor(guardedAi);
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(
 				"{\"answers\":[{\"answer\":\"근거 없는 안내\",\"status\":\"ANSWER\"}],\"evidence_ids\":[\"17\"]}"));
 
-		assertThatThrownBy(() -> guardedProcessor.generateAnswer(attempt, null, () -> {}, candidates))
-				.isInstanceOfSatisfying(LlmException.class,
-						error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
+		var result = guardedProcessor.generateAnswer(attempt, null, () -> {}, candidates);
+		assertThat(result.isFailed()).isFalse();
+		assertThat(result.answer().status()).isEqualTo("ABSTAIN");
+		assertThat(result.answer().answer()).doesNotContain("근거 없는 안내")
+				.contains("확인해 드리기 어렵습니다.");
+		assertThat(result.answer().slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ABSTAIN", true));
 		assertThat(candidates).isEmpty();
 		var harness = runJob(guardedProcessor);
 
 		verify(harness.unanswered, never()).enqueueUnansweredQuestion(any(), any());
 		assertThat(harness.jobs.getFirst().getStatus())
-				.isEqualTo(com.ubot.chat.job.entity.ChatJobStatus.FAILED);
+				.isEqualTo(com.ubot.chat.job.entity.ChatJobStatus.SUCCEEDED);
 		verify(guard, times(2)).inspectAnswer(any(), any(), any(), any());
+		verifyNoInteractions(outputAi);
 	}
 
 	private ChatJobTestHarness runJob(ChatAnswerProcessor processor) {
