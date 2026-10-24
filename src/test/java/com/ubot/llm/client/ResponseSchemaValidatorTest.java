@@ -24,6 +24,24 @@ class ResponseSchemaValidatorTest {
         assertThat(ResponseSchemaValidator.violation(two, FaqAnswerFormat.slotSchema(1))).contains("too-many-items");
     }
 
+    @Test
+    void acceptsNumericEvidenceIdsLikeAnswerParsing() {
+        String numeric = "{\"answers\":[{\"answer\":\"답\",\"status\":\"ANSWER\"}],\"evidence_ids\":[12,\"13\"]}";
+        assertThat(ResponseSchemaValidator.violation(numeric, FaqAnswerFormat.slotSchema(1))).isNull();
+        assertThat(ResponseSchemaValidator.violation("{\"answer\":\"답\",\"evidence_ids\":[12],\"status\":\"ANSWER\"}",
+                FaqAnswerFormat.schema())).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{\"answers\":[{\"answer\":\"답\",\"status\":\"ANSWER\"}],\"evidence_ids\":[null]}",
+        "{\"answers\":[{\"answer\":\"답\",\"status\":\"ANSWER\"}],\"evidence_ids\":[{}]}",
+        "{\"answers\":[{\"answer\":12,\"status\":\"ANSWER\"}],\"evidence_ids\":[]}"
+    })
+    void numericAllowanceAppliesOnlyToEvidenceIdNumbers(String text) {
+        assertThat(ResponseSchemaValidator.violation(text, FaqAnswerFormat.slotSchema(1))).isNotNull();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         "null", "[]", "{}", "{\"answers\":null,\"evidence_ids\":[]}",
