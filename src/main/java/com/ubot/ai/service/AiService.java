@@ -6,10 +6,15 @@ import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.LookupFailure;
 import com.ubot.ai.dto.OutputGuardResult;
+import com.ubot.ai.dto.ProductDataCards;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.product.ProductDataCardSelector;
+import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductListAnswer;
+import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.ai.tool.UserDataCardSelector;
@@ -36,6 +41,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -77,8 +83,11 @@ public class AiService {
         StoreSearchRecorder storeRecorder = new StoreSearchRecorder();
         // 가입 정보 도구가 조회한 사용량·청구서도 같은 이유로 요청마다 따로 보관합니다.
         UserDataRecorder userDataRecorder = new UserDataRecorder();
+        // 상품 조회 도구가 돌려준 상품도 출력 검사 근거와 화면용 카드로 쓰려고 요청마다 따로 보관합니다.
+        ProductDataRecorder productDataRecorder = new ProductDataRecorder(materials.question());
         if (toolPath) {
-            request = request.withTools(callbacks, toToolContext(materials, storeRecorder, userDataRecorder));
+            request = request.withTools(callbacks,
+                    toToolContext(materials, storeRecorder, userDataRecorder, productDataRecorder));
         }
 
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
@@ -89,6 +98,7 @@ public class AiService {
         String answer = null;
         String status = null;
         OutputGuardResult inspection = null;
+        Optional<ProductListAnswer> listing = Optional.empty();
         List<AiAnswer.SlotOutcome> slotOutcomes = null;
         if (response != null && StringUtils.hasText(response.answer())) {
             FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
@@ -98,7 +108,22 @@ public class AiService {
             AnswerMaterials inspected = toolRecords.isEmpty() ? materials
                     : materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
                             userDataRecorder.cards());
-            if (parsed.slots() != null) {
+            // 상품 가격·제공량도 프롬프트 자료가 아니라 도구 결과에만 있으므로 같은 방식으로 근거에 덧붙입니다.
+            String productRecords = productDataRecorder.describe();
+            if (!productRecords.isEmpty()) {
+                inspected = inspected.withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, productRecords));
+            }
+            // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
+            listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
+            if (listing.isPresent()) {
+                log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 형식={}, 카드수={}",
+                        parsed.status(), listing.get().getClass().getSimpleName(), listing.get().products().size());
+                inspection = aiOutputGuardService.inspectAnswer(listing.get().answer(), List.of(), inspected, storeMap);
+                // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+                if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                answer = inspection.answer();
+                status = SubQuestionStatuses.ANSWER;
+            } else if (parsed.slots() != null) {
                 SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
                         lookupFailures(materials, storeRecorder, userDataRecorder));
                 answer = slotResult.answer();
@@ -117,12 +142,27 @@ public class AiService {
         // 가입 정보 카드는 도구로 조회한 기록과 미리 넣은 요약 중, 답변에 쓰인 기록만 합칩니다.
         // 도구로 조회만 하고 답변에 쓰지 않은 달은 붙이지 않습니다.
         // 모델이 답을 보류했으면 조회한 기록이 있어도 카드를 붙이지 않습니다. 미응답 판단에 쓰도록 status는 그대로 둡니다.
+        // 상품 카드도 도구가 돌려준 상품 중 답변에 이름이 나온 것만 붙입니다. 목록 답변이면 목록의 상품 전부입니다.
+        ProductDataCards productData = listing.isPresent()
+                ? (listing.get().products().isEmpty() ? null : new ProductDataCards(listing.get().products()))
+                : "ABSTAIN".equals(status) ? null
+                : ProductDataCardSelector.select(answer, productDataRecorder.cards());
+        // 상품 카드가 나가는 "요금제 종류 알려줘" 같은 답변에는 질문의 "요금제"만으로 내 요금제 카드를 붙이지 않습니다.
         UserDataCards userData = "ABSTAIN".equals(status) ? null
                 : UserDataCards.merge(
                         UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
-                        UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary()));
+                        UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary(),
+                                productData == null));
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData,
-                slotOutcomes);
+                productData, slotOutcomes);
+    }
+
+    /**
+     * 목록 답변으로 대신할 수 있는 질문인지입니다. 하위 질문이 하나이고 상품 도구만 붙었을 때만입니다.
+     * "프리미엄 요금제 종류랑 해지 방법"처럼 다른 질문이 섞였거나 매장·가입 정보 도구가 함께 붙었으면 LLM 답변을 씁니다.
+     */
+    private static boolean listingAnswerable(AnswerMaterials materials) {
+        return materials.subQuestions().size() <= 1 && materials.tools().stream().allMatch(ProductType::isProductTool);
     }
 
     /**
@@ -289,7 +329,7 @@ public class AiService {
     }
 
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder,
-            UserDataRecorder userDataRecorder) {
+            UserDataRecorder userDataRecorder, ProductDataRecorder productDataRecorder) {
         Map<String, Object> context = new HashMap<>();
         // 비어 있으면 Spring AI가 도구 실행 시 예외를 던지므로 질문 원문은 항상 넣습니다. (place 검증에도 사용)
         // "거기 영업시간은?"처럼 장소가 이전 대화에만 있으면 답변 LLM에 넘긴 이전 대화(사용자 질문·답변)를 함께 넣습니다.
@@ -304,6 +344,7 @@ public class AiService {
         context.put(StoreTools.QUESTION, question.toString());
         context.put(StoreTools.RECORDER, storeRecorder);
         context.put(UserDataTools.RECORDER, userDataRecorder);
+        context.put(ProductDataRecorder.CONTEXT_KEY, productDataRecorder);
         // 가입 정보 도구는 LLM이 아니라 서버가 넣은 사용자 ID로만 조회합니다. 비회원이면 넣지 않습니다.
         if (materials.userId() != null) {
             context.put(UserDataTools.USER_ID, materials.userId());

@@ -37,6 +37,32 @@ class AiToolRegistryTest {
     }
 
     @Test
+    void resolvesOneProductToolPerProductType() {
+        // 상품 종류마다 도구가 따로 있어 핸들러가 질문에 필요한 종류만 붙일 수 있어야 합니다.
+        assertThat(registry.resolve(Set.of(AiTool.PLAN_SEARCH))).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("searchPlans");
+        assertThat(registry.resolve(Set.of(AiTool.ADDON_SEARCH))).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("searchAddons");
+        assertThat(registry.resolve(Set.of(AiTool.BUNDLE_SEARCH))).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("searchBundles");
+        assertThat(registry.resolve(Set.of(AiTool.ROAMING_SEARCH))).extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("searchRoaming");
+    }
+
+    @Test
+    void exposesSortOnlyOnPlanTool() {
+        String planSchema = registry.resolve(Set.of(AiTool.PLAN_SEARCH)).getFirst().getToolDefinition().inputSchema();
+        assertThat(planSchema).contains("sortBy", "maxMonthlyFee", "minDataGb").doesNotContain("toolContext");
+        // 부가서비스·결합은 이름만 받습니다.
+        for (AiTool tool : Set.of(AiTool.ADDON_SEARCH, AiTool.BUNDLE_SEARCH)) {
+            String schema = registry.resolve(Set.of(tool)).getFirst().getToolDefinition().inputSchema();
+            assertThat(schema).as(tool.name()).contains("name").doesNotContain("sortBy").doesNotContain("toolContext");
+        }
+        assertThat(registry.resolve(Set.of(AiTool.ROAMING_SEARCH)).getFirst().getToolDefinition().inputSchema())
+                .contains("country", "name").doesNotContain("sortBy");
+    }
+
+    @Test
     void resolvesNothingWithoutTools() {
         assertThat(registry.resolve(Set.<AiTool>of())).isEmpty();
     }
