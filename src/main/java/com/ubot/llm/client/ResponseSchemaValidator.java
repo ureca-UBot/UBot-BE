@@ -1,29 +1,34 @@
 package com.ubot.llm.client;
 
-import java.util.Collection;
+import com.networknt.schema.Error;
+import com.networknt.schema.Schema;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SpecificationVersion;
+import com.networknt.schema.path.NodePath;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.StringNode;
 
 /**
- * 도구 경로의 최종 답변이 요청한 JSON Schema 모양을 지켰는지 검사합니다. 위반이 있으면 LlmClient가 스키마를 걸어 1회 재호출합니다.
+ * 도구 경로의 최종 답변이 요청한 JSON Schema를 지켰는지 검사합니다. 위반이 있으면 LlmClient가 스키마를 걸어 1회 재호출합니다.
  *
- * <p>답변 스키마({@code FaqAnswerFormat.slotSchema}, {@code FaqAnswerFormat.schema})가 쓰는 제약만 지원합니다.
- * <ul>
- *   <li>object: {@code required}(필수 키), {@code additionalProperties: false}(모르는 키 금지), {@code properties}(키별 하위 스키마)</li>
- *   <li>array: {@code minItems}·{@code maxItems}(칸 수), {@code items}(원소 스키마)</li>
- *   <li>string: 문자열 타입, {@code enum}(허용 값 목록, 예: status)</li>
- * </ul>
- * 그 밖의 타입(number, boolean 등)이 스키마에 들어오면 정상으로 넘기지 않고 {@code unsupported-schema-type}을 돌려줍니다.
- * 스키마를 확장하면 이 검사기도 함께 확장해야 합니다. 답변 내용의 사실 여부는 검사하지 않습니다.
+ * <p>검사 자체는 JSON Schema 표준 검사기(networknt, Draft 2020-12)가 합니다. 스키마에 어떤 type·키워드를 추가해도
+ * 이 클래스를 고치지 않고 그대로 검사됩니다. 답변 내용의 사실 여부는 검사하지 않습니다.
  *
- * <p>위반 결과는 {@code "<위치>:<사유>"} 형식의 짧은 문자열입니다. 위치는 JSONPath 표기입니다
- * (예: {@code $.answers[0].status:invalid-enum}). 로그에 남기므로 모델 본문이나 필드 값은 넣지 않습니다.
+ * <p>기준은 "답변 파서({@code FaqAnswerFormat})가 정상으로 읽는 것은 재호출하지 않는다"입니다. 파서가 너그럽게 받아 주는 부분은
+ * 표준 검사 전에 {@link #normalize}로 맞춰 둡니다. 여기에 없는 차이는 표준 검사 결과를 그대로 따릅니다.
+ *
+ * <p>위반 결과는 {@code "<위치>:<사유>"} 형식의 짧은 문자열입니다. 위치는 JSONPath 표기, 사유는 어긴 키워드 이름입니다
+ * (예: {@code $.answers[0].status:enum}, {@code $.answers:minItems}). 로그에 남기므로 모델 본문이나 필드 값은 넣지 않습니다.
  */
 final class ResponseSchemaValidator {
 
@@ -34,20 +39,17 @@ final class ResponseSchemaValidator {
     private static final JsonMapper MAPPER = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
 
-    private static final String ROOT = "$";
+    private static final SchemaRegistry REGISTRY = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12);
 
-    // 위반 사유
-    private static final String EMPTY = "empty";                       // 답변이 비어 있음
-    private static final String INVALID_JSON = "invalid-json";         // JSON으로 읽을 수 없음
-    private static final String NOT_OBJECT = "not-object";
-    private static final String MISSING = "missing";                   // required 키가 없음
-    private static final String EXTRA_PROPERTY = "extra-property";     // 스키마에 없는 키가 있음
-    private static final String NOT_ARRAY = "not-array";
-    private static final String TOO_FEW_ITEMS = "too-few-items";       // 칸 수가 minItems보다 적음
-    private static final String TOO_MANY_ITEMS = "too-many-items";     // 칸 수가 maxItems보다 많음
-    private static final String NOT_STRING = "not-string";             // null·숫자 등 문자열이 아닌 값
-    private static final String INVALID_ENUM = "invalid-enum";         // enum 목록에 없는 값
-    private static final String UNSUPPORTED_SCHEMA_TYPE = "unsupported-schema-type";
+    /** 같은 스키마(예: 칸 수가 같은 slotSchema)를 매번 다시 해석하지 않습니다. 스키마 Map은 내용으로 비교됩니다. */
+    private static final Map<Map<String, Object>, Schema> COMPILED = new ConcurrentHashMap<>();
+
+    /** 파서가 숫자도 문자열로 바꿔 읽는 ID 목록입니다({@code FaqAnswerFormat.readEvidenceIds}). */
+    private static final String EVIDENCE_IDS = "evidence_ids";
+
+    private static final String ROOT = "$";
+    private static final String EMPTY = "empty";               // 답변이 비어 있음
+    private static final String INVALID_JSON = "invalid-json"; // JSON으로 읽을 수 없음
 
     private ResponseSchemaValidator() {}
 
@@ -60,13 +62,17 @@ final class ResponseSchemaValidator {
     static String violation(String text, Map<String, Object> schema) {
         if (!StringUtils.hasText(text)) return violationAt(ROOT, EMPTY);
 
-        JsonNode root;
+        JsonNode answer;
         try {
-            root = MAPPER.readTree(unwrapCodeBlock(text.strip()));
+            answer = MAPPER.readTree(unwrapCodeBlock(text.strip()));
         } catch (JacksonException exception) {
             return violationAt(ROOT, INVALID_JSON);
         }
-        return check(root, schema, ROOT);
+
+        List<Error> errors = compile(schema).validate(normalize(answer));
+        if (errors.isEmpty()) return null;
+        Error first = errors.getFirst();
+        return violationAt(toJsonPath(first), first.getKeyword());
     }
 
     private static String unwrapCodeBlock(String text) {
@@ -74,99 +80,54 @@ final class ResponseSchemaValidator {
         return codeBlock.matches() ? codeBlock.group(1).strip() : text;
     }
 
-    /** 스키마의 type에 따라 해당 검사로 보냅니다. 하위 값은 각 검사에서 다시 이 메서드를 불러 재귀로 내려갑니다. */
-    private static String check(JsonNode node, Map<String, Object> schema, String path) {
-        Object type = schema.get("type");
-        if ("object".equals(type)) return checkObject(node, schema, path);
-        if ("array".equals(type)) return checkArray(node, schema, path);
-        if ("string".equals(type)) return checkString(node, schema, path);
-        return violationAt(path, UNSUPPORTED_SCHEMA_TYPE);
+    private static Schema compile(Map<String, Object> schema) {
+        return COMPILED.computeIfAbsent(schema, key -> REGISTRY.getSchema(MAPPER.<JsonNode>valueToTree(key)));
     }
 
-    /** 검사 순서: 객체인지 → 필수 키가 모두 있는지 → 모르는 키가 없는지 → 있는 키마다 하위 스키마 검사. */
-    private static String checkObject(JsonNode node, Map<String, Object> schema, String path) {
-        if (node == null || !node.isObject()) return violationAt(path, NOT_OBJECT);
-
-        Map<String, Map<String, Object>> properties = propertiesOf(schema);
-
-        for (String key : requiredKeysOf(schema)) {
-            if (node.get(key) == null) return violationAt(path + "." + key, MISSING);
-        }
-
-        boolean forbidsUnknownKeys = Boolean.FALSE.equals(schema.get("additionalProperties"));
-        if (forbidsUnknownKeys) {
-            for (String key : node.propertyNames()) {
-                if (!properties.containsKey(key)) return violationAt(path, EXTRA_PROPERTY);
+    /**
+     * 파서가 정상으로 읽는 차이를 표준 검사 전에 맞춥니다. 원본은 바꾸지 않고 복사본을 돌려줍니다.
+     * <ul>
+     *   <li>문자열 값의 앞뒤 공백: 파서가 strip()해서 읽으므로 제거합니다(예: status {@code " ANSWER"}).</li>
+     *   <li>최상위 evidence_ids의 숫자: 파서가 문자열로 바꿔 읽으므로 문자열로 바꿉니다(예: {@code [12]} → {@code ["12"]}).</li>
+     * </ul>
+     * 그 밖의 값은 바꾸지 않습니다. 예를 들어 {@code "answer": 12}는 숫자 그대로 남아 type 위반이 됩니다.
+     */
+    private static JsonNode normalize(JsonNode answer) {
+        JsonNode copy = stripStrings(answer.deepCopy());
+        if (copy instanceof ObjectNode root && root.get(EVIDENCE_IDS) instanceof ArrayNode ids) {
+            for (int index = 0; index < ids.size(); index++) {
+                if (ids.get(index).isNumber()) ids.set(index, StringNode.valueOf(ids.get(index).asString()));
             }
         }
+        return copy;
+    }
 
-        // 필수가 아닌 키는 없어도 됩니다. 있는 키만 하위 스키마로 검사합니다.
-        for (var property : properties.entrySet()) {
-            JsonNode value = node.get(property.getKey());
-            if (value == null) continue;
-            String violation = check(value, property.getValue(), path + "." + property.getKey());
-            if (violation != null) return violation;
+    private static JsonNode stripStrings(JsonNode node) {
+        if (node.isString()) return StringNode.valueOf(node.asString().strip());
+        if (node instanceof ObjectNode object) {
+            for (String key : List.copyOf(object.propertyNames())) object.set(key, stripStrings(object.get(key)));
+        } else if (node instanceof ArrayNode array) {
+            for (int index = 0; index < array.size(); index++) array.set(index, stripStrings(array.get(index)));
         }
-        return null;
+        return node;
     }
 
     /**
-     * 검사 순서: 배열인지 → 원소 수가 minItems~maxItems 안인지(칸 수 검사) → 원소마다 items 스키마 검사.
-     * 단, 최상위 evidence_ids 목록({@link #isEvidenceIdList})의 숫자 원소는 정상으로 봅니다.
+     * 위반 위치를 {@code $.answers[0].status} 형식으로 만듭니다. 필수 키가 없을 때(required)는 그 키까지 붙입니다
+     * (예: {@code $.answers[0].status:required}).
      */
-    private static String checkArray(JsonNode node, Map<String, Object> schema, String path) {
-        if (node == null || !node.isArray()) return violationAt(path, NOT_ARRAY);
-
-        if (schema.get("minItems") instanceof Number min && node.size() < min.intValue())
-            return violationAt(path, TOO_FEW_ITEMS);
-        if (schema.get("maxItems") instanceof Number max && node.size() > max.intValue())
-            return violationAt(path, TOO_MANY_ITEMS);
-
-        Map<String, Object> itemSchema = itemSchemaOf(schema);
-        if (itemSchema == null) return null;
-        boolean idList = isEvidenceIdList(path, itemSchema);
-        for (int index = 0; index < node.size(); index++) {
-            JsonNode item = node.get(index);
-            if (idList && item.isNumber()) continue;
-            String violation = check(item, itemSchema, path + "[" + index + "]");
-            if (violation != null) return violation;
+    private static String toJsonPath(Error error) {
+        StringBuilder path = new StringBuilder(ROOT);
+        NodePath location = error.getInstanceLocation();
+        for (int index = 0; index < location.getNameCount(); index++) {
+            Object element = location.getElement(index);
+            if (element instanceof Number number) path.append('[').append(number).append(']');
+            else path.append('.').append(element);
         }
-        return null;
-    }
-
-    /** 검사 순서: 문자열인지 → enum이 있으면 그 목록 안의 값인지. 빈 문자열은 정상입니다(ABSTAIN 칸의 빈 answer 등). */
-    private static String checkString(JsonNode node, Map<String, Object> schema, String path) {
-        if (node == null || !node.isString()) return violationAt(path, NOT_STRING);
-
-        if (schema.get("enum") instanceof Collection<?> allowed && !allowed.contains(node.asString()))
-            return violationAt(path, INVALID_ENUM);
-        return null;
-    }
-
-    /**
-     * 최상위 evidence_ids에만 숫자 허용 예외를 적용합니다. 스키마는 문자열이지만 모델이 {@code [12]}처럼 숫자로 써도
-     * 답변 파싱({@code FaqAnswerFormat.readEvidenceIds})이 그대로 받아들이므로, 형식 오류로 보고 재호출하지 않습니다.
-     */
-    private static boolean isEvidenceIdList(String path, Map<String, Object> itemSchema) {
-        return "$.evidence_ids".equals(path)
-                && "string".equals(itemSchema.get("type")) && !itemSchema.containsKey("enum");
-    }
-
-    // 스키마는 Map<String, Object>로 들어오므로 하위 항목을 꺼낼 때 형변환이 필요합니다.
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Map<String, Object>> propertiesOf(Map<String, Object> schema) {
-        return (Map<String, Map<String, Object>>) schema.getOrDefault("properties", Map.of());
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Collection<String> requiredKeysOf(Map<String, Object> schema) {
-        return (Collection<String>) schema.getOrDefault("required", List.of());
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> itemSchemaOf(Map<String, Object> schema) {
-        return schema.get("items") instanceof Map<?, ?> items ? (Map<String, Object>) items : null;
+        if ("required".equals(error.getKeyword()) && error.getProperty() != null) {
+            path.append('.').append(error.getProperty());
+        }
+        return path.toString();
     }
 
     private static String violationAt(String path, String reason) {

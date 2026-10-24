@@ -20,9 +20,9 @@ class ResponseSchemaValidatorTest {
     @Test
     void usesActualRequestedSlotsNotSearchQuestionCount() {
         assertThat(ResponseSchemaValidator.violation(VALID, FaqAnswerFormat.slotSchema(1))).isNull();
-        assertThat(ResponseSchemaValidator.violation(VALID, FaqAnswerFormat.slotSchema(2))).contains("too-few-items");
+        assertThat(ResponseSchemaValidator.violation(VALID, FaqAnswerFormat.slotSchema(2))).isEqualTo("$.answers:minItems");
         String two = "{\"answers\":[{\"answer\":\"\",\"status\":\"ABSTAIN\"},{\"answer\":\"\",\"status\":\"ABSTAIN\"}],\"evidence_ids\":[]}";
-        assertThat(ResponseSchemaValidator.violation(two, FaqAnswerFormat.slotSchema(1))).contains("too-many-items");
+        assertThat(ResponseSchemaValidator.violation(two, FaqAnswerFormat.slotSchema(1))).isEqualTo("$.answers:maxItems");
     }
 
     @Test
@@ -41,9 +41,9 @@ class ResponseSchemaValidatorTest {
                 "metadata", Map.of("type", "object", "properties", Map.of("evidence_ids", stringArray))));
 
         assertThat(ResponseSchemaValidator.violation("{\"warnings\":[123]}", schema))
-                .isEqualTo("$.warnings[0]:not-string");
+                .isEqualTo("$.warnings[0]:type");
         assertThat(ResponseSchemaValidator.violation("{\"metadata\":{\"evidence_ids\":[123]}}", schema))
-                .isEqualTo("$.metadata.evidence_ids[0]:not-string");
+                .isEqualTo("$.metadata.evidence_ids[0]:type");
         assertThat(ResponseSchemaValidator.violation("{\"warnings\":[\"주의사항\"]}", schema)).isNull();
     }
 
@@ -69,6 +69,37 @@ class ResponseSchemaValidatorTest {
     })
     void rejectsTypesMissingPropertiesAndUnknownKeys(String text) {
         assertThat(ResponseSchemaValidator.violation(text, FaqAnswerFormat.slotSchema(1))).isNotNull();
+    }
+
+    @Test
+    void acceptsSurroundingSpacesThatAnswerParsingStrips() {
+        String spaced = "{\"answers\":[{\"answer\":\" 답 \",\"status\":\" ANSWER \"}],\"evidence_ids\":[\" 12 \"]}";
+        assertThat(ResponseSchemaValidator.violation(spaced, FaqAnswerFormat.slotSchema(1))).isNull();
+        assertThat(ResponseSchemaValidator.violation("{\"answer\":\"답\",\"evidence_ids\":[],\"status\":\" ANSWER\"}",
+                FaqAnswerFormat.schema())).isNull();
+        // 공백만 정리하며 목록에 없는 값은 그대로 위반입니다.
+        assertThat(ResponseSchemaValidator.violation(
+                "{\"answers\":[{\"answer\":\"답\",\"status\":\" UNKNOWN \"}],\"evidence_ids\":[]}",
+                FaqAnswerFormat.slotSchema(1))).isEqualTo("$.answers[0].status:enum");
+    }
+
+    @Test
+    void reportsMissingKeyWithItsPath() {
+        assertThat(ResponseSchemaValidator.violation("{\"answers\":[{\"answer\":\"답\"}],\"evidence_ids\":[]}",
+                FaqAnswerFormat.slotSchema(1))).isEqualTo("$.answers[0].status:required");
+    }
+
+    @Test
+    void checksTypesAndKeywordsAddedToSchemaWithoutChangingValidator() {
+        // 현재 답변 스키마에 없는 type·키워드도 표준 검사기가 그대로 검사합니다.
+        Map<String, Object> schema = Map.of("type", "object", "properties", Map.of(
+                "confidence", Map.of("type", "integer", "minimum", 0, "maximum", 100),
+                "note", Map.of("type", "string", "maxLength", 5)));
+
+        assertThat(ResponseSchemaValidator.violation("{\"confidence\":80,\"note\":\"짧은 메모\"}", schema)).isNull();
+        assertThat(ResponseSchemaValidator.violation("{\"confidence\":\"높음\"}", schema)).isEqualTo("$.confidence:type");
+        assertThat(ResponseSchemaValidator.violation("{\"confidence\":101}", schema)).isEqualTo("$.confidence:maximum");
+        assertThat(ResponseSchemaValidator.violation("{\"note\":\"다섯 글자를 넘는 메모\"}", schema)).isEqualTo("$.note:maxLength");
     }
 
     @Test
