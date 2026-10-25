@@ -142,6 +142,62 @@ class UserDataOutputGuardTest {
         assertRejected(() -> guard.filterAnswer("고객님의 청구서에는 부가서비스 요금 3,000원이 포함되었습니다.", guest, null));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "- 데이터: 150.0GB (소진 후 최대 5Mbps)",
+            "- 데이터 제한: 150.0GB (소진 후 최대 5000Kbps)",
+            "요금제 데이터는 150GB이며 소진 후 최대 0.005Gbps로 이용합니다.",
+            "데이터 제공량은 150GB입니다. 소진 후 최대 5 mbps로 이용합니다.",
+            "데이터 제공량은 150 GB입니다. 소진 후 최대 5000 kbps로 이용합니다.",
+            "데이터 제공량은 150 gb입니다. 소진 후 최대 0.005 gbps로 이용합니다."
+    })
+    void 조회된_데이터량과_소진후_속도는_다른_단위로_검사한다(String answer) {
+        assertThat(guard.filterAnswer(answer, materials(), null)).isEqualTo(answer);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "- 데이터: 151.0GB (소진 후 최대 5Mbps)",
+            "- 데이터 제한: 151.0GB (소진 후 최대 5000Kbps)",
+            "요금제 데이터는 151GB이며 소진 후 최대 0.005Gbps로 이용합니다."
+    })
+    void 소진후_속도가_맞아도_조회와_다른_데이터량은_전체_거절한다(String answer) {
+        assertRejected(() -> guard.filterAnswer(answer, materials(), null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "- 데이터: 150.0GB (소진 후 최대 6Mbps)",
+            "- 데이터 제한: 150.0GB (소진 후 최대 6000Kbps)",
+            "요금제 데이터는 150GB이며 소진 후 최대 0.006Gbps로 이용합니다."
+    })
+    void 데이터량이_맞아도_조회와_다른_소진후_속도는_전체_거절한다(String answer) {
+        assertRejected(() -> guard.filterAnswer(answer, materials(), null));
+    }
+
+    @Test
+    void 올바른_속도_표기라도_내부_메타데이터가_섞이면_전체_거절한다() {
+        String answer = "데이터는 150GB이며 소진 후 최대 5Mbps로 이용합니다."
+                + "\n\n**status**: ANSWER\n**evidence_ids**: []";
+        assertRejected(() -> guard.filterAnswer(answer, materials(), null));
+    }
+
+    @Test
+    void 조회된_사실_뒤의_조건부_문의_권유는_본문을_거절하지_않는다() {
+        String body = "데이터는 150GB이며 소진 후 최대 5Mbps로 이용합니다.";
+        var result = guard.inspectAnswer(body + " 추가 정보가 필요하시면 말씀해 주세요.", materials(), null);
+        assertThat(result.rejected()).isFalse();
+        assertThat(result.answer()).contains(body);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"말씀해 주세요.", "추가 정보가 필요하시면 말씀해 주세요.",
+            "데이터는 150GB이며 소진 후 최대 5Mbps로 이용합니다. 회선 번호를 알려 주세요.",
+            "데이터는 150GB이며 소진 후 최대 5Mbps로 이용합니다. 추가 문의가 필요하시면 비밀번호를 알려 주세요."})
+    void 단독_되묻기와_실제_정보_제출_요구는_전체_거절한다(String answer) {
+        assertRejected(() -> guard.filterAnswer(answer, materials(), null));
+    }
+
     private static void assertRejected(ThrowingCallable call) {
         assertThatThrownBy(call).isInstanceOfSatisfying(LlmException.class,
                 exception -> assertThat(exception.getErrorCode()).isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));

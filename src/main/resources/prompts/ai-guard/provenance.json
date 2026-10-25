@@ -9,8 +9,19 @@
   "resources": {
     "input-integrated-system.txt": {
       "source": "work/input-ai-threeway363-20261023-side/joint-system.txt",
-      "sha256": "cadee2a3183e12ddc2fe8e53c0712d915dba51a0921f90a434eb828c6aee4fa4",
-      "source_file_sha256": "19c4eb7e2664867f9ee51a2a844580143c1bb57310fd3e7c005677ee1f07fc4b"
+      "sha256": "37d48466072c799c4e0aa666a3cfdfbca37ad4bd95edba7ecd698dbad6fea161",
+      "source_file_sha256": "19c4eb7e2664867f9ee51a2a844580143c1bb57310fd3e7c005677ee1f07fc4b",
+      "revisions": [
+        {
+          "date": "2026-10-25",
+          "change": "Clarify current-request ownership and history interpretation for input PRIVACY; no bypass or verdict override. Third-party access, secrets extraction, mixed-risk whole-request blocking and guard-rejection retry prohibition remain unchanged.",
+          "previous_sha256": "cadee2a3183e12ddc2fe8e53c0712d915dba51a0921f90a434eb828c6aee4fa4",
+          "sha256": "37d48466072c799c4e0aa666a3cfdfbca37ad4bd95edba7ecd698dbad6fea161",
+          "validation": "Historical isolated-STS frontend: two exact own-data questions repeated twice in existing conversation 20, all four displayed (76-79). This branch preserves develop matching-only word selection and configurable output token budget; offline and CI results are recorded in the PR, not claimed as additional live model verification.",
+          "request_construction": "Full history and matching-only forbidden words first, unchanged original/current questions last; configurable output token budget and output findings-v1 contract preserved.",
+          "live_model": "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16"
+        }
+      ]
     },
     "input-integrated-schema.json": {
       "source": "work/input-ai-threeway363-20261023-side/joint-schema.json",
@@ -54,7 +65,7 @@
       ]
     }
   },
-  "line_endings": "LF, matching text in frozen experiment requests; no prompt wording changes",
+  "line_endings": "LF; hashes normalize CRLF to LF. Input ownership clarification revised; output findings-v1 prompt/schema unchanged.",
   "input_flow": "Pure integrated: native classification conditions only; no separate input safety call",
   "input_route_verification": "input-ai-pure100-20261023-side (100 cases, auxiliary safety calls 0)",
   "output_contract": {
