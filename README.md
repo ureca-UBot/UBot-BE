@@ -60,6 +60,12 @@ API 경로와 인증 방식은 [architecture.md](docs/architecture.md)에, 오�
 
 환경변수 전체 목록은 [.env.example](.env.example)에, 주요 설정의 설명은 [configuration.md](docs/reference/configuration.md)에 있습니다.
 
+### DB 구성
+
+![UBot DB 구성 한눈에 보기](docs/images/erd-overview.svg)
+
+테이블별 컬럼과 관계는 [db-access.md](docs/how-to/db-access.md#erd)의 ERD 그림에 있습니다.
+
 ## 바로 실행해 보기
 
 JDK 17 이상, 실행 중인 Docker Desktop, Git이 필요합니다.

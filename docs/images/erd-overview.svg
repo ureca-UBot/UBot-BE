@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="958" viewBox="0 0 1260 958" role="img" aria-labelledby="title desc">
+<title id="title">UBot DB 구성 한눈에 보기</title>
+<desc id="desc">테이블 38개를 10개 영역으로 나눈 그림. 사용자가 대화·회선·예약·알림의 중심이고, 채팅 기록은 FAQ와 미응답 질문으로, FAQ와 미응답 질문은 임베딩 벡터로 이어진다.</desc>
+<rect x="0.5" y="0.5" width="1259" height="957" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="30" y="36" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="13" font-weight="700" fill="#64748b">DB 구성 한눈에 보기 · PostgreSQL 18 + pgvector + PostGIS · 테이블 38개 (V33 기준)</text>
+<line x1="630.0" y1="296.0" x2="630.0" y2="232.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="562.7" y="253.0" width="134.6" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="630.0" y="264.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">답변 근거 (faq_log)</text>
+<line x1="780.0" y1="302.7" x2="930.0" y2="225.3" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="811.6" y="253.0" width="86.7" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="855.0" y="264.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">답 못한 시도</text>
+<line x1="930.0" y1="148.0" x2="780.0" y2="148.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="807.5" y="137.0" width="95.0" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="855.0" y="148.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">관련·해결 FAQ</text>
+<line x1="480.0" y1="148.0" x2="330.0" y2="148.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="355.9" y="137.0" width="98.2" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="405.0" y="148.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">질문 표현 벡터</text>
+<line x1="630.0" y1="528.0" x2="630.0" y2="464.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="580.9" y="485.0" width="98.2" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="630.0" y="496.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">회원 대화·질문</text>
+<line x1="480.0" y1="612.0" x2="330.0" y2="612.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="370.7" y="601.0" width="68.6" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="405.0" y="612.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">본인 회선</text>
+<line x1="780.0" y1="612.0" x2="930.0" y2="612.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="820.7" y="601.0" width="68.6" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="855.0" y="612.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">방문 예약</text>
+<line x1="180.0" y1="696.0" x2="180.0" y2="760.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="145.7" y="717.0" width="68.6" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="180.0" y="728.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">가입 상품</text>
+<line x1="1080.0" y1="696.0" x2="1080.0" y2="760.0" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="1045.7" y="717.0" width="68.6" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="1080.0" y="728.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">예약 알림</text>
+<line x1="780.0" y1="689.3" x2="930.0" y2="766.7" stroke="#94a3b8" stroke-width="1.6"/>
+<rect x="820.7" y="717.0" width="68.6" height="22" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+<text x="855.0" y="728.0" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#475569" text-anchor="middle" dominant-baseline="middle">알림 수신</text>
+<rect x="30" y="64" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M30,116 V76 a12,12 0 0 1 12,-12 H318 a12,12 0 0 1 12,12 V116 z" fill="#f0f9ff"/>
+<rect x="30" y="64" width="300" height="4" rx="2" fill="#0284c7"/>
+<text x="46" y="86" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#0284c7" dominant-baseline="middle">임베딩</text>
+<text x="314" y="86" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#0284c7" text-anchor="end" dominant-baseline="middle">4개</text>
+<text x="46" y="105" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">Profile별 벡터(1024차원)</text>
+<line x1="30" y1="116" x2="330" y2="116" stroke="#e5e7eb"/>
+<text x="46" y="132.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">embedding_profiles</text>
+<text x="46" y="146.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">faq_embeddings</text>
+<text x="46" y="161.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">unanswered_question_embeddings</text>
+<text x="46" y="175.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">unanswered_group_embeddings</text>
+<rect x="480" y="64" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M480,116 V76 a12,12 0 0 1 12,-12 H768 a12,12 0 0 1 12,12 V116 z" fill="#f5f3ff"/>
+<rect x="480" y="64" width="300" height="4" rx="2" fill="#7c3aed"/>
+<text x="496" y="86" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#7c3aed" dominant-baseline="middle">FAQ</text>
+<text x="764" y="86" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#7c3aed" text-anchor="end" dominant-baseline="middle">4개</text>
+<text x="496" y="105" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">FAQ·버전 이력·질문 표현</text>
+<line x1="480" y1="116" x2="780" y2="116" stroke="#e5e7eb"/>
+<text x="496" y="132.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">faq_category</text>
+<text x="496" y="146.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">faq</text>
+<text x="496" y="161.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">old_faq</text>
+<text x="496" y="175.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">faq_question_variants</text>
+<rect x="930" y="64" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M930,116 V76 a12,12 0 0 1 12,-12 H1218 a12,12 0 0 1 12,12 V116 z" fill="#fdf2f8"/>
+<rect x="930" y="64" width="300" height="4" rx="2" fill="#db2777"/>
+<text x="946" y="86" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#db2777" dominant-baseline="middle">미응답 질문</text>
+<text x="1214" y="86" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#db2777" text-anchor="end" dominant-baseline="middle">2개</text>
+<text x="946" y="105" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">답 못한 질문과 묶음</text>
+<line x1="930" y1="116" x2="1230" y2="116" stroke="#e5e7eb"/>
+<text x="946" y="132.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">unanswered_question_groups</text>
+<text x="946" y="146.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">unanswered_questions</text>
+<rect x="480" y="296" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M480,348 V308 a12,12 0 0 1 12,-12 H768 a12,12 0 0 1 12,12 V348 z" fill="#f0fdfa"/>
+<rect x="480" y="296" width="300" height="4" rx="2" fill="#0d9488"/>
+<text x="496" y="318" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#0d9488" dominant-baseline="middle">채팅 기록</text>
+<text x="764" y="318" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#0d9488" text-anchor="end" dominant-baseline="middle">5개</text>
+<text x="496" y="337" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">대화방·답변 시도·작업·질문 로그</text>
+<line x1="480" y1="348" x2="780" y2="348" stroke="#e5e7eb"/>
+<text x="496" y="364.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">conversations</text>
+<text x="496" y="378.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">answer_attempts_history</text>
+<text x="496" y="393.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">chat_jobs</text>
+<text x="496" y="407.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">question_log</text>
+<text x="496" y="422.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">faq_log</text>
+<rect x="30" y="528" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M30,580 V540 a12,12 0 0 1 12,-12 H318 a12,12 0 0 1 12,12 V580 z" fill="#eef2ff"/>
+<rect x="30" y="528" width="300" height="4" rx="2" fill="#4f46e5"/>
+<text x="46" y="550" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#4f46e5" dominant-baseline="middle">가입 정보</text>
+<text x="314" y="550" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#4f46e5" text-anchor="end" dominant-baseline="middle">7개</text>
+<text x="46" y="569" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">회선·약정·부가 상품·사용량·청구</text>
+<line x1="30" y1="580" x2="330" y2="580" stroke="#e5e7eb"/>
+<text x="46" y="596.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">subscriptions</text>
+<text x="46" y="610.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">subscription_contracts</text>
+<text x="46" y="625.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">subscription_bundles</text>
+<text x="46" y="639.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">subscription_addons</text>
+<text x="46" y="654.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">subscription_roamings</text>
+<text x="46" y="668.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">usage_records</text>
+<text x="46" y="683.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">billing_records</text>
+<rect x="480" y="528" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M480,580 V540 a12,12 0 0 1 12,-12 H768 a12,12 0 0 1 12,12 V580 z" fill="#eff6ff"/>
+<rect x="480" y="528" width="300" height="4" rx="2" fill="#2563eb"/>
+<text x="496" y="550" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#2563eb" dominant-baseline="middle">사용자·인증</text>
+<text x="764" y="550" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#2563eb" text-anchor="end" dominant-baseline="middle">2개</text>
+<text x="496" y="569" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">회원·로그인 토큰</text>
+<line x1="480" y1="580" x2="780" y2="580" stroke="#e5e7eb"/>
+<text x="496" y="596.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">users</text>
+<text x="496" y="610.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">refresh_tokens</text>
+<rect x="930" y="528" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M930,580 V540 a12,12 0 0 1 12,-12 H1218 a12,12 0 0 1 12,12 V580 z" fill="#f0fdf4"/>
+<rect x="930" y="528" width="300" height="4" rx="2" fill="#16a34a"/>
+<text x="946" y="550" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#16a34a" dominant-baseline="middle">매장·예약</text>
+<text x="1214" y="550" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#16a34a" text-anchor="end" dominant-baseline="middle">4개</text>
+<text x="946" y="569" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">매장·서비스 유형·방문 예약</text>
+<line x1="930" y1="580" x2="1230" y2="580" stroke="#e5e7eb"/>
+<text x="946" y="596.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">stores</text>
+<text x="946" y="610.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">service_types</text>
+<text x="946" y="625.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">store_services</text>
+<text x="946" y="639.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">store_reservations</text>
+<rect x="30" y="760" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M30,812 V772 a12,12 0 0 1 12,-12 H318 a12,12 0 0 1 12,12 V812 z" fill="#fff7ed"/>
+<rect x="30" y="760" width="300" height="4" rx="2" fill="#ea580c"/>
+<text x="46" y="782" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#ea580c" dominant-baseline="middle">통신 상품</text>
+<text x="314" y="782" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#ea580c" text-anchor="end" dominant-baseline="middle">4개</text>
+<text x="46" y="801" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">요금제·결합·부가·로밍 상품</text>
+<line x1="30" y1="812" x2="330" y2="812" stroke="#e5e7eb"/>
+<text x="46" y="828.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">plans</text>
+<text x="46" y="842.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">bundle_products</text>
+<text x="46" y="857.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">addon_services</text>
+<text x="46" y="871.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">roaming_products</text>
+<rect x="480" y="760" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M480,812 V772 a12,12 0 0 1 12,-12 H768 a12,12 0 0 1 12,12 V812 z" fill="#f8fafc"/>
+<rect x="480" y="760" width="300" height="4" rx="2" fill="#475569"/>
+<text x="496" y="782" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#475569" dominant-baseline="middle">운영 설정·보관</text>
+<text x="764" y="782" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#475569" text-anchor="end" dominant-baseline="middle">4개</text>
+<text x="496" y="801" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">독립 설정·탈퇴 회원 보관</text>
+<line x1="480" y1="812" x2="780" y2="812" stroke="#e5e7eb"/>
+<text x="496" y="828.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">forbidden_words</text>
+<text x="496" y="842.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">guest_chat_settings</text>
+<text x="496" y="857.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">regional_trend_ranking_policy</text>
+<text x="496" y="871.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">retention.withdrawn_user_records</text>
+<rect x="930" y="760" width="300" height="168" rx="12" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.4"/>
+<path d="M930,812 V772 a12,12 0 0 1 12,-12 H1218 a12,12 0 0 1 12,12 V812 z" fill="#fefce8"/>
+<rect x="930" y="760" width="300" height="4" rx="2" fill="#ca8a04"/>
+<text x="946" y="782" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="15" font-weight="700" fill="#ca8a04" dominant-baseline="middle">알림·공지</text>
+<text x="1214" y="782" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" font-weight="700" fill="#ca8a04" text-anchor="end" dominant-baseline="middle">2개</text>
+<text x="946" y="801" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="12" fill="#475569" dominant-baseline="middle">사용자 알림·공지/장애</text>
+<line x1="930" y1="812" x2="1230" y2="812" stroke="#e5e7eb"/>
+<text x="946" y="828.0" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">notifications</text>
+<text x="946" y="842.5" font-family="'JetBrains Mono','D2Coding','Consolas','Menlo',monospace" font-size="11.5" fill="#1f2937" dominant-baseline="middle">notices</text>
+<text x="30" y="940" font-family="'Pretendard','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif" font-size="11.5" fill="#6b7280">선은 영역 사이의 주요 외래 키 관계입니다. 테이블별 컬럼은 docs/how-to/db-access.md의 ERD 그림에 있습니다.</text>
+</svg>

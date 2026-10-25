@@ -66,16 +66,24 @@ ORDER BY extname;
 
 ### ERD
 
-`V1`~`V15` 적용 후의 스키마입니다. 관계선은 실제 FK 제약만 그렸고, 매장과 미응답 질문 테이블은 따로 나눠 그렸습니다. `flyway_schema_history`는 생략했습니다.
+`V1`~`V33` 적용 후의 스키마입니다. 관계선은 실제 FK 제약만 그렸고, `flyway_schema_history`·`shedlock`은 생략했습니다. 점선 상자는 다른 그림에 있는 테이블입니다.
+
+![DB 구성 한눈에 보기](../images/erd-overview.svg)
 
 ![ERD: 사용자·FAQ·채팅](../images/erd.svg)
 
-![ERD: 매장](../images/erd-store.svg)
+![ERD: 매장·예약·알림·공지](../images/erd-store.svg)
 
 ![ERD: 미응답 질문](../images/erd-unanswered.svg)
 
+![ERD: 임베딩](../images/erd-embedding.svg)
+
+![ERD: 통신 상품·가입 정보](../images/erd-subscription.svg)
+
+![ERD: 운영 설정·보관](../images/erd-ops.svg)
+
 - `answer_attempts_history`와 `question_log`·`faq_log` 사이에는 FK가 없습니다. 성공한 시도와 그 로그는 같은 트랜잭션에서 저장되지만 서로를 가리키는 컬럼은 없습니다.
-- `forbidden_words`는 다른 테이블과 관계가 없습니다.
+- `forbidden_words`, `regional_trend_ranking_policy`는 다른 테이블과 관계가 없습니다.
 - 미응답 질문 테이블은 `answer_attempts_history`(시도당 최대 1건)와 `faq`(가장 가까웠던 FAQ)를 참조합니다. 저장 방식은 [architecture.md](../architecture.md#미응답-질문-저장-105)를 참고하세요.
 
 예를 들어 최근 채팅 실패 사유는 아래처럼 확인합니다.
