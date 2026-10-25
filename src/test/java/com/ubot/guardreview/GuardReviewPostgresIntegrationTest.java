@@ -1185,7 +1185,7 @@ class GuardReviewPostgresIntegrationTest {
 		var tools = org.mockito.Mockito.mock(com.ubot.ai.tool.AiToolRegistry.class);
 		var request = new LlmRequestDto(List.of(
 				new com.ubot.llm.dto.request.LlmMessageRequestDto(com.ubot.llm.enums.LlmMessageRole.USER, "가짜 생성 입력")));
-		org.mockito.Mockito.when(prompts.createPrompt(org.mockito.ArgumentMatchers.any(),
+		org.mockito.Mockito.when(prompts.createSlotPrompt(org.mockito.ArgumentMatchers.any(),
 				org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
 				org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(request);
 		org.mockito.Mockito.when(llm.generateAnswer(request)).thenReturn(new LlmResponseDto(raw));
