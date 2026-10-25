@@ -3,13 +3,16 @@ package com.ubot.chat.service;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.product.ProductNameIndex;
 import com.ubot.ai.tool.UserDataSummarizer;
 import com.ubot.chat.config.ChatRateLimitProperties;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
+import com.ubot.chat.context.ProductIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.chat.repository.ConversationTurnRepository;
@@ -34,14 +37,28 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 final class ChatTestFixtures {
 	static final PGvector QUERY_VECTOR = new PGvector(new float[] {1, 0});
 
-	/** 기존 단위 테스트에 추가된 후보 선별·프로필 의존성을 모의 객체로 전달합니다. */
+	/** 기존 단위 테스트에 검색 벡터 재사용용 프로필 의존성을 모의 객체로 전달합니다. */
 	static ChatAnswerProcessor processor(com.ubot.faq.retrieval.FaqRetrievalService retrieval,
 			com.ubot.ai.service.AiService ai,
 			ChatContextCollector collector, SubQuestionPlanner planner, FaqSemanticCacheService cache,
 			FaqSentenceFilterService sentenceFilter, ChatInputGuardService inputGuard) {
+		if (org.mockito.Mockito.mockingDetails(ai).isMock() && !org.mockito.Mockito.mockingDetails(ai).isSpy()) {
+			org.mockito.Mockito.lenient().doAnswer(invocation -> new com.ubot.ai.dto.AiAnswer(
+					invocation.getArgument(1), null, false)).when(ai).validateCachedAnswer(
+					org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),
+					org.mockito.ArgumentMatchers.anyString());
+		}
 		var profile = mock(com.ubot.embedding.service.EmbeddingProfileService.class);
 		return new ChatAnswerProcessor(retrieval, ai, collector, planner, cache, sentenceFilter,
-				inputGuard, mock(com.ubot.ai.service.FaqGapCandidateSelector.class), profile);
+				inputGuard, profile);
+	}
+
+	/** 안전 판정을 끈 기존 분류 경로입니다. 외부 모델만 모의 처리하고 실패 복구는 실제 서비스로 검증합니다. */
+	static com.ubot.ai.service.AiInputGuardService inputAiGuard(SubQuestionPromptService prompts, LlmService llm) {
+		var properties = new AiInputGuardProperties();
+		properties.setLlmEnabled(false);
+		return new com.ubot.ai.service.AiInputGuardService(mock(com.ubot.ai.service.AiGuardModelService.class),
+				mock(com.ubot.prompt.service.AiGuardPromptService.class), passthroughInputGuard(), properties, prompts, llm);
 	}
 
 	private ChatTestFixtures() {
@@ -52,7 +69,7 @@ final class ChatTestFixtures {
 	}
 
 	static ChatInputGuardService inputGuard(ForbiddenWordFilterService filter) {
-		return new ChatInputGuardService(filter, new ChatPromptInjectionService());
+		return new ChatInputGuardService(filter, new ChatPromptInjectionService(), new AiInputGuardProperties());
 	}
 
 	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */
@@ -105,7 +122,12 @@ final class ChatTestFixtures {
 	static ChatContextCollector collector(NearbyStoreSearcher nearbyStoreSearcher) {
 		return new ChatContextCollector(List.of(
 				new GeneralIntentHandler(), new StoreIntentHandler(nearbyStoreSearcher),
-				new UserIntentHandler(mock(UserDataSummarizer.class))));
+				new UserIntentHandler(mock(UserDataSummarizer.class)), productIntentHandler()));
+	}
+
+	/** 질문 속 상품 이름은 찾지 않는(이름 목록이 빈) 상품 정보 핸들러입니다. */
+	static ProductIntentHandler productIntentHandler() {
+		return new ProductIntentHandler(mock(ProductNameIndex.class));
 	}
 
 	/** 회원 정보는 users로 조회하고 이용 중인 회선은 없는 실제 가입 정보 핸들러입니다. */
@@ -117,9 +139,7 @@ final class ChatTestFixtures {
 
 	/** 판정 LLM을 부르지 않고 원문을 하위 질문 하나로 쓰는 정리기입니다. */
 	static SubQuestionPlanner originalSubQuestions() {
-		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class),
-				mock(SubQuestionPromptService.class), mock(LlmService.class), mock(SubQuestionGuard.class),
-				mock(QuestionRouter.class), mock(MultiTurnDetector.class), inputGuard());
+		return new SubQuestionPlanner(false, mock(ConversationTurnRepository.class), ChatTestFixtures.inputAiGuard(mock(SubQuestionPromptService.class), mock(LlmService.class)), mock(SubQuestionGuard.class), mock(QuestionRouter.class), mock(MultiTurnDetector.class), inputGuard());
 	}
 
 	/** 질문과 FAQ 목록이 같은 답변 자료와 일치하는 Mockito 인자 조건입니다. */

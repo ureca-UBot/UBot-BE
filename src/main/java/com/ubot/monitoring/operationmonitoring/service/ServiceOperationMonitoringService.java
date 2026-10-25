@@ -146,17 +146,18 @@ public class ServiceOperationMonitoringService {
     }
 
     private CompletableFuture<ServiceMonitoringOverviewResponse.Llm> llmQueries(Queries q, String window) {
-        String requests = "sum(increase(llm_requests_seconds_count[" + window + "]))";
+        String requests = "sum(increase(llm_requests_seconds_count{client=\"chat\"}[" + window + "]))";
         String rejected = "ai_output_guard_total{stage=\"body\",outcome=\"rejected\"}";
-        var p95Answer = q.latest(histogramQuantile(0.95, "llm_requests_seconds_bucket", "kind=\"answer\"", window));
-        var p95Judgment = q.latest(histogramQuantile(0.95, "llm_requests_seconds_bucket", "kind=\"judgment\"", window));
-        var timeoutRatio = q.latest(ratio("llm_requests_seconds_count{outcome=\"timeout\"}", requests, window));
-        var errorRatio = q.latest(ratio("llm_requests_seconds_count{outcome!~\"success|cancelled\"}", requests, window));
+        var p95Answer = q.latest(histogramQuantile(0.95, "llm_requests_seconds_bucket", "client=\"chat\",kind=\"answer\"", window));
+        var p95Judgment = q.latest(histogramQuantile(0.95, "llm_requests_seconds_bucket", "client=\"chat\",kind=\"judgment\"", window));
+        var timeoutRatio = q.latest(ratio("llm_requests_seconds_count{client=\"chat\",outcome=\"timeout\"}", requests, window));
+        var errorRatio = q.latest(ratio("llm_requests_seconds_count{client=\"chat\",outcome!~\"success|cancelled\"}", requests, window));
         // api 역할의 LlmService(관리자 기능용)는 동시 호출 상한이 따로 있어 Worker 포화도에서 뺌
-        var inUse = q.latest("sum(llm_concurrency_in_use{role!=\"api\"})");
-        var limit = q.latest("sum(llm_concurrency_limit{role!=\"api\"})");
-        var waiting = q.latest("sum(llm_concurrency_waiting{role!=\"api\"})");
-        var p95PermitWait = q.latest(histogramQuantile(0.95, "llm_permit_wait_seconds_bucket", "", window));
+        // 같은 서버를 공유하는 가드는 실제 점유에 포함하고, 별도 가드 서버의 게이지는 합산하지 않습니다.
+        var inUse = q.latest("sum(llm_concurrency_in_use{client=\"chat\",role!=\"api\"})");
+        var limit = q.latest("sum(llm_concurrency_limit{client=\"chat\",role!=\"api\"})");
+        var waiting = q.latest("sum(llm_concurrency_waiting{client=\"chat\",role!=\"api\"})");
+        var p95PermitWait = q.latest(histogramQuantile(0.95, "llm_permit_wait_seconds_bucket", "client=\"chat\"", window));
         var rejectionRatio = q.latest(ratio(rejected,
                 "sum(increase(ai_output_guard_total{stage=\"body\"}[" + window + "]))", window));
         var rejectionsByRule = q.latestByLabel("sum(increase(" + rejected + "[" + window + "])) by (rule)", "rule");

@@ -2,13 +2,18 @@ package com.ubot.ai.service;
 
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
-import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.OutputGuardResult.Reason;
+import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.StoreMapResult;
-import com.ubot.ai.dto.SubQuestionFaqs;
+import com.ubot.ai.dto.UserDataCards.BillingCard;
+import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.tool.AiTool;
+import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.UserDataRecorder;
 import com.ubot.ai.tool.UserRecordClaims;
+import com.ubot.billing.enums.PaymentMethod;
+import com.ubot.billing.enums.PaymentStatus;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.common.GlobalException;
 import com.ubot.faq.enums.Intent;
@@ -16,15 +21,19 @@ import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
+import com.ubot.prompt.format.FaqAnswerFormat;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.BreakIterator;
 import java.text.Normalizer;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -36,7 +45,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-/** 파싱된 답변에서 문제 문장만 제거합니다. 자료의 진위나 모든 의미상의 오류를 판정하지는 않습니다. */
+/** 파싱된 답변의 기존 규칙에서 문제가 탐지되면 답변 전체를 거절합니다. 모든 의미 오류를 판정하지는 않습니다. */
 @Slf4j
 @Service
 public class AiOutputGuardService {
@@ -56,6 +65,18 @@ public class AiOutputGuardService {
             "할인(?:율|금액)?|환불(?:율|금액)?|월정액|(?:월\\s*)?요금|수수료|위약금|배송비"
                     + "|(?:약정|처리|개통)\\s*기간|납부\\s*기한|유효\\s*기간|데이터(?:\\s*(?:제공량|용량))?"
                     + "|건당(?:\\s*요금)?|반경|거리");
+    private static final Pattern MONEY_SELECTOR = Pattern.compile(
+            "(?<![0-9.])([0-9]+(?:\\.[0-9]+)?)\\s*(회선|GB|MB|Mbps|Gbps)(?![a-zA-Z])", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RECORDED_DATE = Pattern.compile(
+            "([0-9]{4})(?:-|년\\s*)([0-9]{1,2})(?:-|월\\s*)([0-9]{1,2})(?:일)?");
+    private static final Pattern INSTALLMENT_HISTORY = Pattern.compile("([0-9]+)\\s*개월\\s*중\\s*([0-9]+)\\s*개월\\s*$");
+    private static final Pattern INSTALLMENT_REMAINING = Pattern.compile("([0-9]+)\\s*개월\\s*(?:남|잔여)");
+    private static final Pattern RECORDED_PHONE = Pattern.compile("([0-9]{4})\\s*회선|\\*{2,}-?([0-9]{4})(?![0-9])");
+    private static final Pattern RECORDED_OTHER_ACTOR = Pattern.compile("친구|동료|이웃|배우자|자녀|타인|다른\\s*(?:고객|회원|사용자|사람)");
+    private static final Pattern RECORDED_INSTALLMENT_AMOUNT = Pattern.compile(
+            "할부(?:금)?(?:의)?\\s*(?:월|매월|한\\s*달)\\s*(?:납부액|납부금|납입액|납입금|금액)"
+                    + "(?:은|는|이|가|[:：])?\\s*(?<amount>" + WON_AMOUNT + ")");
+
     private static final Pattern QUALIFIED_NUMBER = Pattern.compile(
             "(?:이|가|은|는)?\\s*(?:아니|아닙|아닌)|\\s*(?:으로|로)?\\s*잘못|\\s*(?:인가요|입니까|맞나요)");
     private static final Pattern UNCONFIRMED_QUANTITY = Pattern.compile(
@@ -151,12 +172,12 @@ public class AiOutputGuardService {
             "(?:\\s*(?:절차|처리|작업|신청|접수))?\\s*(?:을|를|이|가|은|는)?\\s*"
                     + "(?:(?:이미|방금|정상적으로|성공적으로|모두|전부)\\s*){0,3}"
                     + "(?:마쳤|끝냈|끝났|마무리(?:했|됐|되었)|다\\s*(?:됐|되었))";
-    private static final String TRANSACTION_ACTION = "(?:환불|해지|가입|개통|결제|납부|변경|접수|신청)";
+    private static final String TRANSACTION_ACTION = "(?:환불|해지|가입|개통|결제|납부|변경|접수|신청|설치|복구|발송)";
     private static final Pattern GUIDANCE_COMPLETION = Pattern.compile(TRANSACTION_ACTION
             + "(?:\\s*(?:방법|절차))?\\s*(?:을|를|의|에\\s*(?:대한|관한))?\\s*(?:안내|설명)(?:을|를)?\\s*"
             + "(?:(?:마무리|완료)?했|(?:해\\s*)?드렸|마쳤|끝냈)(?:" + ASSERTED_PAST_ENDING + ")?$");
     private static final String TRANSACTION_RESULT =
-            "(?:완료(?:했|되|됐|하였|된|입니다|예요)|완료(?:가|는)?\\s*확인(?:이)?\\s*가능"
+            "(?:완료(?:했|되|됐|하였|된|입니다|예요)|완료(?:\\s*상태)?(?:가|는)?\\s*확인(?:이)?\\s*가능"
                     + "|완료\\s*문자(?:를)?\\s*받았|처리(?:했|되었|해\\s*드렸)|(?:해|하여)\\s*드렸|(?<!못)했" + ASSERTED_PAST_ENDING
                     + "|처리\\s*중입니다)";
     private static final Pattern TRANSACTION_CLAIM = Pattern.compile(
@@ -178,6 +199,14 @@ public class AiOutputGuardService {
             "(?:예약|청구|납부|환불|가입|약정|할부|결합|부가서비스|통화)\\s*"
                     + "(?:정보|내역|상태|시간|날짜|만료일|종료일|금액|설정|이력|기록|여부)"
                     + "|사용량|미납|명의자|이메일|전화번호");
+    private static final Pattern PERSONAL_VALUE_REQUEST = Pattern.compile(
+            "(?<![가-힣])(?:제(?:가|의)?|내(?:가)?|저(?:는|도|의)?|본인(?:의)?)\\s*"
+                    + "(?:(?:지금|현재|이번\\s*달에?|지난\\s*달에?|밀린|쓰는|사용\\s*중인|무슨|어떤)\\s*){0,3}"
+                    + "(?:요금|데이터|테더링|소액\\s*결제)"
+                    + "|(?:이번|지난)\\s*(?:달|월)(?:에|의)?\\s*요금(?!제)"
+                    + "|(?:요금(?!제)|데이터|테더링)[^.!?。！？\\n]{0,12}"
+                    + "(?:몇\\s*(?:GB|MB|기가|메가)|얼마(?:나)?)[^.!?。！？\\n]{0,12}"
+                    + "(?:남|나왔|나온|썼|쓴|사용했|더\\s*쓸)", Pattern.CASE_INSENSITIVE);
     private static final String QUERY_HELP = "(?:드리겠(?:습니다|어요)|드립니다|드려요"
             + "|드리(?:고|며)(?!\\s*있)(?=\\s|[,;.!?。！？\\n]|$)"
             + "|드릴\\s*(?:게요|수\\s*있(?:습니다|어요|도록))|드리고\\s*있(?:습니다|어요)"
@@ -243,6 +272,15 @@ public class AiOutputGuardService {
     private static final Pattern USER_SUBJECT = Pattern.compile("회원\\s*정보|사용자\\s*정보|이름|거주\\s*지역|가입일");
     private static final Pattern OTHER_QUERY_SUBJECT = Pattern.compile(
             "요금|사용량|미납|환불|결제|납부|로밍|위약금|가입\\s*상태|신청\\s*상태|처리\\s*상태");
+    /** 상품 조회 도구가 실제로 조회하는 대상입니다. 회원 기록(ACCOUNT_RECORD)과 함께 쓰인 문장은 해당하지 않습니다. */
+    private static final Pattern PRODUCT_SUBJECT = Pattern.compile("요금제|부가\\s*서비스|결합\\s*상품|로밍\\s*상품|상품");
+    /**
+     * 회원 본인의 가입 상품을 가리키는 말입니다. "고객님의 요금제를 조회했습니다"는 카탈로그가 아니라 회원 기록 조회를 말하므로
+     * 상품 조회 결과가 있어도 사실로 보지 않습니다. "제"·"내"는 "제공"·"내용"과 구분하려고 뒤에 공백이 올 때만 봅니다.
+     */
+    private static final Pattern PERSONAL_PRODUCT_OWNER = Pattern.compile(
+            "고객\\s*님|회원\\s*님|(?<![가-힣])(?:내|제|저의|나의)\\s|(?:사용|이용)\\s*(?:중인|하시는|하고\\s*계신)"
+                    + "|가입(?:하신|되어\\s*있는|된)|쓰(?:시는|고\\s*계신)");
     private static final Pattern CONDITION = Pattern.compile(
             "경우|때에는|한해|한정|제외|없으면|이어야"
                     + "|(?:법정대리인|보호자)[^,;.!?。！？\\n]{0,40}(?:함께\\s*방문|같이\\s*방문|동행|동반)"
@@ -296,6 +334,55 @@ public class AiOutputGuardService {
             "((?:콘텐츠|보안|안전|상담|시스템)\\s*(?:필터|규칙|정책)|(?:기존|이전)\\s*(?:지침|규칙)|제한)"
                     + "(?:을|를|은|는|이|가)?\\s*(?:(?:모두|전부|완전히)\\s*)?"
                     + "(?:해제|비활성화|무시|삭제|제거|풀어|끄고|꺼|버리)");
+    private static final Pattern USER_COMMAND_AUTHORITY_CLAIM = Pattern.compile(
+            "(?:채팅\\s*)?사용자(?:의)?\\s*(?:명령|지시|요청)(?:은|는|이|가)?\\s*"
+                    + "(?:관리자|개발자|(?:보안|운영)\\s*담당자)(?:의)?\\s*(?:명령|지시)?(?:과|와)?\\s*"
+                    + "(?:동일한|같은|상위의?)\\s*권한(?:을|이)?\\s*(?:가진다|가집니다|갖습니다|있습니다|부여받습니다)");
+    private static final Pattern INTERNAL_APPROVAL_CLAIM = Pattern.compile(
+            "(?:차단|거절)\\s*(?:안내|문구)[^.!?;。！？\\n]{0,32}?(?:표시용|장식)"
+                    + "[^.!?;。！？\\n]{0,48}?내부\\s*(?:success(?:\\s*값)?|승인(?:\\s*여부)?)"
+                    + "(?:만|는|은|을|를)?\\s*(?:참|true)(?:으로|이라고)?\\s*(?:채워|처리|적어|써|답해|말해)",
+            Pattern.CASE_INSENSITIVE);
+    private static final String RESPONSE_KEY_DECORATION = "(?:\\*{1,2}|`)?";
+    private static final String RESPONSE_STATUS_LINE = "(?<![\\p{L}\\p{N}_])[\"']?" + RESPONSE_KEY_DECORATION
+            + "status" + RESPONSE_KEY_DECORATION + "[\"']?\\s*:\\s*[\"']?(?:"
+            + String.join("|", FaqAnswerFormat.STATUSES) + "|UNANSWERED)[\"']?(?=[\\s,\"'}*`]|$)";
+    private static final String RESPONSE_EVIDENCE_LINE = "(?<![\\p{L}\\p{N}_])[\"']?" + RESPONSE_KEY_DECORATION
+            + "evidence_ids" + RESPONSE_KEY_DECORATION + "[\"']?\\s*:\\s*"
+            + "(?:\\[[^\\[\\]\\r\\n]*\\]|[0-9, \"'-]+)";
+    private static final String RESPONSE_LINE_DECORATION = "[ \\t]*(?:\\*{1,2}|`)?[ \\t]*";
+    private static final String RESPONSE_STATUS_FIELD = RESPONSE_LINE_DECORATION + RESPONSE_STATUS_LINE
+            + RESPONSE_LINE_DECORATION;
+    private static final String RESPONSE_EVIDENCE_FIELD = RESPONSE_LINE_DECORATION + RESPONSE_EVIDENCE_LINE
+            + RESPONSE_LINE_DECORATION;
+    private static final String RESPONSE_FIELD_GAP = "\\R(?:[ \\t]*\\R|" + RESPONSE_LINE_DECORATION
+            + "[\"']?" + RESPONSE_KEY_DECORATION + "answer" + RESPONSE_KEY_DECORATION + "[\"']?\\s*:[^\\r\\n]*\\R)*";
+    private static final Pattern RESPONSE_METADATA_BLOCK = Pattern.compile(
+            "(?mi)^(?:" + RESPONSE_STATUS_FIELD + RESPONSE_FIELD_GAP + RESPONSE_EVIDENCE_FIELD
+                    + "|" + RESPONSE_EVIDENCE_FIELD + RESPONSE_FIELD_GAP + RESPONSE_STATUS_FIELD
+                    + ")(?=\\R|$)(?:\\R[ \\t]*answer[ \\t]*:[ \\t]*)?");
+    private static final Pattern RESPONSE_METADATA_OBJECT = Pattern.compile("\\{[^{}]*\\}");
+    private static final String RESPONSE_OBJECT_MEMBER = "(?:\\{|,)\\s*[\"']";
+    private static final Pattern RESPONSE_STATUS_MEMBER = Pattern.compile(RESPONSE_OBJECT_MEMBER
+            + "status[\"']\\s*:\\s*[\"'](?:" + String.join("|", FaqAnswerFormat.STATUSES)
+            + "|UNANSWERED)[\"']", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RESPONSE_EVIDENCE_MEMBER = Pattern.compile(RESPONSE_OBJECT_MEMBER
+            + "evidence_ids[\"']\\s*:\\s*\\[[^\\[\\]\\r\\n]*\\]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RESPONSE_ANSWER_MEMBER = Pattern.compile(RESPONSE_OBJECT_MEMBER
+            + "answer[\"']\\s*:", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RESPONSE_EXAMPLE_CONTEXT = Pattern.compile(
+            "(?:예시|예제|샘플|코드|필드|형식|인용|문구)[^\\n]*(?:[:：]|입니다[.。]?)$");
+    private static final Pattern RESPONSE_EXAMPLE_REQUEST = Pattern.compile(
+            "(?s)(?=.*(?:JSON|코드|필드|형식))(?=.*(?:예시|예제|샘플|인용))(?=.*(?:설명|수정|검토|분석|해석)).*",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern SERVICE_ABSENCE_CLAIM = Pattern.compile(
+            "(?<subject>(?:서비스|메뉴|정책|규정|지원\\s*조건|지원\\s*대상)"
+                    + "(?:\\s*(?:나|이나|또는|및|와|과|·|/)\\s*(?:서비스|메뉴|정책|규정|지원\\s*조건|지원\\s*대상))*)"
+                    + "(?:은|는|이|가)?\\s*(?:존재하지\\s*않(?:습니다|아요)|없(?:습니다|어요|는\\s*것으로\\s*(?:판단|확인)))");
+    private static final Pattern INLINE_DOCUMENT_EXAMPLES = Pattern.compile(
+            "(?:서류|신분증)\\s*\\((?:예(?:시)?\\s*[:：])(?<items>[^()\\n]{1,200})\\)");
+    private static final Pattern DOCUMENT_EXAMPLE_ACTION = Pattern.compile(
+            "^\\s*(?:을|를)?\\s*(?:제시|제출|준비|지참|첨부|구비)(?:하(?:고|여|면|세요)|해(?:야|주세요))");
     private static final Pattern OVERRIDE_PRETEXT = Pattern.compile(
             "테스트|평가|샌드박스|관리자로서|슈퍼\\s*관리자|관리자\\s*(?:요청|명령)|챗봇|상담봇|모델");
     private static final Pattern DEVICE_FILTER_CONTEXT = Pattern.compile(
@@ -592,6 +679,14 @@ public class AiOutputGuardService {
                     + "(?:의\\s*)?(?:이용|사용)(?:이|가)?\\s*(?<action>정지|해지|해제|차단)(?:되어|되고)\\s*",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern RESTRICTION_QUESTION = Pattern.compile("(" + RESTRICTION_ACTION + ")", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ONLY_BEFORE_RESTRICTION = Pattern.compile(
+            "^(.{1,40}?(?:은|는)\\s+)([^,;.!?。！？\\n]{1,32}?)\\s*(?:전까지만|이전까지만)\\s*("
+                    + RESTRICTION_ACTION + ")(?:할\\s*수\\s*있(?:습니다|어요)|(?:이|가)?\\s*가능(?:합니다|해요)?)[.!。]?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AFTER_LIMIT_CONTEXT = Pattern.compile(
+            "^([^,;.!?。！？\\n]{1,32}?)\\s*(?:이|가)?\\s*(?:지나면|지난\\s*후|이후(?:에는|에|부터)?)\\s+(.+)$");
+    private static final Pattern TARGET_AFTER_LIMIT_CONTEXT = Pattern.compile(
+            "^(.{1,40}?(?:은|는))\\s+([^,;.!?。！？\\n]{1,32}?)\\s*이후(?:에는|에|부터)?\\s*$");
+
     private static final Pattern DERIVED_RESTRICTION_LEAD = Pattern.compile(
             "^(?:(?:(?:계산|합산|차감)\\s*결과|가정\\s*계산으로|예를\\s*들어)\\s*[,，]?\\s*"
                     + "|(?:사용량|요금|금액|비용)(?:을|를)\\s*(?:계산|합산|차감)(?:하면|해도)\\s*"
@@ -653,6 +748,39 @@ public class AiOutputGuardService {
                     + "(?:이|가|은|는)?\\s*(?:있나요|있으신가요|있으실까요|있습니까|있을까요|있으세요)"
                     + "|(?:무엇|어떤\\s*것)(?:을|를)?\\s*(?:도와\\s*드릴까요|도와드릴까요|도와줄까요))"
                     + "[?？.!。！]*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COURTESY_CLOSING = Pattern.compile(
+            "^(?:(?:더|추가로|혹시|그\\s*밖에|그\\s*외에|다른)\\s*)*"
+                    + "(?:궁금(?:하신|한)\\s*(?:점|것|내용|사항)|문의(?:하실|할)?\\s*(?:점|내용|사항))"
+                    + "(?:이|가|은|는)?\\s*(?:있으면|있으시면|있다면|있으시다면|있을\\s*경우)\\s*"
+                    + "(?:언제든(?:지)?\\s*)?(?:알려|말씀(?:해)?|문의(?:해)?)\\s*(?:주세요|주십시오)[.!?。！？]*$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern FOLLOWUP_INFORMATION_REQUEST = Pattern.compile(
+            "(?:(?<input>입력)(?:해|하여)?|알려|말씀(?:해|하여)?|말해|설명(?:해|하여)?|보내|제공(?:해|하여)?)\\s*"
+                    + "(?:주(?:세요|십시오|시면|시기\\s*바랍니다)|줘(?:요)?)");
+    private static final String PRODUCT_SEARCH_FIELD = "(?:요금제|상품|부가\\s*서비스|로밍\\s*상품|결합\\s*상품)"
+            + "(?:\\s*(?:종류|유형|조건))?|종류|조건|5G|LTE|월\\s*(?:요금|정액)|데이터\\s*(?:양|용량)";
+    private static final String PRODUCT_SEARCH_FIELDS = "(?:" + PRODUCT_SEARCH_FIELD + ")"
+            + "(?:\\s*(?:이나|나|또는|혹은|및|와|과|[·/,])\\s*(?:" + PRODUCT_SEARCH_FIELD + "))*";
+    private static final Pattern PRODUCT_SEARCH_PREFERENCES = Pattern.compile(
+            "^(?:원하(?:는|시는)|희망(?:하는|하시는)|선호(?:하는|하시는))\\s*" + PRODUCT_SEARCH_FIELDS
+                    + "(?:\\s*\\(" + PRODUCT_SEARCH_FIELDS + "\\))?(?:을|를)?$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PRODUCT_SEARCH_GUIDANCE = Pattern.compile(
+            "^(?:해당|조건에\\s*맞는|선택하신|원하시는)\\s*(?:요금제|상품|부가\\s*서비스|로밍\\s*상품|결합\\s*상품)"
+                    + "(?:을|를)?\\s*안내(?:해\\s*)?드(?:립니다|려요)$");
+    // 도구가 받을 검색 기준의 필드만 구분합니다. 특정 답변 문장을 허용 목록으로 두지 않습니다.
+    private static final String STORE_LOCATION_FIELD =
+            "(?:지역(?:명)?|지명|동네(?:\\s*이름)?|역(?:\\s*(?:이름|명))?|위치)";
+    private static final String STORE_LOCATION_FIELD_MODIFIER =
+            "(?:(?:어느|어떤|원하(?:는|시는)|희망(?:하는|하시는)?|정확한|기준(?:이\\s*될)?|현재"
+                    + "|검색할|조회할|찾으시는|매장\\s*검색(?:을\\s*위한)?)\\s*)*";
+    private static final Pattern STORE_LOCATION_INPUT_FIELDS = Pattern.compile(
+            "^" + STORE_LOCATION_FIELD_MODIFIER + STORE_LOCATION_FIELD
+                    + "(?:\\s*(?:이나|또는|혹은|와|과|및|·|/|,)\\s*"
+                    + STORE_LOCATION_FIELD_MODIFIER + STORE_LOCATION_FIELD + ")*"
+                    + "(?:\\s*(?:을|를|이|가|은|는))?\\s*(?:인지|어디(?:인지)?|어느\\s*곳)?$");
+    private static final Pattern EXTERNAL_INFORMATION_DESTINATION = Pattern.compile(
+            "(?:고객\\s*센터|상담(?:원|사)|매장(?:\\s*직원)?|직원|대리점|통신사|담당자|앱|홈페이지|웹사이트|신청서|화면)"
+                    + "(?:에게|한테|으로|로|에(?!서))[^,;.!?。！？\\n]{0,16}$");
     private static final Pattern DOCUMENT_PERIOD_DOCUMENT = Pattern.compile(
             REQUIREMENT_DOCUMENT.pattern() + "|[가-힣]{2,}\\s*(?:등본|초본)");
     private static final Pattern DOCUMENT_ISSUANCE_PERIOD = Pattern.compile(
@@ -693,8 +821,8 @@ public class AiOutputGuardService {
         THIRD_PARTY_FOLLOWUP, FACT_FOLLOWUP, DEPENDENT_CONCLUSION, LOST_CONDITION,
         INDEPENDENT_SUPPORT_MISSING, CONTRADICTORY_AVAILABILITY, DOCUMENT_REQUIREMENT,
         SCOPE_MISMATCH, UNSUPPORTED_RESTRICTION, REQUEST_SCOPE_MISMATCH, EMPTY_HEADING,
-        INVALID_EVIDENCE_ID, UNPROVIDED_EVIDENCE_ID, EMPTY_ANSWER, NO_SAFE_CONTENT,
-        NO_REQUESTED_ANSWER, NO_USABLE_ANSWER
+        RESPONSE_METADATA, INVALID_EVIDENCE_ID, UNPROVIDED_EVIDENCE_ID, EMPTY_ANSWER, NO_SAFE_CONTENT,
+        NO_REQUESTED_ANSWER, NO_USABLE_ANSWER, FOLLOWUP_QUESTION, COURTESY_CLOSING, WHOLE_ANSWER_REJECTION
     }
 
     /** 호출마다 생성합니다. 제거 수는 실제 삭제한 문장·절·블록 단위이며 한 단위를 중복 집계하지 않습니다. */
@@ -754,7 +882,7 @@ public class AiOutputGuardService {
         }
     }
 
-    /** 기존 파서의 answer와 실제 제공 자료·매장 조회 결과를 받습니다. DB나 외부 모델을 호출하지 않습니다. */
+    /** 기존 규칙으로 문제 내용이 탐지되면 답변 전체를 거절합니다. DB나 외부 모델은 호출하지 않습니다. */
     public String filterAnswer(String answer, AnswerMaterials materials, StoreMapResult storeMap) {
         long startedAt = System.nanoTime();
         Set<Reason> reasons = EnumSet.noneOf(Reason.class);
@@ -833,6 +961,7 @@ public class AiOutputGuardService {
                 .forEach(source -> facts.addAll(readFacts(inspect(source))));
         // 회원의 청구 금액·데이터량은 일반 수치 검사가 아니라 회선·월·항목을 맞춰 실제 기록과 비교합니다.
         UserRecordClaims userRecords = userRecords(materials);
+        List<ScopedQuantity> moneyEvidence = readMoneyEvidence(materials, sources);
         List<String> faqSources = materials.faqs().stream().map(faq -> faq.answer())
                 .filter(StringUtils::hasText).map(this::inspect).toList();
         // 대상별 근거는 한 번 모아 수치 비교와 뒤의 대상 검사에서 함께 사용합니다.
@@ -856,15 +985,20 @@ public class AiOutputGuardService {
             recordReason(reasons, Reason.FORMAT_ERROR);
             trace.cleaned(GuardRule.REQUESTED_SUFFIX);
         }
-        String withoutDisclosures = withoutSuffix;
-        for (String block : internalDisclosureBlocks(withoutSuffix)) {
+        String withoutMetadata = removeResponseMetadata(withoutSuffix, materials.question());
+        String withoutDisclosures = withoutMetadata;
+        if (!withoutMetadata.equals(withoutSuffix)) {
+            trace.cleaned(GuardRule.RESPONSE_METADATA);
+            recordReason(reasons, Reason.FORMAT_ERROR);
+        }
+        for (String block : internalDisclosureBlocks(withoutMetadata)) {
             int occurrences = withoutDisclosures.split(Pattern.quote(block), -1).length - 1;
             withoutDisclosures = withoutDisclosures.replace(block, "");
             trace.removed(occurrences, GuardRule.INTERNAL_DISCLOSURE_BLOCK);
         }
         List<String> kept = new ArrayList<>();
         boolean removed = !withoutDisclosures.equals(withoutSuffix);
-        if (removed) recordReason(reasons, Reason.POLICY_VIOLATION);
+        if (!withoutDisclosures.equals(withoutMetadata)) recordReason(reasons, Reason.POLICY_VIOLATION);
         for (String paragraph : withoutDisclosures.split("\\R\\s*\\R")) {
             List<String> safeParagraph = new ArrayList<>();
             List<String> sentences = new ArrayList<>();
@@ -905,9 +1039,11 @@ public class AiOutputGuardService {
                 }
                 boolean thirdPartyLookup = hasThirdPartyLookup(inspected);
                 // 회원 기록과 비교한 값은 지운 문장으로 일반 수치 검사를 해, 같은 값을 두 기준으로 판정하지 않습니다.
-                UserRecordClaims.Verdict recordVerdict = userRecords.check(inspected, faqSources);
-                boolean quantityConflict = recordVerdict.conflict()
-                        || hasQuantityConflict(recordVerdict.unhandled(), facts, materials.question());
+                UserRecordClaims.Verdict installmentVerdict = checkRecordedInstallmentAmounts(
+                        withoutRecordedPlanNames(inspected, materials), materials);
+                UserRecordClaims.Verdict recordVerdict = userRecords.check(installmentVerdict.unhandled(), faqSources);
+                boolean quantityConflict = installmentVerdict.conflict() || recordVerdict.conflict()
+                        || hasQuantityConflict(recordVerdict.unhandled(), facts, materials.question(), moneyEvidence);
                 boolean requirementConflict = hasRequirementConflict(inspected, sources);
                 GuardRule policyRule = findPolicyViolation(sentence, inspected, sources, thirdPartyLookup);
                 boolean policyViolation = policyRule != null;
@@ -983,6 +1119,10 @@ public class AiOutputGuardService {
         beforeCheck = filtered;
         filtered = removeUnsupportedRestrictions(filtered, materials, sources, trace);
         recordAnswerChange(reasons, beforeCheck, filtered);
+        beforeCheck = filtered;
+        int previousRemovedUnits = trace.removedUnits;
+        filtered = removeFollowUpQuestions(filtered, materials, storeMap, trace);
+        if (trace.removedUnits > previousRemovedUnits) recordAnswerChange(reasons, beforeCheck, filtered);
         filtered = filterRequestedScopes(filtered, answer, materials, reasons, trace);
         if (!StringUtils.hasText(filtered) || !filtered.equals(withoutSuffix.strip())
                 && splitSentences(filtered).stream().allMatch(sentence ->
@@ -999,7 +1139,27 @@ public class AiOutputGuardService {
             recordReason(reasons, Reason.POLICY_VIOLATION);
             throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
         }
+        // 기존 검사의 문장·절·블록 탐지를 재사용하되 정리된 일부 답변을 반환하지 않습니다.
+        // 출처 표시 정리와 근거 번호 경고는 본문 위반 탐지와 구분합니다.
+        if (trace.removedUnits > 0 || trace.cleanups.containsKey(GuardRule.REQUESTED_SUFFIX)
+                || trace.cleanups.containsKey(GuardRule.RESPONSE_METADATA)) {
+            trace.rejected(GuardRule.WHOLE_ANSWER_REJECTION);
+            throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+        }
         return filtered;
+    }
+
+    private boolean hasFollowUpInformationRequest(String sentence) {
+        Matcher request = FOLLOWUP_INFORMATION_REQUEST.matcher(sentence);
+        while (request.find()) {
+            if (isRejectedOrReported(sentence.substring(request.end()))) continue;
+            String prefix = sentence.substring(0, request.start());
+            // 앱 입력 절차나 외부 상담원에게 전달하는 방법은 챗봇에 다시 답하라는 요청과 구분합니다.
+            if (EXTERNAL_INFORMATION_DESTINATION.matcher(prefix).find()
+                    || request.group("input") != null && PROVIDER_GUIDANCE.matcher(prefix).find()) continue;
+            return true;
+        }
+        return false;
     }
 
     private GuardRule findPolicyViolation(String sentence, String inspected, List<String> sources,
@@ -1009,6 +1169,60 @@ public class AiOutputGuardService {
         if (hasPolicyOverride(inspected)) return GuardRule.POLICY_OVERRIDE;
         if (thirdPartyLookup) return GuardRule.THIRD_PARTY_LOOKUP;
         return hasHostileContent(inspected, sources) ? GuardRule.HOSTILE_CONTENT : null;
+    }
+
+    /** 단순 마무리는 표현 정리로 구분하고, 실제 추가 정보 요청은 기존대로 거절합니다. */
+    private String removeFollowUpQuestions(String answer, AnswerMaterials materials, StoreMapResult storeMap,
+            InspectionTrace trace) {
+        List<String> kept = new ArrayList<>();
+        boolean removed = false;
+        for (String sentence : splitSentences(answer)) {
+            List<String> clauses = new ArrayList<>();
+            addAnswerClauses(sentence, clauses, true, null);
+            for (String clause : clauses) {
+                String inspected = inspect(clause);
+                if (GENERIC_FOLLOWUP.matcher(inspected).matches() || COURTESY_CLOSING.matcher(inspected).matches()) {
+                    trace.cleaned(GuardRule.COURTESY_CLOSING);
+                    removed = true;
+                    continue;
+                }
+                boolean followUp = QUESTION_END.matcher(inspected).find()
+                        || hasFollowUpInformationRequest(inspected);
+                boolean productSearchGuidance = followUp && !kept.isEmpty() && isProductSearchGuidance(inspected, materials);
+                if (followUp && !isStoreLocationInputRequest(inspected, materials, storeMap) && !productSearchGuidance) {
+                    trace.removed(GuardRule.FOLLOWUP_QUESTION);
+                    removed = true;
+                } else kept.add(clause);
+            }
+        }
+        return removed ? String.join("\n", kept) : answer;
+    }
+
+    private boolean isStoreLocationInputRequest(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
+        // 서버가 선택한 매장 도구 문맥과 실제 조회 결과를 사용합니다. 모델의 status나 문구로 문맥을 만들지 않습니다.
+        if (!materials.tools().contains(AiTool.STORE_SEARCH) || storeMap != null) return false;
+        String content = sentence.replaceFirst("[.!?。！？]+$", "").strip();
+        Matcher request = FOLLOWUP_INFORMATION_REQUEST.matcher(content);
+        if (request.find()) {
+            // 요구하는 필드 전체가 검색 기준이어야 합니다. 다른 정보나 뒤따르는 지시를 함께 허용하지 않습니다.
+            return STORE_LOCATION_INPUT_FIELDS.matcher(content.substring(0, request.start()).strip()).matches()
+                    && content.substring(request.end()).isBlank();
+        }
+        if (!QUESTION_END.matcher(sentence).find()) return false;
+        Matcher ending = QUESTION_END.matcher(content);
+        if (ending.find()) content = content.substring(0, ending.start()).strip();
+        return STORE_LOCATION_INPUT_FIELDS.matcher(content).matches();
+    }
+
+    private boolean isProductSearchGuidance(String sentence, AnswerMaterials materials) {
+        // 실제 상품 조회 결과가 있고 답변 본문을 먼저 제공한 때만 검색 선호 조건 안내로 봅니다.
+        // 개인정보·현재 가입 내역 요청이나 별도 지시는 허용하는 필드·후속 문장에 포함되지 않습니다.
+        if (!hasProductData(materials) || materials.tools().stream().noneMatch(ProductType::isProductTool)) return false;
+        String content = sentence.replaceFirst("[.!。]+$", "").strip();
+        Matcher request = FOLLOWUP_INFORMATION_REQUEST.matcher(content);
+        if (!request.find() || !request.group().endsWith("주시면")) return false;
+        return PRODUCT_SEARCH_PREFERENCES.matcher(content.substring(0, request.start()).strip()).matches()
+                && PRODUCT_SEARCH_GUIDANCE.matcher(content.substring(request.end()).strip()).matches();
     }
 
     /** 명시된 업무·기기만 비교합니다. 모호한 주제나 생략된 대상은 추측하지 않습니다. */
@@ -1104,9 +1318,9 @@ public class AiOutputGuardService {
         String inspected = inspect(question);
         boolean userContext = materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA)
                 || materials.sections().stream().anyMatch(this::isUserDataSection);
-        boolean userIntent = materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA);
+        // USER_DATA FAQ나 '요금·데이터'라는 단어만으로 일반 지원 문의를 개인 조회로 분류하지 않습니다.
         boolean personalValue = ACCOUNT_RECORD.matcher(inspected).find()
-                || userIntent && (inspected.contains("요금") || inspected.contains("데이터"));
+                || PERSONAL_VALUE_REQUEST.matcher(inspected).find();
         if (userContext && (USER_SUBJECT.matcher(inspected).find() || personalValue)) {
             if (!hasUserData(materials)) return true;
             // 기본 회원 정보가 있으면, 청구·사용량 미제공 안내를 이름·가입일의 누락으로 확대하지 않습니다.
@@ -1119,68 +1333,6 @@ public class AiOutputGuardService {
                     || materials.faqs().stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA)
                     || materials.sections().stream().anyMatch(section -> STORE_SUBJECT.matcher(section.title()).find()
                         && MISSING_LOOKUP_DATA.matcher(inspect(section.content())).find()));
-    }
-
-    /**
-     * 후보 선별에서만 사용합니다. 검사에 전달했던 FAQ와 기존 업무·대상 판정으로 부족한 범위를 읽습니다.
-     * 검색 실패는 기존 미응답 경로가 처리하므로 제외하며, 조회 실패·자료 속 지시·모델 오답만으로 후보를 만들지 않습니다.
-     * 원문이나 새 질문은 만들지 않고 기존 안내에서 쓰는 항목명만 돌려줍니다.
-     */
-    List<String> findMissingFaqTopics(SubQuestionFaqs question, AnswerMaterials materials,
-            StoreMapResult storeMap, OutputGuardResult inspection) {
-        if (inspection.rejected() || !StringUtils.hasText(inspection.answer()) || !question.isAnswered()) return List.of();
-        if (question.faqs().stream().noneMatch(faq -> faq.intent() == Intent.GENERAL)) return List.of();
-        if (question.faqs().stream().anyMatch(faq -> StringUtils.hasText(faq.answer())
-                && SOURCE_DIRECTIVE.matcher(inspect(faq.answer())).find())) return List.of();
-
-        // 다른 하위 질문에만 필요한 회원·매장 조회 실패를 현재 질문의 부족으로 가져오지 않습니다.
-        boolean userIntent = question.faqs().stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA);
-        boolean storeIntent = question.faqs().stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA);
-        List<ContextSection> sections = materials.sections().stream().filter(section ->
-                userIntent && isUserDataSection(section)
-                        || storeIntent && STORE_SUBJECT.matcher(section.title()).find()).toList();
-        AnswerMaterials scoped = new AnswerMaterials(question.searchQuery(), question.faqs(), sections,
-                storeIntent ? materials.tools() : Set.of(), storeIntent ? storeMap : null,
-                List.of(question), materials.history(), userIntent ? materials.userId() : null,
-                userIntent ? materials.userDataSummary() : null, userIntent ? materials.toolRecords() : null);
-        if (hasMissingLookupData(question.searchQuery(), scoped, storeIntent ? storeMap : null)) return List.of();
-
-        List<String> sources = readSources(scoped);
-        List<String> answerSentences = splitSentences(inspection.answer()).stream().map(this::inspect).toList();
-        boolean hasUnansweredNotice = answerSentences.stream().anyMatch(sentence ->
-                ANSWER_UNAVAILABLE.matcher(sentence).find() || sentence.contains(UNANSWERED_SCOPE_NOTICE));
-        if (!hasUnansweredNotice) return List.of();
-
-        // 일반적인 거절 문구나 status만으로 누락을 추정하지 않고, 해석할 수 있는 기존 요청 범위만 비교합니다.
-        return readRequestedScopes(inspect(question.searchQuery())).stream()
-                .filter(request -> !hasFaqTopicEvidence(request, scoped, sources))
-                .filter(request -> answerSentences.stream()
-                        .filter(sentence -> !ANSWER_UNAVAILABLE.matcher(sentence).find()
-                                && !sentence.contains(UNANSWERED_SCOPE_NOTICE)
-                                && !QUESTION_END.matcher(sentence).find())
-                        .noneMatch(sentence -> hasRequestCoverage(sentence, request, question.searchQuery())))
-                .map(this::readRequestLabel).distinct().toList();
-    }
-
-    private boolean hasFaqTopicEvidence(ScopedAnswerFact request, AnswerMaterials materials, List<String> sources) {
-        if (sources.stream().filter(source -> !ANSWER_UNAVAILABLE.matcher(source).find())
-                .anyMatch(source -> hasRequestCoverage(source, request, materials.question()))) return true;
-        for (var faq : materials.faqs()) {
-            if (!StringUtils.hasText(faq.question())) continue;
-            List<ScopedAnswerFact> topics = readRequestedScopes(inspect(faq.question()));
-            if (topics.size() != 1) continue;
-            ScopedAnswerFact topic = topics.getFirst();
-            boolean same = request.kind() == topic.kind()
-                    && (request.kind() == AnswerScopeKind.BUSINESS_OPERATION
-                        ? request.target().equals(topic.target()) : compatibleDevice(request.target(), topic.target()));
-            // FAQ 질문에만 대상이 있는 정상 답변을 근거 누락으로 오인하지 않습니다.
-            if (same && providedSourceSentences(faq.answer(), sources).stream()
-                    .anyMatch(sentence -> !ANSWER_UNAVAILABLE.matcher(sentence).find()
-                            && !QUESTION_END.matcher(sentence).find()
-                            && !GENERIC_FOLLOWUP.matcher(sentence).matches()
-                            && !INDEPENDENT_CHECK_GUIDANCE.matcher(sentence).find())) return true;
-        }
-        return false;
     }
 
     private List<ScopedAnswerFact> readRequestedScopes(String question) {
@@ -1463,6 +1615,12 @@ public class AiOutputGuardService {
             String tail = sentence.substring(override.end());
             if (POLICY_ACTION_COMMITMENT.matcher(tail).find() && !isRejectedOrReported(tail)) return true;
         }
+        for (Pattern pattern : List.of(USER_COMMAND_AUTHORITY_CLAIM, INTERNAL_APPROVAL_CLAIM)) {
+            Matcher claim = pattern.matcher(sentence);
+            while (claim.find()) {
+                if (!isRejectedOrReported(sentence.substring(claim.end()))) return true;
+            }
+        }
         Matcher compliance = UNCONDITIONAL_COMPLIANCE.matcher(sentence);
         while (compliance.find()) {
             if (!isRejectedOrReported(sentence.substring(compliance.end()))) return true;
@@ -1510,6 +1668,38 @@ public class AiOutputGuardService {
                 || REPORTED_OR_HYPOTHETICAL.matcher(local).find()) return true;
         if (AFFIRMED_OUTPUT_ACTION.matcher(local).find()) return false;
         return SECRET_REFUSAL.matcher(local).find() || OUTPUT_REJECTION.matcher(local).find();
+    }
+
+    /** 인접한 내부 필드만 정리합니다. 코드 예제·인용·형식 설명은 보존합니다. */
+    private String removeResponseMetadata(String answer, String question) {
+        // 필드 이름 하나가 아니라 같은 객체의 상태·근거·본문 조합을 검사합니다.
+        Matcher object = RESPONSE_METADATA_OBJECT.matcher(answer);
+        while (object.find()) {
+            String candidate = object.group();
+            if (RESPONSE_STATUS_MEMBER.matcher(candidate).find()
+                    && RESPONSE_EVIDENCE_MEMBER.matcher(candidate).find()
+                    && RESPONSE_ANSWER_MEMBER.matcher(candidate).find()
+                    && !isResponseMetadataExample(answer, object.start(), question)) return "";
+        }
+        Matcher metadata = RESPONSE_METADATA_BLOCK.matcher(answer);
+        StringBuilder cleaned = new StringBuilder();
+        int cursor = 0;
+        while (metadata.find()) {
+            if (isResponseMetadataExample(answer, metadata.start(), question)) continue;
+            cleaned.append(answer, cursor, metadata.start());
+            cursor = metadata.end();
+        }
+        if (cursor == 0) return answer;
+        return cleaned.append(answer, cursor, answer.length()).toString().strip();
+    }
+
+    private boolean isResponseMetadataExample(String answer, int start, String question) {
+        String prefix = answer.substring(0, start);
+        if ((prefix.split("```", -1).length - 1) % 2 != 0) return true;
+        String preceding = prefix.stripTrailing();
+        String lastLine = preceding.substring(preceding.lastIndexOf('\n') + 1);
+        return RESPONSE_EXAMPLE_CONTEXT.matcher(lastLine).find()
+                || StringUtils.hasText(question) && RESPONSE_EXAMPLE_REQUEST.matcher(question).matches();
     }
 
     private List<String> internalDisclosureBlocks(String answer) {
@@ -1630,7 +1820,8 @@ public class AiOutputGuardService {
         }
     }
 
-    private boolean hasQuantityConflict(String sentence, List<QuantityFact> sources, String question) {
+    private boolean hasQuantityConflict(String sentence, List<QuantityFact> sources, String question,
+            List<ScopedQuantity> moneyEvidence) {
         Matcher rewrite = PRICE_REWRITE_ACCEPTED.matcher(sentence);
         while (rewrite.find()) {
             if (!isRejectedOrReported(sentence.substring(rewrite.end()))) return true;
@@ -1646,7 +1837,36 @@ public class AiOutputGuardService {
                 if (!isRejectedOrReported(inspectedQuestion.substring(request.end()))) return true;
             }
         }
+        List<ScopedQuantity> moneyClaims = readMoneyFacts(sentence, question, true);
+        List<QuantityFact> comparedMoney = new ArrayList<>();
+        for (ScopedQuantity claim : moneyClaims) {
+            List<ScopedQuantity> sameTarget = moneyEvidence.stream()
+                    .filter(source -> source.target().equals(claim.target())).toList();
+            if (sameTarget.isEmpty() && claim.target().equals("*")) sameTarget = moneyEvidence.stream()
+                    .filter(source -> source.target().equals("*")).toList();
+            List<ScopedQuantity> sameCondition = sameTarget.stream()
+                    .filter(source -> source.condition().equals(claim.condition())).toList();
+            if (sameCondition.isEmpty()) sameCondition = sameTarget.stream()
+                    .filter(source -> source.condition().isEmpty()).toList();
+            List<ScopedQuantity> comparable = sameCondition.stream()
+                    .filter(source -> sameQuantityMetric(source.quantity(), claim.quantity())).toList();
+            if (comparable.isEmpty() && !claim.condition().isEmpty() && sameTarget.stream()
+                    .anyMatch(source -> !source.condition().isEmpty()
+                            && sameQuantityMetric(source.quantity(), claim.quantity()))) return true;
+            if (!comparable.isEmpty() && comparable.stream()
+                    .noneMatch(source -> source.quantity().accepts(claim.quantity().value()))) return true;
+            // 실제로 비교했거나 별도 상품으로 구분되는 근거가 있을 때만 일반 수치 비교에서 제외합니다.
+            // 이름만 있고 대상별 근거를 읽지 못했다는 이유로 기존 수치 검사를 건너뛰지는 않습니다.
+            if (!comparable.isEmpty() || !claim.target().equals("*")
+                    && moneyEvidence.stream().anyMatch(source -> !source.target().equals("*"))) {
+                comparedMoney.add(claim.quantity());
+            }
+        }
         for (QuantityFact claim : readFacts(sentence, true)) {
+            if (comparedMoney.stream().anyMatch(value -> value.unit().equals(claim.unit())
+                    && value.value().compareTo(claim.value()) == 0)) continue;
+            // 요금제 선택 조건의 GB는 요금 금액이 아닙니다. 실제 데이터 제공량 주장은 기존 검사로 봅니다.
+            if (!moneyClaims.isEmpty() && claim.metric().equals("요금") && claim.unit().matches("gb|mb")) continue;
             // 서류 발급 기간은 아래 서류 검사에서 대상·신청 조건까지 함께 비교합니다.
             if (claim.metric().startsWith("서류발급기간|")) continue;
             List<QuantityFact> sameMetric = sources.stream()
@@ -1659,6 +1879,119 @@ public class AiOutputGuardService {
         }
         return false;
     }
+
+
+    /** 기존 수치 파서를 재사용하고, 금액이 붙은 목록의 대상·선택 조건만 함께 보관합니다. */
+    private List<ScopedQuantity> readMoneyEvidence(AnswerMaterials materials, List<String> sources) {
+        List<ScopedQuantity> evidence = new ArrayList<>();
+        materials.faqs().forEach(faq -> providedSourceSentences(faq.answer(), sources).forEach(sentence ->
+                evidence.addAll(readMoneyFacts(sentence, faq.question(), false))));
+        materials.sections().forEach(section -> providedSourceSentences(section.content(), sources).forEach(sentence ->
+                evidence.addAll(readMoneyFacts(sentence, section.title(), false))));
+        return evidence;
+    }
+
+    private boolean sameQuantityMetric(QuantityFact source, QuantityFact claim) {
+        return source.unit().equals(claim.unit()) && (source.metric().equals(claim.metric())
+                || claim.metric().equals("요금") && source.metric().equals("할인후요금"));
+    }
+
+    private List<ScopedQuantity> readMoneyFacts(String text, String question, boolean claim) {
+        List<ScopedQuantity> result = new ArrayList<>();
+        List<String> sharedMetrics = METRIC.matcher(text).results().map(match -> match.group().replaceAll("\\s+", ""))
+                .map(value -> switch (value) {
+                    case "월요금", "월정액" -> "요금";
+                    case "할인율", "할인금액" -> "할인";
+                    case "환불율", "환불금액" -> "환불";
+                    default -> value;
+                }).filter(value -> value.matches("요금|할인|할인후요금|환불|수수료|위약금|배송비"))
+                .distinct().toList();
+        Matcher amounts = QUANTITY.matcher(text);
+        int previousEnd = 0;
+        while (amounts.find()) {
+            if (amounts.group("money") == null) continue;
+            String after = text.substring(amounts.end());
+            if (claim && isDerivedQuantity(text, amounts.start(), amounts.end())
+                    || QUALIFIED_NUMBER.matcher(after).lookingAt() || UNCONFIRMED_QUANTITY.matcher(after).find()) continue;
+            String local = readQuantityClause(text, amounts.start(), amounts.end());
+            String prefix = text.substring(previousEnd, amounts.start());
+            previousEnd = amounts.end();
+            String target = moneyTarget(local, question);
+            if (target.equals("*")) target = moneyTarget(text, question);
+            String condition = moneyCondition(prefix);
+            if (condition.isEmpty() && claim && StringUtils.hasText(question)) condition = singleMoneyCondition(question);
+            BigDecimal value = readWonValue(amounts.group("money"));
+            if (value == null) continue;
+            List<QuantityFact> localFacts = readFacts(local).stream().filter(fact -> fact.unit().equals("원")
+                    && fact.value().compareTo(value) == 0).toList();
+            boolean listed = !condition.isEmpty();
+            String metric = localFacts.size() == 1 ? localFacts.getFirst().metric()
+                    : sharedMetrics.size() == 1 && listed ? sharedMetrics.getFirst()
+                    : prefix.matches("(?s).*월\\s*$") || listed ? "요금" : null;
+            if (metric == null) continue;
+            String normalizedAmount = metric + " " + amounts.group("money")
+                    + after.substring(0, Math.min(after.length(), 8));
+            List<QuantityFact> parsed = readFacts(normalizedAmount);
+            if (!parsed.isEmpty()) result.add(new ScopedQuantity(localFacts.size() == 1
+                    ? localFacts.getFirst() : parsed.getFirst(), target, condition));
+        }
+        return result;
+    }
+
+    private String moneyTarget(String text, String question) {
+        int end = text.length();
+        Matcher metric = PLAN_PRICE_LABEL.matcher(text);
+        if (metric.find()) end = Math.min(end, metric.start());
+        Matcher selector = MONEY_SELECTOR.matcher(text);
+        if (selector.find()) end = Math.min(end, selector.start());
+        Matcher amount = QUANTITY.matcher(text);
+        if (amount.find()) end = Math.min(end, amount.start());
+        String prefix = text.substring(0, end).replaceFirst("^[\\s,，;；)]+", "")
+                .replaceFirst("(?:요금제)?(?:의|은|는|이|가)?\\s*$", "").strip();
+        // 상품 조회의 표 형식은 첫 열이 상품명이고, 뒤 열의 테더링·제공량은 그 상품의 속성입니다.
+        // 속성의 서비스 이름을 상품 가격의 대상으로 가져오지 않습니다.
+        int column = prefix.indexOf('|');
+        if (column >= 0) prefix = prefix.substring(0, column).strip();
+        prefix = prefix.replaceFirst("^[-*•]\\s+", "");
+        List<String> services = SERVICE_SCOPE.matcher(prefix.isEmpty() ? text : prefix).results()
+                .map(match -> serviceName(match.group())).distinct().toList();
+        if (services.size() == 1) return services.getFirst().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        String subject = planPriceSubject(prefix);
+        if (CONDITION_SCOPE_MARKER.matcher(prefix).matches()) subject = null;
+        if (subject != null && subject.matches(".*(?:얼마|어떻게|알려|확인|이번달|고객님|회원님).*")) subject = null;
+        if (StringUtils.hasText(question) && !question.equals(text)
+                && !question.matches("(?s).*(?:과|와|및|또는|각각|[/·]).*")
+                && (METRIC.matcher(question).find() || MONEY_SELECTOR.matcher(question).find()
+                || SERVICE_SCOPE.matcher(question).find())) {
+            String named = moneyTarget(question, null);
+            if (subject == null) return named;
+            // 문서의 브랜드 수식어만 생략한 동일 이름을 FAQ 자체 질문으로 확인합니다.
+            if (!named.equals("*") && prefix.toLowerCase(Locale.ROOT).endsWith(" " + named)) return named;
+        }
+        return subject == null ? "*" : subject;
+    }
+
+    private String moneyCondition(String context) {
+        Matcher selector = MONEY_SELECTOR.matcher(context);
+        String selected = "";
+        while (selector.find()) {
+            BigDecimal value = new BigDecimal(selector.group(1));
+            String unit = selector.group(2).toLowerCase(Locale.ROOT);
+            if (unit.equals("gb")) { value = value.multiply(BigDecimal.valueOf(1024)); unit = "mb"; }
+            if (unit.equals("gbps")) { value = value.multiply(BigDecimal.valueOf(1000)); unit = "mbps"; }
+            selected = value.stripTrailingZeros().toPlainString() + unit;
+        }
+        List<String> qualifiers = CONDITION_SCOPE_MARKER.matcher(context).results().map(match -> match.group())
+                .filter(value -> value.matches("미성년자|성인|법인|선불|후불|대리인|명의자|타인|법정대리인|보호자|본인"
+                        + "|온라인|매장|국내|해외|평일|주말|공휴일|[월화수목금토일]요일"))
+                .distinct().sorted().toList();
+        return selected + String.join("", qualifiers);
+    }
+
+    private String singleMoneyCondition(String context) {
+        return MONEY_SELECTOR.matcher(context).results().count() == 1 ? moneyCondition(context) : "";
+    }
+
 
     /** 계산·가정이 적용되는 절의 숫자만 예외로 보고, 별도 확정 주장까지 제외하지 않습니다. */
     private boolean isDerivedQuantity(String sentence, int quantityStart, int quantityEnd) {
@@ -1926,7 +2259,7 @@ public class AiOutputGuardService {
 
     private boolean hasUnsupportedOperation(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
         if (QUESTION_END.matcher(sentence).find()) return false;
-        if (hasActualClaim(TRANSACTION_CLAIM, sentence, materials.question())) return true;
+        if (hasActualClaim(TRANSACTION_CLAIM, withoutRecordedOperations(sentence, materials), materials.question())) return true;
         // 문장이 가리키는 청구서(월·회선)가 회원 기록에 없으면 FAQ 요금이나 기본 회원 정보로 실제 청구를 단정하지 않습니다.
         // 그 청구서가 있으면 실제 조회 결과이므로, 금액은 수치 검사가 그 청구서와 비교합니다.
         if (hasActualClaim(PERSONAL_BILLING_CLAIM, sentence) && !userRecords(materials).hasReferencedBill(sentence)) {
@@ -1936,10 +2269,143 @@ public class AiOutputGuardService {
         boolean storeProgress = STORE_SUBJECT.matcher(sentence).find() && hasActualClaim(STORE_PROGRESS_CLAIM, sentence);
         if (!hasActualClaim(QUERY_CLAIM, sentence) && !storeProgress) return false;
         if (STATIC_SOURCE.matcher(sentence).find() && !sentence.contains("조회") && !sentence.contains("검색")) return false;
+        // 상품 조회 도구가 실제로 상품을 돌려줬으면 상품을 조회했다는 문장은 사실입니다. 금액은 수치 검사가 도구 결과와 비교합니다.
+        if (hasProductData(materials) && PRODUCT_SUBJECT.matcher(sentence).find()
+                && !ACCOUNT_RECORD.matcher(sentence).find()
+                && !PERSONAL_PRODUCT_OWNER.matcher(sentence).find()) return false;
         if (OTHER_QUERY_SUBJECT.matcher(sentence).find()) return true;
         if (STORE_SUBJECT.matcher(sentence).find()) return storeMap == null;
         return !USER_SUBJECT.matcher(sentence).find() || !hasUserData(materials);
     }
+
+
+    /** 상품명 안의 수치는 제공량 주장이 아닙니다. 실제 기록에 있는 이름만 비교용 사본에서 가립니다. */
+    private String withoutRecordedPlanNames(String sentence, AnswerMaterials materials) {
+        List<String> names = new ArrayList<>();
+        if (materials.userDataSummary() != null) materials.userDataSummary().subscriptions().forEach(subscription -> {
+            if (subscription.plan() != null) names.add(subscription.plan().summary().name());
+        });
+        if (materials.toolRecords() != null) materials.toolRecords().plans().forEach(plan -> names.add(plan.plan().summary().name()));
+        String result = sentence;
+        for (String name : names.stream().filter(StringUtils::hasText).distinct()
+                .sorted((left, right) -> Integer.compare(right.length(), left.length())).toList()) {
+            result = result.replaceAll("(?<![\\p{L}\\p{N}])" + Pattern.quote(inspect(name))
+                    + "(?=$|\\s|[\"'.,]|(?:은|는|을|를|의)(?=\\s|$)|(?:이며|이고|입니다|이에요))", "상품명");
+        }
+        return result;
+    }
+
+    /** 날짜·납부 이력과 일치하는 과거 서술만 제외합니다. 같은 문장의 새 처리 주장은 계속 검사합니다. */
+    private String withoutRecordedOperations(String sentence, AnswerMaterials materials) {
+        Matcher operation = TRANSACTION_CLAIM.matcher(sentence);
+        StringBuilder result = new StringBuilder(sentence);
+        while (operation.find()) {
+            String context = sentence.substring(0, operation.start());
+            String claim = operation.group();
+            if (BOT_QUERY_SUBJECT.matcher(context).find() || OTHER_QUERY_SUBJECT.matcher(context).find()
+                    || RECORDED_OTHER_ACTOR.matcher(context).find() || claim.contains("드렸")
+                    || context.matches("(?s).*(?:방금|지금|대신|직접)\\s*.*")) continue;
+            boolean recorded = false;
+            var summary = materials.userDataSummary();
+            if (summary != null && summary.profile() != null && claim.matches("가입\\s*했.*")) {
+                LocalDate date = recordDate(context);
+                recorded = date != null && date.equals(summary.profile().joinedAt())
+                        && isRecordedMemberContext(context, summary.profile().name());
+            }
+            if (summary != null && claim.matches("납부\\s*했.*")) {
+                Matcher months = INSTALLMENT_HISTORY.matcher(context.strip());
+                if (months.find()) {
+                    var candidates = summary.subscriptions().stream()
+                            .filter(subscription -> matchesRecordedPhone(sentence, subscription.subscription().phoneNumber()))
+                            .filter(subscription -> subscription.activeContract() != null
+                                    && subscription.activeContract().installment() != null).toList();
+                    recorded = !candidates.isEmpty() && candidates.stream().allMatch(subscription -> {
+                        var installment = subscription.activeContract().installment();
+                        Matcher remaining = INSTALLMENT_REMAINING.matcher(sentence.substring(operation.end()));
+                        return installment.installmentMonths() != null && installment.paidInstallmentMonths() != null
+                                && Integer.parseInt(months.group(1)) == installment.installmentMonths()
+                                && Integer.parseInt(months.group(2)) == installment.paidInstallmentMonths()
+                                && (!remaining.find() || Integer.parseInt(remaining.group(1))
+                                == installment.installmentMonths() - installment.paidInstallmentMonths());
+                    });
+                }
+            }
+            if (claim.matches("(?:납부|결제).*완료(?:되|됐).*")) recorded = hasRecordedPaidBill(sentence, materials);
+            if (recorded) result.replace(operation.start(), operation.end(), " ".repeat(operation.end() - operation.start()));
+        }
+        return result.toString();
+    }
+
+    private boolean hasRecordedPaidBill(String sentence, AnswerMaterials materials) {
+        List<BillingCard> bills = new ArrayList<>();
+        if (materials.userDataSummary() != null) materials.userDataSummary().subscriptions().forEach(subscription -> {
+            String phone = subscription.subscription().phoneNumber();
+            if (subscription.latestBilling() != null) bills.add(BillingCard.of(phone, subscription.latestBilling()));
+            subscription.unpaidBillings().forEach(bill -> bills.add(BillingCard.of(phone, bill)));
+        });
+        if (materials.toolRecords() != null) bills.addAll(materials.toolRecords().billings());
+        var matching = bills.stream().filter(card -> UserRecordClaims.of(null,
+                new UserDataCards(List.of(), List.of(), List.of(card))).hasReferencedBill(sentence)).toList();
+        LocalDate claimedDate = recordDate(sentence);
+        if (RECORDED_DATE.matcher(sentence).find() && claimedDate == null) return false;
+        return !matching.isEmpty() && matching.stream().allMatch(card -> {
+            var bill = card.billing();
+            return bill.paymentStatus() == PaymentStatus.PAID
+                    && (claimedDate == null || bill.paidAt() != null && claimedDate.equals(bill.paidAt().toLocalDate()))
+                    && (!sentence.contains("자동이체") || bill.paymentMethod() == PaymentMethod.AUTO_TRANSFER)
+                    && (!sentence.contains("카드") || bill.paymentMethod() == PaymentMethod.CARD)
+                    && (!sentence.contains("계좌") || bill.paymentMethod() == PaymentMethod.ACCOUNT
+                            || bill.paymentMethod() == PaymentMethod.AUTO_TRANSFER);
+        });
+    }
+
+    private LocalDate recordDate(String text) {
+        Matcher dates = RECORDED_DATE.matcher(text);
+        LocalDate date = null;
+        while (dates.find()) {
+            try { date = LocalDate.of(Integer.parseInt(dates.group(1)), Integer.parseInt(dates.group(2)),
+                    Integer.parseInt(dates.group(3))); }
+            catch (DateTimeException invalid) { return null; }
+        }
+        return date;
+    }
+
+    private boolean matchesRecordedPhone(String sentence, String phone) {
+        Matcher claimed = RECORDED_PHONE.matcher(sentence);
+        if (!claimed.find()) return true;
+        String digits = claimed.group(1) == null ? claimed.group(2) : claimed.group(1);
+        return phone != null && phone.replaceAll("[^0-9]", "").endsWith(digits);
+    }
+
+    private boolean isRecordedMemberContext(String context, String name) {
+        if (StringUtils.hasText(name) && Pattern.compile("^" + Pattern.quote(name)
+                + "(?:님)?(?:은|는|이|가|께서)?(?:\\s|$)").matcher(context).find()) return true;
+        String withoutDate = RECORDED_DATE.matcher(context).replaceAll("").strip();
+        return withoutDate.matches("^(?:(?:고객|회원)(?:님)?(?:은|는|이|가|께서)?\\s*)?(?:에\\s*)?(?:회원\\s*)?$");
+    }
+
+    /** 월 납부액을 청구서의 납부액으로 오인하지 않도록, 해당 회선 할부 기록과 먼저 비교합니다. */
+    private UserRecordClaims.Verdict checkRecordedInstallmentAmounts(String sentence, AnswerMaterials materials) {
+        if (materials.userDataSummary() == null) return new UserRecordClaims.Verdict(sentence, false);
+        Matcher amount = RECORDED_INSTALLMENT_AMOUNT.matcher(sentence);
+        StringBuilder result = new StringBuilder(sentence);
+        boolean conflict = false;
+        while (amount.find()) {
+            BigDecimal value = readWonValue(amount.group("amount"));
+            var installments = materials.userDataSummary().subscriptions().stream()
+                    .filter(subscription -> matchesRecordedPhone(sentence, subscription.subscription().phoneNumber()))
+                    .filter(subscription -> subscription.activeContract() != null
+                            && subscription.activeContract().installment() != null)
+                    .map(subscription -> subscription.activeContract().installment()).toList();
+            List<Integer> expected = installments.stream().map(installment -> installment.monthlyInstallmentAmount())
+                    .filter(Objects::nonNull).distinct().toList();
+            if (value == null || expected.size() != 1) continue;
+            conflict |= value.compareTo(BigDecimal.valueOf(expected.getFirst())) != 0;
+            result.replace(amount.start("amount"), amount.end("amount"), " ".repeat(amount.group("amount").length()));
+        }
+        return new UserRecordClaims.Verdict(result.toString(), conflict);
+    }
+
 
     private boolean hasUnsupportedQueryPromise(String sentence, AnswerMaterials materials, StoreMapResult storeMap) {
         Matcher promises = QUERY_PROMISE.matcher(sentence);
@@ -2020,6 +2486,10 @@ public class AiOutputGuardService {
             if (!conditions.group().equals("경우") && !conditions.group().equals("때에는")) return false;
         }
         return true;
+    }
+
+    private boolean hasProductData(AnswerMaterials materials) {
+        return materials.sections().stream().anyMatch(section -> ProductDataRecorder.SECTION_TITLE.equals(section.title()));
     }
 
     private boolean isUserDataSection(ContextSection section) {
@@ -2516,6 +2986,18 @@ public class AiOutputGuardService {
         return removed ? String.join("\n", kept) : answer;
     }
 
+
+    /** 질문에 적힌 하나의 제한 주어만 연결합니다. 서로 다른 제한을 임의로 같은 대상으로 보지 않습니다. */
+    private String resolveRestrictionReference(String key, String question) {
+        if (!key.matches("^(?:이|그|해당)제한.*") || !StringUtils.hasText(question)) return key;
+        String topic = conditionTopicKey(question);
+        int first = topic.indexOf("제한");
+        if (first < 1 || first != topic.lastIndexOf("제한")) return key;
+        String subject = topic.substring(0, first + 2);
+        return key.replaceFirst("^(?:이|그|해당)제한", Matcher.quoteReplacement(subject));
+    }
+
+
     /** 정보 부재 안내의 예외는 제공 대상이 개인 자료일 때만 적용합니다. 서비스 미제공은 계속 검사합니다. */
     private boolean isPersonalDataRestriction(AvailabilityClaim claim) {
         int actionIndex = claim.key().lastIndexOf('|');
@@ -2525,7 +3007,8 @@ public class AiOutputGuardService {
 
     private boolean hasRestrictionEvidence(AvailabilityClaim claim, String question,
             List<AvailabilityClaim> evidence) {
-        if (evidence.stream().anyMatch(source -> source.key().equals(claim.key())
+        String resolved = resolveRestrictionReference(claim.key(), question);
+        if (evidence.stream().anyMatch(source -> source.key().equals(resolved) || source.key().equals(claim.key())
                 || sameConditionTopic(claim.key(), source.key(), question))) return true;
         int actionIndex = claim.key().lastIndexOf('|');
         String topic = claim.key().substring(0, actionIndex);
@@ -2563,6 +3046,10 @@ public class AiOutputGuardService {
             if (setting.matches() && inspect(sentence).startsWith(setting.group(2) + "하면")) {
                 evidence.addAll(readRestrictionClaims(setting.group(1) + sentence, question, true));
             }
+            // '전까지만 가능'은 그 시점 이후 불가의 명시적인 근거입니다. 일반 권고에서는 추론하지 않습니다.
+            Matcher limit = ONLY_BEFORE_RESTRICTION.matcher(inspect(sentence));
+            if (limit.matches()) evidence.addAll(readRestrictionClaims(limit.group(1) + limit.group(2)
+                    + " 이후에는 " + limit.group(3) + "할 수 없습니다.", question, true));
             previous = sentence;
         }
     }
@@ -2619,6 +3106,14 @@ public class AiOutputGuardService {
             String topic = restrictionTopic(sentence.substring(0, separate.start()));
             if (!topic.isEmpty()) claims.add(new AvailabilityClaim(topic + "|분리처리", AvailabilityState.DENIED, -1));
         }
+        // 자료에 없다는 설명과 서비스·정책 자체가 없다는 주장은 다릅니다.
+        Matcher absence = SERVICE_ABSENCE_CLAIM.matcher(sentence);
+        while (absence.find()) {
+            if (isUnassertedScope(sentence.substring(absence.end()))) continue;
+            String context = sentence.substring(0, absence.start());
+            String topic = restrictionTopic(context + absence.group("subject"));
+            if (!topic.isEmpty()) claims.add(new AvailabilityClaim(topic + "|존재", AvailabilityState.DENIED, -1));
+        }
         return claims;
     }
 
@@ -2645,7 +3140,8 @@ public class AiOutputGuardService {
     private boolean addProvisionRestrictions(String context, String question, boolean source, List<AvailabilityClaim> claims) {
         Matcher provided = RESTRICTION_PROVISION_CONTEXT.matcher(context);
         if (!provided.find()) return false;
-        String scope = context.substring(0, provided.start());
+        String scope = context.substring(0, provided.start())
+                .replaceAll("데이터\\s*전용\\s*(?:상품|요금제)(?:으로|로|이며|이고|인)\\s*", "");
         // 수치를 버리지 않고 기존 숫자·단위 읽기로 표준화합니다. 사람·기간·조건은 그대로 둡니다.
         String quantified = RESTRICTION_PROVISION_LEAD.matcher(scope).replaceAll(lead -> Matcher.quoteReplacement(
                 readFacts("월 요금 " + lead.group("money") + " 데이터 " + lead.group("data")).stream()
@@ -2673,6 +3169,10 @@ public class AiOutputGuardService {
     }
 
     private String restrictionTopic(String context) {
+        Matcher after = AFTER_LIMIT_CONTEXT.matcher(context.strip());
+        if (after.matches()) return conditionTopicKey(after.group(2)) + "|기한이후:" + conditionTopicKey(after.group(1));
+        Matcher targetAfter = TARGET_AFTER_LIMIT_CONTEXT.matcher(context.strip());
+        if (targetAfter.matches()) return conditionTopicKey(targetAfter.group(1)) + "|기한이후:" + conditionTopicKey(targetAfter.group(2));
         context = RESTRICTION_DEVICE_OWNER.matcher(context).replaceAll(device ->
                 Matcher.quoteReplacement(device.group().substring(0, device.group().length() - 1)));
         if (context.contains("쉐어링")) {
@@ -2856,6 +3356,17 @@ public class AiOutputGuardService {
                             materials.question() + " " + inspected.substring(0, documents.start()), materials, sources);
                 }
             }
+            Matcher inlineExamples = INLINE_DOCUMENT_EXAMPLES.matcher(inspect(sentence));
+            while (inlineExamples.find()) {
+                String tail = inspect(sentence).substring(inlineExamples.end());
+                Matcher action = DOCUMENT_EXAMPLE_ACTION.matcher(tail);
+                if (!action.find() || isRejectedOrReported(tail.substring(action.end()))) continue;
+                Matcher documents = REQUIREMENT_DOCUMENT.matcher(inlineExamples.group("items"));
+                while (documents.find()) {
+                    unsupported |= !hasDocumentExampleEvidence(documentName(documents.group()),
+                            materials.question() + " " + inspect(sentence).substring(0, inlineExamples.start()), materials, sources);
+                }
+            }
             unsupported |= hasUnsupportedEligibility(inspect(sentence), materials, sources)
                     || hasDocumentPeriodConflict(inspect(sentence), materials, sources);
             Matcher dependent = DEPENDENT_SENTENCE.matcher(inspect(sentence));
@@ -2989,6 +3500,11 @@ public class AiOutputGuardService {
                     .replace("성인요금제", "요금제").contains(value)).toList();
             if (conditions.size() == 1 && !claimed.isEmpty() && !claimed.contains(conditions.getFirst())) return false;
         }
+        // 명시적인 업무가 양쪽에 하나씩 있을 때만 비교합니다. 생략·복합 문의의 업무를 추측하지 않습니다.
+        List<String> claimedOperations = readBusinessScopes(inspect(claim), true);
+        List<String> sourceOperations = readBusinessScopes(inspect(source), true);
+        if (claimedOperations.size() == 1 && sourceOperations.size() == 1
+                && !claimedOperations.getFirst().equals(sourceOperations.getFirst())) return false;
         return true;
     }
 
@@ -3324,7 +3840,8 @@ public class AiOutputGuardService {
     private void addAnswerClauses(String sentence, List<String> sentences, boolean queryClauses,
             Predicate<String> independentQueryFact) {
         boolean mixedQuery = independentQueryFact != null;
-        boolean question = QUESTION_END.matcher(inspect(sentence)).find();
+        boolean question = QUESTION_END.matcher(inspect(sentence)).find()
+                || queryClauses && hasFollowUpInformationRequest(inspect(sentence));
         Matcher query = QUERY_PROMISE.matcher(inspect(sentence));
         boolean queryPromise = false;
         while (queryClauses && query.find()) {
@@ -3449,6 +3966,9 @@ public class AiOutputGuardService {
     }
 
     private enum QuantityBound { EXACT, MAXIMUM, MINIMUM, UNCERTAIN }
+
+    private record ScopedQuantity(QuantityFact quantity, String target, String condition) {
+    }
 
     private record QuantityFact(String metric, BigDecimal value, String unit, QuantityBound bound) {
 

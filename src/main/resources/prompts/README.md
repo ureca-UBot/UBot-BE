@@ -67,8 +67,8 @@
   - ANSWER 칸만 출력 가드로 검사하며, 질문은 그 하위 질문의 원문 조각으로 좁힙니다. 가드가 문장 단위로 지웠거나 칸을 거부하면 그 칸은 ABSTAIN으로 바꾸고 버립니다. 정책 위반으로 거부되면 답변 전체를 거부합니다.
   - 답하지 못한 칸의 고지는 코드가 붙입니다(`SubQuestionStatuses`). 하위 질문이 하나이거나 모두 같은 이유면 전체 고지 하나, 아니면 원문 조각을 넣은 하위 고지입니다. 원문 조각 끝의 접속어는 Kiwi로 다듬습니다(`SubQuestionLabels`, "요금은 얼마고" → "요금은 얼마인지").
   - 가입 정보·매장 조회가 실패해 그 조회가 필요한 하위 질문(근거 FAQ의 USER_DATA·STORE_DATA)을 답하지 못했으면 사유별 고지를 씁니다(`LookupFailure`: 비로그인, 사용자 없음, 조회 실패, 회선 선택, 위치 없음, 장소를 찾지 못함 등). 그래서 도구 결과·자료 섹션 문구에는 "안내하세요"·"물어보세요"를 쓰지 않고 사실과 추측 금지만 둡니다.
-  - 도구가 붙은 요청은 스키마가 강제되지 않아 칸 수가 하위 질문 수와 다를 수 있습니다(pipeline_test_v4 도구 경로 32건 중 6건). 그때는 칸을 하나로 합쳐 질문 하나로 봅니다. 도구가 없는 요청에서 칸 수가 다르면 LLM-005입니다.
-  - 미응답: 모델이 ABSTAIN → `LLM_ABSTAIN`/`LLM_MODEL`, CONFLICT → `LLM_CONFLICT`/`LLM_MODEL`, 가드가 지워 ABSTAIN → `INSUFFICIENT_FAQ`/`OUTPUT_GUARD`. ANSWER·OUT_OF_SCOPE와 조회 실패로 답하지 못한 칸은 모으지 않습니다.
+  - 도구 단계는 스키마 없이 진행합니다. 최종 형식이 요청 스키마와 다를 때만 기존 도구 결과를 유지하고 도구 없이 스키마를 강제해 1회 재호출합니다(on-broken, #287). 정상 형식은 재호출하지 않고, 복구 후에도 형식이 잘못되면 LLM-005입니다. 원문 조각이 없어 1칸을 요구한 요청은 1칸 출력을 정상으로 봅니다. 기존 칸 합치기는 레거시 대체 처리로 유지합니다.
+  - 미응답: 모델 자체가 ABSTAIN → `LLM_ABSTAIN`/`LLM_MODEL`, CONFLICT → `LLM_CONFLICT`/`LLM_MODEL`인 칸만 모읍니다. 출력 가드가 바꾼 칸은 미응답으로 등록하지 않으며 모델 자체의 미응답으로 재분류하지 않습니다. ANSWER·OUT_OF_SCOPE와 조회 실패로 답하지 못한 칸도 모으지 않습니다. 검색 단계의 기존 미응답 저장은 유지합니다.
 - **지침의 키 이름·status 목록을 바꾸면 `FaqAnswerFormat`(`slotSchema`, `SLOT_STATUSES`)도 함께 바꿔야 합니다.**
 - 외부 파일을 쓰려면 `prompt.faq.slot-system-location`을 지정합니다.
 
@@ -106,7 +106,7 @@
 | FAQ 표기 | `[FAQ ID: 12]` + 질문·답변 | 데이터셋 원문(`[FAQ-011]` 형식) |
 | FAQ 선택 | 검색 결과 중 유사도 기준 이상(최대 `CHAT_TOP_K`개) | 문항마다 고정된 Context |
 | 대화 이력 | 이번 질문이 멀티턴으로 판정된 경우에만 이전 턴(최대 3개)을 user·assistant 메시지로 넣음. 아니면 넣지 않음 | 이전 턴을 메시지로 넣음 |
-| 생성 옵션 | temperature 0, JSON 스키마로 출력 강제(칸 형식: answers[answer → status] → evidence_ids). 매장·가입 정보 도구가 붙은 요청은 스키마 없이 프롬프트로만 형식을 요구 | temperature 0, 추론 OFF(Instruct는 추론 없음), Ollama JSON 스키마로 출력 강제(스키마는 evidence_ids → status → answer, Qwen3-Instruct 실제 생성은 answer → evidence_ids → status) |
+| 생성 옵션 | temperature 0, JSON 스키마로 출력 강제(칸 형식: answers[answer → status] → evidence_ids). 도구 단계는 스키마 없이 진행하고 최종 형식 오류에만 스키마 재호출 1회 적용 | temperature 0, 추론 OFF(Instruct는 추론 없음), Ollama JSON 스키마로 출력 강제(스키마는 evidence_ids → status → answer, Qwen3-Instruct 실제 생성은 answer → evidence_ids → status) |
 
 ## 단일 status 지침의 출력 형식
 

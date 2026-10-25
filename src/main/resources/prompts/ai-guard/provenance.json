@@ -1,0 +1,68 @@
+{
+  "model": "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16",
+  "input_experiments": [
+    363,
+    300
+  ],
+  "excluded_candidate": "input-ai-integrated-tune-20261023-side (178 cases, not adopted)",
+  "output_experiment": "guard-quick363-20261022-side, whole-answer original prompt; not grounding24 candidate",
+  "resources": {
+    "input-integrated-system.txt": {
+      "source": "work/input-ai-threeway363-20261023-side/joint-system.txt",
+      "sha256": "cadee2a3183e12ddc2fe8e53c0712d915dba51a0921f90a434eb828c6aee4fa4",
+      "source_file_sha256": "19c4eb7e2664867f9ee51a2a844580143c1bb57310fd3e7c005677ee1f07fc4b"
+    },
+    "input-integrated-schema.json": {
+      "source": "work/input-ai-threeway363-20261023-side/joint-schema.json",
+      "sha256": "78e0aadf8f79b0edef824abe3a639057cc0442fabab1221dba5a5a3d178fbf21",
+      "source_file_sha256": "a720b08eec076a3a1ed24b4559280eefaae7d55dfea96902315c7c4d853c3b09"
+    },
+    "output-safety-system.txt": {
+      "source": "outputs/guard-quick363-20261022-side/prompt.txt",
+      "sha256": "3d1918e908d1c20f81520ae8ff50ef173a0ad34c8a47b3f4e73ca5eae8f8a0dd",
+      "source_file_sha256": "60a98c8a9b0768e1a7bc25c07bcbe280d7ddcf3aae493febe90eaf04076baf40",
+      "revisions": [
+        {
+          "date": "2026-10-25",
+          "contract_version": "output-findings-v1",
+          "change": "Output contradiction prevention: typed findings and exact answer quotes; the server derives decision, reasons, and explanation from the same findings",
+          "previous_sha256": "60a98c8a9b0768e1a7bc25c07bcbe280d7ddcf3aae493febe90eaf04076baf40",
+          "sha256": "3d1918e908d1c20f81520ae8ff50ef173a0ad34c8a47b3f4e73ca5eae8f8a0dd",
+          "validation": "Current branch: all production and test sources compile; 405 related offline tests pass; no live model calls. Historical exact RedHat diagnostic sample: 12 cases in 13 seconds at max_tokens=1024, no structural contradictions; semantic dangerous-answer misses remain. Branch runtime model configuration and token limits are unchanged.",
+          "live_model_validation": true,
+          "live_model": "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16",
+          "current_branch_live_validation": false
+        }
+      ]
+    },
+    "output-safety-schema.json": {
+      "source": "outputs/guard-quick363-20261022-side/schema.json",
+      "sha256": "8145d69600780fa9ad63b21e13b35b6976b388a456563ce041c780afcefe07be",
+      "source_file_sha256": "143808934ea56c40d29f18dc01e5156a9bf5727f8c47cd86be591b3c4d82cae6",
+      "revisions": [
+        {
+          "date": "2026-10-25",
+          "contract_version": "output-findings-v1",
+          "change": "Output contradiction prevention: typed findings and exact answer quotes; the server derives decision, reasons, and explanation from the same findings",
+          "previous_sha256": "143808934ea56c40d29f18dc01e5156a9bf5727f8c47cd86be591b3c4d82cae6",
+          "sha256": "8145d69600780fa9ad63b21e13b35b6976b388a456563ce041c780afcefe07be",
+          "validation": "Current branch: all production and test sources compile; 405 related offline tests pass; no live model calls. Historical exact RedHat diagnostic sample: 12 cases in 13 seconds at max_tokens=1024, no structural contradictions; semantic dangerous-answer misses remain. Branch runtime model configuration and token limits are unchanged.",
+          "live_model_validation": true,
+          "live_model": "RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16",
+          "current_branch_live_validation": false
+        }
+      ]
+    }
+  },
+  "line_endings": "LF, matching text in frozen experiment requests; no prompt wording changes",
+  "input_flow": "Pure integrated: native classification conditions only; no separate input safety call",
+  "input_route_verification": "input-ai-pure100-20261023-side (100 cases, auxiliary safety calls 0)",
+  "output_contract": {
+    "version": "output-findings-v1",
+    "derivation": "Any CONFIRMED -> BLOCK; UNCERTAIN only -> REVIEW; empty findings -> ALLOW",
+    "grounding": "Each answer_quote must be an exact candidate-answer substring, at most 240 Unicode code points",
+    "scope": "Contradiction prevention only; mandatory nine-check output-checks-v2 is excluded",
+    "generation_budget": "Existing branch token budget and runtime model connection remain unchanged",
+    "semantic_accuracy": "Semantic classification misses are not solved by this structural contract"
+  }
+}

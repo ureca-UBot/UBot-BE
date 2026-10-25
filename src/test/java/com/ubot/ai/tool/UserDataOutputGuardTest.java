@@ -80,7 +80,7 @@ class UserDataOutputGuardTest {
             "이번 달 요금은 총 50,000원입니다.",       // 단말 할부금을 청구 금액으로
             "이번 달 요금은 총 99,000원입니다."})      // 기록에 없는 금액
     void 다른_달이나_다른_항목의_금액으로_말한_청구_금액은_지운다(String wrong) {
-        assertThat(guard.filterAnswer(BASIS + " " + wrong, withSeptemberBill(materials()), null)).isEqualTo(BASIS);
+        assertRejected(BASIS + " " + wrong, withSeptemberBill(materials()), null);
     }
 
     @Test
@@ -179,5 +179,11 @@ class UserDataOutputGuardTest {
                 .userId(1L)
                 .userDataSummary(summary)
                 .build();
+    }
+
+    private void assertRejected(String answer, AnswerMaterials materials, com.ubot.ai.dto.StoreMapResult stores) {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> guard.filterAnswer(answer, materials, stores))
+                .isInstanceOfSatisfying(com.ubot.llm.exception.LlmException.class, error ->
+                        assertThat(error.getErrorCode()).isEqualTo(com.ubot.llm.exception.LlmErrorCode.LLM_OUTPUT_REJECTED));
     }
 }

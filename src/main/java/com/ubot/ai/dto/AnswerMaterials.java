@@ -71,6 +71,14 @@ public record AnswerMaterials(
                 userDataSummary, records);
     }
 
+    /** 섹션 하나를 덧붙인 사본입니다. 상품 조회 도구 결과를 출력 검사 근거로 넣을 때 씁니다. */
+    public AnswerMaterials withSection(ContextSection section) {
+        List<ContextSection> values = new ArrayList<>(sections);
+        values.add(section);
+        return new AnswerMaterials(question, faqs, values, tools, storeMap, subQuestions, history, userId,
+                userDataSummary, toolRecords);
+    }
+
     public static Builder builder(String question) {
         return new Builder(question);
     }

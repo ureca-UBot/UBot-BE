@@ -58,7 +58,8 @@ final class CommonFaqMerger {
 				.sorted(Comparator.comparingInt(line -> positionOf(normalizedOriginal, line)))
 				.toList();
 		return new FaqSearchResponseDto(first.faqId(), first.question(), String.join("\n", ordered),
-				first.similarityScore(), first.intent(), first.variantId(), first.variantQuestion(), first.cacheable());
+				first.similarityScore(), first.intent(), first.variantId(), first.variantQuestion(), first.cacheable(),
+				first.categoryName());
 	}
 
 	private static int positionOf(String normalizedOriginal, String line) {

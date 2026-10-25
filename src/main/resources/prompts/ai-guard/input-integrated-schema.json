@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "BLOCK",
+        "REVIEW"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "SAFE",
+        "INJECTION",
+        "FALSE_CLAIM",
+        "PRIVACY",
+        "ABUSE",
+        "HARM",
+        "CONTENT_ACCESS",
+        "UNCERTAIN"
+      ]
+    },
+    "sub_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "decision",
+    "reason",
+    "sub_questions"
+  ],
+  "additionalProperties": false
+}

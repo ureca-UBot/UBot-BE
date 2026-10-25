@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import kr.pe.bab2min.Kiwi;
 import org.junit.jupiter.api.AfterAll;
@@ -62,7 +63,8 @@ class QuestionRouterTest {
 			"요금제 알려줘 그리고 안녕😊 유심 재발급 알려줘",
 			"로밍 신청 방법, 유심 재발급 알려줘"})
 	void keepsSplitMarkersAfterInputGuard(String question) {
-		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService());
+		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService(),
+				new AiInputGuardProperties());
 		String prepared = guard.prepareQuestion(question);
 
 		assertThat(router.route(prepared, false).splitMarks()).contains("나열어");
@@ -71,7 +73,8 @@ class QuestionRouterTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"그럼", "그러면", "그래서", "그리고", "또", "아니", "그건", "그거"})
 	void keepsMultiTurnLeadsAfterInputGuard(String lead) {
-		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService());
+		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService(),
+				new AiInputGuardProperties());
 		String prepared = guard.prepareQuestion(lead + " 유심 재발급 비용은 얼마인가요?");
 
 		assertThat(prepared).startsWith(lead + " ");

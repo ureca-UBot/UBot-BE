@@ -1,11 +1,16 @@
 package com.ubot.chat.service;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -72,6 +77,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("질문 분리·멀티턴 채팅 통합 테스트")
 class SubQuestionChatIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
 	@Autowired ChatService chatService;
 	@Autowired ChatJobWorker worker;
 	@Autowired ChatJobQueryService jobQuery;
@@ -97,6 +104,7 @@ class SubQuestionChatIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
+        AiGuardTestSupport.allow(guardModel);
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:result:*"));
 		redis.delete(redis.keys("chat:jobs:published:*"));
@@ -188,10 +196,13 @@ class SubQuestionChatIntegrationTest {
 
 		assertThat(response.status()).isEqualTo(ChatJobStatus.SUCCEEDED);
 		ArgumentCaptor<LlmRequestDto> requests = ArgumentCaptor.forClass(LlmRequestDto.class);
-		verify(llm, org.mockito.Mockito.atLeastOnce()).generateAnswer(requests.capture());
+		verify(guardModel, org.mockito.Mockito.atLeastOnce()).generate(requests.capture());
 		LlmRequestDto lastJudge = requests.getAllValues().stream().filter(this::isJudge).reduce((a, b) -> b).orElseThrow();
-		assertThat(lastJudge.messages().getLast().content())
-				.contains("[1] 질문: 유심 재발급 방법", "답변: 매장에서 재발급할 수 있습니다.", "현재 질문:\n그럼 비용은?");
+		var data = tools.jackson.databind.json.JsonMapper.builder().build()
+				.readTree(lastJudge.messages().getLast().content());
+		assertThat(data.get("history").get(0).get("question").asString()).contains("유심 재발급 방법");
+		assertThat(data.get("history").get(0).get("answer").asString()).isEqualTo("매장에서 재발급할 수 있습니다.");
+		assertThat(data.get("current_question").asString()).isEqualTo("그럼 비용은?");
 		verify(vector).getSimilarList("유심 재발급 비용", 3);
 		verify(vector, never()).getSimilarList("그럼 비용은?", 3);
 		// '그럼'으로 이어 물은 질문이라 답변 LLM에 앞선 턴(사용자 원문과 답변)이 메시지로 들어갑니다.
@@ -223,22 +234,16 @@ class SubQuestionChatIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("판정 LLM이 실패하면 원문으로 검색해 답변한다")
-	void fallsBackToOriginalWhenJudgeFails() {
-		when(llm.generateAnswer(argThat(this::isJudge))).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
-		when(vector.getSimilarList("유심 재발급이랑 비용", 3)).thenReturn(List.of(
-				new FaqSearchResponseDto(reissueFaqId, "유심 재발급 방법", "매장 방문", 0.9, Intent.GENERAL)));
-		answerReturns("매장에서 재발급할 수 있습니다.");
-
-		// 분리 표지('이랑')가 있어 판정 LLM을 부르고, 실패하면 원문으로 검색합니다.
-		var response = ask("유심 재발급이랑 비용");
-
-		assertThat(response.status()).isEqualTo(ChatJobStatus.SUCCEEDED);
-		assertThat(questionLogs.findAll()).singleElement().satisfies(log -> {
-			assertThat(log.getSubQuestion()).isEqualTo("유심 재발급이랑 비용");
-			assertThat(log.getSubQuestionIndex()).isEqualTo(1);
-		});
-	}
+	@DisplayName("통합 안전 판정이 실패하면 원문 검색으로 우회하지 않는다")
+    void failsClosedWhenIntegratedGuardTimesOut() {
+        doThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT)).when(guardModel).generate(argThat(this::isJudge));
+        var response = ask("유심 재발급이랑 비용");
+        assertThat(response.status()).isEqualTo(ChatJobStatus.FAILED);
+        assertThat(response.errorCode()).isEqualTo(LlmErrorCode.LLM_TIMEOUT.getCode());
+        assertThat(questionLogs.findAll()).isEmpty();
+        verify(vector, never()).getSimilarList(anyString(), anyInt());
+        verify(llm, never()).generateAnswer(org.mockito.ArgumentMatchers.any());
+    }
 
 	/** 질문을 접수하고 Worker가 처리한 뒤의 작업 상태를 돌려줍니다. 테스트 프로필은 Worker가 스스로 가져가지 않습니다. */
 	private ChatJobStatusResponseDto ask(String question) {
@@ -248,9 +253,9 @@ class SubQuestionChatIntegrationTest {
 	}
 
 	private void judgeReturns(String... subQuestions) {
-		String json = "{\"sub_questions\": ["
+		String json = "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\": ["
 				+ String.join(", ", java.util.Arrays.stream(subQuestions).map(q -> "\"" + q + "\"").toList()) + "]}";
-		when(llm.generateAnswer(argThat(this::isJudge))).thenReturn(new LlmResponseDto(json));
+		doReturn(new LlmResponseDto(json)).when(guardModel).generate(argThat(this::isJudge));
 	}
 
 	private void answerReturns(String answer) {
@@ -265,6 +270,7 @@ class SubQuestionChatIntegrationTest {
 	}
 
 	private boolean isJudge(LlmRequestDto request) {
-		return request != null && SubQuestionFormat.schema().equals(request.responseSchema());
+		return request != null && request.generationOptions() != null
+                && "input_safety_and_planning".equals(request.generationOptions().schemaName());
 	}
 }

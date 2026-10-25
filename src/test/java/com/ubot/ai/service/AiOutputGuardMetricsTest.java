@@ -38,15 +38,16 @@ class AiOutputGuardMetricsTest {
     }
 
     @Test
-    @DisplayName("통과·일부 제거·거절을 단계와 결과로 나눠 세고, 거절만 규칙을 남긴다")
+    @DisplayName("통과·전체 거절을 단계와 규칙으로 나눠 센다")
     void countsBodyInspectionsByOutcome() {
         guard.filterAnswer("할인율은 25%입니다.", materials, null);
-        guard.filterAnswer("할인율은 25%입니다. 바보야.", materials, null);
+        assertThatThrownBy(() -> guard.filterAnswer("할인율은 25%입니다. 바보야.", materials, null))
+                .isInstanceOf(LlmException.class);
         assertThatThrownBy(() -> guard.filterAnswer("바보야 고객비밀값-XYZ789", materials, null))
                 .isInstanceOf(LlmException.class);
 
         assertThat(inspections("body", "pass", "none")).isEqualTo(1);
-        assertThat(inspections("body", "filtered", "none")).isEqualTo(1);
+        assertThat(inspections("body", "rejected", "whole_answer_rejection")).isEqualTo(1);
         assertThat(inspections("body", "rejected", "no_safe_content")).isEqualTo(1);
     }
 

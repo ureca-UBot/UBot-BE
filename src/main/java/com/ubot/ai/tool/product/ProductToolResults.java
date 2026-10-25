@@ -1,0 +1,146 @@
+package com.ubot.ai.tool.product;
+
+import com.ubot.ai.dto.ProductDataCards.ProductCard;
+import com.ubot.ai.tool.ToolFormats;
+import com.ubot.ai.tool.product.ProductCatalogQuery.Found;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Function;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.util.StringUtils;
+
+/**
+ * 상품 조회 도구 4개가 같이 쓰는 결과 문구와 조건 값 해석입니다. 도구 결과는 호출을 정한 뒤에 읽으므로 여기 둔 안내는 호출 여부에 영향을 주지 않습니다.
+ * 조회한 상품은 도구가 LLM에 돌려준 행 그대로 ProductDataRecorder에 남겨 출력 검사 근거와 화면용 카드로 씁니다.
+ */
+final class ProductToolResults {
+
+    static final String LOOKUP_FAILED_MESSAGE = "상품 정보를 조회하지 못했습니다. 상품 이름이나 금액을 추측하지 말고, "
+            + "잠시 후 다시 물어봐 달라고 안내하세요. 질문의 다른 부분은 그대로 답하세요.";
+    static final String NOT_FOUND_MESSAGE = "조건에 맞는 %s이(가) 없습니다. 상품 이름이나 금액을 추측하지 말고, "
+            + "조건을 바꿔 다시 물어봐 달라고 안내하세요.";
+    static final String MORE_RESULTS_MESSAGE = "조건에 맞는 %s이(가) 더 있습니다. 나머지를 원하면 조건을 좁혀 물어봐 달라고 안내하세요.";
+    static final String COMMON_LINE = "아래 %s 모두 공통: %s";
+    static final String INVALID_VALUE_MESSAGE = "'%s'은(는) %s에 쓸 수 없는 값입니다. %s 중 하나를 넣거나 비워서 다시 호출하세요.";
+    // 네 도구가 같은 뜻으로 받는 목록 요청 표시입니다. 표시가 있고 상품이 2개 이상이면 답변을 코드가 목록으로 만듭니다.
+    static final String LIST_REQUESTED_DESCRIPTION = "사용자가 상품 목록이나 종류를 물으면 true. "
+            + "특정 상품 하나의 정보를 물으면 비운다.";
+
+    private ProductToolResults() {
+    }
+
+    /** AiService가 넣은 기록 보관소입니다. 평가처럼 넣지 않은 호출에서는 버려지는 보관소를 씁니다. */
+    static ProductDataRecorder recorder(ToolContext toolContext) {
+        return toolContext != null && toolContext.getContext().get(ProductDataRecorder.CONTEXT_KEY)
+                instanceof ProductDataRecorder value ? value : new ProductDataRecorder();
+    }
+
+    /**
+     * "조건에 맞는 요금제 12건 중 5건(월정액 낮은 순)" 머리말과 상품 행을 만들고, 돌려준 상품을 기록합니다.
+     * 행 끝에는 다듬은 설명 문장(description, ProductDescriptions.of)을 붙입니다. 상품 설명에는 "표시 월정액은 부가세 포함"처럼
+     * 같은 종류 상품에 똑같이 들어간 문장이 많아, 돌려준 상품 모두에 있는 문장은 행마다 쓰지 않고 "공통" 줄에 한 번만 씁니다.
+     * 조건에 맞는 상품이 LIMIT개보다 많으면 조건을 좁혀 달라고 안내하게 합니다.
+     * listSubject는 LLM이 목록 요청이라고 표시했을 때의 답변 주어이고(listSubject 참고), 아니면 null입니다.
+     * 목록 요청이고 상품이 2개 이상이면 AiService가 목록 답변을 만들 수 있게 기록합니다.
+     */
+    static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
+            Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            String listSubject) {
+        return format(productLabel, order, found, line, description, card, recorder, listSubject, null);
+    }
+
+    /**
+     * 돌려준 상품 대신 다른 목록 답변을 기록할 때 씁니다. 요금제 도구가 조건 없는 목록 요청에 시리즈 개요(PlanSeriesOverview)를 넣습니다.
+     * LLM에 돌려주는 결과는 조회한 상품 행 그대로이고, 목록 답변에만 있는 수치는 호출한 쪽이 recorder.note로 출력 검사 근거에 남깁니다.
+     */
+    static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
+            Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            ProductListAnswer listAnswer) {
+        return format(productLabel, order, found, line, description, card, recorder, null, listAnswer);
+    }
+
+    private static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
+            Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
+            String listSubject, ProductListAnswer listAnswer) {
+        if (found.items().isEmpty()) {
+            recorder.searched(null);
+            return String.format(NOT_FOUND_MESSAGE, productLabel);
+        }
+        StringBuilder text = new StringBuilder();
+        text.append("조건에 맞는 ").append(productLabel).append(' ').append(found.total()).append("건 중 ")
+                .append(found.items().size()).append("건(").append(order).append(")\n");
+        List<T> items = found.items();
+        List<List<String>> sentences = items.stream().map(description).toList();
+        List<String> common = items.size() < 2 ? List.of() : sentences.getFirst().stream()
+                .filter(sentence -> sentences.stream().allMatch(each -> each.contains(sentence))).toList();
+        if (!common.isEmpty()) {
+            String commonLine = String.format(COMMON_LINE, productLabel, String.join(" ", common));
+            recorder.note(commonLine);
+            text.append(commonLine).append('\n');
+        }
+        for (int index = 0; index < items.size(); index++) {
+            T item = items.get(index);
+            List<String> own = sentences.get(index).stream().filter(sentence -> !common.contains(sentence)).toList();
+            String row = "- " + line.apply(item) + (own.isEmpty() ? "" : " | " + String.join(" ", own));
+            recorder.record(card.apply(item), row);
+            text.append(row).append('\n');
+        }
+        if (found.total() > items.size()) {
+            text.append(String.format(MORE_RESULTS_MESSAGE, productLabel));
+        }
+        recorder.searched(listAnswer != null ? listAnswer : listSubject == null || items.size() < 2 ? null
+                : new ProductListing(listSubject, order, found.total(), items.stream().map(card).toList()));
+        return text.toString().stripTrailing();
+    }
+
+    /**
+     * 목록 답변의 주어입니다. 목록 요청이 아니면 null입니다.
+     * 이름·네트워크 같은 조건 말을 종류 이름 앞에 붙이고("프리미엄 요금제", "5G 청년 요금제"),
+     * 주어에 드러나지 않는 조건(월정액 상한 등)이 있거나 붙일 말이 없으면 "조건에 맞는"을 앞에 둡니다.
+     */
+    static String listSubject(Boolean listRequested, String productLabel, boolean hiddenConditions,
+            String... qualifiers) {
+        if (!Boolean.TRUE.equals(listRequested)) {
+            return null;
+        }
+        List<String> words = Arrays.stream(qualifiers).filter(StringUtils::hasText).map(String::strip).toList();
+        String subject = words.isEmpty() ? productLabel : String.join(" ", words) + " " + productLabel;
+        return hiddenConditions || words.isEmpty() ? "조건에 맞는 " + subject : subject;
+    }
+
+    /**
+     * LLM이 넣은 열거형 조건 값을 해석합니다. 비어 있으면 null이고, 대소문자와 앞뒤 공백은 가리지 않습니다.
+     * 값 이름에 없는 값이면 쓸 수 있는 값을 알려 주는 재요청 문구를 담아 InvalidValueException을 던집니다.
+     */
+    static <E extends Enum<E>> E parseEnum(Class<E> type, String value, String parameter) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, value.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            String allowed = String.join(", ", Arrays.stream(type.getEnumConstants()).map(Enum::name).toList());
+            throw new InvalidValueException(String.format(INVALID_VALUE_MESSAGE, value, parameter, allowed));
+        }
+    }
+
+    /** LLM이 넣은 조건 값을 해석할 수 없을 때 재요청 문구를 돌려주려고 씁니다. */
+    static final class InvalidValueException extends RuntimeException {
+        InvalidValueException(String message) {
+            super(message);
+        }
+    }
+
+    /** DB 규칙(1GB = 1000MB)대로 보여 줍니다. 1000MB 이상이면 GB로, 소수점은 필요할 때만 씁니다. */
+    static String data(Long mb) {
+        if (mb == null) {
+            return ToolFormats.UNKNOWN;
+        }
+        if (mb < ProductCatalogQuery.MB_PER_GB) {
+            return mb + "MB";
+        }
+        double gb = mb / (double) ProductCatalogQuery.MB_PER_GB;
+        return gb == Math.floor(gb) ? (long) gb + "GB" : String.format(Locale.ROOT, "%.1fGB", gb);
+    }
+}

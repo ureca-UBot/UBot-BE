@@ -261,6 +261,9 @@ class GuardReviewPostgresIntegrationTest {
 		var migrated = flyway.migrate();
 		flyway.validate();
 		String currentVersion = flyway.info().current().getVersion().toString();
+		// 이후 PR이 마이그레이션을 더해도 깨지지 않도록 버전을 고정하지 않고, 남은 마이그레이션이 없는지와 V50 이상인지만 봅니다.
+		assertThat(flyway.info().pending()).isEmpty();
+		assertThat(flyway.info().current().getVersion().isAtLeast("50")).isTrue();
 
 		assertThat(db.queryForObject(
 				"SELECT source_key FROM guard_review_items WHERE source_fingerprint='legacy-fingerprint'",
@@ -280,7 +283,7 @@ class GuardReviewPostgresIntegrationTest {
 				Integer.class)).isEqualTo(6);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
 		Files.writeString(artifacts.resolve("migration-result.json"),
-				JSON.writeValueAsString(Map.of("version", "49", "upgradeMigrations", migrated.migrationsExecuted,
+				JSON.writeValueAsString(Map.of("version", flyway.info().current().getVersion().toString(), "upgradeMigrations", migrated.migrationsExecuted,
 						"sixTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
 						"extensions", db.queryForList("SELECT extname,extversion FROM pg_extension ORDER BY extname"),
 						"server", db.queryForObject("SHOW server_version", String.class))));
@@ -532,11 +535,24 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(result.cases()).hasSize(5168);
 		assertThat(result.falsePositives()).isZero();
 		assertThat(result.regressions()).isZero();
-		// The only baseline mismatch is the deliberately added candidate detection fixture, resolved after application.
-		assertThat(result.baselineFailures()).isEqualTo(1);
+		// 과거 문장 삭제 시험지의 혼합 질문은 현재 정책에서 입력 전체가 차단됩니다.
+		var mixedInputIds = api.getBean(ReviewValidationService.class).dataset().stream()
+				.filter(c -> c.stage() == Stage.INPUT && !c.preserve().isEmpty() && !c.remove().isEmpty())
+				.map(GoldenCase::id).collect(java.util.stream.Collectors.toSet());
+		assertThat(mixedInputIds).hasSize(1390);
+		var expectedBaselineFailures = new java.util.HashSet<>(mixedInputIds);
+		expectedBaselineFailures.add("ATTACK-WORD");
+		assertThat(result.baselineFailures()).isEqualTo(expectedBaselineFailures.size());
+		assertThat(result.cases().stream().filter(CaseResult::baselineFailure).map(CaseResult::id))
+				.containsExactlyInAnyOrderElementsOf(expectedBaselineFailures);
+		assertThat(result.cases().stream().filter(c -> mixedInputIds.contains(c.id()))).allSatisfy(c -> {
+			assertThat(c.before()).isEmpty();
+			assertThat(c.after()).isEmpty();
+			assertThat(c.newDetection()).isFalse();
+		});
 		assertThat(result.newDetections()).isEqualTo(1);
-		assertThat(result.cases().stream().filter(CaseResult::baselineFailure))
-				.allMatch(c -> c.id().equals("ATTACK-WORD") && c.newDetection());
+		assertThat(result.cases().stream().filter(CaseResult::newDetection).map(CaseResult::id))
+				.containsExactly("ATTACK-WORD");
 		approve(v, s, 200);
 		assertThat(count("forbidden_words")).isEqualTo(baseline.length + 1);
 	}

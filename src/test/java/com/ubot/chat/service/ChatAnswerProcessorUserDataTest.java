@@ -173,7 +173,8 @@ class ChatAnswerProcessorUserDataTest {
 
     private ChatAnswerProcessor processor() {
         ChatContextCollector collector = new ChatContextCollector(List.of(
-                new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores)));
+                new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores),
+                ChatTestFixtures.productIntentHandler()));
         ChatAnswerProcessor processor = ChatTestFixtures.processor(retrieval, ai, collector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);

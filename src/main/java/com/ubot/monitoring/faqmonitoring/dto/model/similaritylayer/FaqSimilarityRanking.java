@@ -5,7 +5,8 @@ public record FaqSimilarityRanking(
 		FaqSimilarityByIntent all,
 		FaqSimilarityByIntent general,
 		FaqSimilarityByIntent userData,
-		FaqSimilarityByIntent storeData
+		FaqSimilarityByIntent storeData,
+		FaqSimilarityByIntent productData
 
 ) {
 }

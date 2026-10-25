@@ -34,6 +34,8 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -432,7 +434,7 @@ class ChatAnswerProcessorSubQuestionTest {
 	}
 
 	@Test
-	@DisplayName("칸 형식 답변은 모델의 ABSTAIN·CONFLICT와 가드가 지운 칸을 사유와 경로를 나눠 미응답으로 모은다")
+	@DisplayName("모델 자체의 ABSTAIN·CONFLICT만 모으고 출력 가드가 바꾼 칸은 제외한다")
 	void collectsUnansweredBySlotOutcome() {
 		plan("유심 재발급 비용", "eSIM 비용", "해외 로밍 요금");
 		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
@@ -449,9 +451,35 @@ class ChatAnswerProcessorSubQuestionTest {
 				new UnansweredCandidate(1, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85,
 						UnansweredSource.LLM_MODEL),
 				new UnansweredCandidate(2, "eSIM 비용", "eSIM 비용", UnansweredReason.LLM_CONFLICT, 3L, 0.8,
-						UnansweredSource.LLM_MODEL),
-				new UnansweredCandidate(3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 4L, 0.8,
-						UnansweredSource.OUTPUT_GUARD));
+						UnansweredSource.LLM_MODEL));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"ABSTAIN", "CONFLICT"})
+	@DisplayName("가드가 바꾼 상태는 모델 자체의 미응답으로 재분류하지 않는다")
+	void doesNotReclassifyGuardChangedStatus(String status) {
+		plan("유심 재발급 비용");
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("고지", null, false, status, null, null,
+				List.of(new AiAnswer.SlotOutcome(status, true))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).isEmpty();
+	}
+
+	@Test
+	@DisplayName("합쳐진 한 칸이 가드로 바뀌어도 모든 하위 질문을 모델 미응답으로 등록하지 않는다")
+	void skipsSingleGuardChangedSlotForAllSubQuestions() {
+		plan("유심 재발급 비용", "eSIM 비용");
+		when(vector.getSimilarList("유심 재발급 비용", 3)).thenReturn(List.of(faq(2L, 0.85)));
+		when(vector.getSimilarList("eSIM 비용", 3)).thenReturn(List.of(faq(3L, 0.8)));
+		when(ai.generateAnswer(any())).thenReturn(new AiAnswer("고지", null, false, "ABSTAIN", null, null,
+				List.of(new AiAnswer.SlotOutcome("ABSTAIN", true))));
+
+		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
+
+		assertThat(unanswered).isEmpty();
 	}
 
 	@Test
