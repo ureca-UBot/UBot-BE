@@ -48,7 +48,7 @@ public class UnansweredQuestionService {
             OutboxEventRepository outboxEventRepository,
             UnansweredReverifyRepository reverifyRepository,
             @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold,
-            @Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}") double confidenceThreshold
+            @Value("${faq.confidence-threshold}") double confidenceThreshold
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;

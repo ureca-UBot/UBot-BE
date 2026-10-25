@@ -51,7 +51,7 @@ public class ChatAnswerProcessor {
 	@Value("${CHAT_TOP_K:3}")
 	private int topK;
 
-	@Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}")
+	@Value("${faq.confidence-threshold}")
 	private double confidenceThreshold;
 
 	/**
@@ -133,7 +133,10 @@ public class ChatAnswerProcessor {
 				FaqSearchResponseDto officialFaq = cachedFaq.get();
 				log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
 						attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
-				return ChatAnswerResult.answered(new AiAnswer(officialFaq.answer(), null, false),
+				AnswerMaterials cachedMaterials = AnswerMaterials.builder(preparedQuestion)
+						.addFaqs(List.of(officialFaq)).build().withHistory(plan.historyForAnswer());
+				return ChatAnswerResult.answered(aiService.validateCachedAnswer(cachedMaterials, officialFaq.answer(),
+								String.valueOf(officialFaq.faqId())),
 						List.of(new SubQuestionFaqs(question, List.of(officialFaq), question)));
 			}
 			// MISS이면 같은 검색 후보로 이어갑니다. 임베딩·검색은 반복하지 않습니다.
@@ -287,7 +290,8 @@ public class ChatAnswerProcessor {
 			}
 			originalFaqs.add(faq);
 			promptFaqs.add(new FaqSearchResponseDto(faq.faqId(), faq.question(), answer,
-					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable()));
+					faq.similarityScore(), faq.intent(), faq.variantId(), faq.variantQuestion(), faq.cacheable(),
+					faq.categoryName()));
 		}
 		if (originalFaqs.isEmpty()) {
 			log.info("답변 근거로 사용할 FAQ가 없습니다: 시도ID={}, 하위질문순번={}", attempt.getId(), subQuestionIndex);

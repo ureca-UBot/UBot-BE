@@ -1,5 +1,8 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
@@ -69,6 +72,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("의도 재검색 통합 테스트")
 class ChatResearchIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
     private static final String QUESTION = "유심 재발급 방법";
 
     @Autowired
@@ -106,6 +111,7 @@ class ChatResearchIntegrationTest {
 
     @BeforeEach
     void setup() {
+        AiGuardTestSupport.allow(guardModel);
         FaqSearchMockSupport.bridgeSearch(vector);
         FaqSearchMockSupport.passAnswers(sentenceFilter);
         redis.delete(ChatJobStream.STREAM_KEY);

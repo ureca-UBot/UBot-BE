@@ -1,5 +1,8 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
@@ -84,6 +87,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ChatLlmIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
 	@Autowired MockMvc mvc;
 	@Autowired ChatService service;
 	@Autowired ChatJobTestDriver driver;
@@ -116,6 +121,7 @@ class ChatLlmIntegrationTest {
 	ChatJobTestFlow flow;
 
 	@BeforeEach void setup() {
+        AiGuardTestSupport.allow(guardModel);
 		FaqSearchMockSupport.bridgeSearch(vector);
 		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);

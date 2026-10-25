@@ -1,7 +1,11 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -52,6 +56,8 @@ import com.ubot.user.repository.UserRepository;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("공식 FAQ 캐시 HTTP 통합 테스트")
 class ChatSemanticCacheIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
     private static final String QUESTION = "이심이 어떤 건지 알려줘";
     private static final String OFFICIAL_ANSWER = "물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.\n";
 
@@ -73,6 +79,7 @@ class ChatSemanticCacheIntegrationTest {
 
     @BeforeEach
     void prepareData() {
+        AiGuardTestSupport.allow(guardModel);
         cacheProperties.setEnabled(true);
         // 공유 Redis라 이전 테스트 작업이 섞이지 않게 비움
         redis.delete(ChatJobStream.STREAM_KEY);
@@ -117,7 +124,7 @@ class ChatSemanticCacheIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status FROM answer_attempts_history ORDER BY attempt_id DESC LIMIT 1",
                 String.class)).isEqualTo("SUCCESS");
         verify(embeddingClient).embed(QUESTION);
-        verifyNoInteractions(llm);
+        verifyNoInteractions(llm, guardModel);
     }
 
     @Test
@@ -129,6 +136,8 @@ class ChatSemanticCacheIntegrationTest {
                 .andExpect(jsonPath("$.data.answer").value("LLM 생성 답변"));
         verify(embeddingClient).embed(QUESTION);
         verify(llm).generateAnswer(any());
+        verify(guardModel).generate(argThat(request -> request != null && request.generationOptions() != null
+                && "whole_answer_guard".equals(request.generationOptions().schemaName())));
     }
 
     @Test
@@ -140,6 +149,8 @@ class ChatSemanticCacheIntegrationTest {
                 .andExpect(jsonPath("$.data.answer").value("승인 해제 후 LLM 답변"));
         verify(embeddingClient).embed(QUESTION);
         verify(llm).generateAnswer(any());
+        verify(guardModel).generate(argThat(request -> request != null && request.generationOptions() != null
+                && "whole_answer_guard".equals(request.generationOptions().schemaName())));
     }
 
     // 접수(202) → Worker 처리 → 상태 조회. 성공한 조회 응답을 돌려줌

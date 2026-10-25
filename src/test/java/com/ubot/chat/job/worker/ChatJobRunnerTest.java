@@ -13,6 +13,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.dto.ProductDataCards;
+import com.ubot.ai.tool.product.ProductType;
 import com.ubot.chat.dto.response.ChatStoreDto;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.job.dto.ChatJobResult;
@@ -153,7 +155,9 @@ class ChatJobRunnerTest extends ChatJobTestSupport {
 	void acksOnlyAfterCompletionIsRecorded() {
 		ReceivedChatJob message = queueJobs(1).getFirst();
 		var store = ChatStoreDto.of(true, null);
-		ChatJobOutcome outcome = new ChatJobOutcome("답변", List.of(), store, null, List.of());
+		var products = new ProductDataCards(List.of(new ProductDataCards.ProductCard(
+				ProductType.PLAN, "테스트 요금제", 30000, List.of(), List.of())));
+		ChatJobOutcome outcome = new ChatJobOutcome("답변", List.of(), store, null, products, null, List.of());
 		when(processor.process(any(), any(), any(), any())).thenReturn(outcome);
 		when(completion.complete(1L, STARTED_AT, outcome, RegionSido.SEOUL)).thenReturn(new Completion(true, 10L));
 		configure(1, Duration.ofSeconds(20));
@@ -162,7 +166,7 @@ class ChatJobRunnerTest extends ChatJobTestSupport {
 
 		var order = inOrder(completion, results, stream);
 		order.verify(completion).complete(1L, STARTED_AT, outcome, RegionSido.SEOUL);
-		order.verify(results).save(eq(1L), eq(new ChatJobResult(10L, store)), eq(Duration.ofHours(24)));
+		order.verify(results).save(eq(1L), eq(new ChatJobResult(10L, store, null, products)), eq(Duration.ofHours(24)));
 		order.verify(stream).ack(message.messageId());
 	}
 

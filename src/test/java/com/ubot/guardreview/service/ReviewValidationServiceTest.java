@@ -33,7 +33,8 @@ class ReviewValidationServiceTest {
 		assertThat(result.passed()).isFalse();
 		assertThat(result.cases())
 				.allMatch(c -> c.falsePositive() && !c.before().isBlank() && !c.after().contains("욕설"));
-		assertThat(result.cases().getFirst().after()).contains("신고 방법을 알려주세요");
+		// 입력 검사에서 후보가 검출되면 질문 전체가 차단되므로 남은 문장은 없습니다.
+		assertThat(result.cases().getFirst().after()).isEmpty();
 	}
 	@Test
 	void 독립_검사본은_운영캐시를_바꾸지않는다() {
@@ -80,6 +81,24 @@ class ReviewValidationServiceTest {
 		}
 		Validation result = service.validate(List.of(candidate("검증용모욕표현")), Set.of(baselineWords), cases,
 				service.datasetVersion());
+		// 문장 삭제 시절의 혼합 질문도 현재는 전체 차단되며, 기존 불일치로 투명하게 기록합니다.
+		var mixedInputIds = cases.stream()
+				.filter(c -> c.stage() == Stage.INPUT && !c.preserve().isEmpty() && !c.remove().isEmpty())
+				.map(GoldenCase::id).collect(java.util.stream.Collectors.toSet());
+		assertThat(mixedInputIds).hasSize(1390);
+		var expectedBaselineFailures = new java.util.HashSet<>(mixedInputIds);
+		expectedBaselineFailures.add("ATTACK-WORD");
+		assertThat(result.baselineFailures()).isEqualTo(expectedBaselineFailures.size());
+		assertThat(result.cases().stream().filter(CaseResult::baselineFailure).map(CaseResult::id))
+				.containsExactlyInAnyOrderElementsOf(expectedBaselineFailures);
+		assertThat(result.cases().stream().filter(c -> mixedInputIds.contains(c.id()))).allSatisfy(c -> {
+			assertThat(c.before()).isEmpty();
+			assertThat(c.after()).isEmpty();
+			assertThat(c.newDetection()).isFalse();
+		});
+		assertThat(result.newDetections()).isEqualTo(1);
+		assertThat(result.cases().stream().filter(CaseResult::newDetection).map(CaseResult::id))
+				.containsExactly("ATTACK-WORD");
 		assertThat(result.falsePositives()).isZero();
 		assertThat(result.regressions()).isZero();
 		assertThat(result.passed()).isTrue();

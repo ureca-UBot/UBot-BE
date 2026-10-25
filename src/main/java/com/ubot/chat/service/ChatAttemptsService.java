@@ -326,6 +326,7 @@ public class ChatAttemptsService {
 		}
 		// 출력 가드가 거절한 질문은 API를 직접 재호출해도 새 시도를 만들지 않습니다.
 		if (attempt.getErrorCode() == LlmErrorCode.LLM_OUTPUT_REJECTED
+				|| attempt.getErrorCode() == LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED
 				|| attempt.getErrorCode() == ChatErrorCode.USER_CANCELLED) {
 			return Optional.of(ChatErrorCode.RETRY_NOT_ALLOWED);
 		}

@@ -1,5 +1,8 @@
 package com.ubot.conversation;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.ubot.PgvectorTestConfiguration;
@@ -67,6 +70,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("회원 대화방 통합 테스트")
 class ConversationIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
 	@Autowired MockMvc mvc;
 	@Autowired JwtUtil jwt;
 	@Autowired ObjectMapper objectMapper;
@@ -88,6 +93,7 @@ class ConversationIntegrationTest {
 
 	@BeforeEach
 	void setup() {
+        AiGuardTestSupport.allow(guardModel);
 		FaqSearchMockSupport.bridgeSearch(vector);
 		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);

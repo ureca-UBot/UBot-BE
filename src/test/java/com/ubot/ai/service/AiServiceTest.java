@@ -7,9 +7,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.config.AiOutputGuardProperties;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
@@ -21,7 +23,12 @@ import com.ubot.ai.dto.UserDataCards;
 import com.ubot.ai.dto.UserDataSummary;
 import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolFixtures;
+import com.ubot.ai.dto.ProductDataCards.ProductCard;
 import com.ubot.ai.tool.NearbyStoreSearcher;
+import com.ubot.ai.tool.product.PlanSeriesOverview;
+import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductListing;
+import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
 import com.ubot.ai.tool.UserDataRecorder;
@@ -88,8 +95,13 @@ class AiServiceTest {
                 .thenReturn(List.of(ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
         var wordFilter = new ForbiddenWordFilterService(words);
         wordFilter.refreshForbiddenWordCache();
-        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter),
-                SubQuestionLabels.withoutMorphology());
+        aiService = new AiService(promptService,
+                llmService,
+                registry,
+                new AiOutputGuardService(wordFilter),
+                SubQuestionLabels.withoutMorphology(),
+                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
+                new com.ubot.ai.config.AiOutputGuardProperties());
     }
 
     @Test
@@ -157,7 +169,9 @@ class AiServiceTest {
                         recorder -> assertThat(recorder).isInstanceOf(StoreSearchRecorder.class))
                 .hasEntrySatisfying(UserDataTools.RECORDER,
                         recorder -> assertThat(recorder).isInstanceOf(UserDataRecorder.class))
-                .hasSize(3);
+                .hasEntrySatisfying(ProductDataRecorder.CONTEXT_KEY,
+                        recorder -> assertThat(recorder).isInstanceOf(ProductDataRecorder.class))
+                .hasSize(4);
     }
 
     @Test
@@ -352,6 +366,122 @@ class AiServiceTest {
     }
 
     @Test
+    void 상품_도구가_조회한_상품_중_답변에_쓰인_것만_카드로_반환하고_가격을_검사_근거로_쓴다() {
+        var materials = AnswerMaterials.builder("밸런스 요금제 얼마야?").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("밸런스 요금제 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        // 실제 도구 실행 대신, 도구가 요금제 두 개를 돌려주고 모델이 그중 하나만 답변에 쓴 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 59", 59000, List.of(), List.of()),
+                    "- Ubot 밸런스 59 | 월정액 59,000원 | 약정 할인 적용 시 월 44,250원");
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 밸런스 69", 69000, List.of(), List.of()),
+                    "- Ubot 밸런스 69 | 월정액 69,000원 | 약정 할인 적용 시 월 51,750원");
+            return new LlmResponseDto("{\"answer\":\"Ubot 밸런스 59의 월정액은 59,000원입니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        // 59,000원은 프롬프트 자료가 아니라 도구 결과에만 있으므로, 검사 근거에 덧붙이지 않았다면 지워졌을 문장입니다.
+        assertThat(answer.answer()).isEqualTo("Ubot 밸런스 59의 월정액은 59,000원입니다.");
+        assertThat(answer.productData().products()).extracting(ProductCard::name).containsExactly("Ubot 밸런스 59");
+    }
+
+    @Test
+    void 목록_요청_조회가_한_번이면_LLM_답변_대신_목록_답변과_목록_전체_카드를_반환한다() {
+        var materials = AnswerMaterials.builder("프리미엄 요금제 종류 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("프리미엄 요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of()))
+                .thenReturn(prompt);
+        // 도구가 목록 요청으로 두 요금제를 돌려줬는데 모델은 하나만 쓰고 정보가 부족하다고 답한 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            recordPremiumListing(invocation.getArgument(0));
+            return new LlmResponseDto("{\"answer\":\"Ubot 프리미엄 89만 확인되어 정보가 부족합니다.\","
+                    + "\"evidence_ids\":[\"12\"],\"status\":\"PARTIAL\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("""
+                프리미엄 요금제는 다음 2가지가 있습니다.
+                - Ubot 프리미엄 89 (월 89,000원)
+                - Ubot 프리미엄 99 (월 99,000원)""");
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.productData().products()).extracting(ProductCard::name)
+                .containsExactly("Ubot 프리미엄 89", "Ubot 프리미엄 99");
+    }
+
+    @Test
+    void 하위_질문이_여럿이면_목록_요청이어도_LLM_답변을_쓴다() {
+        var subQuestions = List.of(
+                new SubQuestionFaqs("프리미엄 요금제 종류", List.of(), "프리미엄 요금제 종류랑"),
+                new SubQuestionFaqs("요금제 해지 방법", List.of(), "해지 방법 알려줘"));
+        var materials = AnswerMaterials.builder("프리미엄 요금제 종류랑 해지 방법 알려줘").enableTool(AiTool.PLAN_SEARCH)
+                .subQuestions(subQuestions).build();
+        when(promptService.createSlotPrompt("프리미엄 요금제 종류랑 해지 방법 알려줘", List.of(), subQuestions, List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            recordPremiumListing(invocation.getArgument(0));
+            return new LlmResponseDto("{\"answer\":\"Ubot 프리미엄 89와 Ubot 프리미엄 99가 있습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"PARTIAL\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo("Ubot 프리미엄 89와 Ubot 프리미엄 99가 있습니다.");
+        assertThat(answer.status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void 시리즈_개요_답변은_출력_검사를_그대로_통과하고_카드를_붙이지_않는다() {
+        var materials = AnswerMaterials.builder("요금제 종류 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("요금제 종류 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        var overview = new PlanSeriesOverview(List.of(
+                new PlanSeriesOverview.Group("실속", true, 13, 3300, 19800),
+                new PlanSeriesOverview.Group("프리미엄", true, 5, 89000, 129000)));
+        // 요금제 도구가 월정액 낮은 순 행을 돌려주고, 개요와 그 수치를 기록한 상황입니다.
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
+            recorder.record(new ProductCard(ProductType.PLAN, "Ubot 실속 LTE 500MB/60분", 3300, List.of(), List.of()),
+                    "- Ubot 실속 LTE 500MB/60분 | LTE | 대상 일반 | 월정액 3,300원");
+            recorder.note(overview.answer());
+            recorder.searched(overview);
+            return new LlmResponseDto("{\"answer\":\"요금제 정보가 부족합니다.\",\"evidence_ids\":[],\"status\":\"PARTIAL\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).isEqualTo(overview.answer());
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.productData()).isNull();
+    }
+
+    private static void recordPremiumListing(LlmRequestDto request) {
+        var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
+        var premium89 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 89", 89000, List.of(), List.of());
+        var premium99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, List.of(), List.of());
+        recorder.record(premium89, "- Ubot 프리미엄 89 | 5G | 대상 일반 | 월정액 89,000원");
+        recorder.record(premium99, "- Ubot 프리미엄 99 | 5G | 대상 일반 | 월정액 99,000원");
+        recorder.searched(new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99)));
+    }
+
+    @Test
+    void 모델이_답을_보류하면_조회한_상품이_있어도_상품_카드를_붙이지_않는다() {
+        var materials = AnswerMaterials.builder("컬러링 얼마야?").enableTool(AiTool.ADDON_SEARCH).build();
+        when(promptService.createSlotPrompt("컬러링 얼마야?", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            ((ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY)).record(
+                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of()), "- Ubot 컬러링 | 월 990원");
+            return new LlmResponseDto("{\"answer\":\"Ubot 컬러링 요금은 확인할 수 없습니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
+        });
+
+        assertThat(aiService.generateAnswer(materials).productData()).isNull();
+    }
+
+    @Test
     void 도구가_매장을_조회하지_않으면_지도_정보는_없다() {
         var materials = AnswerMaterials.builder("근처 매장").enableTool(AiTool.STORE_SEARCH).build();
         when(promptService.createSlotPrompt("근처 매장", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
@@ -425,13 +555,15 @@ class AiServiceTest {
     }
 
     @Test
-    void JSON_파싱_후_문제_문장을_제거하고_남은_본문만_반환한다() {
+    void JSON_파싱_후_문제_내용이_있으면_답변_전체를_차단한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
         when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요. 바보입니다.\",\"evidence_ids\":\"123\",\"status\":\"CLARIFY\"}"));
 
-        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("신분증을 지참해주세요.");
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
         verify(llmService).generateAnswer(prompt);
     }
 
@@ -465,14 +597,16 @@ class AiServiceTest {
     }
 
     @Test
-    void 실제_제공한_FAQ로_수치_충돌을_확인해_문제_문장을_제거한다() {
+    void 실제_제공한_FAQ와_수치가_충돌하면_답변_전체를_차단한다() {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
         when(promptService.createSlotPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\",\"evidence_ids\":[\"1\"]}"));
 
-        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("고객센터에서 자세한 조건을 확인해주세요.");
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
     }
 
     @Test
@@ -580,7 +714,7 @@ class AiServiceTest {
     }
 
     @Test
-    void 칸_형식에서_가드가_문장을_지운_칸은_답하지_못한_것으로_바꿔_고지한다() {
+    void 칸_형식에서_오답인_칸만_ABSTAIN으로_제외하고_정상_답변은_유지한다() {
         var sources = List.of(
                 new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL),
                 new FaqSearchResponseDto(2L, "가입 장소", "가입은 매장에서 할 수 있습니다.", 0.9, Intent.GENERAL));
@@ -597,12 +731,13 @@ class AiServiceTest {
 
         AiAnswer answer = aiService.generateAnswer(materials);
 
-        assertThat(answer.answer()).isEqualTo("가입은 매장에서 할 수 있습니다.\n\n"
-                + "「할인율은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
         assertThat(answer.status()).isEqualTo("PARTIAL");
-        // 미응답 수집이 모델의 보류와 가드의 삭제를 구분할 수 있게 칸별 결과를 남깁니다.
-        assertThat(answer.slotOutcomes()).containsExactly(
-                new AiAnswer.SlotOutcome("ANSWER", false), new AiAnswer.SlotOutcome("ABSTAIN", true));
+        assertThat(answer.answer()).startsWith("가입은 매장에서 할 수 있습니다.")
+                .doesNotContain("50%", "고객센터에서 자세한 조건을 확인해주세요.")
+                .contains("할인율", "확인해 드리기 어렵습니다.");
+        assertThat(answer.slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ANSWER", false),
+                new AiAnswer.SlotOutcome("ABSTAIN", true));
+        verify(llmService, times(1)).generateAnswer(any());
     }
 
     @Test
