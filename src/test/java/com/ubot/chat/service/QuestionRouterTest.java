@@ -117,6 +117,20 @@ class QuestionRouterTest {
 	}
 
 	@ParameterizedTest
+	@ValueSource(strings = {"내 정보 알려줘", "내 회선 정보 알려줘", "제 정보 알려 주세요"})
+	void completeSelfQuestionsDoNotNeedHistoryOnlyBecauseTheyAreShort(String question) {
+		assertThat(router.route(question, true).multiTurnMarks()).doesNotContain("짧음");
+		assertThat(router.route(question, true).needsJudge()).isFalse();
+	}
+
+	@ParameterizedTest
+	@CsvSource(delimiter = '|', value = {"내 정보도 알려줘|도", "그럼 내 정보 알려줘|이어 묻기", "내 그거 알려줘|지시어"})
+	void explicitSelfOwnerDoesNotRemoveOtherContextMarkers(String question, String mark) {
+		assertThat(router.route(question, true).multiTurnMarks()).contains(mark);
+		assertThat(router.route(question, true).needsJudge()).isTrue();
+	}
+
+	@ParameterizedTest
 	@ValueSource(strings = {"그거 얼마예요?", "준비물은요?"})
 	@DisplayName("이전 대화가 없으면 멀티턴 표지를 보지 않는다")
 	void ignoresMultiTurnMarksWithoutHistory(String question) {
