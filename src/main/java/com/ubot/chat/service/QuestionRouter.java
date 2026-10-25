@@ -107,7 +107,14 @@ class QuestionRouter {
 		long content = morphs.stream()
 				.filter(m -> CONTENT_TAGS.contains(m.tag()) && !POINTERS.contains(m.form()))
 				.count();
-		if (content <= 1) {
+		// 1인칭 소유격과 대상 명사·서술어가 모두 있으면 대상이 이미 명시된 질문입니다.
+		// 길이만으로 이전 대화가 필요하다고 판단하지 않습니다. 지시어·이어 묻기·질문 분리 표지는 그대로 둡니다.
+		boolean explicitSelfOwner = words.stream().anyMatch(word ->
+				word.morphs().stream().anyMatch(m -> m.tag().equals("NP") && Set.of("나", "저").contains(m.form()))
+				&& word.morphs().stream().anyMatch(m -> m.tag().equals("JKG")));
+		boolean completeSelfQuery = content == 1 && explicitSelfOwner
+				&& morphs.stream().anyMatch(QuestionRouter::isPredicateLike);
+		if (content <= 1 && !completeSelfQuery) {
 			marks.add("짧음");
 		}
 		return marks;

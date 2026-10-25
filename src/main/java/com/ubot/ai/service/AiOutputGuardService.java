@@ -757,6 +757,12 @@ public class AiOutputGuardService {
     private static final Pattern FOLLOWUP_INFORMATION_REQUEST = Pattern.compile(
             "(?:(?<input>입력)(?:해|하여)?|알려|말씀(?:해|하여)?|말해|설명(?:해|하여)?|보내|제공(?:해|하여)?)\\s*"
                     + "(?:주(?:세요|십시오|시면|시기\\s*바랍니다)|줘(?:요)?)");
+    // 정보 필드나 별도 주제를 붙이지 않은 조건부 권유만 기존 마무리 정리로 처리합니다.
+    private static final Pattern OPTIONAL_CONTACT_OFFER = Pattern.compile(
+            "^(?:문의(?:\\s*사항)?|질문|궁금(?:하신|한)\\s*(?:점|사항|내용)|도움|추가(?:적인)?\\s*정보)"
+                    + "(?:이|가)?\\s*(?:필요하(?:시)?면|있(?:으면|으시면|으실\\s*경우))"
+                    + "\\s*[,，]?\\s*(?:(?:언제든(?:지)?|편하게|다시|부담\\s*없이)\\s*)*"
+                    + "(?:알려|말씀(?:해)?|문의(?:해)?)\\s*(?:주세요|주십시오)[.!?。！？]*$");
     private static final String PRODUCT_SEARCH_FIELD = "(?:요금제|상품|부가\\s*서비스|로밍\\s*상품|결합\\s*상품)"
             + "(?:\\s*(?:종류|유형|조건))?|종류|조건|5G|LTE|월\\s*(?:요금|정액)|데이터\\s*(?:양|용량)";
     private static final String PRODUCT_SEARCH_FIELDS = "(?:" + PRODUCT_SEARCH_FIELD + ")"
@@ -1181,7 +1187,8 @@ public class AiOutputGuardService {
             addAnswerClauses(sentence, clauses, true, null);
             for (String clause : clauses) {
                 String inspected = inspect(clause);
-                if (GENERIC_FOLLOWUP.matcher(inspected).matches() || COURTESY_CLOSING.matcher(inspected).matches()) {
+                if (GENERIC_FOLLOWUP.matcher(inspected).matches() || COURTESY_CLOSING.matcher(inspected).matches()
+                        || OPTIONAL_CONTACT_OFFER.matcher(inspected).matches()) {
                     trace.cleaned(GuardRule.COURTESY_CLOSING);
                     removed = true;
                     continue;

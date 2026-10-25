@@ -41,7 +41,7 @@ public class ReviewValidationService {
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 	private static final String DATASET = "guard-review/golden-cases.json";
 	// 검사 동작이 바뀔 때만 올립니다. 정규화·입력/출력 금칙어 검사·비교 기준의 변경을 포함합니다.
-	private static final String RULES_VERSION = "guard-review-rules-v3";
+	private static final String RULES_VERSION = "guard-review-rules-v5";
 
 	public Set<String> currentWords() {
 		return words.findAllByStatus(ForbiddenWordStatus.ACTIVE).stream()

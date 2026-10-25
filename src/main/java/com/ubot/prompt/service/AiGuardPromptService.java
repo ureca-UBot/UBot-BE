@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -45,10 +46,16 @@ public class AiGuardPromptService {
     }
 
     public LlmRequestDto input(String original, String current, List<ConversationTurn> history) {
+        if (!StringUtils.hasText(original) || !StringUtils.hasText(current)) {
+            throw new PromptException(PromptErrorCode.PROMPT_INPUT_MISSING);
+        }
         Map<String, Object> data = new LinkedHashMap<>();
+        // 전체 이력을 유지하고 현재 질문을 마지막에 전달합니다.
+        data.put("history", history == null ? List.of() : List.copyOf(history));
+        // request가 기존 매칭 금칙어로 채울 키의 순서만 먼저 정합니다.
+        data.put("forbidden_words", List.of());
         data.put("original_question", original);
         data.put("current_question", current);
-        data.put("history", history);
         return request("input-integrated", data, "input_safety_and_planning", 512);
     }
 
