@@ -152,18 +152,18 @@ faq-monitoring:
     max-llm-queue-wait-millis: ${FAQ_AI_REVIEW_MAX_LLM_QUEUE_WAIT_MILLIS:5000}
   improvement:
     top-k: ${CHAT_TOP_K:3}
-    low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
-    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.30}
-    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.05}
-    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:10080}
-    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:20}
-    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
+    low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.82}
+    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.40}
+    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.07}
+    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:1440}
+    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:10}
+    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:10}
 
 faq:
   confidence-threshold: ${CHAT_CONFIDENCE_THRESHOLD:0.79}
   cache:
     # 공식 FAQ 답변을 그대로 반환합니다. 운영 질문셋 검증 후 켭니다.
-    enabled: ${FAQ_CACHE_ENABLED:false}
+    enabled: ${FAQ_CACHE_ENABLED:true}
     min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
     min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
   variant:
