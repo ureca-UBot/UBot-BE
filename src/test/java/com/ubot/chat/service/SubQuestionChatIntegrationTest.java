@@ -21,7 +21,7 @@ import com.ubot.chat.job.dto.response.ChatJobStatusResponseDto;
 import com.ubot.chat.job.entity.ChatJobStatus;
 import com.ubot.chat.job.service.ChatJobQueryService;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.entity.QuestionLog;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
@@ -73,14 +73,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 		"CHAT_SUB_QUESTION_ENABLED=true",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75"})
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("질문 분리·멀티턴 채팅 통합 테스트")
 class SubQuestionChatIntegrationTest {
     @MockitoBean AiGuardModelService guardModel;
 
 	@Autowired ChatService chatService;
-	@Autowired ChatJobWorker worker;
+	@Autowired ChatJobTestDriver driver;
 	@Autowired ChatJobQueryService jobQuery;
 	@Autowired StringRedisTemplate redis;
 	@Autowired ConversationService conversationService;
@@ -248,7 +248,7 @@ class SubQuestionChatIntegrationTest {
 	/** 질문을 접수하고 Worker가 처리한 뒤의 작업 상태를 돌려줍니다. 테스트 프로필은 Worker가 스스로 가져가지 않습니다. */
 	private ChatJobStatusResponseDto ask(String question) {
 		var submission = chatService.createChat(userId, conversationId, question, null, null);
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		return jobQuery.getStatus(submission.response().jobId(), userId, Optional.empty());
 	}
 

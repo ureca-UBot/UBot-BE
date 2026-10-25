@@ -193,10 +193,10 @@ class ChatAnswerProcessorStoreDataTest {
     }
 
     private void search(List<FaqSearchResponseDto> candidates) {
-        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, 5, QUERY_VECTOR);
+        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, QUERY_VECTOR);
         when(retrieval.searchCandidates(QUESTION, null, 3, 0)).thenReturn(dense);
-        when(retrieval.rankCandidates(QUESTION, dense, 3))
-                .thenReturn(new RetrievalOutcome(candidates, candidates.getFirst(), false, null));
+        when(retrieval.selectCandidates(dense, 3))
+                .thenReturn(new RetrievalOutcome(candidates, candidates.getFirst()));
     }
 
     private ChatAnswerProcessor processor() {

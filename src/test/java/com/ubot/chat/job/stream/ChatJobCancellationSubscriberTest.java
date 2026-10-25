@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import com.ubot.chat.job.repository.ChatJobRepository;
 import com.ubot.chat.job.service.ChatJobCancellationService;
 import com.ubot.chat.job.service.ChatJobQueryService;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.worker.ChatJobRunner;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.service.ChatAttemptsService;
 import jakarta.persistence.EntityManager;
@@ -31,14 +31,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 class ChatJobCancellationSubscriberTest {
 
-	private final ChatJobWorker worker = mock(ChatJobWorker.class);
-	private final ChatJobCancellationSubscriber subscriber = new ChatJobCancellationSubscriber(worker);
+	private final ChatJobRunner runner = mock(ChatJobRunner.class);
+	private final ChatJobCancellationSubscriber subscriber = new ChatJobCancellationSubscriber(runner);
 
 	@Test
 	void apiRoleStartsCancellationServiceWithoutWorkerOrSubscription() {
 		context("api").run(context -> {
 			assertThat(context).hasNotFailed().hasSingleBean(ChatJobCancellationService.class)
-					.hasSingleBean(ChatJobCancellationPublisher.class).doesNotHaveBean(ChatJobWorker.class)
+					.hasSingleBean(ChatJobCancellationPublisher.class).doesNotHaveBean(ChatJobRunner.class)
 					.doesNotHaveBean(ChatJobCancellationSubscriber.class)
 					.doesNotHaveBean("chatJobCancellationListener");
 		});
@@ -47,28 +47,28 @@ class ChatJobCancellationSubscriberTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"worker", "all"})
 	void workerRolesHaveSubscriberWithoutBlockingStartupOnRedis(String role) {
-		context(role).withBean(ChatJobWorker.class, () -> worker).run(context -> {
+		context(role).withBean(ChatJobRunner.class, () -> runner).run(context -> {
 			assertThat(context).hasNotFailed().hasSingleBean(ChatJobCancellationSubscriber.class)
 					.hasBean("chatJobCancellationListener");
 			assertThat(context.getBean("chatJobCancellationListener", RedisMessageListenerContainer.class)
 					.isAutoStartup()).isFalse();
 			verify(context.getBean(RedisConnectionFactory.class), never()).getConnection();
-			verify(worker, never()).cancelJob(anyLong());
+			verify(runner, never()).cancelJob(anyLong());
 		});
 	}
 
 	@Test
 	void receivedIdOnlyCancelsThatJob() {
 		subscriber.onMessage(message("42"), null);
-		verify(worker).cancelJob(42L);
-		verify(worker, times(1)).cancelJob(anyLong());
+		verify(runner).cancelJob(42L);
+		verify(runner, times(1)).cancelJob(anyLong());
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = {"", "0", "-1", "bad", "1,2", "9223372036854775808"})
 	void invalidMessagesDoNotCancelAnyJob(String body) {
 		subscriber.onMessage(message(body), null);
-		verifyNoInteractions(worker);
+		verifyNoInteractions(runner);
 	}
 
 	@Test
@@ -84,7 +84,7 @@ class ChatJobCancellationSubscriberTest {
 
 		verify(listener, times(2)).start();
 		verify(listener).stop();
-		verifyNoInteractions(worker);
+		verifyNoInteractions(runner);
 	}
 
 	private ApplicationContextRunner context(String role) {

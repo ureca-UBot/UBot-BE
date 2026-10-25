@@ -10,7 +10,7 @@ import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.exception.ChatException;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.chat.service.ChatService;
@@ -80,7 +80,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=3"})
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("게스트 채팅 통합 테스트")
@@ -102,7 +102,7 @@ class GuestChatIntegrationTest {
 	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired StringRedisTemplate redis;
-	@Autowired ChatJobWorker worker;
+	@Autowired ChatJobTestDriver driver;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
@@ -120,7 +120,7 @@ class GuestChatIntegrationTest {
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:result:*"));
 		redis.delete(redis.keys("chat:jobs:published:*"));
-		flow = new ChatJobTestFlow(mvc, worker);
+		flow = new ChatJobTestFlow(mvc, driver);
 		unansweredQuestions.deleteAllInBatch();
 		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -147,7 +147,7 @@ class GuestChatIntegrationTest {
 		MockHttpSession session = (MockHttpSession) first.getRequest().getSession(false);
 		assertThat(session).as("최초 게스트 요청에서 세션 생성").isNotNull();
 		assertThat(session.getMaxInactiveInterval()).isEqualTo(30 * 60);
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		mvc.perform(flow.statusOf(first)).andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
 		assertThat(conversationCount()).isEqualTo(1);
@@ -163,7 +163,7 @@ class GuestChatIntegrationTest {
 		Long expiredConversationId = conversationId(session);
 		session.invalidate();
 		flow.submit(question(ANSWERABLE).session(session));
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		assertThat(conversationCount()).as("만료된 세션은 이전 Conversation을 재사용하지 않음").isEqualTo(3);
 		assertThat(attempts.findAll()).extracting(AnswerAttemptsHistory::getConversationId)
 				.filteredOn(expiredConversationId::equals).hasSize(2);
@@ -251,7 +251,7 @@ class GuestChatIntegrationTest {
 		} finally {
 			release.countDown();
 		}
-		assertThat(worker.processAvailableJobs()).isEqualTo(maxQuestionCount);
+		assertThat(driver.processAvailableJobs()).isEqualTo(maxQuestionCount);
 		assertThat(attempts.findAll()).allMatch(attempt -> "SUCCESS".equals(attempt.getStatus()));
 	}
 

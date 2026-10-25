@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.worker.ChatJobRunner;
+import com.ubot.chat.job.worker.ChatJobRecoveryService;
 import com.ubot.ranking.scheduler.RankingScheduler;
 import com.ubot.retention.scheduler.DataRetentionScheduler;
 import java.util.UUID;
@@ -58,6 +60,8 @@ class WorkerRoleIntegrationTest {
 	@DisplayName("답변 Worker는 만들고 스케줄러는 만들지 않는다")
 	void createsWorkerWithoutSchedulers() {
 		assertThat(context.getBeanNamesForType(ChatJobWorker.class)).hasSize(1);
+		assertThat(context.getBeanNamesForType(ChatJobRunner.class)).hasSize(1);
+		assertThat(context.getBeanNamesForType(ChatJobRecoveryService.class)).hasSize(1);
 		assertThat(context.getBeanNamesForType(RankingScheduler.class)).isEmpty();
 		assertThat(context.getBeanNamesForType(DataRetentionScheduler.class)).isEmpty();
 	}

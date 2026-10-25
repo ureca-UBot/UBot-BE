@@ -25,7 +25,9 @@ import com.ubot.chat.job.stream.ChatJobMessage;
 import com.ubot.chat.job.stream.ChatJobResultStore;
 import com.ubot.chat.job.stream.ChatJobStream;
 import com.ubot.chat.job.stream.ReceivedChatJob;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.worker.ChatJobRunner;
+import com.ubot.chat.job.worker.ChatJobRecoveryService;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.job.worker.ChatWorkerProperties;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
@@ -47,8 +49,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
-// DB·Redis 없이 접수 → 스트림 → Worker 처리 → 상태 조회를 잇는 테스트 준비물
-// 저장소·스트림·결과 저장소는 메모리로 흉내 내고 접수·완료·조회 서비스와 Worker는 실제 코드를 씀
+// DB·Redis 없이 접수 → 스트림 → Runner 처리 → 상태 조회를 잇는 테스트 준비물
+// 저장소·스트림·결과 저장소는 메모리로 흉내 내고 접수·완료·조회 서비스와 Runner는 실제 코드를 씀
 final class ChatJobTestHarness {
 	static final ChatWorkerProperties WORKER_PROPERTIES = new ChatWorkerProperties(
 			1, false, Duration.ofSeconds(2), "test-worker", Duration.ofMinutes(10), Duration.ofSeconds(30),
@@ -69,7 +71,7 @@ final class ChatJobTestHarness {
 	final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
 	final ChatJobCompletionService completionService;
 	final ChatJobQueryService queryService;
-	final ChatJobWorker worker;
+	final ChatJobTestDriver driver;
 	private final Deque<ReceivedChatJob> unread = new ArrayDeque<>();
 	private final AnswerAttemptsHistoryRepository attemptRepository;
 	private final Map<Long, AnswerAttemptsHistory> knownAttempts = new HashMap<>();
@@ -93,8 +95,10 @@ final class ChatJobTestHarness {
 		when(conversationRepository.existsByIdAndDeletedAtIsNull(anyLong())).thenReturn(true);
 		queryService = new ChatJobQueryService(
 				jobRepository, attemptRepository, questionLogRepository, attemptsService, resultStore, conversationRepository);
-		worker = new ChatJobWorker(stream, resultStore, queueRepository, jobRepository, completionService,
+		var runner = new ChatJobRunner(stream, resultStore, queueRepository, jobRepository, completionService,
 				new ChatJobProcessor(processor), attemptRepository, WORKER_PROPERTIES);
+		var recovery = new ChatJobRecoveryService(stream, queueRepository, jobRepository, completionService, WORKER_PROPERTIES, runner);
+		driver = new ChatJobTestDriver(stream, runner, recovery, WORKER_PROPERTIES);
 	}
 
 	// ChatAttemptsService까지 흉내 내는 테스트용. 시도는 knowAttempts로 알려 줌
@@ -140,7 +144,7 @@ final class ChatJobTestHarness {
 	}
 
 	int runQueuedJobs() {
-		return worker.processAvailableJobs();
+		return driver.processAvailableJobs();
 	}
 
 	ChatJob job(ChatSubmission submission) {

@@ -10,7 +10,7 @@
 com.ubot
 ├── auth           인증 (JWT 발급·검증, refresh token, Security 설정)
 ├── user           사용자 엔티티·저장소·서비스, 내 정보 조회·수정 (/auth/me)
-├── chat           질문 접수 (컨트롤러 → ChatService → chat.job), 답변 Worker (ChatJobWorker → ChatJobProcessor → ChatAnswerProcessor), 답변 시도 기록·재시도
+├── chat           질문 접수 (컨트롤러 → ChatService → chat.job), 답변 Worker (ChatJobWorker → ChatJobRunner → ChatJobProcessor → ChatAnswerProcessor), 답변 시도 기록·재시도
 ├── ai             FAQ 프롬프트 구성과 LLM 호출 연결 (AiService)
 ├── prompt         질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
 ├── llm            LLM 요청 검증·Ollama 호출·오류 변환
@@ -102,7 +102,7 @@ com.ubot
                                   HNSW로 QUESTION 후보 검색 → FAQ별 최고 점수 표현 하나 반환 (중복 제거 후 부족하면 후보 확대)
       → 결과 없음 → 미응답 질문 저장 → CHAT-012 (NO_FAQ)
       → 캐시 승인 시 공식 FAQ 답변 반환
-      → 캐시 실패 시 FAQ_RERANK_ENABLED에 따라 후보를 재정렬
+      → 캐시 실패 시 벡터 검색 순서대로 상위 후보 선택
       → CHAT_CONFIDENCE_THRESHOLD로 질문 벡터 유사도 검사
          → 통과한 FAQ 없음 → CHAT-013 (INSUFFICIENT_FAQ)
       → 통과한 후보 중 TOP-K개 답변 문장을 임베딩해 사용자 질문과 비교
@@ -125,7 +125,9 @@ com.ubot
 | `ChatSubmissionService` | 답변 시도와 작업을 한 트랜잭션으로 만들고, 커밋한 뒤 작업 메시지를 발행합니다. 시도 생성의 검증(게스트 질문 수, 재시도 횟수)에서 거절되면 둘 다 남지 않고 발행도 하지 않습니다. |
 | `ChatJobStream` | Redis Streams `chat:jobs`(그룹 `chat-workers`)의 그룹 생성·발행·읽기·ACK를 맡습니다. |
 | `ChatJobResultStore` | 끝난 작업의 화면용 결과(질문 로그 ID, 매장 정보)를 Redis에 만료 시간과 함께 둡니다. |
-| `ChatJobWorker` | 빈 슬롯이 있을 때만 메시지를 읽어 조건부로 선점·실행하고, 커밋 뒤 ACK합니다. 대기 한도를 넘긴 작업을 정리합니다. |
+| `ChatJobWorker` | 빈 슬롯이 있을 때 메시지를 소비하고 heartbeat·복구 주기와 종료 순서를 관리합니다. |
+| `ChatJobRunner` | 일반 소비와 복구의 공통 실행 슬롯을 소유하고 선점·마감·취소·완료를 처리하며, 커밋 뒤 ACK합니다. |
+| `ChatJobRecoveryService` | 대기 만료·미발행·정지 실행·유실 메시지를 복구합니다. 회수할 실행 슬롯은 Runner에서 확보합니다. |
 | `ChatJobProcessor` | 기존 `ChatAnswerProcessor`로 답변을 계산하고 예외를 시도에 기록할 오류 코드로 바꿉니다. 저장하지 않습니다. |
 | `ChatAnswerProcessor` | 답변을 계산합니다. FAQ 검색, 유사도 판정, 미응답 질문 저장, intent별 답변 자료 수집, AI 호출을 차례로 수행합니다. |
 | `ChatJobCompletionService` | 작업 상태, 시도 상태, 질문·FAQ 로그를 한 트랜잭션으로 저장합니다. 선점한 실행이 아닌 기록(started_at 불일치)은 거절합니다. |

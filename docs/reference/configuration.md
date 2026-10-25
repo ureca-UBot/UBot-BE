@@ -86,20 +86,8 @@ src/main/resources/
 | `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | `FaqSentenceFilterService`: 질문 유사도 기준을 통과한 FAQ에서 하위 질문의 검색어와 각 답변 문장의 코사인 유사도 기준. 통과한 문장만 답변 LLM에 전달 | `0.7` | `0.7` |
 | `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 판정 LLM으로 질문을 정리할지 여부. 켜면 질문 분리·멀티턴 표지가 있는 질문, 또는 원문 검색이 기준에 못 미친 질문만 판정 LLM이 이전 대화(최대 3턴)를 참고해 하위 질문(최대 3개)별 검색어를 만듦(LLM 호출이 한 번 늘어남). 검색어는 검색에만 쓰고, 답변 LLM에는 원문과 원문 조각, 멀티턴이면 이전 대화를 넘김. 끄면 원문 하나로 검색하고 이전 대화도 넘기지 않음 | `true` | 키가 없으면 `true` |
 | `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 판정할 표지가 없는 질문을 원문으로 먼저 검색할 때, 이전 대화가 있으면 이 값 이상이어야 판정 없이 끝냄(이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`). 기본값은 유사도 기준과 같고 튜닝용으로 따로 둠. `CHAT_CONFIDENCE_THRESHOLD`보다 낮으면 그 값을 씀 | `0.75` | 키가 없으면 `0.75` |
-| `FAQ_RERANK_ENABLED` | 캐시 실패 후 질문 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로 정하고, 정렬 뒤 답변 문장을 임베딩해 비교([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
-| `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |
-| `FAQ_RERANK_MODEL` | `FaqRetrievalConfig`: Reranker 서버에 요청할 모델 이름. Compose의 `RERANKER_SERVED_MODEL_NAME`과 같아야 함 | `ubot-reranker` | 키가 없으면 `ubot-reranker` |
-| `FAQ_RERANK_BASE_URL` | `FaqRetrievalConfig`: Reranker 서버 주소. 이 주소의 `/v1/rerank`를 호출 | `http://localhost:8002` | 키가 없으면 `http://localhost:8002` |
-| `FAQ_RERANK_CONNECT_TIMEOUT` | `FaqRetrievalConfig`: Reranker 서버 연결 제한 시간 | `500ms` | 키가 없으면 `500ms` |
-| `FAQ_RERANK_READ_TIMEOUT` | `FaqRetrievalConfig`: Reranker 응답 제한 시간. 넘으면 실패로 처리 | `1500ms` | 키가 없으면 `1500ms` |
-| `FAQ_RERANK_FALLBACK_ENABLED` | `FaqRetrievalService`: Reranker를 쓰지 못했을 때 이미 받아 둔 벡터 검색 상위 `CHAT_TOP_K`개로 답할지 여부. `false`면 그 요청은 실패 | `true` | 키가 없으면 `true` |
-| `FAQ_RERANK_MAX_CONCURRENT` | `FaqRetrievalService`: 동시에 나가는 Reranker 호출 수의 한도. 넘치는 요청은 기다리지 않고 벡터 검색 결과로 답함 | `32` | 키가 없으면 `32` |
-| `FAQ_RERANK_FAILURE_THRESHOLD` | `FaqRetrievalService`: 연속으로 이만큼 실패하면 Reranker 호출을 건너뛰기 시작 | `5` | 키가 없으면 `5` |
-| `FAQ_RERANK_FAILURE_COOLDOWN` | `FaqRetrievalService`: 연속 실패 뒤 Reranker를 호출하지 않는 시간. 지나면 한 건만 보내 보고 성공하면 재개 | `10s` | 키가 없으면 `10s` |
-| `RERANKER_PORT` | Docker Compose: Reranker 서버의 호스트 포트. `reranker` 프로필로 띄울 때만 사용 | `8002` | Spring에서 읽지 않음 |
-| `VLLM_RERANKER_GPU_MEMORY_UTILIZATION` | Docker Compose: Reranker 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
 | `APP_ROLE` | `AppRole`(`app.role`): 프로세스 역할. `api`는 접수·상태 조회와 나머지 API·스케줄러, `worker`는 답변 Worker만(랭킹·보관 기간 삭제 스케줄러 없음, HTTP는 `/actuator`만 받고 나머지는 `404 G-004`), `all`은 둘 다. 배포 Compose는 `backend=api`, `ai-worker=worker`로 정함 | `all` | `all`. 다른 값이면 기동되지 않음 |
-| `CHAT_WORKER_CONCURRENCY` | `ChatJobWorker`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
+| `CHAT_WORKER_CONCURRENCY` | `ChatJobRunner`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
 | `COUNSEL_EMBEDDING_WORKER_ENABLED` | `CounselEmbeddingWorker`: 상담 전용 Redis 큐의 임베딩만 처리. `worker/all` 역할에서 기본 실행하며 `api`에서는 실행하지 않음. 별도 스레드 1개이며 기존 채팅 큐·실행 풀·DB를 사용하지 않음. 필요하면 `false`로 비활성화 | `true` | `true` (`test` 프로필은 `false`) |
 | `COUNSEL_ENABLED` | 기존 BE 상담 API·배정/미완료 메시지 복구 활성화 | `true` | `true` |
 | `COUNSEL_EMBEDDING_TRANSPORT` | 상담 임베딩 경로. 기본 `worker`는 기존 ai-worker에 위임. 자동 HTTP 우회 없음 | `worker` | `worker` |
@@ -110,11 +98,11 @@ src/main/resources/
 | `COUNSEL_BLOCK_THRESHOLD` | 상담 문장 코사인 유사도 후보 기준 | `0.95` | `0.95` |
 | `CHAT_WORKER_READ_BLOCK` | 새 메시지가 없을 때 다음 읽기까지 쉬는 간격. 실행 슬롯은 반환함 | `2s` | `2s` |
 | `CHAT_WORKER_CONSUMER_NAME` | `ChatJobWorker`: Redis Streams 그룹(`chat-workers`) 안의 Worker 이름. Worker마다 달라야 함. 빈 값으로 두면 기동 실패 | 주석 처리 | `HOSTNAME`(컨테이너 ID), 없으면 `local` |
-| `CHAT_WORKER_MAX_QUEUE_WAIT` | `ChatJobWorker`: 접수 후 전체 실행·복구 기한. 실행·넘겨받기 마감은 이 기한을 넘지 않음. 만료 작업은 `CHAT-016`으로 처리하며 발행 표시는 이보다 1분 길게 둠 | `10m` | `10m` |
-| `CHAT_WORKER_REPUBLISH_AFTER` | `ChatJobWorker`: 이 시간 넘게 대기 중인데 발행 표시가 없는 작업(발행 실패, Redis 데이터 유실)을 다시 발행. `CHAT_WORKER_MAX_QUEUE_WAIT`보다 짧아야 하며 아니면 기동 실패 | `30s` | `30s` |
+| `CHAT_WORKER_MAX_QUEUE_WAIT` | `ChatJobRecoveryService`: 접수 후 전체 실행·복구 기한. 실행·넘겨받기 마감은 이 기한을 넘지 않음. 만료 작업은 `CHAT-016`으로 처리하며 발행 표시는 이보다 1분 길게 둠 | `10m` | `10m` |
+| `CHAT_WORKER_REPUBLISH_AFTER` | `ChatJobRecoveryService`: 이 시간 넘게 대기 중인데 발행 표시가 없는 작업(발행 실패, Redis 데이터 유실)을 다시 발행. `CHAT_WORKER_MAX_QUEUE_WAIT`보다 짧아야 하며 아니면 기동 실패 | `30s` | `30s` |
 | `CHAT_WORKER_HEARTBEAT_TIMEOUT` | 실행 중인 작업의 DB heartbeat가 이 시간 이상 없으면 Worker가 죽은 것으로 보고 메시지를 회수. heartbeat는 이 값의 3분의 1(최대 15초)마다 갱신. `CHAT_WORKER_RECLAIM_IDLE`보다 길 수 없음 | `1m` | `1m` |
 | `CHAT_WORKER_RECLAIM_IDLE` | 이 시간 이상 ACK되지 않은 메시지는 작업 상태를 보지 않고 회수 시도(마지막 안전망). 메시지도 없이 heartbeat가 두 배 동안 없으면 실패 처리 | `5m` | `5m` |
-| `CHAT_WORKER_MAX_DELIVERIES` | `ChatJobWorker`: 한 메시지를 Worker에 전달하는 최대 횟수. 다 쓰면 다시 실행하지 않고 `CHAT-015`로 실패 처리. 1 미만이면 기동 실패 | `3` | `3` |
+| `CHAT_WORKER_MAX_DELIVERIES` | `ChatJobRecoveryService`: 한 메시지를 Worker에 전달하는 최대 횟수. 다 쓰면 다시 실행하지 않고 `CHAT-015`로 실패 처리. 1 미만이면 기동 실패 | `3` | `3` |
 | `CHAT_WORKER_RECOVERY_INTERVAL` | `ChatJobWorker`: 발행이 빠진 작업을 다시 발행하고, 방치된 메시지를 넘겨받고, 오래 기다리거나 멈춘 작업을 정리하는 간격 | `15s` | `15s` |
 | `CHAT_WORKER_RESULT_TTL` | Redis 결과 캐시 TTL. DB 원본은 지도까지 보존함 | `24h` | `24h` |
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM·모델 복구 대기를 포함한 한 실행의 제한. 재시도마다 연장하지 않음. 전체 기한과 비교해 이른 시각에 CHAT-016으로 끝내고 늦은 결과 폐기 | `180s` | `180s` |
@@ -302,11 +290,11 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | 인증 없이 호출 가능한 경로, `ADMIN` 경로 | [architecture.md#인증](../architecture.md#인증) | `SecurityConfig` |
 | 채팅 질문 최대 길이 | 4000자 | `ChatRequestDto`, `ChatService` |
 | 답변 작업 스트림 | 키 `chat:jobs`, 그룹 `chat-workers`, 수동 ACK. 발행 표시 `chat:jobs:published:{jobId}`, 결과 키 `chat:jobs:result:{jobId}` | `ChatJobStream`, `ChatJobResultStore` |
-| 다시 발행 | 정리 한 번에 대기 작업 최대 1,000건의 발행 표시를 확인하고, 최대 100건을 다시 발행 | `ChatJobWorker` |
-| 넘겨받기 | 정리 한 번에 방치된 메시지 최대 100건을 확인하고, 그중 빈 슬롯 수만큼 넘겨받음. 메시지를 잃은 작업은 한 번에 최대 100건을 실패 처리 | `ChatJobWorker` |
+| 다시 발행 | 1,000건씩 발행 표시를 확인하고, 정리 한 번에 최대 1,000건을 다시 발행 | `ChatJobRecoveryService` |
+| 넘겨받기 | 정리 한 번에 방치된 메시지 최대 100건을 확인하고, 그중 빈 슬롯 수만큼 넘겨받음. 메시지를 잃은 작업은 한 번에 최대 100건을 실패 처리 | `ChatJobRecoveryService` |
 | 스트림 정리 | 정리마다 모든 메시지가 ACK된 앞부분을 `XTRIM MINID`로 지움 | `ChatJobStream` |
 | 답변 Worker 종료 대기 | 실행 중인 작업을 20초 기다린 뒤 끝나지 않은 작업은 대기 상태로 돌려놓고 메시지를 다시 발행함. 배포 Compose의 `stop_grace_period`는 35초 | `ChatJobWorker`, `docker-compose.deploy.yml` |
-| 정리 작업 한 번에 처리하는 작업 수 | 대기 초과 최대 100건 | `ChatJobWorker` |
+| 정리 작업 한 번에 처리하는 작업 수 | 대기 초과 100건씩, 정리 한 번에 최대 1,000건 | `ChatJobRecoveryService` |
 | Ollama 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `OllamaEmbeddingClient` |
 | 임베딩 차원 | 1024 (DB 컬럼 `vector(1024)`와 같음). 다른 차원의 응답은 거절 | `EmbeddingClient` |
 | Nginx 프록시 응답 제한 시간 | `180s`. 임베딩 백필 경로만 `3600s` | `infra/nginx/nginx.conf` |

@@ -119,7 +119,7 @@ class AiInputPlannerConnectionTest {
     }
 
     private ChatAnswerProcessor processor(com.ubot.faq.service.FaqVectorService vectors, AiService answer) {
-        var processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vectors), answer,
+        var processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors), answer,
                 ChatTestFixtures.collector(), planner(true), ChatTestFixtures.disabledCache(),
                 ChatTestFixtures.passthroughSentenceFilter(), code);
         ReflectionTestUtils.setField(processor, "topK", 3);

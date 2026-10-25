@@ -17,7 +17,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -73,7 +73,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 		"CHAT_SUB_QUESTION_ENABLED=false",
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75"})
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class, UserDataCardIntegrationTest.FixedClockConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class, UserDataCardIntegrationTest.FixedClockConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class UserDataCardIntegrationTest {
@@ -96,7 +96,7 @@ class UserDataCardIntegrationTest {
 	}
 
 	@Autowired MockMvc mvc;
-	@Autowired ChatJobWorker worker;
+	@Autowired ChatJobTestDriver driver;
 	@Autowired StringRedisTemplate redis;
 	@Autowired JwtUtil jwt;
 	@Autowired JdbcTemplate jdbc;
@@ -122,7 +122,7 @@ class UserDataCardIntegrationTest {
 		redis.delete(ChatJobStream.STREAM_KEY);
 		redis.delete(redis.keys("chat:jobs:result:*"));
 		redis.delete(redis.keys("chat:jobs:published:*"));
-		flow = new ChatJobTestFlow(mvc, worker);
+		flow = new ChatJobTestFlow(mvc, driver);
 		unansweredQuestions.deleteAllInBatch();
 		unansweredQuestionGroups.deleteAllInBatch();
 		faqLogs.deleteAllInBatch();
@@ -294,7 +294,7 @@ class UserDataCardIntegrationTest {
 	/** 질문을 접수하고 Worker를 돌린 뒤, 접수한 회원·세션으로 작업 상태를 조회합니다. 화면이 받는 최종 응답입니다. */
 	private ResultActions complete(MockHttpServletRequestBuilder builder) throws Exception {
 		MvcResult submitted = flow.submit(builder);
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		return mvc.perform(flow.statusOf(submitted))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.success").value(true))

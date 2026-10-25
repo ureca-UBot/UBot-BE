@@ -77,7 +77,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.ubot.ai.service.AiOutputGuardService;
 import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.chat.job.service.ChatSubmissionService.ChatSubmission;
-import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.forbiddenword.entity.ForbiddenWord;
 import com.ubot.forbiddenword.enums.ForbiddenWordStatus;
 import com.ubot.forbiddenword.repository.ForbiddenWordRepository;
@@ -151,7 +150,7 @@ class ChatServiceTest {
 		attemptsService = new ChatAttemptsService(
 				attempts, questions, faqLogs, faqs, conversations, guestSettings, llmService, embeddingService, tx);
 		ReflectionTestUtils.setField(attemptsService, "maxAttempts", 3);
-		processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+		processor = ChatTestFixtures.processor(new FaqRetrievalService(vector), ai, ChatTestFixtures.collector(), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, attemptsService, processor, tx);
@@ -219,7 +218,7 @@ class ChatServiceTest {
 		assertThat(harness.jobs.getFirst().getStatus()).as("발행에 실패해도 접수는 됨").isEqualTo(ChatJobStatus.QUEUED);
 		assertThat(harness.runQueuedJobs()).as("스트림에는 메시지가 없음").isZero();
 
-		harness.worker.recover();
+		harness.driver.recover();
 
 		assertThat(harness.published).as("접수 당시 지역을 보존해 다시 발행").containsExactly(
 				new ChatJobMessage(harness.jobs.getFirst().getId(), new ChatRequestContext(null, null, RegionSido.SEOUL)));
@@ -232,7 +231,7 @@ class ChatServiceTest {
 	@Test void publishedQueuedJobIsNotRepublished() {
 		service.createChat(1L, null, "질문", null, null);
 
-		harness.worker.recover();
+		harness.driver.recover();
 
 		assertThat(harness.published).as("줄 서서 기다리는 작업은 다시 발행하지 않음").hasSize(1);
 	}

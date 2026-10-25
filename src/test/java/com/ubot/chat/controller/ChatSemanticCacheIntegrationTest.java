@@ -35,7 +35,7 @@ import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.embedding.client.EmbeddingClient;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.faq.cache.FaqCacheProperties;
@@ -49,9 +49,9 @@ import com.ubot.user.repository.UserRepository;
 
 /** 실제 인증·검색 SQL·판정·비동기 답변 저장을 연결합니다. 외부 임베딩/LLM 통신만 모의 객체입니다. */
 @SpringBootTest(properties = {
-        "faq.cache.enabled=true", "faq.retrieval.rerank.enabled=false",
+        "faq.cache.enabled=true",
         "CHAT_TOP_K=3", "CHAT_CONFIDENCE_THRESHOLD=0.75"})
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("공식 FAQ 캐시 HTTP 통합 테스트")
@@ -68,7 +68,7 @@ class ChatSemanticCacheIntegrationTest {
     @Autowired private EmbeddingProfileService profiles;
     @Autowired private FaqVectorRepository vectors;
     @Autowired private FaqCacheProperties cacheProperties;
-    @Autowired private ChatJobWorker worker;
+    @Autowired private ChatJobTestDriver driver;
     @Autowired private StringRedisTemplate redis;
     @MockitoBean private EmbeddingClient embeddingClient;
     @MockitoBean private LlmClient llm;
@@ -85,7 +85,7 @@ class ChatSemanticCacheIntegrationTest {
         redis.delete(ChatJobStream.STREAM_KEY);
         redis.delete(redis.keys("chat:jobs:result:*"));
         redis.delete(redis.keys("chat:jobs:published:*"));
-        flow = new ChatJobTestFlow(mvc, worker);
+        flow = new ChatJobTestFlow(mvc, driver);
         // 테스트별 활성 후보만 남깁니다. 이 DB는 Testcontainers 전용이며 개발 DB와 분리되어 있습니다.
         jdbc.update("UPDATE faq SET deleted_at = now()");
         User user = users.saveAndFlush(User.builder().email(UUID.randomUUID() + "@test.invalid")
@@ -157,7 +157,7 @@ class ChatSemanticCacheIntegrationTest {
     private ResultActions askQuestion() throws Exception {
         var submitted = flow.submit(post("/chat/questions").header("Authorization", authorization)
                 .contentType("application/json").content("{\"question\":\"" + QUESTION + "\"}"));
-        worker.processAvailableJobs();
+        driver.processAvailableJobs();
         return mvc.perform(flow.statusOf(submitted)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
     }
