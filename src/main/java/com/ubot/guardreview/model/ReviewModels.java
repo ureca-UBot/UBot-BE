@@ -23,11 +23,18 @@ public final class ReviewModels {
 		INCREMENTAL,
 		FULL
 	}
+	public enum AnalysisSource {
+		GENERATED_ANSWER, INPUT_LLM, OUTPUT_LLM, INPUT_CODE, OUTPUT_CODE
+	}
 	public record RetentionPolicy(int detailDays, int summaryDays, int historyDays) {
 	}
 	public static final RetentionPolicy RETENTION = new RetentionPolicy(30, 90, 365);
 	public record Settings(boolean enabled, int intervalMinutes, double groupingThreshold, long revision,
-			LocalDateTime nextRunAt) {
+			LocalDateTime nextRunAt, AnalysisSource analysisSource) {
+		public Settings(boolean enabled, int intervalMinutes, double groupingThreshold, long revision,
+				LocalDateTime nextRunAt) {
+			this(enabled, intervalMinutes, groupingThreshold, revision, nextRunAt, AnalysisSource.GENERATED_ANSWER);
+		}
 	}
 	public record Source(long id, String sourceKey, String question, String answer,
 			String origin, String outcome, String context) {

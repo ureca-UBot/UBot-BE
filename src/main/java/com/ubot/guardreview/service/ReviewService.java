@@ -27,6 +27,7 @@ import com.ubot.guardreview.dto.response.ReviewRunResponseDto;
 import com.ubot.guardreview.model.ReviewModels.CaseResult;
 import com.ubot.guardreview.model.ReviewCheckModels.Origin;
 import com.ubot.guardreview.model.ReviewCheckModels.Outcome;
+import com.ubot.guardreview.model.ReviewModels.AnalysisSource;
 import org.springframework.transaction.annotation.Isolation;
 import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.common.PageResponseDto;
@@ -97,13 +98,20 @@ public class ReviewService {
 	}
 	@Transactional
 	public Settings updateSettings(boolean enabled, int minutes, double threshold, long revision, long admin) {
+		return updateSettings(enabled, minutes, threshold, revision, admin, null);
+	}
+	@Transactional
+	public Settings updateSettings(boolean enabled, int minutes, double threshold, long revision, long admin,
+			AnalysisSource source) {
 		if (minutes < 5 || minutes > 43200 || !Double.isFinite(threshold) || threshold < 0.5 || threshold > 1)
 			throw new ReviewException(INVALID);
-		return repository.saveSettings(enabled, minutes, threshold, revision, admin);
+		return repository.saveSettings(enabled, minutes, threshold, revision, admin, source);
 	}
 	@Transactional
 	public long startAnalysis(Long admin) {
-		return enqueueAnalysis(admin, AnalysisMode.FULL);
+		Settings settings = repository.settings(false);
+		return enqueueAnalysis(admin, AnalysisMode.FULL,
+				settings == null ? AnalysisSource.GENERATED_ANSWER : settings.analysisSource());
 	}
 	/** 현재 화면의 출처와 선택한 ID를 동결하며, 자동 차단 분석의 범위를 넓히지 않습니다. */
 	@Transactional
@@ -121,13 +129,14 @@ public class ReviewService {
 		if (repository.snapshotReviewSources(run, origin, ids) != ids.size()) throw new ReviewException(INVALID);
 		return run;
 	}
-	private long enqueueAnalysis(Long admin, AnalysisMode mode) {
+	private long enqueueAnalysis(Long admin, AnalysisMode mode, AnalysisSource source) {
 		repository.analysisEnqueueLock();
 		if (repository.analysisExists())
 			throw new ReviewException(CONFLICT);
-		long id = repository.createRun("ANALYSIS", JSON.writeValueAsString(java.util.Map.of("analysisMode", mode)),
+		long id = repository.createRun("ANALYSIS", JSON.writeValueAsString(java.util.Map.of(
+				"analysisMode", mode, "analysisSource", source)),
 				admin);
-		repository.snapshotSources(id, mode);
+		repository.snapshotSources(id, mode, source);
 		return id;
 	}
 	@Transactional
@@ -137,7 +146,7 @@ public class ReviewService {
 		if (!s.enabled() || s.nextRunAt() == null || s.nextRunAt().isAfter(LocalDateTime.now())
 				|| repository.analysisExists())
 			return;
-		enqueueAnalysis(null, AnalysisMode.INCREMENTAL);
+		enqueueAnalysis(null, AnalysisMode.INCREMENTAL, s.analysisSource());
 		repository.advanceSchedule();
 	}
 	@Transactional

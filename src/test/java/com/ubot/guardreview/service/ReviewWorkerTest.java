@@ -60,6 +60,16 @@ class ReviewWorkerTest {
 		verifyNoInteractions(embedding, reviews);
 	}
 	@Test
+	void 기본_가드전답변은_보류결과여도_원문분석을_하며_원래_판정을_재판정하지않는다() {
+		source = new Source(1, "raw", "질문", "생성 답변", "OUTPUT_RAW", "REVIEW", "{}");
+		pending();
+		when(analyzer.analyze(source)).thenReturn(List.of());
+		worker.poll();
+		verify(analyzer).analyze(source);
+		verify(analyzer, never()).reassess(any());
+		verify(work).finishSource(eq(9L), any(), eq(source), eq(List.of()), eq(true));
+	}
+	@Test
 	void 보류의_잘못된_재검토응답은_허용이나_정상으로_저장하지않는다() {
 		source = new Source(1, "guard-check:1", "질문", null, "INPUT_LLM", "REVIEW", "{}");
 		pending();

@@ -83,6 +83,39 @@ class AiGuardMergedFlowTest {
     }
 
     @Test
+    void omittedAbstainSlotAndGeneratedNoticeAreNotGuardFiltering() {
+        String raw = RAW.replace(SECOND + "\",\"status\":\"ANSWER\"", SECOND + "\",\"status\":\"ABSTAIN\"");
+        when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto(raw));
+        when(capture.captureResponse(any(), eq(71L), eq(raw))).thenReturn(91L);
+        var result = service.generateAnswer(materials);
+        assertThat(result.status()).isEqualTo("PARTIAL");
+        assertThat(result.answer()).startsWith(FIRST).doesNotContain(SECOND);
+        verify(capture).recordGuardResult(eq(91L), eq(BODY), org.mockito.ArgumentMatchers.argThat(saved ->
+                !saved.contentRemoved() && !saved.rejected() && saved.answer().equals(result.answer())));
+    }
+
+    @Test
+    void replacingModelTextWithRetrievedProductListingIsNotGuardFiltering() {
+        when(tools.resolve(any())).thenReturn(List.of(mock(org.springframework.ai.tool.ToolCallback.class)));
+        var input = AnswerMaterials.builder("요금제 종류")
+                .enableTool(com.ubot.ai.tool.AiTool.PLAN_SEARCH).build().withReviewAttempt(71L);
+        when(generation.generateAnswer(any())).thenAnswer(call -> {
+            LlmRequestDto request = call.getArgument(0);
+            var recorder = (com.ubot.ai.tool.product.ProductDataRecorder) request.toolContext()
+                    .get(com.ubot.ai.tool.product.ProductDataRecorder.CONTEXT_KEY);
+            var card = new com.ubot.ai.dto.ProductDataCards.ProductCard(com.ubot.ai.tool.product.ProductType.PLAN,
+                    "검증 요금제", 10000, List.of(), List.of());
+            recorder.record(card, "검증 요금제 월 10,000원");
+            recorder.searched(new com.ubot.ai.tool.product.ProductListing("요금제", "월정액 낮은 순", 1, List.of(card)));
+            return new LlmResponseDto(RAW);
+        });
+        var result = service.generateAnswer(input);
+        assertThat(result.answer()).contains("검증 요금제").isNotEqualTo(BODY);
+        verify(capture).recordGuardResult(eq(91L), eq(BODY), org.mockito.ArgumentMatchers.argThat(saved ->
+                !saved.contentRemoved() && !saved.rejected() && saved.answer().equals(result.answer())));
+    }
+
+    @Test
     void disablingOutputSkipsBothGuardsButKeepsSlotsAndRawCapture() {
         properties.setEnabled(false);
         var result = service.generateAnswer(materials);
@@ -121,7 +154,7 @@ class AiGuardMergedFlowTest {
             verify(llm, times(1)).validate(eq(result.answer()), any(), any(), any());
             verify(capture).recordGuardResult(eq(91L), eq(BODY),
                     org.mockito.ArgumentMatchers.argThat(saved -> saved.stage() == Stage.LLM && !saved.rejected()
-                            && saved.reasons().equals(Set.of(reason)) && saved.answer().equals(result.answer())));
+                            && saved.contentRemoved() && saved.reasons().equals(Set.of(reason)) && saved.answer().equals(result.answer())));
         }
         verify(capture, org.mockito.Mockito.never()).recordFailure(any(), any(), any());
         verify(generation, times(1)).generateAnswer(any());

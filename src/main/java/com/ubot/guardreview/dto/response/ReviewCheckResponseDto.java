@@ -7,5 +7,9 @@ import java.util.List;
 
 public record ReviewCheckResponseDto(long id, Long attemptId, Origin origin, Outcome outcome,
 		List<String> reasons, String question, String answerPreview, LocalDateTime createdAt,
-		boolean detailsRetained) {
+		boolean detailsRetained, List<Origin> skippedOrigins) {
+	public ReviewCheckResponseDto(long id, Long attemptId, Origin origin, Outcome outcome,
+			List<String> reasons, String question, String answerPreview, LocalDateTime createdAt, boolean detailsRetained) {
+		this(id, attemptId, origin, outcome, reasons, question, answerPreview, createdAt, detailsRetained, List.of());
+	}
 }

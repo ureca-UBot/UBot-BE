@@ -96,7 +96,7 @@ public class AdminReviewController {
 	public ApiResponse<Settings> updateSettings(@AuthenticationPrincipal CustomUserDetails user,
 			@Valid @RequestBody ReviewSettingsRequestDto body) {
 		return ApiResponse.success(service.updateSettings(body.enabled(), body.intervalMinutes(),
-				body.groupingThreshold(), body.revision(), admin(user)));
+				body.groupingThreshold(), body.revision(), admin(user), body.analysisSource()));
 	}
 	@PostMapping("/analysis")
 	public ApiResponse<Long> startAnalysis(@AuthenticationPrincipal CustomUserDetails user) {

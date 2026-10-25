@@ -62,14 +62,20 @@ class ReviewCaptureServiceTest {
 	}
 
 	@Test
-	void 일부제거와_정상통과를_본문_비교로_구분한다() {
+	void 일부제거와_정상통과를_실제_제거_신호로_구분한다() {
 		transactionReady();
-		capture.recordGuardResult(1L, "정상. 위험.", new OutputGuardResult("정상.", false, Set.of()));
+		capture.recordGuardResult(1L, "정상. 위험.", new OutputGuardResult("정상.", false, Set.of(), true));
 		capture.recordGuardResult(2L, "정상.", new OutputGuardResult("정상.", false, Set.of()));
 		verify(repository).recordCaptureResult(1, "정상. 위험.", "정상.", "FILTERED", "[]", "CODE");
 		verify(repository).recordCaptureResult(2, "정상.", "정상.", "PASS", "[]", "CODE");
 	}
 
+	@Test
+	void 고지나_목록으로_본문이_달라도_가드가_제거하지않으면_통과다() {
+		transactionReady();
+		capture.recordGuardResult(8L, "모델 원문", new OutputGuardResult("코드 고지가 붙은 최종 본문", false, Set.of()));
+		verify(repository).recordCaptureResult(8, "모델 원문", "코드 고지가 붙은 최종 본문", "PASS", "[]", "CODE");
+	}
 	@Test
 	void 판정기록_장애에도_원래_흐름에_예외를_추가하지않는다() {
 		transactionReady();

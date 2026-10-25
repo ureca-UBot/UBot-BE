@@ -404,6 +404,8 @@ class GuardReviewPostgresIntegrationTest {
 		Long capture = api.getBean(ReviewCaptureService.class).captureResponse(UUID.randomUUID(), id, a);
 		api.getBean(ReviewCaptureService.class).recordGuardResult(capture, a,
 				new com.ubot.ai.dto.OutputGuardResult(a, false, Set.of()));
+		// Legacy unknown-origin fixtures preserve the original mixed question/answer admin tests.
+		db.update("UPDATE guard_review_items SET guard_origin='UNKNOWN' WHERE id=?", capture);
 	}
 	JsonNode request(MockHttpServletRequestBuilder request, Object body, int expected) throws Exception {
 		return request(request, body, expected, admin);
@@ -1130,6 +1132,7 @@ class GuardReviewPostgresIntegrationTest {
 
 	@Test
 	void rejectedCheckAnalysisUsesHashedKeysAndKeepsIncrementalAndWarningDedupe() throws Exception {
+		db.update("UPDATE guard_review_settings SET analysis_source='INPUT_CODE' WHERE id=1");
 		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
 		UUID capture = UUID.randomUUID();
 		checks.save(capture, null, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_CODE,
@@ -1168,6 +1171,99 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(db.queryForObject("SELECT outcome FROM guard_review_checks WHERE id=?", String.class, check))
 				.isEqualTo("REVIEW");
 		assertThat(MODEL.calls.get()).isZero();
+	}
+
+	@Test
+	void defaultSourceIncludesEveryGeneratedAnswerEvenWhenOutputCheckRecordsExist() throws Exception {
+		var capture = api.getBean(ReviewCaptureService.class);
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		for (String outcome : List.of("PASS", "REJECTED", "REVIEW", "ERROR", "SKIPPED")) {
+			long attempt = uncapturedAttempt("원문 질문", "all-" + outcome, 1);
+			long id = capture.captureResponse(UUID.randomUUID(), attempt, "위험출력문장");
+			switch (outcome) {
+				case "PASS" -> capture.recordGuardResult(id, "위험출력문장", new com.ubot.ai.dto.OutputGuardResult("위험출력문장", false, Set.of()));
+				case "SKIPPED" -> capture.recordGuardResult(id, "위험출력문장", new com.ubot.ai.dto.OutputGuardResult("위험출력문장", false, Set.of(), false, com.ubot.ai.dto.OutputGuardResult.Stage.DISABLED));
+				case "ERROR" -> capture.recordFailure(id, "위험출력문장", "FORMAT_ERROR");
+				default -> capture.recordGuardDecision(id, "위험출력문장", ReviewCaptureService.Decision.valueOf(outcome), com.ubot.ai.dto.OutputGuardResult.Stage.LLM, List.of("POLICY_VIOLATION"));
+			}
+			checks.save(UUID.randomUUID(), attempt, com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM,
+					com.ubot.guardreview.model.ReviewCheckModels.Outcome.PASS, List.of(), "원문 질문", "위험출력문장", "위험출력문장", null, "{}");
+		}
+		assertThat(repo.settings(false).analysisSource()).isEqualTo(AnalysisSource.GENERATED_ANSWER);
+		long run = scheduled();
+		drain(run);
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+		assertThat(repo.run(run).total()).isEqualTo(5);
+		assertThat(count("guard_review_items WHERE run_id=" + run + " AND guard_origin='OUTPUT_RAW'")).isEqualTo(5);
+		long next = scheduled();
+		drain(next);
+		assertThat(repo.run(next).total()).isZero();
+	}
+
+	@Test
+	void weeklyScopeIsFrozenAndSwitchingOptionsDoesNotSkipUnanalyzedSources() throws Exception {
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.PASS, List.of(), "위험문장A", null, null, null, "{}");
+		checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.PASS, List.of(), "정상 질문", "위험출력문장", "위험출력문장", null, "{}");
+		var settings = repo.settings(false);
+		reviews.updateSettings(true, 10080, settings.groupingThreshold(), settings.revision(), 99L, AnalysisSource.INPUT_LLM);
+		long first = scheduled();
+		settings = repo.settings(false);
+		reviews.updateSettings(true, 10080, settings.groupingThreshold(), settings.revision(), 99L, AnalysisSource.OUTPUT_LLM);
+		assertThat(JSON.readTree(repo.request(first)).path("analysisSource").asString()).isEqualTo("INPUT_LLM");
+		assertThat(db.queryForList("SELECT guard_origin FROM guard_review_items WHERE run_id=?", String.class, first)).containsExactly("INPUT_LLM");
+		drain(first);
+		assertThat(repo.run(first).status()).isEqualTo("COMPLETED");
+		long second = scheduled();
+		drain(second);
+		assertThat(repo.run(second).total()).isEqualTo(1);
+		settings = repo.settings(false);
+		// Old clients omit the new source field: saving a period must preserve the selected option.
+		reviews.updateSettings(true, 10080, settings.groupingThreshold(), settings.revision(), 99L);
+		assertThat(repo.settings(false).analysisSource()).isEqualTo(AnalysisSource.OUTPUT_LLM);
+		settings = repo.settings(false);
+		reviews.updateSettings(true, 10080, settings.groupingThreshold(), settings.revision(), 99L, AnalysisSource.INPUT_LLM);
+		long third = scheduled();
+		drain(third);
+		assertThat(repo.run(third).total()).isZero();
+	}
+
+	@Test
+	void failedAndChangedSourcesAreNotLostByWeeklyIncrementalAnalysis() throws Exception {
+		var capture = api.getBean(ReviewCaptureService.class);
+		long attempt = uncapturedAttempt("질문", "failed-checkpoint", 1);
+		long original = capture.captureResponse(UUID.randomUUID(), attempt, "위험출력문장");
+		capture.recordGuardResult(original, "위험출력문장", new com.ubot.ai.dto.OutputGuardResult("위험출력문장", false, Set.of()));
+		long failed = scheduled();
+		db.update("UPDATE guard_review_items SET status='FAILED' WHERE run_id=?", failed);
+		db.update("UPDATE guard_review_runs SET status='FAILED',finished_at=LOCALTIMESTAMP WHERE id=?", failed);
+		long retry = scheduled();
+		drain(retry);
+		assertThat(repo.run(retry).total()).isEqualTo(1);
+		db.update("UPDATE guard_review_items SET answer_snapshot='두번째위험출력',source_fingerprint=encode(sha256(convert_to('changed','UTF8')),'hex'),updated_at=LOCALTIMESTAMP WHERE id=?", original);
+		long changed = scheduled();
+		drain(changed);
+		assertThat(repo.run(changed).total()).isEqualTo(1);
+		assertThat(repo.run(changed).status()).isEqualTo("COMPLETED");
+	}
+
+	@Test
+	void skippedChecksUseOneSummaryAndRemainFilterableWithoutPretendingTheyPassed() {
+		long attempt = uncapturedAttempt("검사 생략 질문", "skipped-summary", 1);
+		var service = api.getBean(ReviewCheckService.class);
+		service.beginAttempt(attempt);
+		service.finishAttempt(attempt, "검사 생략 질문");
+		assertThat(count("guard_review_checks WHERE attempt_id=" + attempt)).isEqualTo(1);
+		var page = service.page(com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.SKIPPED, 0, 20);
+		assertThat(page.totalElements()).isEqualTo(1);
+		assertThat(page.content().getFirst().skippedOrigins()).containsExactly(
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_CODE,
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM);
+		assertThat(service.detail(page.content().getFirst().id()).context()).isEmpty();
 	}
 
 	long uncapturedAttempt(String question, String key, int attempt) {
@@ -1233,22 +1329,32 @@ class GuardReviewPostgresIntegrationTest {
 	@Test
 	void filteredOutputIsAnalyzedInFullAndBothUnsafeSpansBecomeWarnings() throws Exception {
 		long attempt = uncapturedAttempt("원문 질문", "filtered", 1);
-		String original = "정상 안내. 위험출력문장. 두번째위험출력.";
-		String raw = JSON.writeValueAsString(Map.of("answer", original, "evidence_ids", List.of(), "status", "ANSWER"));
-		var ai = capturedAi(raw, fixedGuard(new com.ubot.ai.dto.OutputGuardResult("정상 안내.", false,
-				Set.of(com.ubot.ai.dto.OutputGuardResult.Reason.POLICY_VIOLATION))));
-		assertThat(ai.generateAnswer(captureMaterials(attempt)).answer()).isEqualTo("정상 안내.");
+		String unsafe = "위험출력문장. 두번째위험출력.";
+		String original = unsafe + "\n\n정상 안내.";
+		String raw = JSON.writeValueAsString(Map.of("answers", List.of(
+				Map.of("answer", unsafe, "status", "ANSWER"), Map.of("answer", "정상 안내.", "status", "ANSWER")), "evidence_ids", List.of()));
+		var guard = org.mockito.Mockito.mock(com.ubot.ai.service.AiOutputGuardService.class);
+		org.mockito.Mockito.when(guard.inspectAnswer(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyList(),
+				org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
+				unsafe.equals(call.getArgument(0)) ? new com.ubot.ai.dto.OutputGuardResult(null, false,
+						Set.of(com.ubot.ai.dto.OutputGuardResult.Reason.ANSWER_ERROR), true)
+				: new com.ubot.ai.dto.OutputGuardResult(call.getArgument(0), false, Set.of()));
+		var materials = com.ubot.ai.dto.AnswerMaterials.builder("정리된 전달 질문")
+				.addSection(new com.ubot.ai.dto.ContextSection("테스트 근거", "일반 안내"))
+				.subQuestions(List.of(new com.ubot.ai.dto.SubQuestionFaqs("첫 질문", List.of(), "첫 질문"),
+						new com.ubot.ai.dto.SubQuestionFaqs("둘째 질문", List.of(), "둘째 질문"))).build().withReviewAttempt(attempt);
+		String delivered = capturedAi(raw, guard).generateAnswer(materials).answer();
+		assertThat(delivered).startsWith("정상 안내.").doesNotContain("위험출력문장", "두번째위험출력");
 		assertThat(captured(attempt)).containsEntry("answer_snapshot", original)
-				.containsEntry("raw_response_snapshot", raw).containsEntry("final_answer_snapshot", "정상 안내.")
+				.containsEntry("raw_response_snapshot", raw).containsEntry("final_answer_snapshot", delivered)
 				.containsEntry("guard_outcome", "FILTERED");
 		long run = scheduled();
 		drain(run);
 		assertThat(MODEL.inputs.getLast()).contains("위험출력문장", "두번째위험출력");
 		assertThat(count("guard_review_candidates WHERE kind='WARNING'")).isEqualTo(2);
 		assertThat(count("forbidden_words")).isZero();
-		var finding = repo.findings(word("두번째위험출력")).getFirst();
-		assertThat(finding).containsEntry("guardOutcome", "FILTERED").containsEntry("answer", original)
-				.containsEntry("finalAnswer", "정상 안내.");
+		assertThat(repo.findings(word("두번째위험출력")).getFirst())
+				.containsEntry("guardOutcome", "FILTERED").containsEntry("answer", original).containsEntry("finalAnswer", delivered);
 	}
 
 	@Test
@@ -1528,17 +1634,17 @@ class GuardReviewPostgresIntegrationTest {
 		String rawKey = "llm:" + attempt + ":" + captureKey;
 		String expected = sourceKeyHash(rawKey);
 		var capture = api.getBean(ReviewCaptureService.class);
-		long id = capture.captureResponse(captureKey, attempt, "정상 모델 응답");
+		long id = capture.captureResponse(captureKey, attempt, "위험출력문장");
 		assertThat(captured(attempt).get("source_key")).isEqualTo(expected);
 		assertThat(expected).matches("^sha256:[0-9a-f]{64}$").doesNotContain(captureKey.toString());
-		capture.recordGuardResult(id, "정상 모델 응답", new com.ubot.ai.dto.OutputGuardResult("정상 모델 응답", false, Set.of()));
+		capture.recordGuardResult(id, "위험출력문장", new com.ubot.ai.dto.OutputGuardResult("위험출력문장", false, Set.of()));
 		assertThat(capture.captureResponse(captureKey, attempt, "재저장 호출")).isEqualTo(id);
 		assertThat(captured(attempt)).containsEntry("source_key", expected)
-				.containsEntry("raw_response_snapshot", "정상 모델 응답").containsEntry("guard_outcome", "PASS");
+				.containsEntry("raw_response_snapshot", "위험출력문장").containsEntry("guard_outcome", "PASS");
 		long first = scheduled();
 		drain(first);
 		assertThat(repo.run(first).total()).isEqualTo(1);
-		long candidate = word("위험문장A");
+		long candidate = word("위험출력문장");
 		var finding = request(get("/admin/guard-review/candidates/{id}/findings", candidate), null, 200).path("data")
 				.get(0);
 		assertThat(finding.path("sourceKey").asText()).isEqualTo(expected);
@@ -1554,9 +1660,9 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(count("notifications")).isEqualTo(notifications);
 		assertThat(db.queryForList("SELECT DISTINCT source_key FROM guard_review_items WHERE source_id=?", String.class,
 				attempt)).containsExactly(expected);
-		long secondCapture = capture.captureResponse(UUID.randomUUID(), attempt, "정상 모델 응답");
-		capture.recordGuardResult(secondCapture, "정상 모델 응답",
-				new com.ubot.ai.dto.OutputGuardResult("정상 모델 응답", false, Set.of()));
+		long secondCapture = capture.captureResponse(UUID.randomUUID(), attempt, "위험출력문장");
+		capture.recordGuardResult(secondCapture, "위험출력문장",
+				new com.ubot.ai.dto.OutputGuardResult("위험출력문장", false, Set.of()));
 		assertThat(captured(attempt).get("source_key")).isNotEqualTo(expected);
 		long next = scheduled();
 		drain(next);
@@ -1574,11 +1680,11 @@ class GuardReviewPostgresIntegrationTest {
 		UUID captureKey = UUID.randomUUID();
 		String expected = sourceKeyHash("llm:" + attempt + ":" + captureKey);
 		var capture = api.getBean(ReviewCaptureService.class);
-		long id = capture.captureResponse(captureKey, attempt, "정상 모델 응답");
-		capture.recordGuardResult(id, "정상 모델 응답", new com.ubot.ai.dto.OutputGuardResult("정상 모델 응답", false, Set.of()));
+		long id = capture.captureResponse(captureKey, attempt, "위험출력문장");
+		capture.recordGuardResult(id, "위험출력문장", new com.ubot.ai.dto.OutputGuardResult("위험출력문장", false, Set.of()));
 		long run = scheduled();
 		drain(run);
-		long candidate = word("위험문장A");
+		long candidate = word("위험출력문장");
 		db.update("DELETE FROM answer_attempts_history WHERE attempt_id=?", attempt);
 		assertThat(count("guard_review_items WHERE source_id IS NOT NULL")).isZero();
 		assertThat(count("guard_review_findings WHERE source_id IS NOT NULL")).isZero();

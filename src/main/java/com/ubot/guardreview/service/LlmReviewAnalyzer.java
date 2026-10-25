@@ -27,7 +27,8 @@ public class LlmReviewAnalyzer implements ReviewAnalyzer {
 			origin은 검출 출처입니다. 실시간 가드의 차단은 의심 신호이며 확정 오류나 코드 우회 증명이 아닙니다.
 			INPUT_CODE/INPUT_LLM은 사용자 질문과 history의 사용자 질문에서 위험 단어·문장만 검토하세요.
 			입력 질문의 사실 여부·환각은 검사하지 마세요. 피해 신고·도움 요청·설명용 인용은 추천하지 마세요.
-			OUTPUT_CODE/OUTPUT_LLM은 답변을 검토하고, 사실 문제는 context의 당시 FAQ·추가 근거·실행 결과와 대조하세요.
+			OUTPUT_RAW는 출력 가드 전 생성 답변입니다. 질문은 문맥으로만 사용하고 OUTPUT 답변에서 후보를 찾으세요.
+			OUTPUT_RAW/OUTPUT_CODE/OUTPUT_LLM은 답변을 검토하고, 사실 문제는 context의 당시 FAQ·추가 근거·실행 결과와 대조하세요.
 			외부 지식으로 보충하거나 자료 부족을 사실 오류로 확정하지 마세요. 정상 거절·조회 불가 안내는 추천하지 마세요.
 			사실 오류는 반드시 WARNING, intent=FACTUAL_ERROR로만 제안하고 reason에 충돌한 근거와 조건을 구체적으로 적으세요.
 			사실 오류 category는 FALSE_EXECUTION,POLICY_CONTRADICTION,UNSUPPORTED_CLAIM,WRONG_SERVICE,CONDITION_DISTORTION입니다.

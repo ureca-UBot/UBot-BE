@@ -14,8 +14,6 @@ import com.ubot.guardreview.exception.ReviewErrorCode;
 import com.ubot.guardreview.exception.ReviewException;
 import com.ubot.guardreview.repository.ReviewCheckRepository;
 import com.ubot.llm.dto.request.LlmRequestDto;
-import com.ubot.llm.enums.LlmMessageRole;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +45,8 @@ public class ReviewCheckService {
 	}
 
 	public void inputCode(String question, Outcome outcome, String reason) {
+		// 접수 시 정상 질문의 동기 중복 INSERT는 생략합니다. 생성 답변과 LLM 검사 PASS 수집은 유지합니다.
+		if (outcome == Outcome.PASS || outcome == Outcome.SKIPPED) return;
 		record(null, Origin.INPUT_CODE, outcome, question, null, null, List.of(reason), null, Map.of());
 	}
 
@@ -79,29 +79,10 @@ public class ReviewCheckService {
 	}
 
 	private Map<String, Object> outputContext(AnswerMaterials materials, StoreMapResult stores) {
-		Map<String, Object> context = new LinkedHashMap<>();
-		context.put("provided_faqs", materials.faqs());
-		context.put("additional_evidence", materials.sections());
-		context.put("history", materials.history());
-		context.put("store_results", stores);
-		context.put("tool_records", materials.toolRecords());
-		context.put("sub_questions", materials.subQuestions());
-		return context;
+		return ReviewContextSnapshot.output(materials, stores);
 	}
-
-	@SuppressWarnings("unchecked")
 	private Map<String, Object> requestData(LlmRequestDto request) {
-		var context = new LinkedHashMap<String, Object>();
-		try {
-			request.messages().stream().filter(m -> m.role() == LlmMessageRole.USER).findFirst()
-					.ifPresent(message -> context.putAll(JSON.readValue(message.content(), Map.class)));
-		} catch (RuntimeException exception) {
-			// 불완전한 자료를 정상 FAQ 스냅샷으로 표시하지 않습니다. 판정 자체는 유지합니다.
-			context.put("snapshot_unavailable", true);
-		}
-		// 당시 입력 자료는 고정하되 전체 금칙어 사전과 시스템 프롬프트는 원문 기록에 복제하지 않습니다.
-		context.remove("forbidden_words");
-		return context;
+		return ReviewContextSnapshot.request(request);
 	}
 
 	public void beginAttempt(Long attemptId) {
@@ -118,7 +99,7 @@ public class ReviewCheckService {
 		if (skipped.isEmpty()) return;
 		try {
 			transaction.executeWithoutResult(status -> {
-				for (Origin origin : skipped) repository.saveSkippedIfAbsent(attemptId, question, origin);
+				repository.saveSkippedSummary(attemptId, question, skipped.stream().sorted().toList());
 			});
 		} catch (RuntimeException exception) {
 			log.warn("가드 미실행 기록 저장 실패: 오류유형={}", exception.getClass().getSimpleName());

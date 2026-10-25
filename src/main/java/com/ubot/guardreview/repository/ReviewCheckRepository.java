@@ -29,7 +29,7 @@ public class ReviewCheckRepository {
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 	private static final String AVAILABLE = "details_retained AND created_at>=LOCALTIMESTAMP-make_interval(days => "
 			+ RETENTION.detailDays() + ")";
-	private static final String SUMMARY = "id,attempt_id,origin,outcome,reason_codes::text,created_at,"
+	private static final String SUMMARY = "id,attempt_id,origin,outcome,reason_codes::text,skipped_origins::text,created_at,"
 			+ AVAILABLE + " AS available,CASE WHEN " + AVAILABLE + " THEN question_snapshot END AS question,"
 			+ "CASE WHEN " + AVAILABLE + " THEN left(answer_snapshot,240) END AS preview";
 
@@ -47,7 +47,11 @@ public class ReviewCheckRepository {
 	public PageResponseDto<ReviewCheckResponseDto> page(Origin origin, Outcome outcome, int page, int size) {
 		List<Object> parameters = new ArrayList<>();
 		String where = " WHERE created_at>=LOCALTIMESTAMP-make_interval(days => " + RETENTION.summaryDays() + ")";
-		if (origin != null) { where += " AND origin=?"; parameters.add(origin.name()); }
+		if (origin != null) {
+			where += " AND (origin=? OR (outcome='SKIPPED' AND skipped_origins @> ?::jsonb))";
+			parameters.add(origin.name());
+			parameters.add(JSON.writeValueAsString(List.of(origin.name())));
+		}
 		if (outcome != null) { where += " AND outcome=?"; parameters.add(outcome.name()); }
 		Long total = jdbc.queryForObject("SELECT count(*) FROM guard_review_checks" + where, Long.class,
 				parameters.toArray());
@@ -58,14 +62,17 @@ public class ReviewCheckRepository {
 		return PageResponseDto.of(rows, page, size, total == null ? 0 : total);
 	}
 
-	public void saveSkippedIfAbsent(long attemptId, String question, Origin origin) {
-		UUID key = UUID.nameUUIDFromBytes(("skipped:" + attemptId + ":" + origin).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+	/** 미실행 검사는 최대 세 행 대신 시도당 한 요약으로 보존합니다. 실제 판정은 덮어쓰지 않습니다. */
+	public void saveSkippedSummary(long attemptId, String question, List<Origin> skipped) {
+		if (skipped.isEmpty()) return;
+		UUID key = UUID.nameUUIDFromBytes(("skipped-summary:" + attemptId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 		jdbc.update("""
-				INSERT INTO guard_review_checks(capture_key,attempt_id,origin,outcome,reason_codes,question_snapshot)
-				SELECT ?,?,?,'SKIPPED','["NOT_CALLED"]'::jsonb,?
-				WHERE NOT EXISTS (SELECT 1 FROM guard_review_checks WHERE attempt_id=? AND origin=?)
-				ON CONFLICT(capture_key) DO NOTHING
-				""", key, attemptId, origin.name(), question, attemptId, origin.name());
+				INSERT INTO guard_review_checks(capture_key,attempt_id,origin,outcome,reason_codes,question_snapshot,skipped_origins)
+				SELECT ?,?,'UNKNOWN','SKIPPED','["NOT_CALLED"]'::jsonb,?,COALESCE(jsonb_agg(skipped.origin),'[]'::jsonb)
+				FROM jsonb_array_elements_text(?::jsonb) AS skipped(origin)
+				WHERE NOT EXISTS (SELECT 1 FROM guard_review_checks actual WHERE actual.attempt_id=? AND actual.origin=skipped.origin)
+				HAVING count(*)>0 ON CONFLICT(capture_key) DO NOTHING
+				""", key, attemptId, question, JSON.writeValueAsString(skipped.stream().map(Enum::name).toList()), attemptId);
 	}
 
 	public ReviewCheckDetailResponseDto detail(long id) {
@@ -100,7 +107,8 @@ public class ReviewCheckRepository {
 		return new ReviewCheckResponseDto(r.getLong("id"), r.getObject("attempt_id", Long.class),
 				Origin.valueOf(r.getString("origin")), Outcome.valueOf(r.getString("outcome")),
 				List.of(JSON.readValue(r.getString("reason_codes"), String[].class)), r.getString("question"),
-				r.getString("preview"), r.getObject("created_at", LocalDateTime.class), r.getBoolean("available"));
+				r.getString("preview"), r.getObject("created_at", LocalDateTime.class), r.getBoolean("available"),
+				List.of(JSON.readValue(r.getString("skipped_origins"), Origin[].class)));
 	}
 
 	@SuppressWarnings("unchecked")

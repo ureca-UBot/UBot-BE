@@ -29,8 +29,8 @@ class ReviewCheckRepositoryTest {
 	}
 	@Test
 	void 원문검색_생략기록이_실제판정을_덮어쓰지않는다() {
-		checks.saveSkippedIfAbsent(1, "질문", Origin.INPUT_LLM);
-		assertThat(sql()).contains("WHERE NOT EXISTS", "attempt_id=? AND origin=?", "'SKIPPED'", "ON CONFLICT(capture_key) DO NOTHING");
+		checks.saveSkippedSummary(1, "질문", java.util.List.of(Origin.INPUT_LLM, Origin.OUTPUT_CODE, Origin.OUTPUT_LLM));
+		assertThat(sql()).contains("WHERE NOT EXISTS", "actual.attempt_id=? AND actual.origin=skipped.origin", "'SKIPPED'", "jsonb_agg(skipped.origin)", "skipped_origins", "ON CONFLICT(capture_key) DO NOTHING");
 	}
 	@Test
 	void 상세원문은_만료즉시_조회에서_숨기고_이후_본문을_정리한다() {
@@ -43,7 +43,7 @@ class ReviewCheckRepositoryTest {
 	@Test
 	void 통과답변필터는_OUTPUT_LLM과_PASS만_동시에_조회한다() {
 		checks.page(Origin.OUTPUT_LLM, Outcome.PASS, 0, 20);
-		assertThat(sql()).contains("AND origin=? AND outcome=?", "LIMIT ? OFFSET ?").doesNotContain("outcome<>'REJECTED'");
+		assertThat(sql()).contains("AND (origin=? OR (outcome='SKIPPED' AND skipped_origins @> ?::jsonb)) AND outcome=?", "LIMIT ? OFFSET ?").doesNotContain("outcome<>'REJECTED'");
 	}
 	@Test
 	void 원본질문은_실제시도이력에서_가져오고_없는입력차단은_전달원문을_사용한다() {

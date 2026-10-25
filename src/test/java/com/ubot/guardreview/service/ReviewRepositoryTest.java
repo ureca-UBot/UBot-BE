@@ -68,8 +68,8 @@ class ReviewRepositoryTest {
 	@Test
 	void 검사_분석과_보류_재검토는_기존_해시_제약에_맞는_같은_중복키를_사용한다() {
 		String hashedKey = "'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex')";
-		repository.snapshotSources(7, AnalysisMode.INCREMENTAL);
-		assertThat(sql()).contains("g.attempt_id," + hashedKey, "previous.source_key=" + hashedKey);
+		repository.snapshotSources(7, AnalysisMode.INCREMENTAL, AnalysisSource.INPUT_LLM);
+		assertThat(sql()).contains(hashedKey, "previous.source_key=g.source_key", "g.origin=?", "g.outcome IN ('PASS','FILTERED','REJECTED')");
 		clearInvocations(jdbc);
 		repository.snapshotReviewSources(8, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
 				java.util.List.of(1L));

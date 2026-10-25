@@ -12,6 +12,7 @@ import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.guardreview.service.*;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -126,8 +127,9 @@ public class ReviewWorker {
 	private AnalysisResult analyze(long id, UUID token, Source source, ReviewLeaseService.Lease lease,
 			ReviewModelRuntime.Session model) {
 		try {
-			var reassessment = "REVIEW".equals(source.outcome()) ? analyzer.reassess(source) : null;
-			if ("REVIEW".equals(source.outcome())) {
+			boolean review = "REVIEW".equals(source.outcome()) && List.of("INPUT_LLM", "OUTPUT_LLM").contains(source.origin());
+			var reassessment = review ? analyzer.reassess(source) : null;
+			if (review) {
 				if (reassessment == null) throw new IllegalArgumentException("보류 재검토 결과가 없습니다.");
 				reassessment.validate(source);
 			}

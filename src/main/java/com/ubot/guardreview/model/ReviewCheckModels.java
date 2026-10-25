@@ -6,6 +6,6 @@ public final class ReviewCheckModels {
 	private ReviewCheckModels() {
 	}
 
-	public enum Origin { INPUT_CODE, INPUT_LLM, OUTPUT_CODE, OUTPUT_LLM, UNKNOWN }
+	public enum Origin { INPUT_CODE, INPUT_LLM, OUTPUT_CODE, OUTPUT_LLM, OUTPUT_RAW, UNKNOWN }
 	public enum Outcome { PASS, FILTERED, REJECTED, REVIEW, ERROR, SKIPPED, UNKNOWN }
 }

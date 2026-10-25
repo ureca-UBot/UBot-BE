@@ -2,6 +2,8 @@ package com.ubot.guardreview.service;
 
 import com.ubot.ai.dto.OutputGuardResult;
 import com.ubot.ai.dto.OutputGuardResult.Stage;
+import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.guardreview.repository.ReviewRepository;
 import java.util.List;
 import java.util.UUID;
@@ -45,9 +47,18 @@ public class ReviewCaptureService {
 		if (captureId == null)
 			return;
 		String outcome = result.stage() == Stage.DISABLED ? "SKIPPED"
-				: result.rejected() ? "REJECTED" : java.util.Objects.equals(originalAnswer, result.answer()) ? "PASS" : "FILTERED";
+				: result.rejected() ? "REJECTED" : result.contentRemoved() ? "FILTERED" : "PASS";
 		record(captureId, originalAnswer, result.answer(), outcome,
 				result.reasons().stream().map(Enum::name).sorted().toList(), result.stage().name());
+	}
+	public void recordContext(Long captureId, AnswerMaterials materials, StoreMapResult stores) {
+		if (captureId == null) return;
+		try {
+			String context = JSON.writeValueAsString(ReviewContextSnapshot.output(materials, stores));
+			transaction.executeWithoutResult(status -> repository.recordCaptureContext(captureId, context));
+		} catch (RuntimeException exception) {
+			log.warn("수집 답변 근거 기록 실패: 수집ID={}, 오류유형={}", captureId, exception.getClass().getSimpleName());
+		}
 	}
 
 	/** 가드 보류·거절과 기술 오류를 구분합니다. 차단된 최종 답변은 보존하지 않습니다. */

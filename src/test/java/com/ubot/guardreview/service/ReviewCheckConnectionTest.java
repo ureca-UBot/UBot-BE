@@ -85,10 +85,15 @@ class ReviewCheckConnectionTest {
 		when(model.generate(any())).thenReturn(new LlmResponseDto("{\"findings\":[]}"));
 		output.validate("정상 답변", List.of(), materials, null);
 		checks.finishAttempt(1L, "요금 안내");
-		verify(repository, never()).saveSkippedIfAbsent(1L, "요금 안내", Origin.OUTPUT_LLM);
-		verify(repository).saveSkippedIfAbsent(1L, "요금 안내", Origin.INPUT_LLM);
+		verify(repository).saveSkippedSummary(1L, "요금 안내", List.of(Origin.INPUT_LLM, Origin.OUTPUT_CODE));
 	}
 
+	@Test
+	void 정상_접수_PASS는_HTTP_스레드에서_DB를_기다리지않는다() {
+		checks.inputCode("정상 문의", Outcome.PASS, "SUBMISSION_CHECK");
+		checks.inputCode("정상 문의", Outcome.SKIPPED, "SUBMISSION_CHECK");
+		verifyNoInteractions(repository);
+	}
 	@Test
 	void 입력코드차단은_답변이나_attempt가_없어도_남는다() {
 		var injection = mock(ChatPromptInjectionService.class);

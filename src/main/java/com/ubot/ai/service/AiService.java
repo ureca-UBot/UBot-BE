@@ -132,6 +132,7 @@ public class AiService {
                         inspected = inspected.withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, productRecords));
                     }
                 }
+                reviewCaptureService.recordContext(captureId, inspected, storeMap);
                 // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
                 listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
                 if (listing.isPresent()) {
@@ -164,7 +165,8 @@ public class AiService {
                 }
                 reviewCaptureService.recordGuardResult(captureId, originalAnswer,
                         new OutputGuardResult(answer, false, inspection == null ? Set.of() : inspection.reasons(),
-                                inspection != null && inspection.contentRemoved(),
+                                slotOutcomes != null ? slotOutcomes.stream().anyMatch(AiAnswer.SlotOutcome::changedByGuard)
+                                        : inspection != null && inspection.contentRemoved(),
                                 !outputGuardProperties.isEnabled() ? Stage.DISABLED
                                         : outputGuardProperties.isLlmEnabled() ? Stage.LLM : Stage.CODE));
             } catch (RuntimeException exception) {
