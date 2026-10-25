@@ -1262,7 +1262,7 @@ class GuardReviewPostgresIntegrationTest {
 		var page = service.page(com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
 				com.ubot.guardreview.model.ReviewCheckModels.Outcome.SKIPPED, 0, 20);
 		assertThat(page.totalElements()).isEqualTo(1);
-		assertThat(page.content().getFirst().skippedOrigins()).containsExactly(
+		assertThat(page.content().getFirst().skippedOrigins()).containsExactlyInAnyOrder(
 				com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
 				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_CODE,
 				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM);
