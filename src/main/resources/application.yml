@@ -163,7 +163,7 @@ faq:
   confidence-threshold: ${CHAT_CONFIDENCE_THRESHOLD:0.79}
   cache:
     # 공식 FAQ 답변을 그대로 반환합니다. 운영 질문셋 검증 후 켭니다.
-    enabled: ${FAQ_CACHE_ENABLED:false}
+    enabled: ${FAQ_CACHE_ENABLED:true}
     min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
     min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
   variant:
