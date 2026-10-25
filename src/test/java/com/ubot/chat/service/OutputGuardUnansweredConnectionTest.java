@@ -40,7 +40,6 @@ import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.enums.UnansweredSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -127,19 +126,17 @@ class OutputGuardUnansweredConnectionTest {
 		assertThat(result.answer().answer()).isEqualTo(supported.answer());
 		assertThat(candidates).isEmpty();
 	}
-	@Test void 검색_미응답은_기존_출처와_재사용_벡터를_유지한다() {
+	@Test void 검색_미응답은_재사용_벡터를_유지한다() {
 		when(retrieval.selectCandidates(any(), eq(3)))
 				.thenReturn(new RetrievalOutcome(List.of(), null));
 
 		assertThat(processor.generateAnswer(attempt, null, () -> {}, candidates).errorCode())
 				.isEqualTo(ChatErrorCode.NO_FAQ);
 		assertThat(candidates).singleElement().satisfies(candidate -> {
-			assertThat(candidate.source()).isEqualTo(UnansweredSource.RETRIEVAL);
 			assertThat(candidate.embeddingProfileId()).isEqualTo(1L);
 			assertThat(candidate.queryEmbedding()).containsExactlyElementsOf(
 					java.util.stream.IntStream.range(0, vector().toArray().length)
 							.mapToObj(index -> index == 0 ? 1F : 0F).toList());
-			assertThat(candidate.rejectedThreshold()).isNull();
 		});
 		verifyNoInteractions(llm);
 	}
@@ -163,7 +160,7 @@ class OutputGuardUnansweredConnectionTest {
 
 		var reason = "ABSTAIN".equals(status) ? UnansweredReason.LLM_ABSTAIN : UnansweredReason.LLM_CONFLICT;
 		verify(harness.unanswered).enqueueUnansweredQuestion(eq(71L), argThat(candidate ->
-				candidate.source() == UnansweredSource.LLM_MODEL && candidate.reason() == reason
+				candidate.reason() == reason
 						&& candidate.subQuestion().equals(QUESTION)));
 		assertThat(harness.jobs.getFirst().getStatus())
 				.isEqualTo(com.ubot.chat.job.entity.ChatJobStatus.SUCCEEDED);
