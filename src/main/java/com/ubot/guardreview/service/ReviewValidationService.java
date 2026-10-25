@@ -108,7 +108,7 @@ public class ReviewValidationService {
 		try {
 			return switch (stage) {
 				// 후보 미리보기는 운영 스위치와 별개로 기존 입력 검사를 실행합니다.
-				case INPUT -> new ChatInputGuardService(preview, promptGuard, new AiInputGuardProperties()).prepareQuestion(text);
+				case INPUT -> new ChatInputGuardService(preview, promptGuard, new AiInputGuardProperties(), null).prepareQuestion(text);
 				case OUTPUT -> new AiOutputGuardService(preview).previewForbiddenWordStage(text);
 				case COUNSEL -> {
 					preview.validateForbiddenWord(text);

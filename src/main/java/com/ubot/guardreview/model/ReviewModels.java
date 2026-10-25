@@ -29,7 +29,15 @@ public final class ReviewModels {
 	public record Settings(boolean enabled, int intervalMinutes, double groupingThreshold, long revision,
 			LocalDateTime nextRunAt) {
 	}
-	public record Source(long id, String sourceKey, String question, String answer) {
+	public record Source(long id, String sourceKey, String question, String answer,
+			String origin, String outcome, String context) {
+		public Source {
+			origin = origin == null ? "UNKNOWN" : origin;
+			outcome = outcome == null ? "UNKNOWN" : outcome;
+		}
+		public Source(long id, String sourceKey, String question, String answer) {
+			this(id, sourceKey, question, answer, "UNKNOWN", "UNKNOWN", null);
+		}
 	}
 	public record Suggestion(Kind kind, String category, String expression, String reason, Stage stage, String intent) {
 	}

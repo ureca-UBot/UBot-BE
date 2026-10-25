@@ -64,7 +64,7 @@ class AiProductGuardMergeConnectionTest {
     private final AiLlmOutputGuardService ai = mock(AiLlmOutputGuardService.class);
     private final AiOutputGuardProperties properties = new AiOutputGuardProperties();
     private final AiService service = new AiService(prompts, generation, registry, code,
-            SubQuestionLabels.withoutMorphology(), ai, properties);
+            SubQuestionLabels.withoutMorphology(), ai, properties, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 
     @Test
     void 출력_검사를_꺼도_상품_목록과_전체_상품_카드는_유지된다() {

@@ -64,7 +64,7 @@ class QuestionRouterTest {
 			"로밍 신청 방법, 유심 재발급 알려줘"})
 	void keepsSplitMarkersAfterInputGuard(String question) {
 		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService(),
-				new AiInputGuardProperties());
+				new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		String prepared = guard.prepareQuestion(question);
 
 		assertThat(router.route(prepared, false).splitMarks()).contains("나열어");
@@ -74,7 +74,7 @@ class QuestionRouterTest {
 	@ValueSource(strings = {"그럼", "그러면", "그래서", "그리고", "또", "아니", "그건", "그거"})
 	void keepsMultiTurnLeadsAfterInputGuard(String lead) {
 		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService(),
-				new AiInputGuardProperties());
+				new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		String prepared = guard.prepareQuestion(lead + " 유심 재발급 비용은 얼마인가요?");
 
 		assertThat(prepared).startsWith(lead + " ");

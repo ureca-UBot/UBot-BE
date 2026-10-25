@@ -18,7 +18,7 @@ import org.springframework.dao.DataAccessResourceFailureException;
 class ChatJobProcessorLoggingTest {
 
 	private final ChatAnswerProcessor answers = mock(ChatAnswerProcessor.class);
-	private final ChatJobProcessor processor = new ChatJobProcessor(answers);
+	private final ChatJobProcessor processor = new ChatJobProcessor(answers, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 	private final AnswerAttemptsHistory attempt = AnswerAttemptsHistory.builder()
 			.id(42L).userId(1L).question("비공개 질문").attemptCount(1).status("PENDING").build();
 

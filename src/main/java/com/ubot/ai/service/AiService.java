@@ -2,11 +2,16 @@ package com.ubot.ai.service;
 
 import com.ubot.ai.config.AiOutputGuardProperties;
 import com.ubot.ai.dto.AiAnswer;
+import com.ubot.guardreview.service.ReviewCheckService;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
 import com.ubot.ai.dto.ConversationTurn;
 import com.ubot.ai.dto.LookupFailure;
 import com.ubot.ai.dto.OutputGuardResult;
+import com.ubot.ai.dto.OutputGuardResult.Stage;
+import com.ubot.ai.exception.AiOutputGuardException;
+import com.ubot.guardreview.service.ReviewCaptureService;
+import java.util.UUID;
 import com.ubot.ai.dto.ProductDataCards;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
@@ -64,6 +69,8 @@ public class AiService {
     private final SubQuestionLabels subQuestionLabels;
     private final AiLlmOutputGuardService aiLlmOutputGuardService;
     private final AiOutputGuardProperties outputGuardProperties;
+    private final ReviewCaptureService reviewCaptureService;
+    private final ReviewCheckService reviewChecks;
 
     public AiAnswer generateAnswer(AnswerMaterials materials) {
         // ChatAnswerProcessor가 intent별로 모은 자료를 받습니다. DB를 다시 조회하지 않습니다.
@@ -104,51 +111,77 @@ public class AiService {
         Optional<ProductListAnswer> listing = Optional.empty();
         List<AiAnswer.SlotOutcome> slotOutcomes = null;
         if (response != null && StringUtils.hasText(response.answer())) {
-            FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
-            log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
-            // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
-            AnswerMaterials inspected = materials;
-            if (outputGuardProperties.isEnabled()) {
-                String toolRecords = userDataRecorder.describe();
-                if (!toolRecords.isEmpty()) {
-                    inspected = materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
-                            userDataRecorder.cards());
+            Long captureId = reviewCaptureService.captureResponse(UUID.randomUUID(), materials.reviewAttemptId(), response.answer());
+            String originalAnswer = null;
+            try {
+                FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
+                originalAnswer = parsed.slots() == null ? parsed.answer()
+                        : parsed.slots().stream().map(SlotAnswer::answer).collect(Collectors.joining("\n\n"));
+                log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
+                // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
+                AnswerMaterials inspected = materials;
+                if (outputGuardProperties.isEnabled()) {
+                    String toolRecords = userDataRecorder.describe();
+                    if (!toolRecords.isEmpty()) {
+                        inspected = materials.withToolRecords(new ContextSection(UserDataRecorder.SECTION_TITLE, toolRecords),
+                                userDataRecorder.cards());
+                    }
+                    // 상품 가격·제공량도 도구 조회 결과를 검사 근거로 사용합니다.
+                    String productRecords = productDataRecorder.describe();
+                    if (!productRecords.isEmpty()) {
+                        inspected = inspected.withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, productRecords));
+                    }
                 }
-                // 상품 가격·제공량도 도구 조회 결과를 검사 근거로 사용합니다.
-                String productRecords = productDataRecorder.describe();
-                if (!productRecords.isEmpty()) {
-                    inspected = inspected.withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, productRecords));
+                // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
+                listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
+                if (listing.isPresent()) {
+                    log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 형식={}, 카드수={}",
+                            parsed.status(), listing.get().getClass().getSimpleName(), listing.get().products().size());
+                    inspection = inspectOutput(listing.get().answer(), List.of(), inspected, storeMap, null);
+                    // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+                    if (inspection.rejected() || inspection.contentRemoved()) {
+                        throw AiOutputGuardException.rejected(inspection);
+                    }
+                    answer = inspection.answer();
+                    status = SubQuestionStatuses.ANSWER;
+                } else if (parsed.slots() != null) {
+                    SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
+                            lookupFailures(materials, storeRecorder, userDataRecorder));
+                    answer = slotResult.answer();
+                    status = slotResult.status();
+                    inspection = slotResult.inspection();
+                    slotOutcomes = slotResult.outcomes();
+                } else {
+                    // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
+                    inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), inspected, storeMap, null);
+                    // 칸을 구분할 수 없는 출력은 문제 내용을 일부만 전달하지 않고 기존처럼 거절합니다.
+                    if (inspection.rejected() || inspection.contentRemoved()) {
+                        throw AiOutputGuardException.rejected(inspection);
+                    }
+                    validateOutputWithAi(inspection.answer(), parsed.evidenceIds(), inspected, storeMap);
+                    answer = inspection.answer();
+                    status = parsed.status();
                 }
-            }
-            // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
-            listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
-            if (listing.isPresent()) {
-                log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 형식={}, 카드수={}",
-                        parsed.status(), listing.get().getClass().getSimpleName(), listing.get().products().size());
-                inspection = inspectOutput(listing.get().answer(), List.of(), inspected, storeMap, null);
-                // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
-                if (inspection.rejected() || inspection.contentRemoved()) {
-                    throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                reviewCaptureService.recordGuardResult(captureId, originalAnswer,
+                        new OutputGuardResult(answer, false, inspection == null ? Set.of() : inspection.reasons(),
+                                inspection != null && inspection.contentRemoved(),
+                                !outputGuardProperties.isEnabled() ? Stage.DISABLED
+                                        : outputGuardProperties.isLlmEnabled() ? Stage.LLM : Stage.CODE));
+            } catch (RuntimeException exception) {
+                if (exception instanceof LlmException rejected
+                        && (rejected.getErrorCode() == LlmErrorCode.LLM_OUTPUT_REJECTED
+                        || rejected.getErrorCode() == LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED)) {
+                    // 본문 없이 단계·사유만 저장합니다. 보류를 기술 장애로, 사실 오류를 정책 위반으로 바꾸지 않습니다.
+                    reviewCaptureService.recordGuardDecision(captureId, originalAnswer,
+                            rejected.getErrorCode() == LlmErrorCode.LLM_GUARD_REVIEW_REQUIRED
+                                    ? ReviewCaptureService.Decision.REVIEW : ReviewCaptureService.Decision.REJECTED,
+                            exception instanceof AiOutputGuardException failure ? failure.stage() : Stage.UNKNOWN,
+                            exception instanceof AiOutputGuardException failure ? failure.reasonCodes() : List.of("UNCLASSIFIED"));
+                } else {
+                    reviewCaptureService.recordFailure(captureId, originalAnswer,
+                            originalAnswer == null ? "FORMAT_ERROR" : "UNCLASSIFIED");
                 }
-                answer = inspection.answer();
-                status = SubQuestionStatuses.ANSWER;
-            } else if (parsed.slots() != null) {
-                SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
-                        lookupFailures(materials, storeRecorder, userDataRecorder));
-                answer = slotResult.answer();
-                status = slotResult.status();
-                inspection = slotResult.inspection();
-                slotOutcomes = slotResult.outcomes();
-            } else {
-                // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
-                inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), inspected, storeMap, null);
-                // 칸을 구분할 수 없는 출력은 문제 내용을 일부만 전달하지 않고 기존처럼 거절합니다.
-                if (inspection.rejected() || inspection.contentRemoved()) {
-                    throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
-                }
-                validateOutputWithAi(inspection.answer(), parsed.evidenceIds(), inspected, storeMap);
-                answer = inspection.answer();
-                status = parsed.status();
+                throw exception;
             }
         }
         // 가입 정보 카드는 도구로 조회한 기록과 미리 넣은 요약 중, 답변에 쓰인 기록만 합칩니다.
@@ -240,7 +273,7 @@ public class AiService {
             reasons.addAll(result.reasons());
             if ((result.rejected() || result.contentRemoved())
                     && result.reasons().contains(OutputGuardResult.Reason.POLICY_VIOLATION)) {
-                throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                throw AiOutputGuardException.rejected(result);
             }
             if (result.rejected() || result.contentRemoved()) {
                 log.info("출력 가드가 칸의 내용을 지워 답하지 못한 것으로 바꿉니다: 칸={}, 거부={}, 사유={}",
@@ -340,7 +373,7 @@ public class AiService {
         String question = StringUtils.hasText(subQuestion.userText()) ? subQuestion.userText() : subQuestion.searchQuery();
         return new AnswerMaterials(question, materials.faqs(), materials.sections(), materials.tools(), materials.storeMap(),
                 List.of(subQuestion), materials.history(), materials.userId(), materials.userDataSummary(),
-                materials.toolRecords());
+                materials.toolRecords(), materials.reviewAttemptId());
     }
 
     private record SlotResult(String answer, String status, OutputGuardResult inspection,
@@ -365,7 +398,9 @@ public class AiService {
         // 꺼져 있으면 코드 검사·프롬프트 생성·AI 슬롯 대기·HTTP 호출 전에 반환합니다.
         // 검사 사유를 만들지 않아 후속 처리에서 출력 가드 거절로 분류되지 않습니다.
         if (!outputGuardProperties.isEnabled()) {
-            return new OutputGuardResult(answer, false, Set.of());
+            OutputGuardResult skipped = new OutputGuardResult(answer, false, Set.of(), false, Stage.DISABLED);
+            reviewChecks.outputCode(answer, skipped, materials, stores);
+            return skipped;
         }
         // 도구 조회 기록을 검사 근거로 보강하는 작업도 출력 검사를 실행할 때만 합니다.
         AnswerMaterials inspected = materials;
@@ -377,7 +412,7 @@ public class AiService {
             }
         }
         // 코드 결과의 처리 정책은 호출 지점이 결정합니다. 제외할 내용을 후단 AI에 보내지 않습니다.
-        return aiOutputGuardService.inspectAnswer(answer, evidenceIds, inspected, stores);
+        return inspectCode(answer, evidenceIds, inspected, stores);
     }
 
     /** 코드 검사를 마친 답변만 검사합니다. 칸 경로는 모든 칸 처리가 끝난 뒤 한 번 호출합니다. */
@@ -386,6 +421,19 @@ public class AiService {
         if (outputGuardProperties.isEnabled() && outputGuardProperties.isLlmEnabled()) {
             aiLlmOutputGuardService.validate(answer, evidenceIds, materials, stores);
         }
+    }
+
+    private OutputGuardResult inspectCode(String answer, List<String> evidenceIds,
+            AnswerMaterials materials, StoreMapResult stores) {
+        OutputGuardResult result;
+        try {
+            result = aiOutputGuardService.inspectAnswer(answer, evidenceIds, materials, stores);
+        } catch (RuntimeException exception) {
+            reviewChecks.outputCodeError(answer, materials, stores);
+            throw exception;
+        }
+        reviewChecks.outputCode(answer, result, materials, stores);
+        return result;
     }
 
     private Map<String, Object> toToolContext(AnswerMaterials materials, StoreSearchRecorder storeRecorder,

@@ -44,10 +44,10 @@ class AiGuardIntegrationTest {
     private final AiGuardPromptService prompts = new AiGuardPromptService(words);
     private final AiGuardModelService model = mock(AiGuardModelService.class);
     private final ChatInputGuardService codeInput = new ChatInputGuardService(words, new ChatPromptInjectionService(),
-            new AiInputGuardProperties());
+            new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final AiInputGuardService input = new AiInputGuardService(model, prompts, codeInput,
-            new AiInputGuardProperties(), mock(SubQuestionPromptService.class), mock(LlmService.class));
-    private final AiLlmOutputGuardService output = new AiLlmOutputGuardService(model, prompts);
+            new AiInputGuardProperties(), mock(SubQuestionPromptService.class), mock(LlmService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
+    private final AiLlmOutputGuardService output = new AiLlmOutputGuardService(model, prompts, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private static final String QUESTION = "로밍 이용 방법을 알려 주세요.";
     private static final String ANSWER = "로밍은 앱에서 신청할 수 있습니다.";
 
@@ -179,7 +179,7 @@ class AiGuardIntegrationTest {
                 code,
                 com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
                 output,
-                new AiOutputGuardProperties());
+                new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\""+ANSWER+"\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
         when(prompt.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
@@ -203,7 +203,7 @@ class AiGuardIntegrationTest {
                 code,
                 com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
                 output,
-                new AiOutputGuardProperties());
+                new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(new OutputGuardResult(ANSWER, false, Set.of()));
         assertThat(ai.validateCachedAnswer(materials(), ANSWER, "1").answer()).isEqualTo(ANSWER);
         verify(code).inspectAnswer(any(), any(), any(), any());
@@ -221,7 +221,7 @@ class AiGuardIntegrationTest {
                 code,
                 com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
                 output,
-                new AiOutputGuardProperties());
+                new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         when(prompt.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(generation.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\"" + ANSWER
                 + " 환불 처리가 완료되었습니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
@@ -244,7 +244,7 @@ class AiGuardIntegrationTest {
                 code,
                 com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
                 output,
-                new AiOutputGuardProperties());
+                new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         assertThat(ai.validateCachedAnswer(materials(), ANSWER, evidenceId).answer()).isEqualTo(ANSWER);
         verifyNoInteractions(model, generation);
     }
@@ -255,7 +255,7 @@ class AiGuardIntegrationTest {
         var generation = mock(LlmService.class);
         var ai = new AiService(mock(PromptService.class), generation, mock(AiToolRegistry.class),
                 new AiOutputGuardService(words), SubQuestionLabels.withoutMorphology(), output,
-                new AiOutputGuardProperties());
+                new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         String original = ANSWER + newline;
         var result = ai.validateCachedAnswer(materials(), original, "1");
 
@@ -268,7 +268,7 @@ class AiGuardIntegrationTest {
     void 캐시_본문의_검사결과는_개행_보존을_이유로_원문으로_되돌리지_않는다() {
         var code = mock(AiOutputGuardService.class);
         var ai = new AiService(mock(PromptService.class), mock(LlmService.class), mock(AiToolRegistry.class),
-                code, SubQuestionLabels.withoutMorphology(), output, new AiOutputGuardProperties());
+                code, SubQuestionLabels.withoutMorphology(), output, new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         var inspected = new OutputGuardResult(ANSWER, false, Set.of(OutputGuardResult.Reason.FORMAT_ERROR));
         when(code.inspectAnswer(any(), any(), any(), any())).thenReturn(inspected);
         var result = ai.validateCachedAnswer(materials(), "```\n" + ANSWER + "\n```\n", "1");
@@ -282,7 +282,7 @@ class AiGuardIntegrationTest {
     void 위험한_캐시는_개행이_있어도_전체_차단하고_AI를_부르지_않는다() {
         var ai = new AiService(mock(PromptService.class), mock(LlmService.class), mock(AiToolRegistry.class),
                 new AiOutputGuardService(words), SubQuestionLabels.withoutMorphology(), output,
-                new AiOutputGuardProperties());
+                new AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 
         assertThatThrownBy(() -> ai.validateCachedAnswer(materials(), ANSWER + " 환불 처리가 완료되었습니다.\n", "1"))
                 .isInstanceOfSatisfying(LlmException.class,

@@ -25,6 +25,8 @@ import com.ubot.forbiddenword.service.ForbiddenWordService;
 import com.ubot.guardreview.exception.ReviewException;
 import com.ubot.guardreview.dto.response.ReviewRunResponseDto;
 import com.ubot.guardreview.model.ReviewModels.CaseResult;
+import com.ubot.guardreview.model.ReviewCheckModels.Origin;
+import com.ubot.guardreview.model.ReviewCheckModels.Outcome;
 import org.springframework.transaction.annotation.Isolation;
 import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.common.PageResponseDto;
@@ -49,6 +51,8 @@ public class ReviewService {
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 	private static final Set<String> CATEGORIES = Set.of("ABUSE", "THREAT", "HATE", "FRAUD", "UNAUTHORIZED_ACCESS",
 			"EXPLOITATION", "SELF_HARM", "MANIPULATION");
+	private static final Set<String> FACTUAL_CATEGORIES = Set.of("FALSE_EXECUTION", "POLICY_CONTRADICTION",
+			"UNSUPPORTED_CLAIM", "WRONG_SERVICE", "CONDITION_DISTORTION");
 	public record TestRequest(List<Approval> selection, List<Candidate> candidates, Set<String> words,
 			String baseVersion, String datasetVersion) {
 	}
@@ -84,6 +88,13 @@ public class ReviewService {
 		var result = repository.getCandidatePage(kind.name(), page, size);
 		return PageResponseDto.of(catalog.display(result.content()), page, size, result.totalElements());
 	}
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public PageResponseDto<Candidate> getCandidatePage(Kind kind, int page, int size,
+			Origin origin, Outcome outcome) {
+		if (kind == null || page < 0 || !Set.of(10, 20, 50).contains(size)) throw new ReviewException(INVALID);
+		var result = repository.getCandidatePage(kind.name(), page, size, origin, outcome);
+		return PageResponseDto.of(catalog.display(result.content()), page, size, result.totalElements());
+	}
 	@Transactional
 	public Settings updateSettings(boolean enabled, int minutes, double threshold, long revision, long admin) {
 		if (minutes < 5 || minutes > 43200 || !Double.isFinite(threshold) || threshold < 0.5 || threshold > 1)
@@ -93,6 +104,22 @@ public class ReviewService {
 	@Transactional
 	public long startAnalysis(Long admin) {
 		return enqueueAnalysis(admin, AnalysisMode.FULL);
+	}
+	/** 현재 화면의 출처와 선택한 ID를 동결하며, 자동 차단 분석의 범위를 넓히지 않습니다. */
+	@Transactional
+	public long startReassessment(Origin origin, List<Long> checkIds, Long admin) {
+		if (origin == null || !Set.of(Origin.INPUT_LLM, Origin.OUTPUT_LLM).contains(origin)
+				|| checkIds == null || checkIds.isEmpty() || checkIds.size() > 50
+				|| checkIds.stream().anyMatch(id -> id == null || id < 1)
+				|| checkIds.stream().distinct().count() != checkIds.size()) throw new ReviewException(INVALID);
+		var ids = checkIds.stream().sorted().toList();
+		repository.analysisEnqueueLock();
+		if (repository.analysisExists()) throw new ReviewException(CONFLICT);
+		long run = repository.createRun("ANALYSIS", JSON.writeValueAsString(java.util.Map.of(
+				"analysisMode", AnalysisMode.FULL, "scope", java.util.Map.of(
+				"origin", origin, "outcome", Outcome.REVIEW, "checkIds", ids))), admin);
+		if (repository.snapshotReviewSources(run, origin, ids) != ids.size()) throw new ReviewException(INVALID);
+		return run;
 	}
 	private long enqueueAnalysis(Long admin, AnalysisMode mode) {
 		repository.analysisEnqueueLock();
@@ -216,13 +243,28 @@ public class ReviewService {
 		repository.audit(c, action, admin);
 	}
 	public static void validateSuggestion(Source source, Suggestion s) {
-		if (s == null || s.kind() == null || !CATEGORIES.contains(s.category()) || s.stage() == null
-				|| s.stage() == Stage.COUNSEL || !Set.of("HARMFUL_REQUEST", "HARMFUL_OUTPUT").contains(s.intent()))
+		if (s == null || s.kind() == null || s.stage() == null || s.stage() == Stage.COUNSEL)
+			throw new ReviewException(INVALID);
+		boolean factual = FACTUAL_CATEGORIES.contains(s.category());
+		if (factual) {
+			if (s.kind() != Kind.WARNING || s.stage() != Stage.OUTPUT || !"FACTUAL_ERROR".equals(s.intent())
+					|| source.origin().startsWith("INPUT_") || source.context() == null
+					|| JSON.readTree(source.context()).path("snapshot_unavailable").asBoolean(false))
+				throw new ReviewException(INVALID);
+		} else if (!CATEGORIES.contains(s.category()) || !Set.of("HARMFUL_REQUEST", "HARMFUL_OUTPUT").contains(s.intent()))
+			throw new ReviewException(INVALID);
+		if (source.origin().startsWith("INPUT_") && s.stage() != Stage.INPUT
+				|| source.origin().startsWith("OUTPUT_") && s.stage() != Stage.OUTPUT)
 			throw new ReviewException(INVALID);
 		validateText(s.expression(), s.kind() == Kind.WORD ? 100 : 2000);
 		validateText(s.reason(), 2000);
 		String target = s.stage() == Stage.INPUT ? source.question() : source.answer();
-		if (target == null || !target.contains(s.expression()))
+		boolean quoted = target != null && target.contains(s.expression());
+		if (!quoted && s.stage() == Stage.INPUT && source.context() != null) {
+			for (var turn : JSON.readTree(source.context()).path("history"))
+				quoted |= turn.path("question").asString("").contains(s.expression());
+		}
+		if (!quoted)
 			throw new ReviewException(INVALID);
 	}
 	public static boolean usable(Vector vector) {

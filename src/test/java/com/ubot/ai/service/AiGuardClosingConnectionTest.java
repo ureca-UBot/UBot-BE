@@ -43,7 +43,7 @@ class AiGuardClosingConnectionTest {
     private final ForbiddenWordFilterService words = new ForbiddenWordFilterService(mock(ForbiddenWordRepository.class))
             .preview(Set.of("바보"));
     private final AiService service = new AiService(prompts, generation, tools, new AiOutputGuardService(words),
-            SubQuestionLabels.withoutMorphology(), llmGuard, properties);
+            SubQuestionLabels.withoutMorphology(), llmGuard, properties, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final FaqSearchResponseDto faq = new FaqSearchResponseDto(1L, "요금제 변경 방법", BODY, .9, Intent.GENERAL);
     private final AnswerMaterials materials = AnswerMaterials.builder("요금제 변경 방법을 알려 주세요.")
             .addFaqs(List.of(faq)).subQuestions(List.of(new SubQuestionFaqs("요금제 변경 방법", List.of(faq), null))).build();

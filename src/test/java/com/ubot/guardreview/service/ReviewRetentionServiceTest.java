@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 class ReviewRetentionServiceTest {
 	ReviewRepository repository = mock(ReviewRepository.class);
-	ReviewRetentionService retention = new ReviewRetentionService(repository);
+	ReviewRetentionService retention = new ReviewRetentionService(repository, org.mockito.Mockito.mock(com.ubot.guardreview.repository.ReviewCheckRepository.class));
 	@Test
 	void 보관기준은_상세30일_요약90일_이력1년이다() {
 		assertThat(RETENTION.detailDays()).isEqualTo(30);
@@ -24,6 +24,7 @@ class ReviewRetentionServiceTest {
 		order.verify(repository).analysisLock();
 		order.verify(repository).expireRunDetails(1000);
 		order.verify(repository).clearSourceSnapshots(1000);
+		order.verify(repository).pruneCaptures(1000);
 		order.verify(repository).pruneItems(1000);
 		order.verify(repository).pruneRuns(1000);
 		order.verify(repository).pruneHistory(1000);

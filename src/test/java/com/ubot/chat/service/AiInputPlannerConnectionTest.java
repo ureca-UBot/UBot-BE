@@ -34,9 +34,9 @@ class AiInputPlannerConnectionTest {
     private final ConversationTurnRepository turns = mock(ConversationTurnRepository.class);
     private final ForbiddenWordFilterService words = mock(ForbiddenWordFilterService.class);
     private final ChatInputGuardService code = new ChatInputGuardService(words, new ChatPromptInjectionService(),
-            new AiInputGuardProperties());
+            new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final AiInputGuardService safety = new AiInputGuardService(model, new AiGuardPromptService(words), code,
-            new AiInputGuardProperties(), mock(SubQuestionPromptService.class), mock(LlmService.class));
+            new AiInputGuardProperties(), mock(SubQuestionPromptService.class), mock(LlmService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final QuestionRouter router = mock(QuestionRouter.class);
     private final SubQuestionGuard guard = mock(SubQuestionGuard.class);
     private final MultiTurnDetector detector = mock(MultiTurnDetector.class);
