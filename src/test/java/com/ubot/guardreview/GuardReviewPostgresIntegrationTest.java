@@ -244,7 +244,7 @@ class GuardReviewPostgresIntegrationTest {
 				Long.class);
 		String legacyKey = "123:987:legacy-request-key";
 		db.update(
-				"INSERT INTO guard_review_items(run_id,source_key,source_fingerprint,question_snapshot,answer_snapshot) VALUES(?,?,'legacy','old question','old answer')",
+				"INSERT INTO guard_review_items(run_id,source_key,source_fingerprint,question_snapshot,answer_snapshot) VALUES(?,?,'legacy-fingerprint','old question','old answer')",
 				legacyRun, legacyKey);
 		long legacyCandidate = db.queryForObject("""
 				INSERT INTO guard_review_candidates(kind,category,expression,reason,intent,normalized_hash)
@@ -253,13 +253,13 @@ class GuardReviewPostgresIntegrationTest {
 		db.update(
 				"""
 						INSERT INTO guard_review_findings(candidate_id,first_run_id,source_key,source_fingerprint,stage,category,notified_at)
-						VALUES(?,?,?,'legacy','INPUT','FRAUD',LOCALTIMESTAMP-interval '1 day')
+						VALUES(?,?,?,'legacy-fingerprint','INPUT','FRAUD',LOCALTIMESTAMP-interval '1 day')
 						""",
 				legacyCandidate, legacyRun, legacyKey);
-		var captureUpgrade = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("49")
-				.load().migrate();
+		// V49 hashes existing identifiers; captured responses become available only after V53.
+		Flyway.configure().dataSource(isolated).locations("classpath:db/migration").target("53").load().migrate();
 		UUID captureKey = UUID.fromString("76b924b1-2cde-45f1-8f3d-e04fbe56e527");
-		String legacyCaptureKey = "llm:987654321:" + captureKey;
+		String legacyCaptureKey = sourceKeyHash("llm:987654321:" + captureKey);
 		long legacyCapture = db.queryForObject(
 				"""
 						INSERT INTO guard_review_items(capture_id,source_key,source_fingerprint,question_snapshot,answer_snapshot,guard_outcome)
@@ -281,7 +281,7 @@ class GuardReviewPostgresIntegrationTest {
 		String alreadyHashed = sourceKeyHash("already-hashed");
 		db.update("""
 				INSERT INTO guard_review_items(run_id,source_key,source_fingerprint)
-				VALUES(?,?,'already-hashed-fingerprint')
+				VALUES(?,?,'already-hashed')
 				""", legacyRun, alreadyHashed);
 		var findingsBeforeUpgrade = db.queryForList(
 				"SELECT id,candidate_id,first_run_id,source_fingerprint,stage,category,created_at,notified_at FROM guard_review_findings ORDER BY id");
@@ -301,18 +301,18 @@ class GuardReviewPostgresIntegrationTest {
 				.isEqualTo(alreadyHashed);
 		assertThat(db.queryForObject(
 				"SELECT count(*) FROM guard_review_findings f JOIN guard_review_items i ON i.run_id=f.first_run_id AND i.source_key=f.source_key AND i.source_fingerprint=f.source_fingerprint",
-				Integer.class)).isEqualTo(1);
+				Integer.class)).isEqualTo(2);
 
 		assertThat(count("users WHERE user_id=987")).isEqualTo(1);
 		assertThat(db.queryForObject(
 				"SELECT count(*) FROM guard_review_items WHERE source_key=? AND answer_snapshot='old answer'",
 				Integer.class, sourceKeyHash(legacyKey))).isEqualTo(1);
 		assertThat(db.queryForObject("SELECT count(*) FROM guard_review_items WHERE source_key=?", Integer.class,
-				sourceKeyHash(legacyCaptureKey))).isEqualTo(2);
+				legacyCaptureKey)).isEqualTo(2);
 		assertThat(db.queryForObject("SELECT count(*) FROM guard_review_items WHERE source_key=?", Integer.class,
 				alreadyHashed)).isEqualTo(1);
 		assertThat(db.queryForList("SELECT source_key FROM guard_review_findings ORDER BY id", String.class))
-				.containsExactly(sourceKeyHash(legacyKey), sourceKeyHash(legacyCaptureKey));
+				.containsExactly(sourceKeyHash(legacyKey), legacyCaptureKey);
 		assertThat(db.queryForList(
 				"SELECT id,candidate_id,first_run_id,source_fingerprint,stage,category,created_at,notified_at FROM guard_review_findings ORDER BY id"))
 				.isEqualTo(findingsBeforeUpgrade);
@@ -325,11 +325,11 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(count("notifications WHERE title='sentinel'")).isEqualTo(1);
 		assertThat(db.queryForObject(
 				"SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'guard_review_%'",
-				Integer.class)).isEqualTo(6);
+				Integer.class)).isEqualTo(7);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
 		Files.writeString(artifacts.resolve("migration-result.json"),
 				JSON.writeValueAsString(Map.of("version", flyway.info().current().getVersion().toString(), "upgradeMigrations", migrated.migrationsExecuted,
-						"sixTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
+						"sevenTables", true, "existingUserWordNotificationPreserved", true, "secondMigrateChanges", 0,
 						"extensions", db.queryForList("SELECT extname,extversion FROM pg_extension ORDER BY extname"),
 						"server", db.queryForObject("SHOW server_version", String.class))));
 		api = context("api");
@@ -1126,6 +1126,48 @@ class GuardReviewPostgresIntegrationTest {
 				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
 		assertThatThrownBy(() -> db.update("INSERT INTO guard_review_runs(kind,analysis_mode) VALUES('ANALYSIS',NULL)"))
 				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+	}
+
+	@Test
+	void rejectedCheckAnalysisUsesHashedKeysAndKeepsIncrementalAndWarningDedupe() throws Exception {
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		UUID capture = UUID.randomUUID();
+		checks.save(capture, null, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_CODE,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.REJECTED, List.of("POLICY_VIOLATION"),
+				"위험문장A", null, null, "차단 기록", "{}");
+		long check = db.queryForObject("SELECT id FROM guard_review_checks WHERE capture_key=?", Long.class, capture);
+		String expected = sourceKeyHash("guard-check:" + check);
+		long run = full();
+		drain(run);
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+		assertThat(db.queryForObject("SELECT source_key FROM guard_review_items WHERE run_id=?", String.class, run))
+				.isEqualTo(expected);
+		assertThat(db.queryForObject("SELECT source_key FROM guard_review_findings", String.class)).isEqualTo(expected);
+		long incremental = scheduled();
+		drain(incremental);
+		assertThat(repo.run(incremental).total()).isZero();
+		drain(full());
+		assertThat(count("guard_review_findings")).isEqualTo(1);
+		assertThat(count("guard_review_checks WHERE outcome='REJECTED'")).isEqualTo(1);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"INPUT_LLM", "OUTPUT_LLM"})
+	void selectedReviewSnapshotUsesHashedKeysAndDoesNotChangeOriginalDecision(String origin) {
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		UUID capture = UUID.randomUUID();
+		checks.save(capture, null, com.ubot.guardreview.model.ReviewCheckModels.Origin.valueOf(origin),
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.REVIEW, List.of("UNSUPPORTED_CLAIM"),
+				"검토 질문", origin.equals("OUTPUT_LLM") ? "검토 답변" : null, null, "보류 기록", "{}");
+		long check = db.queryForObject("SELECT id FROM guard_review_checks WHERE capture_key=?", Long.class, capture);
+		long run = reviews.startReassessment(com.ubot.guardreview.model.ReviewCheckModels.Origin.valueOf(origin),
+				List.of(check), 99L);
+		assertThat(repo.run(run).total()).isEqualTo(1);
+		assertThat(db.queryForObject("SELECT source_key FROM guard_review_items WHERE run_id=?", String.class, run))
+				.isEqualTo(sourceKeyHash("guard-check:" + check));
+		assertThat(db.queryForObject("SELECT outcome FROM guard_review_checks WHERE id=?", String.class, check))
+				.isEqualTo("REVIEW");
+		assertThat(MODEL.calls.get()).isZero();
 	}
 
 	long uncapturedAttempt(String question, String key, int attempt) {

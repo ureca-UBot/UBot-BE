@@ -66,6 +66,16 @@ class ReviewRepositoryTest {
 				.doesNotContain("question_log", "FROM answer_attempts_history");
 	}
 	@Test
+	void 검사_분석과_보류_재검토는_기존_해시_제약에_맞는_같은_중복키를_사용한다() {
+		String hashedKey = "'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex')";
+		repository.snapshotSources(7, AnalysisMode.INCREMENTAL);
+		assertThat(sql()).contains("g.attempt_id," + hashedKey, "previous.source_key=" + hashedKey);
+		clearInvocations(jdbc);
+		repository.snapshotReviewSources(8, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				java.util.List.of(1L));
+		assertThat(sql()).contains("g.attempt_id," + hashedKey);
+	}
+	@Test
 	void 원본질문은_시도이력에서_읽고_같은수집키의_재저장은_중복생성하지않는다() {
 		assertThatThrownBy(() -> repository.captureResponse(UUID.randomUUID(), 3, "답변"))
 				.isInstanceOf(com.ubot.guardreview.exception.ReviewException.class);

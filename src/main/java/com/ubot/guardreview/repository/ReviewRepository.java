@@ -137,14 +137,15 @@ public class ReviewRepository {
 		jdbc.update("""
 				INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,
 				 answer_snapshot,check_id,guard_origin,guard_context,guard_outcome,guard_reasons)
-				SELECT ?,g.attempt_id,'guard-check:'||g.id,
+				SELECT ?,g.attempt_id,'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex'),
 				 encode(sha256(convert_to(jsonb_build_array(g.question_snapshot,g.answer_snapshot,g.context_snapshot)::text,'UTF8')),'hex'),
 				 g.question_snapshot,g.answer_snapshot,g.id,g.origin,g.context_snapshot,g.outcome,g.reason_codes
 				FROM guard_review_checks g WHERE g.outcome='REJECTED' AND g.details_retained
 				 AND g.created_at<=(SELECT cutoff FROM guard_review_runs WHERE id=?)
 				 AND g.created_at>=(SELECT cutoff FROM guard_review_runs WHERE id=?)-make_interval(days => ?)
 				 AND (?='FULL' OR NOT EXISTS (SELECT 1 FROM guard_review_items previous
-				  WHERE previous.source_key='guard-check:'||g.id AND previous.status='COMPLETED'))
+				  WHERE previous.source_key='sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex')
+				   AND previous.status='COMPLETED'))
 				FOR KEY SHARE OF g ON CONFLICT(run_id,source_key) DO NOTHING
 				""", runId, runId, runId, RETENTION.detailDays(), mode.name());
 		jdbc.update(
@@ -182,7 +183,7 @@ public class ReviewRepository {
 		int inserted = jdbc.update("""
 				INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,
 				 answer_snapshot,check_id,guard_origin,guard_context,guard_outcome,guard_reasons)
-				SELECT ?,g.attempt_id,'guard-check:'||g.id,
+				SELECT ?,g.attempt_id,'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex'),
 				 encode(sha256(convert_to(jsonb_build_array(g.question_snapshot,g.answer_snapshot,g.context_snapshot)::text,'UTF8')),'hex'),
 				 g.question_snapshot,g.answer_snapshot,g.id,g.origin,
 				 COALESCE(g.context_snapshot,'{}'::jsonb)||jsonb_build_object(
