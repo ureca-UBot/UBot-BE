@@ -16,7 +16,7 @@ Backend / Worker / PostgreSQL / Redis ─▶ Prometheus ─┬─▶ 관리자 �
 | `UBotPostgresDown` | `up{job="postgres"} == 0` 또는 `pg_up == 0`이 `ALERT_DEPENDENCY_DOWN_FOR` 동안 | critical | [postgres-down](../runbooks/postgres-down.md) |
 | `UBotRedisDown` | `up{job="redis"} == 0` 또는 `redis_up == 0`이 `ALERT_DEPENDENCY_DOWN_FOR` 동안 | critical | [redis-down](../runbooks/redis-down.md) |
 | `UBotChatQueueStalled` | `max(chat_jobs_oldest_queued_seconds)`가 `ALERT_CHAT_QUEUE_OLDEST_SECONDS`를 넘은 상태가 `ALERT_CHAT_QUEUE_FOR` 동안 | warning | [chat-queue-stalled](../runbooks/chat-queue-stalled.md) |
-| `UBotLlmTimeoutRateHigh` | 최근 `ALERT_LLM_TIMEOUT_WINDOW` 동안 호출이 `ALERT_LLM_TIMEOUT_MIN_CALLS`건 이상이고 시간 초과 비율이 `ALERT_LLM_TIMEOUT_RATIO`를 넘은 상태가 `ALERT_LLM_TIMEOUT_FOR` 동안 | warning | [llm-timeout-high](../runbooks/llm-timeout-high.md) |
+| `UBotLlmTimeoutRateHigh` | 최근 `ALERT_LLM_TIMEOUT_WINDOW` 동안 답변 생성·질문 분류(`client="chat"`) 호출이 `ALERT_LLM_TIMEOUT_MIN_CALLS`건 이상이고 시간 초과 비율이 `ALERT_LLM_TIMEOUT_RATIO`를 넘은 상태가 `ALERT_LLM_TIMEOUT_FOR` 동안. 가드 호출은 제외 | warning | [llm-timeout-high](../runbooks/llm-timeout-high.md) |
 
 메시지 제목은 `[FIRING][CRITICAL] UBotWorkerDown` 형태이고, 복구되면 `[RESOLVED]…`가 옵니다. 같은 알림은 30초 모아 처음 보내고, 바뀐 내용은 5분마다, 계속 이어지면 4시간마다 다시 보냅니다(`infra/alertmanager/alertmanager.yml.template`).
 

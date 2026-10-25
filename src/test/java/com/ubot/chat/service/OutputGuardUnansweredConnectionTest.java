@@ -65,7 +65,13 @@ class OutputGuardUnansweredConnectionTest {
 
 	@BeforeEach void setUp() {
 		var guard = output();
-		ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard, SubQuestionLabels.withoutMorphology());
+		ai = new AiService(prompts,
+                llm,
+                mock(AiToolRegistry.class),
+                guard,
+                SubQuestionLabels.withoutMorphology(),
+                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
+                new com.ubot.ai.config.AiOutputGuardProperties());
 		processor = processorFor(ai);
 		when(planner.plan(attempt, QUESTION)).thenReturn(SubQuestionPlan.original(QUESTION, SubQuestionPlan.Source.ORIGINAL));
 		when(retrieval.searchCandidates(QUESTION, null, 3, 0))
@@ -164,17 +170,27 @@ class OutputGuardUnansweredConnectionTest {
 		verify(llm, times(1)).generateAnswer(any());
 	}
 
-	@Test void 가드가_바꾼_ABSTAIN은_모델_미응답으로_재분류하거나_Outbox에_등록하지_않는다() {
+	@Test void 가드가_제외한_칸은_ABSTAIN으로_고지하되_모델_미응답이나_Outbox에_등록하지_않는다() {
 		var guard = mock(AiOutputGuardService.class);
+		var outputAi = mock(com.ubot.ai.service.AiLlmOutputGuardService.class);
 		when(guard.inspectAnswer(any(), any(), any(), any()))
 				.thenReturn(new OutputGuardResult("", false, Set.of(OutputGuardResult.Reason.ANSWER_ERROR), true));
-		var guardedAi = new AiService(prompts, llm, mock(AiToolRegistry.class), guard,
-				SubQuestionLabels.withoutMorphology());
+		var guardedAi = new AiService(prompts,
+                llm,
+                mock(AiToolRegistry.class),
+                guard,
+                SubQuestionLabels.withoutMorphology(),
+                outputAi,
+                new com.ubot.ai.config.AiOutputGuardProperties());
 		var guardedProcessor = processorFor(guardedAi);
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(
 				"{\"answers\":[{\"answer\":\"근거 없는 안내\",\"status\":\"ANSWER\"}],\"evidence_ids\":[\"17\"]}"));
 
 		var result = guardedProcessor.generateAnswer(attempt, null, () -> {}, candidates);
+		assertThat(result.isFailed()).isFalse();
+		assertThat(result.answer().status()).isEqualTo("ABSTAIN");
+		assertThat(result.answer().answer()).doesNotContain("근거 없는 안내")
+				.contains("확인해 드리기 어렵습니다.");
 		assertThat(result.answer().slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ABSTAIN", true));
 		assertThat(candidates).isEmpty();
 		var harness = runJob(guardedProcessor);
@@ -183,6 +199,7 @@ class OutputGuardUnansweredConnectionTest {
 		assertThat(harness.jobs.getFirst().getStatus())
 				.isEqualTo(com.ubot.chat.job.entity.ChatJobStatus.SUCCEEDED);
 		verify(guard, times(2)).inspectAnswer(any(), any(), any(), any());
+		verifyNoInteractions(outputAi);
 	}
 
 	private ChatJobTestHarness runJob(ChatAnswerProcessor processor) {

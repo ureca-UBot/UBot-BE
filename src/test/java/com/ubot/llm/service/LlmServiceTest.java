@@ -131,6 +131,42 @@ class LlmServiceTest {
                 new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.ASSISTANT, "이전 답변만 존재"))));
     }
 
+    @ParameterizedTest
+    @MethodSource("invalidRequests")
+    void validatesCustomJudgmentBeforeCallingTheModel(LlmRequestDto request) {
+        assertThatThrownBy(() -> llmService.generateJudgment(request, 100, () -> llmClient.generateAnswer(request)))
+                .isInstanceOfSatisfying(LlmException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_REQUEST_INVALID));
+        verifyNoInteractions(llmClient);
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"NULL", "TIMEOUT", "CANCELLED"})
+    void customJudgmentReleasesPermitsAndKeepsTheExistingErrorAndProgressHandling(String failureKind) {
+        var registry = new SimpleMeterRegistry();
+        var service = new LlmService(llmClient, 1, registry);
+        var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "검사")));
+        var phases = new ArrayList<Phase>();
+        RuntimeException failure = failureKind.equals("CANCELLED") ? new CancellationException()
+                : new LlmException(LlmErrorCode.LLM_TIMEOUT);
+        var thrown = assertThatThrownBy(() -> AnswerProgress.observe(phases::add,
+                () -> service.generateJudgment(request, 100, () -> {
+                    if (failureKind.equals("NULL")) return null;
+                    throw failure;
+                })));
+        if (failureKind.equals("NULL")) {
+            thrown.isInstanceOfSatisfying(LlmException.class,
+                    error -> assertThat(error.getErrorCode()).isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+        } else {
+            thrown.isSameAs(failure);
+        }
+        assertThat(phases).isEmpty();
+        assertThat(registry.get("llm.concurrency.in.use").gauge().value()).isZero();
+        verifyNoInteractions(llmClient);
+        when(llmClient.generateAnswer(request)).thenReturn(new LlmResponseDto("답변"));
+        assertThat(service.generateJudgment(request, 100).answer()).isEqualTo("답변");
+    }
+
     @Test
     void requestKeepsSnapshotOfMessages() {
         var messages = new ArrayList<>(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "첫 질문")));

@@ -7,9 +7,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.config.AiOutputGuardProperties;
 import com.ubot.ai.dto.AiAnswer;
 import com.ubot.ai.dto.AnswerMaterials;
 import com.ubot.ai.dto.ContextSection;
@@ -93,8 +95,13 @@ class AiServiceTest {
                 .thenReturn(List.of(ForbiddenWord.builder().word("바보").status(ForbiddenWordStatus.ACTIVE).build()));
         var wordFilter = new ForbiddenWordFilterService(words);
         wordFilter.refreshForbiddenWordCache();
-        aiService = new AiService(promptService, llmService, registry, new AiOutputGuardService(wordFilter),
-                SubQuestionLabels.withoutMorphology());
+        aiService = new AiService(promptService,
+                llmService,
+                registry,
+                new AiOutputGuardService(wordFilter),
+                SubQuestionLabels.withoutMorphology(),
+                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
+                new com.ubot.ai.config.AiOutputGuardProperties());
     }
 
     @Test
@@ -548,13 +555,15 @@ class AiServiceTest {
     }
 
     @Test
-    void JSON_파싱_후_문제_문장을_제거하고_남은_본문만_반환한다() {
+    void JSON_파싱_후_문제_내용이_있으면_답변_전체를_차단한다() {
         var materials = AnswerMaterials.builder("사용자 질문").addFaqs(faqs).build();
         when(promptService.createSlotPrompt("사용자 질문", faqs, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"신분증을 지참해주세요. 바보입니다.\",\"evidence_ids\":\"123\",\"status\":\"CLARIFY\"}"));
 
-        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("신분증을 지참해주세요.");
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
         verify(llmService).generateAnswer(prompt);
     }
 
@@ -588,14 +597,16 @@ class AiServiceTest {
     }
 
     @Test
-    void 실제_제공한_FAQ로_수치_충돌을_확인해_문제_문장을_제거한다() {
+    void 실제_제공한_FAQ와_수치가_충돌하면_답변_전체를_차단한다() {
         var sources = List.of(new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL));
         var materials = AnswerMaterials.builder("할인율").addFaqs(sources).build();
         when(promptService.createSlotPrompt("할인율", sources, List.of(), List.of(), List.of())).thenReturn(prompt);
         when(llmService.generateAnswer(prompt)).thenReturn(new LlmResponseDto(
                 "{\"answer\":\"할인율은 50%입니다. 고객센터에서 자세한 조건을 확인해주세요.\",\"status\":\"ANSWER\",\"evidence_ids\":[\"1\"]}"));
 
-        assertThat(aiService.generateAnswer(materials).answer()).isEqualTo("고객센터에서 자세한 조건을 확인해주세요.");
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, error -> assertThat(error.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_OUTPUT_REJECTED));
     }
 
     @Test
@@ -703,7 +714,7 @@ class AiServiceTest {
     }
 
     @Test
-    void 칸_형식에서_가드가_문장을_지운_칸은_답하지_못한_것으로_바꿔_고지한다() {
+    void 칸_형식에서_오답인_칸만_ABSTAIN으로_제외하고_정상_답변은_유지한다() {
         var sources = List.of(
                 new FaqSearchResponseDto(1L, "할인율", "할인율은 25%입니다.", 0.9, Intent.GENERAL),
                 new FaqSearchResponseDto(2L, "가입 장소", "가입은 매장에서 할 수 있습니다.", 0.9, Intent.GENERAL));
@@ -720,12 +731,13 @@ class AiServiceTest {
 
         AiAnswer answer = aiService.generateAnswer(materials);
 
-        assertThat(answer.answer()).isEqualTo("가입은 매장에서 할 수 있습니다.\n\n"
-                + "「할인율은 얼마예요」에 대해서는 현재 안내 자료로는 확인해 드리기 어렵습니다.");
         assertThat(answer.status()).isEqualTo("PARTIAL");
-        // 미응답 수집이 모델의 보류와 가드의 삭제를 구분할 수 있게 칸별 결과를 남깁니다.
-        assertThat(answer.slotOutcomes()).containsExactly(
-                new AiAnswer.SlotOutcome("ANSWER", false), new AiAnswer.SlotOutcome("ABSTAIN", true));
+        assertThat(answer.answer()).startsWith("가입은 매장에서 할 수 있습니다.")
+                .doesNotContain("50%", "고객센터에서 자세한 조건을 확인해주세요.")
+                .contains("할인율", "확인해 드리기 어렵습니다.");
+        assertThat(answer.slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ANSWER", false),
+                new AiAnswer.SlotOutcome("ABSTAIN", true));
+        verify(llmService, times(1)).generateAnswer(any());
     }
 
     @Test

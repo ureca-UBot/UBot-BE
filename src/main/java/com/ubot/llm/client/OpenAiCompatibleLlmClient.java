@@ -86,14 +86,14 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 			// 도구 단계는 스키마 없이 진행하고, 최종 형식 오류에만 도구 없는 스키마 재호출을 적용합니다.
 			completion = request.hasTools()
 					? completeWithTools(messages, request)
-					: complete(messages, List.of(), request.responseSchema());
+                    : complete(messages, List.of(), request.responseSchema(), request.generationOptions());
 		} catch (RuntimeException exception) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new java.util.concurrent.CancellationException("LLM request cancelled");
             }
 			if (exception instanceof java.util.concurrent.CancellationException cancelled) throw cancelled;
 			if (exception instanceof LlmException llmException) throw llmException;
-			throw translateException(exception);
+			throw translateException(exception, request.generationOptions() != null && request.generationOptions().redactErrors());
 		}
 
 		// 빈 결과·길이 제한으로 잘린 결과·도구 실행이 끝난 뒤에도 남은 도구 호출은 정상 답변으로 쓰지 않습니다.
@@ -175,6 +175,11 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 	}
 
 	private Completion complete(List<Message> conversation, List<ToolCallback> tools, Map<String, Object> responseSchema) {
+		return complete(conversation, tools, responseSchema, null);
+	}
+
+	private Completion complete(List<Message> conversation, List<ToolCallback> tools, Map<String, Object> responseSchema,
+            LlmRequestDto.GenerationOptions options) {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("model", modelName);
 		body.put("messages", conversation.stream()
@@ -187,10 +192,12 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 			// vLLM의 구조화 출력입니다. 스키마의 키 순서대로 출력이 강제됩니다.
 			body.put("response_format", Map.of(
 					"type", "json_schema",
-					"json_schema", Map.of("name", RESPONSE_SCHEMA_NAME, "strict", true, "schema", responseSchema)));
+					"json_schema", Map.of("name", options == null ? RESPONSE_SCHEMA_NAME : options.schemaName(),
+                            "strict", true, "schema", responseSchema)));
 		}
 		// 같은 질문에 같은 답을 내도록 Ollama와 같은 temperature를 보냅니다. Thinking Mode는 서버 설정을 따릅니다.
 		body.put("temperature", LlmClient.TEMPERATURE);
+        if (options != null) body.put("max_tokens", options.maxTokens());
 		// 완성된 답변을 한 번에 받습니다. 현재 채팅 API는 SSE 스트리밍을 사용하지 않습니다.
 		body.put("stream", false);
 
@@ -200,7 +207,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 				return restClient.post().uri(CHAT_COMPLETIONS_PATH).contentType(MediaType.APPLICATION_JSON)
 						.body(body).retrieve().body(ChatCompletion.class);
 			} catch (RuntimeException exception) {
-				throw translateException(exception);
+				throw translateException(exception, options != null && options.redactErrors());
 			}
 		});
 		return Completion.from(response);
@@ -265,15 +272,21 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 		return content == null ? null : THINKING_BLOCK.matcher(content).replaceFirst("");
 	}
 
-	private LlmException translateException(RuntimeException exception) {
+	private LlmException translateException(RuntimeException exception, boolean redactErrors) {
 		for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
 			if (cause instanceof HttpTimeoutException || cause instanceof SocketTimeoutException) {
-				return new LlmException(LlmErrorCode.LLM_TIMEOUT, exception);
+				return redactErrors ? new LlmException(LlmErrorCode.LLM_TIMEOUT)
+                        : new LlmException(LlmErrorCode.LLM_TIMEOUT, exception);
 			}
 			if (cause instanceof HttpMessageConversionException) {
-				return new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID, exception);
+				return redactErrors ? new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID)
+                        : new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID, exception);
 			}
 		}
+		if (redactErrors) {
+            // 가드 입력에는 질문·근거·개인 자료가 있으므로 서버 오류 본문과 원본 예외를 전달하지 않습니다.
+            return new LlmException(LlmErrorCode.LLM_SERVICE_UNAVAILABLE);
+        }
 		if (exception instanceof RestClientResponseException response && response.getStatusCode().is4xxClientError()) {
 			// 모델 이름 불일치나 도구 호출 미지원 같은 서버 설정 문제(4xx)를 로그에서 구분하려고 남김
 			// 5xx·연결 실패는 Worker에서는 LlmRecovery가, 그 밖에서는 LlmService가 오류 코드로 기록함

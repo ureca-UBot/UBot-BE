@@ -55,8 +55,7 @@ class SubQuestionPlannerTest {
 	}
 
 	private SubQuestionPlanner planner(boolean enabled) {
-		return new SubQuestionPlanner(enabled, turns, prompts, llm, guard, router, detector,
-				ChatTestFixtures.passthroughInputGuard());
+		return new SubQuestionPlanner(enabled, turns, ChatTestFixtures.inputAiGuard(prompts, llm), guard, router, detector, ChatTestFixtures.passthroughInputGuard());
 	}
 
 	private static SubQuestionGuard.Result result(List<String> subQuestions, boolean fallback,
@@ -176,20 +175,26 @@ class SubQuestionPlannerTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"timeout", "invalid", "db"})
-	@DisplayName("판정 LLM 호출·응답 해석·이전 대화 조회에 실패하면 원문 하나로 진행한다")
-	void fallsBackToOriginalOnFailure(String failure) {
+	@ValueSource(strings = {"timeout", "invalid"})
+	@DisplayName("안전 판정 OFF에서 기존 분류기 실패는 원문 검색으로 복구한다")
+	void fallsBackToOriginalWhenSafetyIsOffAndClassificationFails(String failure) {
 		when(prompts.createPrompt(any(), any())).thenReturn(request);
 		switch (failure) {
 			case "timeout" -> when(llm.generateJudgment(request)).thenThrow(new LlmException(LlmErrorCode.LLM_TIMEOUT));
 			case "invalid" -> when(llm.generateJudgment(request)).thenReturn(new LlmResponseDto("정리할 수 없습니다."));
-			default -> when(turns.findPreviousTurns(anyLong(), anyInt())).thenThrow(new QueryTimeoutException("db"));
 		}
-
-		SubQuestionPlan plan = planner(true).plan(attempt(10L, 7L, "유심 재발급"));
-
+		var plan = planner(true).plan(attempt(10L, 7L, "유심 재발급"));
 		assertThat(plan.searchQueries()).containsExactly("유심 재발급");
 		assertThat(plan.source()).isEqualTo(SubQuestionPlan.Source.LLM_FAILED);
+	}
+
+	@Test
+	void historyDatabaseFailureStillStopsTheTurnEvenWhenSafetyIsOff() {
+		when(turns.findPreviousTurns(anyLong(), anyInt())).thenThrow(new QueryTimeoutException("db"));
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> planner(true).plan(attempt(10L, 7L, "유심 재발급")))
+				.isInstanceOfSatisfying(com.ubot.common.GlobalException.class,
+						error -> assertThat(error.getErrorCode()).isEqualTo(com.ubot.chat.exception.ChatErrorCode.STORAGE_UNAVAILABLE));
+		verifyNoInteractions(llm);
 	}
 
 	@Test
@@ -245,8 +250,7 @@ class SubQuestionPlannerTest {
 	void keepsPhasesMovingForwardAcrossJudgment(boolean judgeInitially) {
 		var client = mock(LlmClient.class);
 		var realLlm = new LlmService(client, 1);
-		var realPlanner = new SubQuestionPlanner(true, turns, prompts, realLlm, guard, router, detector,
-				ChatTestFixtures.passthroughInputGuard());
+		var realPlanner = new SubQuestionPlanner(true, turns, ChatTestFixtures.inputAiGuard(prompts, realLlm), guard, router, detector, ChatTestFixtures.passthroughInputGuard());
 		var attempt = attempt(10L, null, "로밍 신청과 요금 알려줘");
 		var judgmentRequest = new LlmRequestDto(List.of(
 				new LlmMessageRequestDto(LlmMessageRole.USER, "하위 질문을 정리하세요.")));

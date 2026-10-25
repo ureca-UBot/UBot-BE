@@ -9,6 +9,7 @@ import static com.ubot.guardreview.model.ReviewModels.CaseResult;
 import static com.ubot.guardreview.model.ReviewModels.Validation;
 
 import com.ubot.ai.service.AiOutputGuardService;
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.chat.service.ChatInputGuardService;
 import com.ubot.chat.service.ChatPromptInjectionService;
 import com.ubot.common.GlobalException;
@@ -40,7 +41,7 @@ public class ReviewValidationService {
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 	private static final String DATASET = "guard-review/golden-cases.json";
 	// 검사 동작이 바뀔 때만 올립니다. 정규화·입력/출력 금칙어 검사·비교 기준의 변경을 포함합니다.
-	private static final String RULES_VERSION = "guard-review-rules-v2";
+	private static final String RULES_VERSION = "guard-review-rules-v3";
 
 	public Set<String> currentWords() {
 		return words.findAllByStatus(ForbiddenWordStatus.ACTIVE).stream()
@@ -106,7 +107,8 @@ public class ReviewValidationService {
 	private String run(Stage stage, String text, ForbiddenWordFilterService preview) {
 		try {
 			return switch (stage) {
-				case INPUT -> new ChatInputGuardService(preview, promptGuard).prepareQuestion(text);
+				// 후보 미리보기는 운영 스위치와 별개로 기존 입력 검사를 실행합니다.
+				case INPUT -> new ChatInputGuardService(preview, promptGuard, new AiInputGuardProperties()).prepareQuestion(text);
 				case OUTPUT -> new AiOutputGuardService(preview).previewForbiddenWordStage(text);
 				case COUNSEL -> {
 					preview.validateForbiddenWord(text);
