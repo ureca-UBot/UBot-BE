@@ -61,7 +61,8 @@ final class ReviewContextSnapshot {
 			result.put("execution_results", operations);
 			// 조회 수치·조건은 additional_evidence에 있습니다. 화면용 카드/내부 ID를 이중 보존하지 않습니다.
 			if (!operations.isEmpty() && data.path("additional_evidence").isEmpty()
-					&& data.path("store_results").isMissingNode()) result.put("snapshot_unavailable", true);
+					&& (data.path("store_results").isMissingNode() || data.path("store_results").isNull()))
+				result.put("snapshot_unavailable", true);
 		}
 		return result;
 	}

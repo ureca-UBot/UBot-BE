@@ -190,6 +190,9 @@ class GuardReviewPostgresIntegrationTest {
 				list.add(new Suggestion(Kind.WORD, "ABUSE", "자료에없는문구", "가짜 응답", Stage.INPUT, "HARMFUL_REQUEST"));
 			else {
 				String q = input.path("question").asText(), a = input.path("answer").asText();
+				// Match the analyzer contract: output sources use the question only as context.
+				if (input.path("origin").asString("").startsWith("OUTPUT_")) q = "";
+				if (input.path("origin").asString("").startsWith("INPUT_")) a = "";
 				for (String word : List.of("실험금칙표현", "두번째실험표현", "검증용모욕표현", "요금제"))
 					if (q.contains("후보:" + word))
 						list.add(new Suggestion(Kind.WORD, "ABUSE", word, "독립 DB 시험 후보", Stage.INPUT,

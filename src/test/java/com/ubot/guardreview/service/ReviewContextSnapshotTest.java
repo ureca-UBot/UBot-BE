@@ -28,6 +28,12 @@ class ReviewContextSnapshotTest {
 		assertThat(saved.length()).isLessThan(content.length());
 	}
 	@Test
+	void 카드만_있고_비교할_텍스트근거가_없으면_근거부족을_명시한다() {
+		var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER,
+				"{\"additional_evidence\":[],\"store_results\":null,\"execution_results\":[{\"operation\":\"USER_DATA_LOOKUP\",\"result\":{\"user_id\":1}}]}")));
+		assertThat(ReviewContextSnapshot.request(request)).containsEntry("snapshot_unavailable", true);
+	}
+	@Test
 	void 읽을수없는_자료를_근거가_충분한것으로_기록하지않는다() {
 		var request = new LlmRequestDto(List.of(new LlmMessageRequestDto(LlmMessageRole.USER, "잘린 자료")));
 		assertThat(ReviewContextSnapshot.request(request)).containsEntry("snapshot_unavailable", true);
