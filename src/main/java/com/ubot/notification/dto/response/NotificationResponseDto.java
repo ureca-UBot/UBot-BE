@@ -11,6 +11,7 @@ public record NotificationResponseDto(
 		String title,
 		String message,
 		Long reservationId,
+		Long surgingAlertId,
 		boolean read,
 		LocalDateTime createdAt
 ) {
@@ -21,6 +22,7 @@ public record NotificationResponseDto(
 				notification.getTitle(),
 				notification.getMessage(),
 				notification.getReservationId(),
+				notification.getSurgingAlertId(),
 				notification.getReadAt() != null,
 				notification.getCreatedAt()
 		);

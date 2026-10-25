@@ -260,6 +260,7 @@ class GuardReviewPostgresIntegrationTest {
 		var flyway = Flyway.configure().dataSource(isolated).locations("classpath:db/migration").load();
 		var migrated = flyway.migrate();
 		flyway.validate();
+		String currentVersion = flyway.info().current().getVersion().toString();
 		// 이후 PR이 마이그레이션을 더해도 깨지지 않도록 버전을 고정하지 않고, 남은 마이그레이션이 없는지와 V50 이상인지만 봅니다.
 		assertThat(flyway.info().pending()).isEmpty();
 		assertThat(flyway.info().current().getVersion().isAtLeast("50")).isTrue();

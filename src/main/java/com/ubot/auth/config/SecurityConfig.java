@@ -87,7 +87,8 @@ public class SecurityConfig {
 								"/actuator/prometheus",
 								"/v3/api-docs/**",
 								"/swagger-ui/**",
-								"/swagger-ui.html")
+								"/swagger-ui.html",
+								"/rankings")
 						.permitAll()
 						.requestMatchers(HttpMethod.GET,
 								"/plans", "/plans/**",

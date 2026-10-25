@@ -26,7 +26,7 @@ public class UnansweredReverifyHandler implements OutboxEventHandler {
     public UnansweredReverifyHandler(
             OutboxEventRepository outboxEventRepository,
             UnansweredReverifyRepository reverifyRepository,
-            @Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}") double threshold
+            @Value("${faq.confidence-threshold}") double threshold
     ) {
         this.outboxEventRepository = outboxEventRepository;
         this.reverifyRepository = reverifyRepository;

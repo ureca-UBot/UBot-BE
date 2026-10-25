@@ -135,6 +135,13 @@ ranking:
   baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:10}
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
+telemap:
+  window-minutes: ${TELEMAP_WINDOW_MINUTES:10}
+  count-threshold: ${TELEMAP_COUNT_THRESHOLD:20}
+  cluster-threshold: ${TELEMAP_CLUSTER_THRESHOLD:0.7}
+  cluster-minimum-age-minutes: ${TELEMAP_CLUSTER_MINIMUM_AGE_MINUTES:1440}
+  max-questions-for-subject: ${TELEMAP_MAX_QUESTIONS_FOR_SUBJECT:20}
+
 faq-monitoring:
   ai-review:
     max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
@@ -153,6 +160,7 @@ faq-monitoring:
     minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
 
 faq:
+  confidence-threshold: ${CHAT_CONFIDENCE_THRESHOLD:0.79}
   cache:
     # 공식 FAQ 답변을 그대로 반환합니다. 운영 질문셋 검증 후 켭니다.
     enabled: ${FAQ_CACHE_ENABLED:false}
@@ -173,7 +181,7 @@ faq:
       failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
       failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
   variant:
-    sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
+    sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.49}
 
 product:
   # 요금제 조회 도구가 약정 할인가를 계산하는 선택약정 할인율(%). FAQ의 선택약정 할인율 문장과 같아야 합니다(ContractDiscountConsistencyTest).
