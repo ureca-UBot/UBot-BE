@@ -153,11 +153,11 @@ faq-monitoring:
   improvement:
     top-k: ${CHAT_TOP_K:3}
     low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
-    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.30}
-    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.05}
+    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.40}
+    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.07}
     unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:10080}
-    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:20}
-    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
+    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:10}
+    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:10}
 
 faq:
   confidence-threshold: ${CHAT_CONFIDENCE_THRESHOLD:0.79}
