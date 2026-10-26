@@ -116,30 +116,40 @@ public class UserDataTools {
             BiFunction<Long, SubscriptionResponseDto, List<T>> recentRecords,
             Function<T, YearMonth> monthOf, Function<T, String> formatter,
             BiConsumer<SubscriptionResponseDto, T> onFound) {
+        // 호출 내역은 원인 분석용이라 DEBUG로만 남깁니다. 전화번호와 금액은 남기지 않고 회선 지정 여부만 남깁니다.
+        boolean lineSpecified = StringUtils.hasText(phoneLast4);
         YearMonth current = YearMonth.from(LocalDate.now(clock));
         YearMonth requested;
         try {
             requested = YearMonth.parse(month == null ? "" : month.strip(), MONTH_FORMAT);
         } catch (DateTimeParseException exception) {
+            log.debug("가입 정보 조회 도구: 종류={}, 회선지정={}, 결과=달 형식 오류", recordName, lineSpecified);
             return String.format(INVALID_MONTH_MESSAGE, month);
         }
         if (requested.isAfter(current)) {
+            log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과=미래 달", recordName, requested, lineSpecified);
             return String.format(FUTURE_MONTH_MESSAGE, requested, LocalDate.now(clock));
         }
         YearMonth oldest = current.minusMonths(LOOKUP_MONTHS - 1);
         if (requested.isBefore(oldest)) {
+            log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과=조회 기간 밖", recordName, requested,
+                    lineSpecified);
             return String.format(TOO_OLD_MONTH_MESSAGE, oldest, current);
         }
         boolean summaryProvided = Boolean.TRUE.equals(toolContext.getContext().get(SUMMARY_PROVIDED));
         return lookup(phoneLast4, toolContext, (userId, subscription) -> {
             List<T> records = recentRecords.apply(userId, subscription);
             if (summaryProvided && !records.isEmpty() && monthOf.apply(records.getFirst()).equals(requested)) {
+                log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과=미리 제공된 달", recordName, requested,
+                        lineSpecified);
                 onFound.accept(subscription, records.getFirst());
                 return String.format(ALREADY_PROVIDED_MESSAGE, requested, recordName);
             }
             Optional<T> found = records.stream()
                     .filter(record -> monthOf.apply(record).equals(requested))
                     .findFirst();
+            log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과={}", recordName, requested, lineSpecified,
+                    found.isPresent() ? "조회됨" : "기록 없음");
             found.ifPresent(record -> onFound.accept(subscription, record));
             return found.map(formatter).orElse(requested + " " + recordName + " 기록이 없습니다.");
         });

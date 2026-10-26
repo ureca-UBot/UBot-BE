@@ -86,7 +86,7 @@ public class OllamaClient implements LlmClient {
         // 모델의 별도 thinking 정보는 제외하고 최종 답변 문자열만 꺼냅니다.
         String answer = response.getResult().getOutput().getText();
         if (!StringUtils.hasText(answer)) {
-            log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=빈 답변, 종료사유={}", finishReason(response));
+            log.debug("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=빈 답변, 종료사유={}", finishReason(response));
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
         return new LlmResponseDto(answer);
@@ -121,7 +121,7 @@ public class OllamaClient implements LlmClient {
             checkInterrupted();
             toolRounds++;
             if (toolRounds > MAX_TOOL_ROUNDS) {
-                log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=도구 호출 {}회 초과", MAX_TOOL_ROUNDS);
+                log.debug("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=도구 호출 {}회 초과", MAX_TOOL_ROUNDS);
                 throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
             }
 
@@ -174,8 +174,8 @@ public class OllamaClient implements LlmClient {
                 : response.hasFinishReasons(Set.of("length")) ? "길이 제한으로 잘림"
                 : null;
         if (reason != null) {
-            // LLM-005는 원인이 여러 가지라 실패 사유를 남겨 둡니다.
-            log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유={}, 종료사유={}", reason, finishReason(response));
+            // LLM-005는 원인이 여러 가지라 원인 분석용으로 사유만 DEBUG로 남깁니다. 답변 내용은 남기지 않습니다.
+            log.debug("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유={}, 종료사유={}", reason, finishReason(response));
             throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
         }
     }
@@ -217,7 +217,8 @@ public class OllamaClient implements LlmClient {
                 return new LlmException(LlmErrorCode.LLM_TIMEOUT, exception);
             }
             if (cause instanceof HttpMessageConversionException) {
-                log.warn("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=응답 해석 실패, 원인={}", cause.toString());
+                log.debug("LLM 응답을 쓸 수 없습니다: 제공자=ollama, 사유=응답 해석 실패, 예외종류={}",
+                        cause.getClass().getSimpleName());
                 return new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID, exception);
             }
         }

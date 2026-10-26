@@ -102,6 +102,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 		// 추론 과정은 제외하고 최종 답변 문자열만 꺼냅니다.
 		String answer = removeThinking(completion.content());
 		if (!StringUtils.hasText(answer)) {
+			log.debug("LLM 응답을 쓸 수 없습니다: 제공자=openai-compatible, 사유={}, 종료사유={}",
+					StringUtils.hasText(completion.content()) ? "추론 블록만 있음" : "빈 답변", completion.finishReason());
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 		return new LlmResponseDto(answer);
@@ -127,7 +129,10 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 			if (Thread.currentThread().isInterrupted()) {
 				throw new java.util.concurrent.CancellationException("LLM tool execution cancelled");
 			}
-			if (++rounds > 8) throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+			if (++rounds > 8) {
+				log.debug("LLM 응답을 쓸 수 없습니다: 제공자=openai-compatible, 사유=도구 호출 8회 초과");
+				throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+			}
 			ToolExecutionResult result = toolCallingManager.executeToolCalls(
 					new Prompt(conversation, options), completion.toChatResponse());
 			conversation = result.conversationHistory();
@@ -170,6 +175,10 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
 	private void validateCompletion(Completion completion) {
 		if (completion == null || completion.hasToolCalls() || completion.isTruncated()) {
+			// LLM-005는 원인이 여러 가지라 원인 분석용으로 사유만 DEBUG로 남깁니다. 답변 내용은 남기지 않습니다.
+			log.debug("LLM 응답을 쓸 수 없습니다: 제공자=openai-compatible, 사유={}, 종료사유={}",
+					completion == null ? "응답 없음" : completion.hasToolCalls() ? "도구 호출이 남음" : "길이 제한으로 잘림",
+					completion == null ? null : completion.finishReason());
 			throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
 		}
 	}
@@ -271,6 +280,9 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 				return new LlmException(LlmErrorCode.LLM_TIMEOUT, exception);
 			}
 			if (cause instanceof HttpMessageConversionException) {
+				// 예외 메시지에 응답 본문이 들어갈 수 있어 예외 종류만 남깁니다.
+				log.debug("LLM 응답을 쓸 수 없습니다: 제공자=openai-compatible, 사유=응답 해석 실패, 예외종류={}",
+						cause.getClass().getSimpleName());
 				return new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID, exception);
 			}
 		}
