@@ -1,16 +1,22 @@
 package com.ubot.ai.dto;
 
+import com.ubot.ai.tool.product.ProductRefine;
 import com.ubot.ai.tool.product.ProductType;
 import java.util.List;
 
 /**
  * 답변에 쓰인 상품(요금제·부가서비스·결합·로밍)을 화면이 카드로 그릴 수 있게 담습니다.
  * LLM 문장과 별도로 응답에 실리며, 목록은 비어 있을 수는 있어도 null이 아닙니다.
+ * refine은 목록 결과가 많거나 없을 때 버튼으로 조건을 골라 다시 조회하게 하는 선택지이고, 필요 없으면 null입니다.
  */
-public record ProductDataCards(List<ProductCard> products) {
+public record ProductDataCards(List<ProductCard> products, ProductRefine refine) {
 
     public ProductDataCards {
         products = products == null ? List.of() : List.copyOf(products);
+    }
+
+    public ProductDataCards(List<ProductCard> products) {
+        this(products, null);
     }
 
     /**

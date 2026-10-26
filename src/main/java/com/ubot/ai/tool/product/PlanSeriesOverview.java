@@ -39,6 +39,11 @@ public record PlanSeriesOverview(List<Group> groups) implements ProductListAnswe
 
     @Override
     public String answer() {
+        return summary() + "\n\n" + GUIDE;
+    }
+
+    /** 안내 문장을 뺀 개수·시리즈 부분입니다. 조건 선택 안내(ProductRefinePrompt)가 이 뒤에 자기 안내를 붙입니다. */
+    String summary() {
         StringBuilder text = new StringBuilder("Ubot 요금제는 ").append(total()).append("가지이며, 다음 종류가 있습니다.");
         for (Group group : groups) {
             text.append("\n- ").append(group.name()).append(" (");
@@ -56,7 +61,7 @@ public record PlanSeriesOverview(List<Group> groups) implements ProductListAnswe
             }
             text.append(')');
         }
-        return text.append("\n\n").append(GUIDE).toString();
+        return text.toString();
     }
 
     @Override

@@ -400,7 +400,9 @@ public class ChatAnswerProcessor {
 						+ ", FAQ 질문=" + normalizeForLog(result.question())
 						+ ", 매칭 variant ID=" + result.variantId()
 						+ ", 매칭 variant 질문=" + normalizeForLog(result.variantQuestion())
-						+ ", 유사도=" + result.similarityScore())
+						+ ", 유사도=" + result.similarityScore()
+						+ ", 의도=" + result.intent()
+						+ ", 카테고리=" + result.categoryName())
 				.collect(java.util.stream.Collectors.joining(" | "));
 	}
 

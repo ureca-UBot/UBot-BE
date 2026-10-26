@@ -237,6 +237,57 @@ class UserDataToolsTest {
         assertThat(tools.getUsageByMonth("2026-10", null, LOGGED_IN)).isEqualTo(UserDataTools.LOOKUP_FAILED_MESSAGE);
     }
 
+    @Test
+    void 질문에_두_달이_나왔는데_한_달만_조회하면_다른_달도_함께_돌려주고_카드로_남긴다() {
+        givenSubscriptions();
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(billing(YearMonth.of(2026, 10), PaymentStatus.PAID),
+                        billing(YearMonth.of(2026, 9), PaymentStatus.PAID), billing(YearMonth.of(2026, 8), PaymentStatus.PAID))));
+        UserDataRecorder recorder = new UserDataRecorder();
+        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder,
+                UserDataTools.SUMMARY_PROVIDED, true, UserDataTools.CURRENT_QUESTION, "8월 9월 요금 알려줘"));
+
+        String result = tools.getBillingByMonth("2026-08", null, context);
+
+        assertThat(result).contains("2026년 8월 청구서(7월 사용분)", "2026년 9월 청구서(8월 사용분)");
+        assertThat(recorder.cards().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactly(YearMonth.of(2026, 8), YearMonth.of(2026, 9));
+    }
+
+    @Test
+    void 최근_N개월을_물으면_그_기간의_달을_함께_돌려준다() {
+        givenSubscriptions();
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(billing(YearMonth.of(2026, 10), PaymentStatus.PAID),
+                        billing(YearMonth.of(2026, 9), PaymentStatus.PAID), billing(YearMonth.of(2026, 8), PaymentStatus.PAID))));
+        UserDataRecorder recorder = new UserDataRecorder();
+        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder,
+                UserDataTools.SUMMARY_PROVIDED, true, UserDataTools.CURRENT_QUESTION, "최근 3개월 요금 알려줘"));
+
+        String result = tools.getBillingByMonth("2026-09", null, context);
+
+        // 가장 최근 달(10월)은 요약에 있다고 알리고, 카드로는 남깁니다.
+        assertThat(result).contains("2026년 9월 청구서(8월 사용분)", "2026년 8월 청구서(7월 사용분)",
+                String.format(UserDataTools.ALREADY_PROVIDED_MESSAGE, "2026-10", "청구서"));
+        assertThat(recorder.cards().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactlyInAnyOrder(YearMonth.of(2026, 9), YearMonth.of(2026, 10), YearMonth.of(2026, 8));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"9월 요금 알려줘", "8월 9월 사용분 요금 알려줘"})
+    void 질문의_달이_하나거나_사용_월로_말했으면_모델이_고른_달만_돌려준다(String question) {
+        givenSubscriptions();
+        when(billingService.getMyBillingRecordList(USER_ID, 1L, null, 0, UserDataTools.LOOKUP_MONTHS))
+                .thenReturn(page(List.of(billing(YearMonth.of(2026, 9), PaymentStatus.PAID),
+                        billing(YearMonth.of(2026, 8), PaymentStatus.PAID))));
+        ToolContext context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID,
+                UserDataTools.CURRENT_QUESTION, question));
+
+        String result = tools.getBillingByMonth("2026-09", null, context);
+
+        assertThat(result).contains("2026년 9월 청구서").doesNotContain("2026년 8월 청구서");
+    }
+
     private void givenSubscriptions() {
         givenSubscriptions(subscription(1L, "010-1234-5678", SubscriptionStatus.ACTIVE));
     }

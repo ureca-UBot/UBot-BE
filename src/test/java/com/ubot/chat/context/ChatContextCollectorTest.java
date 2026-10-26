@@ -15,6 +15,8 @@ import com.ubot.faq.enums.Intent;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ChatContextCollectorTest {
 	private final ChatContext context = new ChatContext(1L, "질문", null);
@@ -97,6 +99,33 @@ class ChatContextCollectorTest {
 				new RecordingHandler(Intent.PRODUCT_DATA))))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("GENERAL");
+	}
+
+	@Test
+	void 일반_FAQ만_걸려도_본인_정보를_묻는_질문이면_사용자_정보_핸들러를_실행한다() {
+		var general = new RecordingHandler(Intent.GENERAL);
+		var user = new RecordingHandler(Intent.USER_DATA);
+		var collector = new ChatContextCollector(List.of(general, user, new RecordingHandler(Intent.STORE_DATA),
+				new RecordingHandler(Intent.PRODUCT_DATA)));
+
+		collector.collect(new ChatContext(1L, "내 데이터 사용량 알려줘", null), List.of(general1));
+		collector.collect(new ChatContext(1L, "데이터 사용량 확인 방법 알려줘", null), List.of(general1));
+
+		// 사용자 정보 핸들러는 FAQ를 쓰지 않아 빈 목록으로 한 번만 실행됩니다. 본인을 가리키지 않은 질문에는 실행하지 않습니다.
+		assertThat(user.calls).containsExactly(List.of());
+		assertThat(general.calls).hasSize(2);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"내 데이터 사용량 알려줘", "제 요금제 뭐예요", "내가 이번 달 요금 얼마 냈어?", "나의 약정 언제 끝나?"})
+	void 자기_지칭과_회원_기록_항목이_함께_있으면_본인_정보_질문으로_본다(String question) {
+		assertThat(UserIntentHandler.asksOwnData(question)).isTrue();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"제일 싼 요금제 알려줘", "데이터 제공량 많은 요금제", "약정 해제하면 위약금 있어?", "내 근처 매장 알려줘"})
+	void 자기_지칭이나_회원_기록_항목이_없으면_본인_정보_질문으로_보지_않는다(String question) {
+		assertThat(UserIntentHandler.asksOwnData(question)).isFalse();
 	}
 
 	private static FaqSearchResponseDto faq(Long id, Intent intent) {

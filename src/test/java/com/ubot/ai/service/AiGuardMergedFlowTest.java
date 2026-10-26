@@ -106,7 +106,7 @@ class AiGuardMergedFlowTest {
             var card = new com.ubot.ai.dto.ProductDataCards.ProductCard(com.ubot.ai.tool.product.ProductType.PLAN,
                     "검증 요금제", 10000, List.of(), List.of());
             recorder.record(card, "검증 요금제 월 10,000원");
-            recorder.searched(new com.ubot.ai.tool.product.ProductListing("요금제", "월정액 낮은 순", 1, List.of(card)));
+            recorder.searched(new com.ubot.ai.tool.product.ProductDataRecorder.SearchRecord(new com.ubot.ai.tool.product.ProductSearch(com.ubot.ai.tool.product.ProductType.PLAN, null, java.util.Map.of(), List.of()), 1, new com.ubot.ai.tool.product.ProductListing("요금제", "월정액 낮은 순", 1, List.of(card))));
             return new LlmResponseDto(RAW);
         });
         var result = service.generateAnswer(input);

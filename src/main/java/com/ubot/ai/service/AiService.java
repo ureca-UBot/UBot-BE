@@ -16,9 +16,12 @@ import com.ubot.ai.dto.ProductDataCards;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.UserDataCards;
+import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.MonthlyRecordsAnswer;
 import com.ubot.ai.tool.product.ProductDataCardSelector;
 import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductRefine;
 import com.ubot.ai.tool.product.ProductListAnswer;
 import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
@@ -94,7 +97,8 @@ public class AiService {
         // 가입 정보 도구가 조회한 사용량·청구서도 같은 이유로 요청마다 따로 보관합니다.
         UserDataRecorder userDataRecorder = new UserDataRecorder();
         // 상품 조회 도구가 돌려준 상품도 출력 검사 근거와 화면용 카드로 쓰려고 요청마다 따로 보관합니다.
-        ProductDataRecorder productDataRecorder = new ProductDataRecorder(materials.question());
+        ProductDataRecorder productDataRecorder = new ProductDataRecorder(materials.question(),
+                materials.history().stream().map(ConversationTurn::question).filter(StringUtils::hasText).toList());
         if (toolPath) {
             request = request.withTools(callbacks,
                     toToolContext(materials, storeRecorder, userDataRecorder, productDataRecorder));
@@ -102,22 +106,55 @@ public class AiService {
 
         // 프롬프트가 준비됐을 때만 LLM을 호출하고, 생성된 답변을 채팅 쪽으로 반환합니다.
         // 빈 응답 판단은 ChatAnswerProcessor가 합니다.
-        LlmResponseDto response = llmService.generateAnswer(request);
+        LlmResponseDto response;
+        try {
+            response = llmService.generateAnswer(request);
+        } catch (LlmException exception) {
+            // 목록 답변은 LLM 답변을 쓰지 않으므로, 도구 조회 뒤 LLM의 마지막 응답만 깨졌으면 목록으로 답합니다.
+            if (exception.getErrorCode() != LlmErrorCode.LLM_RESPONSE_INVALID || !listingAnswerable(materials)
+                    || productDataRecorder.listing().isEmpty()) {
+                throw exception;
+            }
+            log.warn("LLM 응답이 올바르지 않지만 상품 목록 요청이라 목록 답변으로 답합니다");
+            response = null;
+        }
         // 기존 파서로 응답을 읽고, 켜져 있는 출력 검사의 결과를 후속 처리에 전달합니다.
         StoreMapResult storeMap = storeRecorder.result().orElse(materials.storeMap());
         String answer = null;
         String status = null;
         OutputGuardResult inspection = null;
-        Optional<ProductListAnswer> listing = Optional.empty();
         List<AiAnswer.SlotOutcome> slotOutcomes = null;
-        if (response != null && StringUtils.hasText(response.answer())) {
-            Long captureId = reviewCaptureService.captureResponse(UUID.randomUUID(), materials.reviewAttemptId(), response.answer());
+        boolean responded = response != null && StringUtils.hasText(response.answer());
+        // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
+        // LLM 답변은 읽지 않으므로 LLM 응답이 비었거나 깨졌어도 목록으로 답합니다.
+        Optional<ProductListAnswer> listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
+        // 여러 달을 물었으면 가입 정보 도구가 조회한 기록으로 달마다 한 줄씩 답합니다(MonthlyRecordsAnswer 참고).
+        Optional<MonthlyRecordsAnswer> monthly = responded && monthlyAnswerable(materials)
+                ? MonthlyRecordsAnswer.of(materials.question(), userDataRecorder.cards()) : Optional.empty();
+        if (responded || listing.isPresent()) {
+            // LLM 응답 없이 목록으로 답하면 수집할 원문이 없어 captureId가 null이고, 이후 기록도 건너뜁니다.
+            Long captureId = reviewCaptureService.captureResponse(UUID.randomUUID(), materials.reviewAttemptId(),
+                    responded ? response.answer() : null);
             String originalAnswer = null;
             try {
-                FaqAnswer parsed = FaqAnswerFormat.parse(response.answer());
-                originalAnswer = parsed.slots() == null ? parsed.answer()
-                        : parsed.slots().stream().map(SlotAnswer::answer).collect(Collectors.joining("\n\n"));
-                log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
+                // 수집 기록의 원문은 모델이 쓴 문장입니다. 목록·여러 달 답변은 모델 문장을 쓰지 않으므로 형식이 깨져도 그대로 진행합니다.
+                FaqAnswer parsed = null;
+                if (responded) {
+                    try {
+                        parsed = FaqAnswerFormat.parse(response.answer());
+                    } catch (RuntimeException exception) {
+                        if (listing.isEmpty() && monthly.isEmpty()) {
+                            throw exception;
+                        }
+                        log.warn("LLM 답변 형식이 올바르지 않지만 코드가 만든 답변으로 답합니다: 예외종류={}",
+                                exception.getClass().getSimpleName());
+                    }
+                }
+                if (parsed != null) {
+                    originalAnswer = parsed.slots() == null ? parsed.answer()
+                            : parsed.slots().stream().map(SlotAnswer::answer).collect(Collectors.joining("\n\n"));
+                    log.info("LLM 답변을 파싱했습니다: status={}, evidenceIds={}", parsed.status(), parsed.evidenceIds());
+                }
                 // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
                 AnswerMaterials inspected = materials;
                 if (outputGuardProperties.isEnabled()) {
@@ -133,11 +170,10 @@ public class AiService {
                     }
                 }
                 reviewCaptureService.recordContext(captureId, inspected, storeMap);
-                // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
-                listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
                 if (listing.isPresent()) {
-                    log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM status={}, 형식={}, 카드수={}",
-                            parsed.status(), listing.get().getClass().getSimpleName(), listing.get().products().size());
+                    log.info("상품 목록 요청이라 목록 답변으로 바꿨습니다: LLM응답={}, 형식={}, 카드수={}",
+                            responded ? "있음" : "없음", listing.get().getClass().getSimpleName(),
+                            listing.get().products().size());
                     inspection = inspectOutput(listing.get().answer(), List.of(), inspected, storeMap, null);
                     // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
                     if (inspection.rejected() || inspection.contentRemoved()) {
@@ -145,23 +181,35 @@ public class AiService {
                     }
                     answer = inspection.answer();
                     status = SubQuestionStatuses.ANSWER;
-                } else if (parsed.slots() != null) {
-                    SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
-                            lookupFailures(materials, storeRecorder, userDataRecorder));
-                    answer = slotResult.answer();
-                    status = slotResult.status();
-                    inspection = slotResult.inspection();
-                    slotOutcomes = slotResult.outcomes();
-                } else {
-                    // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
-                    inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), inspected, storeMap, null);
-                    // 칸을 구분할 수 없는 출력은 문제 내용을 일부만 전달하지 않고 기존처럼 거절합니다.
+                } else if (monthly.isPresent()) {
+                    log.info("여러 달을 묻는 질문이라 조회한 기록으로 답변을 바꿨습니다: 청구서수={}, 사용량수={}",
+                            monthly.get().cards().billings().size(), monthly.get().cards().usages().size());
+                    inspection = inspectOutput(monthly.get().answer(), List.of(), inspected, storeMap, null);
+                    // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
                     if (inspection.rejected() || inspection.contentRemoved()) {
                         throw AiOutputGuardException.rejected(inspection);
                     }
-                    validateOutputWithAi(inspection.answer(), parsed.evidenceIds(), inspected, storeMap);
                     answer = inspection.answer();
-                    status = parsed.status();
+                    status = SubQuestionStatuses.ANSWER;
+                } else {
+                    if (parsed.slots() != null) {
+                        SlotResult slotResult = answerBySlots(parsed, inspected, storeMap, toolPath,
+                                lookupFailures(materials, storeRecorder, userDataRecorder));
+                        answer = slotResult.answer();
+                        status = slotResult.status();
+                        inspection = slotResult.inspection();
+                        slotOutcomes = slotResult.outcomes();
+                    } else {
+                        // 칸 형식이 아닌 출력(도구 경로에서 일반 문장으로 답한 경우 등)은 기존처럼 본문 전체를 검사해 씁니다.
+                        inspection = inspectOutput(parsed.answer(), parsed.evidenceIds(), inspected, storeMap, null);
+                        // 칸을 구분할 수 없는 출력은 문제 내용을 일부만 전달하지 않고 기존처럼 거절합니다.
+                        if (inspection.rejected() || inspection.contentRemoved()) {
+                            throw AiOutputGuardException.rejected(inspection);
+                        }
+                        validateOutputWithAi(inspection.answer(), parsed.evidenceIds(), inspected, storeMap);
+                        answer = inspection.answer();
+                        status = parsed.status();
+                    }
                 }
                 reviewCaptureService.recordGuardResult(captureId, originalAnswer,
                         new OutputGuardResult(answer, false, inspection == null ? Set.of() : inspection.reasons(),
@@ -194,12 +242,23 @@ public class AiService {
                 ? (listing.get().products().isEmpty() ? null : new ProductDataCards(listing.get().products()))
                 : "ABSTAIN".equals(status) ? null
                 : ProductDataCardSelector.select(answer, productDataRecorder.cards());
+        // 목록 결과가 다 보이지 않거나 0건이면 버튼으로 조건을 골라 다시 조회할 선택지를 붙입니다.
+        // 0건이라 답을 보류한 답변에도 붙여, 다시 입력하지 않고 조건을 바꿀 수 있게 합니다.
+        Optional<ProductRefine> refine = listingAnswerable(materials) ? productDataRecorder.refine() : Optional.empty();
+        if (refine.isPresent()) {
+            productData = new ProductDataCards(productData == null ? List.of() : productData.products(), refine.get());
+        }
         // 상품 카드가 나가는 "요금제 종류 알려줘" 같은 답변에는 질문의 "요금제"만으로 내 요금제 카드를 붙이지 않습니다.
+        // 상품 도구가 붙은 질문도 같습니다. "밸런스 요금제 알려줘"가 0건이면 상품 카드는 없지만 묻는 것은 내 요금제가 아닙니다.
+        // 답변에 내 요금제 이름이 나오면 지금처럼 붙입니다.
+        boolean productQuestion = materials.tools().stream().anyMatch(ProductType::isProductTool);
+        // 여러 달 답변이면 답변에 쓴 기록 전부입니다.
         UserDataCards userData = "ABSTAIN".equals(status) ? null
+                : monthly.isPresent() ? monthly.get().cards()
                 : UserDataCards.merge(
                         UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
                         UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary(),
-                                productData == null));
+                                productData == null && !productQuestion));
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData,
                 productData, slotOutcomes);
     }
@@ -210,6 +269,12 @@ public class AiService {
      */
     private static boolean listingAnswerable(AnswerMaterials materials) {
         return materials.subQuestions().size() <= 1 && materials.tools().stream().allMatch(ProductType::isProductTool);
+    }
+
+    /** 여러 달 답변으로 대신할 수 있는 질문인지입니다. 하위 질문이 하나이고 가입 정보 도구만 붙었을 때만입니다. */
+    private static boolean monthlyAnswerable(AnswerMaterials materials) {
+        return materials.subQuestions().size() <= 1 && !materials.tools().isEmpty()
+                && materials.tools().stream().allMatch(tool -> tool == AiTool.USER_DATA_LOOKUP);
     }
 
     /**
@@ -463,6 +528,8 @@ public class AiService {
         if (materials.userDataSummary() != null) {
             context.put(UserDataTools.SUMMARY_PROVIDED, true);
         }
+        // 가입 정보 도구가 질문에 나온 다른 달을 찾을 때 씁니다. 위 QUESTION은 이전 답변의 달까지 섞여 있어 따로 넣습니다.
+        context.put(UserDataTools.CURRENT_QUESTION, materials.question());
         return context;
     }
 }

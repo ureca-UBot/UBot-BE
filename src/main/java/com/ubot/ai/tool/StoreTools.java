@@ -70,7 +70,9 @@ public class StoreTools {
         
         // 장소명이 비었거나 일반 단어뿐이면 사용자가 특정 장소를 말하지 않은 것이 확실하므로 사용자의 위치를 요청합니다.
         String placeName = extractPlaceName(place); // LLM이 넣어준 place 문자열에서 장소명만 남는다.
+        // 호출 결과는 원인 분석용이라 DEBUG로만 남깁니다. 장소명은 질문 내용이라 남기지 않고 결과 종류와 매장 수만 남깁니다.
         if (placeName == null) {
+            log.debug("매장 조회 도구: 결과=기준 장소 없음(위치 요청)");
             if (recorder != null) {
             	// 프론트로 locationRequired:true 전달
                 recorder.markLocationRequired();
@@ -83,6 +85,7 @@ public class StoreTools {
         // ex2) 질문:역심역, placeName:"역삼역" -> 프롬프트로 제어하지만, LLM이 오타를 알아서 교정할 경우,
         // 재요청 프롬프트를 반환한다.
         if (!isMentionedInQuestion(placeName, question)) {
+            log.debug("매장 조회 도구: 결과=질문에 없는 장소");
             if (recorder != null) {
                 recorder.markPlaceNotInQuestion();
             }
@@ -95,6 +98,7 @@ public class StoreTools {
             
             // 사용자가 장소를 말했으므로 못 찾아도 현재 위치를 요청하지 않습니다. 다시 알려 달라고만 안내합니다.
             if (locations.isEmpty()) {
+                log.debug("매장 조회 도구: 결과=장소를 찾지 못함");
                 if (recorder != null) {
                     recorder.markPlaceNotFound(placeName);
                 }
@@ -104,6 +108,7 @@ public class StoreTools {
             LocationSearchResponse found = locations.getFirst();
             Location center = new Location(found.latitude(), found.longitude());
             StoreMapResult result = nearbyStoreSearcher.search(center, placeName);
+            log.debug("매장 조회 도구: 결과=조회됨, 매장수={}", result.stores() == null ? 0 : result.stores().size());
             // 빈 결과도 기록해 화면이 "주변에 매장 없음"을 지도와 함께 안내할 수 있게 합니다.
             if (recorder != null) {
                 recorder.record(result);
