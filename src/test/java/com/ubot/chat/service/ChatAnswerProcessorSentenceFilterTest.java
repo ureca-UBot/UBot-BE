@@ -34,7 +34,6 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.pgvector.PGvector;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 
 @DisplayName("채팅 FAQ 질문 벡터와 답변 문장 필터")
 class ChatAnswerProcessorSentenceFilterTest {
@@ -91,7 +90,7 @@ class ChatAnswerProcessorSentenceFilterTest {
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(ai);
         assertThat(unanswered).contains(new UnansweredCandidate(
-				1, QUESTION, QUESTION, com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.8, UnansweredSource.RETRIEVAL));
+				1, QUESTION, QUESTION, com.ubot.unanswered.enums.UnansweredReason.INSUFFICIENT_FAQ, 1L, 0.8));
     }
 
     @Test

@@ -34,15 +34,15 @@ class UnansweredQuestionVectorRepositoryUnitTest {
         assertThat(sql.getValue()).contains("'PENDING'", "'ON_HOLD'", "uge.profile_id = ?").doesNotContain("'REJECTED'");
         assertThat(args.getValue()).containsExactly(9L, vector, .6, vector);
     }
-    @Test void 기존_소스_컬럼에_OUTPUT_GUARD를_문자열로_바인딩한다() {
+    @Test void 미응답_질문은_발생_경로_없이_저장한다() {
         when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(501L);
         repository.saveQuestion(100L, 1, 50L, QUESTION, QUESTION, vector(), 9L,
-                UnansweredReason.INSUFFICIENT_FAQ, 17L, .91, UnansweredSource.OUTPUT_GUARD);
+                UnansweredReason.INSUFFICIENT_FAQ, 17L, .91);
         var sql = ArgumentCaptor.forClass(String.class);
         var args = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).queryForObject(sql.capture(), eq(Long.class), args.capture());
-        assertThat(sql.getValue()).contains("source", "INSERT INTO unanswered_questions");
+        assertThat(sql.getValue()).contains("INSERT INTO unanswered_questions").doesNotContain("source");
         assertThat(args.getValue()).containsExactly(100L, 1, 50L, QUESTION, QUESTION,
-                "INSUFFICIENT_FAQ", 17L, .91, "OUTPUT_GUARD");
+                "INSUFFICIENT_FAQ", 17L, .91);
     }
 }

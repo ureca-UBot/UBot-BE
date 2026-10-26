@@ -19,7 +19,6 @@ import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -151,6 +150,6 @@ class ChatServiceUnansweredTest {
 	}
 
 	private static UnansweredCandidate candidate(UnansweredReason reason, Long bestFaqId, Double bestSimilarity) {
-		return new UnansweredCandidate(1, "질문", "질문", reason, bestFaqId, bestSimilarity, UnansweredSource.RETRIEVAL);
+		return new UnansweredCandidate(1, "질문", "질문", reason, bestFaqId, bestSimilarity);
 	}
 }
