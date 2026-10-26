@@ -47,7 +47,7 @@ final class ReviewContextSnapshot {
 		if (data.path("sub_questions").isArray()) {
 			var questions = new java.util.ArrayList<Map<String, Object>>();
 			for (JsonNode part : data.path("sub_questions")) {
-				var question = fields(part, "question", "originalPart");
+				var question = fields(part, "searchQuery", "userText");
 				var ids = new java.util.ArrayList<JsonNode>();
 				for (JsonNode faq : part.path("faqs")) if (faq.has("faqId")) ids.add(faq.path("faqId"));
 				question.put("faq_ids", ids);

@@ -295,6 +295,20 @@ class GuardReviewPostgresIntegrationTest {
 		// 이후 PR이 마이그레이션을 더해도 깨지지 않도록 버전을 고정하지 않고, 남은 마이그레이션이 없는지와 V50 이상인지만 봅니다.
 		assertThat(flyway.info().pending()).isEmpty();
 		assertThat(flyway.info().current().getVersion().isAtLeast("50")).isTrue();
+		// V56 한 파일에서 재검토 결과, 예약 출처와 검사 생략 요약을 함께 준비합니다.
+		assertThat(db.queryForObject("""
+				SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND
+				((table_name='guard_review_items' AND column_name='reassessment') OR
+				 (table_name='guard_review_settings' AND column_name='analysis_source') OR
+				 (table_name='guard_review_checks' AND column_name='skipped_origins'))
+				""", Integer.class)).isEqualTo(3);
+		assertThat(db.queryForObject("SELECT analysis_source FROM guard_review_settings WHERE id=1", String.class))
+				.isEqualTo("GENERATED_ANSWER");
+		assertThat(db.queryForList("""
+				SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname IN
+				('idx_guard_review_items_reassessment','idx_guard_review_checks_created','idx_guard_review_checks_origin_created')
+				""", String.class)).containsExactlyInAnyOrder("idx_guard_review_items_reassessment",
+				"idx_guard_review_checks_created", "idx_guard_review_checks_origin_created");
 
 		assertThat(db.queryForObject(
 				"SELECT source_key FROM guard_review_items WHERE source_fingerprint='legacy-fingerprint'",
