@@ -46,7 +46,6 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.exception.UserErrorCode;
@@ -255,7 +254,7 @@ class ChatAnswerProcessorIntentValidationTest {
             assertThat(unanswered).isEmpty();
         } else {
             assertThat(unanswered).contains(new UnansweredCandidate(1, generalQuestion, generalQuestion,
-                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore(), UnansweredSource.RETRIEVAL));
+                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore()));
             assertThat(unanswered).hasSize(1);
         }
     }
