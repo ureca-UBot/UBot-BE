@@ -181,6 +181,25 @@ class TelemapRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("제목을 저장해도 갱신된 급증 알림 질문 수를 덮어쓰지 않는다")
+    void updatingSubjectDoesNotOverwriteRefreshedQuestionCount() {
+        long clusterId = vectors.createCluster(RegionSido.SEOUL, "대표", profileId,
+                vector(1.0f, 0.0f), NOW);
+        for (int i = 0; i < 3; i++) {
+            insertSurgingQuestion(createQuestionLog("질문" + i, null, NOW.minusMinutes(i)), clusterId, NOW.minusMinutes(i));
+        }
+        SurgingAlert alert = alerts.saveAndFlush(SurgingAlert.create(RegionSido.SEOUL, clusterId,
+                List.of(new SurgingQuestionSnapshot(1L, "질문", NOW)), 10, 10));
+
+        assertThat(alerts.refreshPendingQuestionCounts()).isEqualTo(1);
+        assertThat(alerts.updateSubjectIfBlank(alert.getId(), "제목", NOW.plusMinutes(1))).isEqualTo(1);
+
+        assertThat(questionCount(alert)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT subject FROM surging_alerts WHERE id = ?", String.class, alert.getId()))
+                .isEqualTo("제목");
+    }
+
+    @Test
     @DisplayName("연결된 클러스터가 정리되면 알림은 남고 cluster_id만 비워진다")
     void clearsClusterIdWhenClusterIsDeleted() {
         long clusterId = vectors.createCluster(RegionSido.SEOUL, "대표", profileId,

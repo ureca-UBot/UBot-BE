@@ -57,6 +57,20 @@ public interface SurgingAlertRepository extends JpaRepository<SurgingAlert, Long
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update SurgingAlert a
+            set a.subject = :subject,
+                a.updatedAt = :updatedAt
+            where a.id = :alertId
+              and (a.subject is null or trim(a.subject) = '')
+            """)
+    int updateSubjectIfBlank(
+            @Param("alertId") Long alertId,
+            @Param("subject") String subject,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update SurgingAlert a
             set a.status = com.ubot.telemap.enums.SurgingAlertStatus.PROCESSED,
                 a.updatedBy = :administrator,
                 a.updatedAt = :processedAt
