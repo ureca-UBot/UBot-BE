@@ -14,10 +14,13 @@ redis-exporter가 응답하지 않거나(`up{job="redis"} == 0`), exporter가 Re
 3. 메모리: `redis_memory_used_bytes`, `redis_memory_max_bytes`(0이면 상한 없음)
 4. Redis 로그의 마지막 오류(메모리 부족, 영속성 파일 쓰기 실패 등)
 
+AWS monitoring Compose는 현재 `chat:jobs` Stream 선택 옵션을 redis-exporter에 주지 않습니다. 이 환경에서 Stream length·PEL·lag 지표가 없다는 이유만으로 큐가 비었다고 판단하지 말고 DB 작업 상태와 `XLEN`·`XPENDING`을 함께 확인합니다.
+
 ## 조치
 
 - exporter만 죽었으면 exporter를 다시 시작합니다.
 - Redis가 멈췄으면 원인을 해결하고 Redis를 다시 시작합니다. 스트림을 잃었어도 대기 중 작업은 DB 기준으로 다시 발행되고, 죽은 Worker의 실행은 마지막 heartbeat 10분 뒤 실패로 끝납니다.
+- 현재 공통 Compose는 named volume을 쓰지만 AOF, 별도 `redis.conf`, 인증과 TLS를 선언하지 않습니다. 볼륨 존재만으로 최근 Stream 보존을 보장하지 않으며 외부 공개 Redis 구성으로 사용하지 않습니다.
 
 ## 복구 확인
 

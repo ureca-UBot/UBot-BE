@@ -1,0 +1,16 @@
+[Unit]
+Description=UBot vLLM chat (8000) and embedding (8001)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/ubot-gpu
+ExecStart=/usr/bin/docker compose -p llm up -d vllm vllm-embedding
+ExecStop=/usr/bin/docker compose -p llm stop vllm vllm-embedding
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

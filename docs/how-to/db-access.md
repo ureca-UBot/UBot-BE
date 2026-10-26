@@ -1,6 +1,6 @@
 # DB 직접 조회하기
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 로컬 PostgreSQL에 접속해 데이터나 pgvector·PostGIS 상태를 확인하는 방법입니다.
 애플리케이션 실행에는 필요하지 않은 선택 단계입니다.
