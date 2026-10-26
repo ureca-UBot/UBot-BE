@@ -71,7 +71,7 @@ class OutputGuardUnansweredConnectionTest {
                 guard,
                 SubQuestionLabels.withoutMorphology(),
                 org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
-                new com.ubot.ai.config.AiOutputGuardProperties());
+                new com.ubot.ai.config.AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		processor = processorFor(ai);
 		when(planner.plan(attempt, QUESTION)).thenReturn(SubQuestionPlan.original(QUESTION, SubQuestionPlan.Source.ORIGINAL));
 		when(retrieval.searchCandidates(QUESTION, null, 3, 0))
@@ -181,7 +181,7 @@ class OutputGuardUnansweredConnectionTest {
                 guard,
                 SubQuestionLabels.withoutMorphology(),
                 outputAi,
-                new com.ubot.ai.config.AiOutputGuardProperties());
+                new com.ubot.ai.config.AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		var guardedProcessor = processorFor(guardedAi);
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(
 				"{\"answers\":[{\"answer\":\"근거 없는 안내\",\"status\":\"ANSWER\"}],\"evidence_ids\":[\"17\"]}"));

@@ -10,6 +10,7 @@ import com.ubot.common.ErrorCode;
 import com.ubot.common.GlobalException;
 import com.ubot.common.exception.SafeExceptions;
 import com.ubot.unanswered.dto.UnansweredCandidate;
+import com.ubot.guardreview.service.ReviewCheckService;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import lombok.extern.slf4j.Slf4j;
@@ -21,9 +22,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class ChatJobProcessor {
 	private final ChatAnswerProcessor chatAnswerProcessor;
+	private final ReviewCheckService reviewChecks;
 
-	public ChatJobProcessor(ChatAnswerProcessor chatAnswerProcessor) {
+	public ChatJobProcessor(ChatAnswerProcessor chatAnswerProcessor, ReviewCheckService reviewChecks) {
 		this.chatAnswerProcessor = chatAnswerProcessor;
+		this.reviewChecks = reviewChecks;
 	}
 
 	// checkCancellation은 작업을 잃거나 종료 중이면 CancellationException을 던짐. 이 예외는 그대로 전달함
@@ -31,6 +34,7 @@ public class ChatJobProcessor {
 			List<UnansweredCandidate> unanswered) {
 		long startedAt = System.nanoTime();
 		log.info("답변 생성 작업을 시작했습니다: 시도ID={}, 재시도횟수={}", attempt.getId(), attempt.getAttemptCount());
+		reviewChecks.beginAttempt(attempt.getId());
 		try {
 			ChatAnswerResult result = chatAnswerProcessor.generateAnswer(attempt, location, checkCancellation, unanswered);
 			if (result.isFailed()) {
@@ -64,6 +68,8 @@ public class ChatJobProcessor {
 					attempt.getId(), ChatErrorCode.INTERNAL_ERROR.getCode(), SafeExceptions.type(exception),
 					SafeExceptions.withoutMessages(exception));
 			return ChatJobOutcome.failed(ChatErrorCode.INTERNAL_ERROR, unanswered);
+		} finally {
+			reviewChecks.finishAttempt(attempt.getId(), attempt.getQuestion());
 		}
 	}
 

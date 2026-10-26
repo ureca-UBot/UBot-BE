@@ -16,6 +16,7 @@ import java.util.Set;
  * history는 답변 LLM에 넘길 이전 대화입니다. 이번 질문이 이전 대화를 써야 할 때만 채우고, 아니면 비어 있습니다.
  * userDataSummary는 가입 정보를 미리 조회하지 않았으면 null이며, 답변에 쓰인 기록을 화면용 카드로 고를 때와 출력 검사에 씁니다.
  * toolRecords는 LLM이 도구로 조회한 사용량·청구서입니다. 출력 검사 근거로만 넣고, 없으면 null입니다.
+ * reviewAttemptId는 검토 기록에 질문 원문을 연결하는 내부 ID이며, 프롬프트에는 넣지 않습니다.
  */
 public record AnswerMaterials(
         String question,
@@ -27,7 +28,8 @@ public record AnswerMaterials(
         List<ConversationTurn> history,
         Long userId,
         UserDataSummary userDataSummary,
-        UserDataCards toolRecords) {
+        UserDataCards toolRecords,
+        Long reviewAttemptId) {
 
     public AnswerMaterials {
         // Builder를 거치지 않고 만들어도 컬렉션은 null 없이 불변으로 고정합니다.
@@ -36,6 +38,18 @@ public record AnswerMaterials(
         tools = tools == null || tools.isEmpty() ? Set.of() : Collections.unmodifiableSet(EnumSet.copyOf(tools));
         subQuestions = subQuestions == null ? List.of() : List.copyOf(subQuestions);
         history = history == null ? List.of() : List.copyOf(history);
+    }
+
+    /** 수집용 시도 ID는 프롬프트나 도구 문맥에 전달하지 않습니다. */
+    public AnswerMaterials(String question, List<FaqSearchResponseDto> faqs, List<ContextSection> sections,
+            Set<AiTool> tools, StoreMapResult storeMap, List<SubQuestionFaqs> subQuestions,
+            List<ConversationTurn> history, Long userId, UserDataSummary userDataSummary, UserDataCards toolRecords) {
+        this(question, faqs, sections, tools, storeMap, subQuestions, history, userId, userDataSummary, toolRecords, null);
+    }
+
+    public AnswerMaterials withReviewAttempt(Long attemptId) {
+        return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, history, userId,
+                userDataSummary, toolRecords, attemptId);
     }
 
     public AnswerMaterials(
@@ -60,7 +74,7 @@ public record AnswerMaterials(
     /** 이전 대화를 넣은 사본입니다. 가입 정보 도구가 쓰는 userId와 카드용 userDataSummary도 그대로 옮깁니다. */
     public AnswerMaterials withHistory(List<ConversationTurn> values) {
         return new AnswerMaterials(question, faqs, sections, tools, storeMap, subQuestions, values, userId,
-                userDataSummary, toolRecords);
+                userDataSummary, toolRecords, reviewAttemptId);
     }
 
     /** 도구로 조회한 기록을 넣은 사본입니다. 출력 검사가 문장 비교에도 쓰도록 같은 내용의 섹션을 덧붙입니다. */
@@ -68,7 +82,7 @@ public record AnswerMaterials(
         List<ContextSection> values = new ArrayList<>(sections);
         values.add(section);
         return new AnswerMaterials(question, faqs, values, tools, storeMap, subQuestions, history, userId,
-                userDataSummary, records);
+                userDataSummary, records, reviewAttemptId);
     }
 
     /** 섹션 하나를 덧붙인 사본입니다. 상품 조회 도구 결과를 출력 검사 근거로 넣을 때 씁니다. */
@@ -76,7 +90,7 @@ public record AnswerMaterials(
         List<ContextSection> values = new ArrayList<>(sections);
         values.add(section);
         return new AnswerMaterials(question, faqs, values, tools, storeMap, subQuestions, history, userId,
-                userDataSummary, toolRecords);
+                userDataSummary, toolRecords, reviewAttemptId);
     }
 
     public static Builder builder(String question) {

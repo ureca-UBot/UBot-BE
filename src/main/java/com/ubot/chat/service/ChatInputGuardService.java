@@ -7,6 +7,8 @@ import com.ubot.chat.exception.ChatException;
 import com.ubot.common.GlobalException;
 import com.ubot.forbiddenword.exception.ForbiddenWordErrorCode;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
+import com.ubot.guardreview.service.ReviewCheckService;
+import com.ubot.guardreview.model.ReviewCheckModels.Outcome;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -25,6 +27,24 @@ public class ChatInputGuardService {
 	private final ForbiddenWordFilterService forbiddenWordFilterService;
 	private final ChatPromptInjectionService chatPromptInjectionService;
 	private final AiInputGuardProperties properties;
+	private final ReviewCheckService reviewChecks;
+
+	/** 접수 전 차단은 아직 attempt가 없어도 관리자 검사 기록에 남깁니다. */
+	public String prepareSubmittedQuestion(String question) {
+		try {
+			String prepared = prepareQuestion(question);
+			reviewChecks.inputCode(question, properties.isEnabled()
+					? Outcome.PASS : Outcome.SKIPPED, "SUBMISSION_CHECK");
+			return prepared;
+		} catch (GlobalException exception) {
+			reviewChecks.inputCode(question, isInputDetection(exception)
+					? Outcome.REJECTED : Outcome.ERROR, exception.getErrorCode().getCode());
+			throw exception;
+		} catch (RuntimeException exception) {
+			reviewChecks.inputCode(question, Outcome.ERROR, "CHECK_FAILED");
+			throw exception;
+		}
+	}
 
 	private static final Pattern GRAPHEME = Pattern.compile("\\X");
 	private static final Pattern GREETING = Pattern.compile(

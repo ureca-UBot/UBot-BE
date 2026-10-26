@@ -44,6 +44,41 @@ class ReviewWorkerTest {
 		worker.poll();
 		verifyNoInteractions(analyzer, embedding, work);
 	}
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(strings = {"INPUT_LLM", "OUTPUT_LLM"})
+	void 입력출력_보류는_기존모델수명관리_안에서_한번만_재검토하고_정상가능성도_저장한다(String origin) {
+		source = new Source(1, "guard-check:1", "질문", "답변", origin, "REVIEW", "{}");
+		pending();
+		var result = new com.ubot.guardreview.model.ReviewReassessment(
+				com.ubot.guardreview.model.ReviewReassessment.Verdict.NORMAL_POSSIBLE, "정상일 가능성이 있습니다.", List.of());
+		when(analyzer.reassess(source)).thenReturn(result);
+		worker.poll();
+		verify(analyzer, times(1)).reassess(source);
+		verify(analyzer, never()).analyze(any());
+		verify(work).finishReviewedSource(eq(9L), any(), eq(source), eq(List.of()), eq(result));
+		verify(model).close();
+		verifyNoInteractions(embedding, reviews);
+	}
+	@Test
+	void 기본_가드전답변은_보류결과여도_원문분석을_하며_원래_판정을_재판정하지않는다() {
+		source = new Source(1, "raw", "질문", "생성 답변", "OUTPUT_RAW", "REVIEW", "{}");
+		pending();
+		when(analyzer.analyze(source)).thenReturn(List.of());
+		worker.poll();
+		verify(analyzer).analyze(source);
+		verify(analyzer, never()).reassess(any());
+		verify(work).finishSource(eq(9L), any(), eq(source), eq(List.of()), eq(true));
+	}
+	@Test
+	void 보류의_잘못된_재검토응답은_허용이나_정상으로_저장하지않는다() {
+		source = new Source(1, "guard-check:1", "질문", null, "INPUT_LLM", "REVIEW", "{}");
+		pending();
+		when(analyzer.reassess(source)).thenReturn(null);
+		worker.poll();
+		verify(work).finishSource(eq(9L), any(), eq(source), eq(List.of()), eq(false));
+		verify(work, never()).finishReviewedSource(anyLong(), any(), any(), anyList(), any());
+		verifyNoInteractions(embedding, reviews);
+	}
 	@Test
 	void 위험문장은_검토결과로만_전달한다() {
 		pending();

@@ -50,8 +50,8 @@ class AiOutputGuardSwitchTest {
                 mock(AiToolRegistry.class),
                 code,
                 com.ubot.ai.service.SubQuestionLabels.withoutMorphology(),
-                new AiLlmOutputGuardService(model, guardPrompts),
-                properties);
+                new AiLlmOutputGuardService(model, guardPrompts, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class)),
+                properties, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final AnswerMaterials materials = AnswerMaterials.builder("요금제 변경 방법을 알려 주세요.")
             .addSection(new ContextSection("공식 안내", "요금제는 앱에서 변경할 수 있습니다."))
             .build();
@@ -215,7 +215,7 @@ class AiOutputGuardSwitchTest {
         properties.setEnabled(false);
         var inputCode = mock(ChatInputGuardService.class);
         var input = new AiInputGuardService(model, guardPrompts, inputCode, new AiInputGuardProperties(),
-                mock(SubQuestionPromptService.class), mock(LlmService.class));
+                mock(SubQuestionPromptService.class), mock(LlmService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         when(guardPrompts.input(any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
         when(model.generate(any())).thenReturn(new LlmResponseDto(
                 "{\"decision\":\"ALLOW\",\"reason\":\"SAFE\",\"sub_questions\":[\"요금제 변경 방법\"]}"));

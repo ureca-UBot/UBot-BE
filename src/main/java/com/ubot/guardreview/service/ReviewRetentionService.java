@@ -1,6 +1,7 @@
 package com.ubot.guardreview.service;
 
 import com.ubot.guardreview.repository.ReviewRepository;
+import com.ubot.guardreview.repository.ReviewCheckRepository;
 import java.util.function.IntSupplier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ public class ReviewRetentionService {
 	static final int BATCH_SIZE = 1000;
 	static final int MAX_BATCHES = 20;
 	private final ReviewRepository repository;
+	private final ReviewCheckRepository checks;
 
 	@Transactional
 	public void cleanup() {
@@ -20,6 +22,9 @@ public class ReviewRetentionService {
 		repository.analysisLock();
 		bounded(() -> repository.expireRunDetails(BATCH_SIZE));
 		bounded(() -> repository.clearSourceSnapshots(BATCH_SIZE));
+		bounded(() -> checks.expireDetails(BATCH_SIZE));
+		bounded(() -> checks.prune(BATCH_SIZE));
+		bounded(() -> repository.pruneCaptures(BATCH_SIZE));
 		bounded(() -> repository.pruneItems(BATCH_SIZE));
 		bounded(() -> repository.pruneRuns(BATCH_SIZE));
 		bounded(() -> repository.pruneHistory(BATCH_SIZE));

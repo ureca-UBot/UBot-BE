@@ -1012,7 +1012,7 @@ class ChatServiceTest {
                 new AiOutputGuardService(filter),
                 SubQuestionLabels.withoutMorphology(),
                 org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
-                new com.ubot.ai.config.AiOutputGuardProperties());
+                new com.ubot.ai.config.AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		when(ai.generateAnswer(any(AnswerMaterials.class))).thenAnswer(call -> guardedAi.generateAnswer(call.getArgument(0)));
 		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(
 				List.of(new FaqSearchResponseDto(1L, "서비스 안내", "할인율은 25%입니다. 신분증을 지참해주세요.", 0.9, Intent.GENERAL)));

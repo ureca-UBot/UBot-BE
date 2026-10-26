@@ -54,7 +54,7 @@ class AiGuardSlotMergeConnectionTest {
     private final AiLlmOutputGuardService output = mock(AiLlmOutputGuardService.class);
     private final AiOutputGuardProperties properties = new AiOutputGuardProperties();
     private final AiService service = new AiService(prompts, generation, tools, code,
-            SubQuestionLabels.withoutMorphology(), output, properties);
+            SubQuestionLabels.withoutMorphology(), output, properties, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final AnswerMaterials materials = materials();
 
     @BeforeEach
@@ -97,8 +97,8 @@ class AiGuardSlotMergeConnectionTest {
     void oneGuardRequestContainsTheKeptAnswersAndOriginalContextRegardlessOfSlotCount(int count, int rejectedIndex) {
         var model = mock(AiGuardModelService.class);
         var words = mock(com.ubot.forbiddenword.service.ForbiddenWordFilterService.class);
-        var guard = new AiLlmOutputGuardService(model, new com.ubot.prompt.service.AiGuardPromptService(words));
-        var ai = new AiService(prompts, generation, tools, code, SubQuestionLabels.withoutMorphology(), guard, properties);
+        var guard = new AiLlmOutputGuardService(model, new com.ubot.prompt.service.AiGuardPromptService(words), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
+        var ai = new AiService(prompts, generation, tools, code, SubQuestionLabels.withoutMorphology(), guard, properties, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         var faqs = List.of(
                 new FaqSearchResponseDto(1L, "요금 확인", FIRST, 0.95, Intent.GENERAL),
                 new FaqSearchResponseDto(2L, "영업시간 확인", SECOND, 0.95, Intent.GENERAL),

@@ -22,10 +22,21 @@ public class ReviewWorkService {
 	}
 	@Transactional
 	public void finishSource(long runId, UUID token, Source source, List<Proposal> proposals, boolean success) {
+		finishSource(runId, token, source, proposals, success, null);
+	}
+	@Transactional
+	public void finishReviewedSource(long runId, UUID token, Source source, List<Proposal> proposals,
+			com.ubot.guardreview.model.ReviewReassessment assessment) {
+		assessment.validate(source);
+		finishSource(runId, token, source, proposals, true, assessment);
+	}
+	private void finishSource(long runId, UUID token, Source source, List<Proposal> proposals, boolean success,
+			com.ubot.guardreview.model.ReviewReassessment assessment) {
 		repository.analysisLock();
 		repository.requireLease(runId, token);
 		if (!repository.finishItem(source.id(), success))
 			return;
+		if (assessment != null) repository.saveReassessment(source.id(), assessment);
 		repository.clearAnalysisRetry(runId);
 		for (Proposal proposal : proposals) {
 			Suggestion s = proposal.suggestion();

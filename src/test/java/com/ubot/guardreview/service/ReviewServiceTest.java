@@ -249,7 +249,7 @@ class ReviewServiceTest {
 	void 수동분석은_원본스냅샷만_만들고_모델을_부르지않는다() {
 		when(repository.createRun(eq("ANALYSIS"), contains("FULL"), eq(99L))).thenReturn(4L);
 		assertThat(service.startAnalysis(99L)).isEqualTo(4);
-		verify(repository).snapshotSources(4, AnalysisMode.FULL);
+		verify(repository).snapshotSources(4, AnalysisMode.FULL, AnalysisSource.GENERATED_ANSWER);
 	}
 	@Test
 	void 분석접수와_재개는_완료알림_잠금대신_전용잠금을_사용한다() {
@@ -266,10 +266,19 @@ class ReviewServiceTest {
 		when(repository.settings(true)).thenReturn(new Settings(true, 60, 1, 1, LocalDateTime.now().minusMinutes(1)));
 		when(repository.createRun(eq("ANALYSIS"), contains("INCREMENTAL"), isNull())).thenReturn(8L);
 		service.scheduleDue();
-		verify(repository).snapshotSources(8, AnalysisMode.INCREMENTAL);
+		verify(repository).snapshotSources(8, AnalysisMode.INCREMENTAL, AnalysisSource.GENERATED_ANSWER);
 		verify(repository).advanceSchedule();
 		verify(repository, never()).snapshotSources(anyLong(), eq(AnalysisMode.FULL));
 		verifyNoInteractions(wordService);
+	}
+	@Test
+	void 일주일_예약은_선택한_입력LLM_출처를_요청에_고정한다() {
+		when(repository.settings(true)).thenReturn(new Settings(true, 10080, 1, 1,
+				LocalDateTime.now().minusMinutes(1), AnalysisSource.INPUT_LLM));
+		when(repository.createRun(eq("ANALYSIS"), contains("INPUT_LLM"), isNull())).thenReturn(9L);
+		service.scheduleDue();
+		verify(repository).snapshotSources(9, AnalysisMode.INCREMENTAL, AnalysisSource.INPUT_LLM);
+		verify(repository).advanceSchedule();
 	}
 	@Test
 	void 진행중인_분석이_있으면_주기실행과_다음시각을_증식시키지않는다() {

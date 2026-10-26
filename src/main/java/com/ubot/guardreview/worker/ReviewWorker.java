@@ -12,6 +12,7 @@ import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.guardreview.service.*;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -126,7 +127,13 @@ public class ReviewWorker {
 	private AnalysisResult analyze(long id, UUID token, Source source, ReviewLeaseService.Lease lease,
 			ReviewModelRuntime.Session model) {
 		try {
-			var suggestions = analyzer.analyze(source);
+			boolean review = "REVIEW".equals(source.outcome()) && List.of("INPUT_LLM", "OUTPUT_LLM").contains(source.origin());
+			var reassessment = review ? analyzer.reassess(source) : null;
+			if (review) {
+				if (reassessment == null) throw new IllegalArgumentException("보류 재검토 결과가 없습니다.");
+				reassessment.validate(source);
+			}
+			var suggestions = reassessment == null ? analyzer.analyze(source) : reassessment.suggestions();
 			lease.check();
 			model.ensureValid();
 			if (suggestions == null || suggestions.size() > 20)
@@ -148,7 +155,8 @@ public class ReviewWorker {
 			}
 			lease.check();
 			model.ensureValid();
-			work.finishSource(id, token, source, proposals, true);
+			if (reassessment == null) work.finishSource(id, token, source, proposals, true);
+			else work.finishReviewedSource(id, token, source, proposals, reassessment);
 		} catch (ReviewAnalysisDeferredException e) {
 			log.debug("사용자 채팅을 위해 관리자 분석을 다음 주기로 미룹니다: 실행ID={}, 항목ID={}", id, source.id());
 			return AnalysisResult.DEFERRED;

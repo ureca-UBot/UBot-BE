@@ -4,6 +4,7 @@ import static com.ubot.guardreview.exception.ReviewErrorCode.NOT_FOUND;
 import static com.ubot.guardreview.exception.ReviewErrorCode.CONFLICT;
 import static com.ubot.guardreview.model.ReviewModels.Kind;
 import static com.ubot.guardreview.model.ReviewModels.AnalysisMode;
+import static com.ubot.guardreview.model.ReviewModels.AnalysisSource;
 import static com.ubot.guardreview.model.ReviewModels.RETENTION;
 import static com.ubot.guardreview.model.ReviewModels.Settings;
 import static com.ubot.guardreview.model.ReviewModels.Source;
@@ -19,6 +20,8 @@ import com.pgvector.PGvector;
 import com.ubot.forbiddenword.service.ForbiddenWordCatalogLock;
 import com.ubot.guardreview.exception.ReviewException;
 import com.ubot.common.PageResponseDto;
+import com.ubot.guardreview.model.ReviewCheckModels.Origin;
+import com.ubot.guardreview.model.ReviewCheckModels.Outcome;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -70,16 +73,16 @@ public class ReviewRepository {
 		return jdbc.queryForObject("SELECT * FROM guard_review_settings WHERE id=1" + (lock ? " FOR UPDATE" : ""),
 				(r, n) -> new Settings(r.getBoolean("enabled"), r.getInt("interval_minutes"),
 						r.getDouble("grouping_threshold"), r.getLong("revision"),
-						r.getObject("next_run_at", LocalDateTime.class)));
+						r.getObject("next_run_at", LocalDateTime.class), AnalysisSource.valueOf(r.getString("analysis_source"))));
 	}
-	public Settings saveSettings(boolean enabled, int minutes, double threshold, long revision, long adminId) {
+	public Settings saveSettings(boolean enabled, int minutes, double threshold, long revision, long adminId, AnalysisSource source) {
 		if (jdbc.update(
 				"""
 						UPDATE guard_review_settings SET updated_at=CURRENT_TIMESTAMP,enabled=?, interval_minutes=?, grouping_threshold=?, revision=revision+1,
 						next_run_at=CASE WHEN ? THEN LOCALTIMESTAMP + make_interval(mins => ?) ELSE NULL END,
-						updated_by=? WHERE id=1 AND revision=?
+						updated_by=?,analysis_source=COALESCE(?,analysis_source) WHERE id=1 AND revision=?
 						""",
-				enabled, minutes, threshold, enabled, minutes, adminId, revision) != 1)
+				enabled, minutes, threshold, enabled, minutes, adminId, source == null ? null : source.name(), revision) != 1)
 			throw new ReviewException(CONFLICT);
 		return settings(false);
 	}
@@ -98,40 +101,112 @@ public class ReviewRepository {
 				VALUES (?,CASE WHEN ?='ANALYSIS' THEN ?::jsonb->>'analysisMode' END,?::jsonb,?) RETURNING id
 				""", Long.class, kind, kind, request, request, adminId);
 	}
+	/** 같은 생성 응답은 capture_id로 합칩니다. 장기 중복키에는 식별자 원값 대신 해시만 저장합니다. */
+	public long captureResponse(UUID captureId, long attemptId, String response) {
+		return jdbc.query("""
+				INSERT INTO guard_review_items(capture_id,source_id,source_key,source_fingerprint,
+				 question_snapshot,answer_snapshot,raw_response_snapshot,guard_outcome,guard_origin)
+				SELECT ?,a.attempt_id,
+				 'sha256:'||encode(sha256(convert_to(concat('llm:',a.attempt_id,':',CAST(? AS text)),'UTF8')),'hex'),
+				 encode(sha256(convert_to(CAST(jsonb_build_array(a.question,CAST(? AS text)) AS text),'UTF8')),'hex'),
+				 a.question,?,?, 'PENDING','OUTPUT_RAW' FROM answer_attempts_history a WHERE a.attempt_id=?
+				ON CONFLICT(capture_id) WHERE run_id IS NULL DO UPDATE SET capture_id=EXCLUDED.capture_id RETURNING id
+				""", (r, n) -> r.getLong(1), captureId, captureId, response, response, response, attemptId).stream()
+				.findFirst().orElseThrow(() -> new ReviewException(NOT_FOUND));
+	}
+
+	public void recordCaptureResult(long id, String originalAnswer, String finalAnswer, String outcome,
+			String reasons) {
+		recordCaptureResult(id, originalAnswer, finalAnswer, outcome, reasons, null);
+	}
+
+	public void recordCaptureResult(long id, String originalAnswer, String finalAnswer, String outcome,
+			String reasons, String stage) {
+		jdbc.update("""
+				UPDATE guard_review_items SET answer_snapshot=COALESCE(?,answer_snapshot),final_answer_snapshot=?,
+				 guard_outcome=?,guard_reasons=?::jsonb,guard_stage=?,
+				 guard_checked_at=CASE WHEN ?='SKIPPED' THEN NULL ELSE LOCALTIMESTAMP END,updated_at=LOCALTIMESTAMP,
+				 source_fingerprint=encode(sha256(convert_to(CAST(jsonb_build_array(question_snapshot,
+				 COALESCE(CAST(? AS text),answer_snapshot),guard_context) AS text),'UTF8')),'hex')
+				WHERE id=? AND run_id IS NULL AND guard_outcome='PENDING'
+				""", originalAnswer, finalAnswer, outcome, reasons, stage, outcome, originalAnswer, id);
+	}
+
+	/** 이미 저장한 원본에 분석용 최소 근거만 연결합니다. 실시간 가드의 입력은 변경하지 않습니다. */
+	public void recordCaptureContext(long id, String context) {
+		jdbc.update("UPDATE guard_review_items SET guard_context=?::jsonb WHERE id=? AND run_id IS NULL AND guard_outcome='PENDING'", context, id);
+	}
 	public void snapshotSources(long runId, AnalysisMode mode) {
-		// 재시도는 마지막 시도 하나로 합칩니다. 별도 멱등키를 쓰는 의도 재검색 답변도 수집합니다.
-		// 원문을 동결한 뒤 실제 분석한 내용의 지문을 기록합니다. 실패·분석 중인 항목은 성공 기준으로 쓰지 않습니다.
-		jdbc.update(
-				"""
-						WITH latest AS (
-						 SELECT a.attempt_id,a.question,'sha256:'||encode(sha256(convert_to(concat_ws(':',coalesce(CAST(a.conversation_id AS text),'none'),
-						 coalesce(CAST(a.user_id AS text),'guest'),a.idempotency_key),'UTF8')),'hex') AS source_key,
-						 row_number() OVER (PARTITION BY a.conversation_id,a.user_id,a.idempotency_key
-						  ORDER BY a.attempt_count DESC,a.attempt_id DESC) AS source_rank
-						 FROM answer_attempts_history a
-						 WHERE a.created_at <= (SELECT cutoff FROM guard_review_runs WHERE id=?)
-						), snapshots AS (
-						 SELECT a.*,(SELECT llm_question FROM question_log WHERE attempt_id=a.attempt_id
-						  AND created_at <= (SELECT cutoff FROM guard_review_runs WHERE id=?)
-						  ORDER BY sub_question_index,id LIMIT 1) AS answer
-						 FROM latest a WHERE source_rank=1
-						), fingerprints AS (
-						 SELECT s.*,encode(sha256(convert_to(CAST(jsonb_build_array(s.question,s.answer) AS text),'UTF8')),'hex') AS fingerprint
-						 FROM snapshots s
-						)
-						INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,answer_snapshot)
-						SELECT ?,s.attempt_id,s.source_key,s.fingerprint,s.question,s.answer FROM fingerprints s
-						WHERE ?='FULL' OR (
-						 SELECT source_fingerprint FROM guard_review_items previous
-						 WHERE previous.source_key=s.source_key AND previous.status='COMPLETED'
-						 ORDER BY previous.finished_at DESC,previous.id DESC LIMIT 1
-						) IS DISTINCT FROM s.fingerprint
-						ON CONFLICT(run_id,source_key) DO NOTHING
-						""",
-				runId, runId, runId, mode.name());
-		jdbc.update(
-				"UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,total=(SELECT count(*) FROM guard_review_items WHERE run_id=?) WHERE id=?",
-				runId, runId);
+		snapshotSources(runId, mode, AnalysisSource.GENERATED_ANSWER);
+	}
+	/** 설정한 출처만 동결합니다. 같은 원본의 최신 성공 지문이 같으면 증분 분석에서 제외합니다. */
+	public void snapshotSources(long runId, AnalysisMode mode, AnalysisSource source) {
+		if (source == AnalysisSource.GENERATED_ANSWER) {
+			jdbc.update("""
+					INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,
+					 answer_snapshot,origin_item_id,final_answer_snapshot,guard_outcome,guard_reasons,guard_checked_at,guard_stage,guard_origin,guard_context)
+					SELECT ?,s.source_id,s.source_key,s.source_fingerprint,s.question_snapshot,s.answer_snapshot,
+					 s.id,s.final_answer_snapshot,s.guard_outcome,s.guard_reasons,s.guard_checked_at,s.guard_stage,s.guard_origin,s.guard_context
+					FROM guard_review_items s WHERE s.run_id IS NULL AND s.capture_id IS NOT NULL
+					 AND s.guard_outcome<>'PENDING' AND s.answer_snapshot IS NOT NULL AND s.question_snapshot IS NOT NULL
+					 AND s.updated_at <= (SELECT cutoff FROM guard_review_runs WHERE id=?)
+					 AND s.created_at >= (SELECT cutoff FROM guard_review_runs WHERE id=?)-make_interval(days => ?)
+					 AND (?='FULL' OR (SELECT source_fingerprint FROM guard_review_items previous
+					  WHERE previous.run_id IS NOT NULL AND previous.source_key=s.source_key AND previous.status='COMPLETED'
+					  ORDER BY previous.finished_at DESC,previous.id DESC LIMIT 1) IS DISTINCT FROM s.source_fingerprint)
+					FOR KEY SHARE OF s ON CONFLICT(run_id,source_key) DO NOTHING
+					""", runId, runId, runId, RETENTION.detailDays(), mode.name());
+		} else {
+			// REVIEW is retained for explicit reassessment; SKIPPED/ERROR are not successful guard decisions.
+			jdbc.update("""
+					WITH selected AS MATERIALIZED (
+					 SELECT g.*,'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex') AS source_key,
+					 encode(sha256(convert_to(jsonb_build_array(g.question_snapshot,g.answer_snapshot,g.context_snapshot,g.outcome,g.reason_codes)::text,'UTF8')),'hex') AS fingerprint
+					 FROM guard_review_checks g WHERE g.origin=? AND g.outcome IN ('PASS','FILTERED','REJECTED') AND g.details_retained
+					 AND g.created_at<=(SELECT cutoff FROM guard_review_runs WHERE id=?)
+					 AND g.created_at>=(SELECT cutoff FROM guard_review_runs WHERE id=?)-make_interval(days => ?)
+					 FOR KEY SHARE OF g
+					)
+					INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,
+					 answer_snapshot,check_id,guard_origin,guard_context,guard_outcome,guard_reasons)
+					SELECT ?,g.attempt_id,g.source_key,g.fingerprint,g.question_snapshot,g.answer_snapshot,g.id,g.origin,g.context_snapshot,g.outcome,g.reason_codes
+					FROM selected g WHERE ?='FULL' OR (SELECT source_fingerprint FROM guard_review_items previous
+					 WHERE previous.source_key=g.source_key AND previous.status='COMPLETED'
+					 ORDER BY previous.finished_at DESC,previous.id DESC LIMIT 1) IS DISTINCT FROM g.fingerprint
+					ON CONFLICT(run_id,source_key) DO NOTHING
+					""", source.name(), runId, runId, RETENTION.detailDays(), runId, mode.name());
+		}
+		jdbc.update("UPDATE guard_review_runs SET updated_at=CURRENT_TIMESTAMP,total=(SELECT count(*) FROM guard_review_items WHERE run_id=?) WHERE id=?", runId, runId);
+	}
+	/** 선택한 출처의 실제 보류 기록만 복사합니다. 만료·오류·생략·다른 출처는 접수하지 않습니다. */
+	public int snapshotReviewSources(long runId, Origin origin, List<Long> ids) {
+		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		var args = new java.util.ArrayList<Object>();
+		args.add(runId);
+		args.add(origin.name());
+		args.addAll(ids);
+		args.add(runId);
+		int inserted = jdbc.update("""
+				INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,
+				 answer_snapshot,check_id,guard_origin,guard_context,guard_outcome,guard_reasons)
+				SELECT ?,g.attempt_id,'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex'),
+				 encode(sha256(convert_to(jsonb_build_array(g.question_snapshot,g.answer_snapshot,g.context_snapshot)::text,'UTF8')),'hex'),
+				 g.question_snapshot,g.answer_snapshot,g.id,g.origin,
+				 COALESCE(g.context_snapshot,'{}'::jsonb)||jsonb_build_object(
+				 'original_guard_reasons',g.reason_codes,'original_guard_explanation',g.explanation),g.outcome,g.reason_codes
+				FROM guard_review_checks g WHERE g.origin=? AND g.outcome='REVIEW' AND g.details_retained
+				 AND g.id IN (%s) AND g.created_at<=(SELECT cutoff FROM guard_review_runs WHERE id=?)
+				 AND g.created_at>=LOCALTIMESTAMP-make_interval(days => %d)
+				FOR SHARE OF g ON CONFLICT(run_id,source_key) DO NOTHING
+				""".formatted(placeholders, RETENTION.detailDays()), args.toArray());
+		total(runId, inserted);
+		jdbc.update("UPDATE guard_review_runs SET result=result||jsonb_build_object('reviewOrigin',?::text,'reviewOutcome','REVIEW') WHERE id=?",
+				origin.name(), runId);
+		return inserted;
+	}
+	public void saveReassessment(long itemId, com.ubot.guardreview.model.ReviewReassessment assessment) {
+		jdbc.update("UPDATE guard_review_items SET reassessment=?::jsonb WHERE id=? AND status='COMPLETED'",
+				JSON.writeValueAsString(assessment), itemId);
 	}
 	/** 목록과 상태 확인에는 사례 본문과 동결 요청을 읽어 오지 않습니다. */
 	public List<Run> runs() {
@@ -203,11 +278,12 @@ public class ReviewRepository {
 	public Source nextSource(long runId) {
 		return jdbc
 				.query("""
-						SELECT i.id,i.source_key,i.question_snapshot AS question,i.answer_snapshot AS answer FROM guard_review_items i
+						SELECT i.id,i.source_key,i.question_snapshot AS question,i.answer_snapshot AS answer,
+						 i.guard_origin,i.guard_outcome,i.guard_context::text FROM guard_review_items i
 						WHERE i.run_id=? AND i.status='PENDING' ORDER BY i.id LIMIT 1
 						""",
 						(r, n) -> new Source(r.getLong("id"), r.getString("source_key"), r.getString("question"),
-								r.getString("answer")),
+								r.getString("answer"), r.getString("guard_origin"), r.getString("guard_outcome"), r.getString("guard_context")),
 						runId)
 				.stream().findFirst().orElse(null);
 	}
@@ -314,6 +390,26 @@ public class ReviewRepository {
 				kind, size, (long) page * size);
 		return PageResponseDto.of(content, page, size, total == null ? 0 : total);
 	}
+	public PageResponseDto<Candidate> getCandidatePage(String kind, int page, int size,
+			Origin origin, Outcome outcome) {
+		if (origin == null && outcome == null) return getCandidatePage(kind, page, size);
+		String filter = findingFilter(origin, outcome);
+		String where = " WHERE c.kind=? AND EXISTS (SELECT 1 FROM guard_review_findings f WHERE f.candidate_id=c.id" + filter + ")";
+		Long total = jdbc.queryForObject("SELECT count(*) FROM guard_review_candidates c" + where, Long.class, kind);
+		// 표시 횟수도 같은 출처/판정에 해당하는 발견만 셉니다. 후보 자체를 출처 하나로 덮어쓰지 않습니다.
+		String select = CANDIDATE.replace("f.candidate_id=c.id", "f.candidate_id=c.id" + filter);
+		var content = jdbc.query(select + where + " ORDER BY c.id DESC LIMIT ? OFFSET ?", this::candidate,
+				kind, size, (long) page * size);
+		return PageResponseDto.of(content, page, size, total == null ? 0 : total);
+	}
+	private String findingFilter(Origin origin, Outcome outcome) {
+		// 컨트롤러에서 enum으로 변환한 값만 SQL에 사용합니다.
+		return (origin == null ? "" : " AND f.guard_origin='" + origin.name() + "'")
+				+ (outcome == null ? "" : " AND COALESCE(NULLIF(f.guard_outcome,'UNKNOWN'),"
+						+ "(SELECT legacy.guard_outcome FROM guard_review_items legacy WHERE legacy.run_id=f.first_run_id"
+						+ " AND legacy.source_key=f.source_key AND legacy.source_fingerprint=f.source_fingerprint LIMIT 1),"
+						+ "'UNKNOWN')='" + outcome.name() + "'");
+	}
 	public Candidate candidate(long id, boolean lock) {
 		return jdbc.query(CANDIDATE + " WHERE c.id=?" + (lock ? " FOR UPDATE OF c" : ""), this::candidate, id).stream()
 				.findFirst().orElseThrow(() -> new ReviewException(NOT_FOUND));
@@ -354,8 +450,8 @@ public class ReviewRepository {
 	public void finding(long candidateId, long runId, Source source, Suggestion s) {
 		jdbc.update(
 				"""
-						INSERT INTO guard_review_findings(candidate_id,first_run_id,source_id,source_key,source_fingerprint,stage,category)
-						SELECT ?,?,source_id,source_key,source_fingerprint,?,? FROM guard_review_items WHERE id=?
+						INSERT INTO guard_review_findings(candidate_id,first_run_id,source_id,source_key,source_fingerprint,stage,category,guard_origin,guard_outcome)
+						SELECT ?,?,source_id,source_key,source_fingerprint,?,?,guard_origin,COALESCE(guard_outcome,'UNKNOWN') FROM guard_review_items WHERE id=?
 						ON CONFLICT(candidate_id,source_key,source_fingerprint,stage,category) DO NOTHING
 						""",
 				candidateId, runId, s.stage().name(), s.category(), source.id());
@@ -369,21 +465,38 @@ public class ReviewRepository {
 				s.intent()).stream().findFirst().orElse(null);
 	}
 	public List<java.util.Map<String, Object>> findings(long id) {
+		return findings(id, null, null);
+	}
+	public List<java.util.Map<String, Object>> findings(long id,
+			Origin origin, Outcome outcome) {
 		return jdbc.queryForList(
 				"""
-						SELECT f.id,f.source_key AS "sourceKey",f.stage,f.category,
+						SELECT f.id,f.source_key AS "sourceKey",f.stage,f.category,f.guard_origin AS origin,
 						CASE WHEN r.details_retained AND COALESCE(r.finished_at,r.created_at)>=LOCALTIMESTAMP-make_interval(days => ?)
 						 THEN i.question_snapshot END AS question,
 						CASE WHEN r.details_retained AND COALESCE(r.finished_at,r.created_at)>=LOCALTIMESTAMP-make_interval(days => ?)
 						 THEN i.answer_snapshot END AS answer,
 						(r.details_retained AND COALESCE(r.finished_at,r.created_at)>=LOCALTIMESTAMP-make_interval(days => ?)) AS "detailsRetained",
-						f.created_at AS "createdAt"
+						COALESCE(NULLIF(f.guard_outcome,'UNKNOWN'),i.guard_outcome,'UNKNOWN') AS "guardOutcome",
+						i.guard_reasons::text AS "guardReasons",i.guard_stage AS "guardStage",
+						CASE WHEN r.details_retained AND COALESCE(r.finished_at,r.created_at)>=LOCALTIMESTAMP-make_interval(days => ?)
+						 THEN i.guard_context::text END AS context,
+						CASE WHEN r.details_retained AND COALESCE(r.finished_at,r.created_at)>=LOCALTIMESTAMP-make_interval(days => ?)
+						 THEN i.final_answer_snapshot END AS "finalAnswer",f.created_at AS "createdAt"
 						FROM guard_review_findings f JOIN guard_review_runs r ON r.id=f.first_run_id
 						LEFT JOIN guard_review_items i ON i.run_id=f.first_run_id AND i.source_key=f.source_key
 						 AND i.source_fingerprint=f.source_fingerprint
-						WHERE f.candidate_id=? ORDER BY f.id DESC LIMIT 200
-						""",
-				RETENTION.detailDays(), RETENTION.detailDays(), RETENTION.detailDays(), id);
+						WHERE f.candidate_id=?
+						""" + findingFilter(origin, outcome) + " ORDER BY f.id DESC LIMIT 200",
+				RETENTION.detailDays(), RETENTION.detailDays(), RETENTION.detailDays(), RETENTION.detailDays(), RETENTION.detailDays(), id)
+				.stream().map(row -> {
+					Object reasons = row.get("guardReasons");
+					row.put("guardReasons",
+							reasons == null ? List.of() : JSON.readValue(reasons.toString(), List.class));
+					Object context = row.get("context");
+					row.put("context", context == null ? java.util.Map.of() : JSON.readValue(context.toString(), java.util.Map.class));
+					return row;
+				}).toList();
 	}
 
 	/** 종료된 자료만 작은 묶음으로 정리합니다. 활성 후보·발견 관계·알림 중복키는 삭제하지 않습니다. */
@@ -401,13 +514,21 @@ public class ReviewRepository {
 	public int clearSourceSnapshots(int limit) {
 		return jdbc.update(
 				"""
-						UPDATE guard_review_items SET updated_at=CURRENT_TIMESTAMP,question_snapshot=NULL,answer_snapshot=NULL
+						UPDATE guard_review_items SET updated_at=CURRENT_TIMESTAMP,question_snapshot=NULL,answer_snapshot=NULL,raw_response_snapshot=NULL,final_answer_snapshot=NULL,guard_context=NULL,reassessment=NULL
 						WHERE id IN (SELECT i.id FROM guard_review_items i JOIN guard_review_runs r ON r.id=i.run_id
 						 WHERE r.status IN ('COMPLETED','FAILED') AND NOT r.details_retained
-						 AND i.status IN ('COMPLETED','FAILED') AND (i.question_snapshot IS NOT NULL OR i.answer_snapshot IS NOT NULL)
+						 AND i.status IN ('COMPLETED','FAILED') AND (i.question_snapshot IS NOT NULL OR i.answer_snapshot IS NOT NULL OR i.reassessment IS NOT NULL)
 						 ORDER BY i.id LIMIT ? FOR UPDATE OF i SKIP LOCKED)
 						""",
 				limit);
+	}
+	public int pruneCaptures(int limit) {
+		return jdbc.update("""
+				DELETE FROM guard_review_items WHERE id IN (
+				 SELECT id FROM guard_review_items WHERE run_id IS NULL
+				 AND created_at<LOCALTIMESTAMP-make_interval(days => ?)
+				 ORDER BY id LIMIT ? FOR UPDATE SKIP LOCKED)
+				""", RETENTION.detailDays(), limit);
 	}
 	public int pruneItems(int limit) {
 		return jdbc.update("""
