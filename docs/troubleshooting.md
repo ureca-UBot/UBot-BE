@@ -57,7 +57,7 @@ docker compose down -v
 
 두 번째 명령은 `-f`가 없어서 공통 파일(`docker-compose.yml`)의 볼륨만 지웁니다. DB가 비었으므로 애플리케이션을 다시 시작한 뒤 [관리자 계정과 FAQ](how-to/local-data.md)를 다시 준비합니다.
 
-PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
+PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\scripts\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
 
 ## DecodingException: Illegal base64 character
 

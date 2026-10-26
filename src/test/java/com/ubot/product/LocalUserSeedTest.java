@@ -14,7 +14,7 @@ import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-@DisplayName("로컬 초기화 사용자 시드(tools/faq-db/seed-demo-users.sql, seed-users.sql)")
+@DisplayName("로컬 초기화 사용자 시드(tools/faq-db/seed/users)")
 class LocalUserSeedTest {
 
     private static final String USERS = "email LIKE 'user%@user.com'";
@@ -49,8 +49,8 @@ class LocalUserSeedTest {
 
             // reset-local-db.ps1과 같은 순서로 실행한다. seed-baseline.sql이 만드는 기본 사용자를 먼저 넣는다.
             jdbc.update("INSERT INTO users (email, password_hash, name) VALUES ('user@user.com', 'hash', 'Default User')");
-            jdbc.execute(Files.readString(Path.of("tools/faq-db/seed-demo-users.sql")));
-            jdbc.execute(Files.readString(Path.of("tools/faq-db/seed-users.sql")));
+            jdbc.execute(Files.readString(Path.of("tools/faq-db/seed/users/seed-demo-users.sql")));
+            jdbc.execute(Files.readString(Path.of("tools/faq-db/seed/users/seed-users.sql")));
 
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(310);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE " + USERS, Integer.class)).isEqualTo(10);

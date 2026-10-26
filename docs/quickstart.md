@@ -188,7 +188,7 @@ Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 전체 API를 보고 �
 
 `POST /chat/questions`로 실제 답변을 받으려면 채팅 모델, FAQ 데이터, 관리자 계정이 필요합니다. 처음에는 FAQ가 없어 답변 상태 조회(`GET /chat/jobs/{jobId}`)가 `CHAT-012`(검색 결과 없음)로, 채팅 모델이 비어 있으면 `LLM-002`로 끝납니다.
 
-- 시드 CSV의 FAQ·질문 표현과 기본 계정을 한 번에 넣으려면 `.\tools\faq-db\reset-local-db.ps1`을 실행하고 애플리케이션을 다시 시작합니다. 시드에는 벡터가 없으므로 FAQ 검색에 필요한 `QUESTION` 벡터를 백필해야 합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
+- 시드 CSV의 FAQ·질문 표현과 기본 계정을 한 번에 넣으려면 `.\tools\faq-db\scripts\reset-local-db.ps1`을 실행하고 애플리케이션을 다시 시작합니다. 시드에는 벡터가 없으므로 FAQ 검색에 필요한 `QUESTION` 벡터를 백필해야 합니다. **이 스크립트는 로컬 PostgreSQL 데이터를 모두 지우고 새로 만듭니다.**
 - 지금 DB를 유지하려면 계정을 직접 만들고 관리자 API로 FAQ를 등록합니다.
 
 두 방법 모두 [local-data.md](how-to/local-data.md)에 있습니다.

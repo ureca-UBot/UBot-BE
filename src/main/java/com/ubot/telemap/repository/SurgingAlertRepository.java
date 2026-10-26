@@ -31,6 +31,43 @@ public interface SurgingAlertRepository extends JpaRepository<SurgingAlert, Long
             Pageable pageable
     );
 
+    // 처리 시각은 updated_at을 쓰므로 질문 수만 바꾸고 updated_at, 상태, 스냅샷은 건드리지 않는다.
+    // 클러스터에 질문이 남아 있지 않으면 집계 결과에 나오지 않아 갱신되지 않는다.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE surging_alerts a
+            SET question_count = c.question_count
+            FROM (
+                SELECT sq.cluster_id, COUNT(*) AS question_count
+                FROM surging_questions sq
+                WHERE sq.cluster_id IN (
+                    SELECT pending.cluster_id
+                    FROM surging_alerts pending
+                    WHERE pending.status = 'PENDING'
+                      AND pending.cluster_id IS NOT NULL
+                )
+                GROUP BY sq.cluster_id
+            ) c
+            WHERE a.cluster_id = c.cluster_id
+              AND a.status = 'PENDING'
+              AND a.question_count <> c.question_count
+            """, nativeQuery = true)
+    int refreshPendingQuestionCounts();
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update SurgingAlert a
+            set a.subject = :subject,
+                a.updatedAt = :updatedAt
+            where a.id = :alertId
+              and (a.subject is null or trim(a.subject) = '')
+            """)
+    int updateSubjectIfBlank(
+            @Param("alertId") Long alertId,
+            @Param("subject") String subject,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update SurgingAlert a

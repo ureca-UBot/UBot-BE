@@ -272,7 +272,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V45`~`V51` | 미응답 재검증, 상품·가입 데이터 확장과 시드, Guard Review·출처 키 해시, 모델 판정 출처와 상품 데이터 의도 추가 |
 | `V52`~`V57` | 통신 지도, 출력 가드 전후 응답·판정·검토 출처·재평가 이력 추가, 이전 미응답 출처 컬럼 제거 |
 
-표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/reset-local-db.ps1`이 기본 계정과 시드 CSV의 FAQ·질문 표현을 넣습니다. 벡터는 별도로 백필합니다([안내](../how-to/reset-local-db.md)).
+표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/scripts/reset-local-db.ps1`이 기본 계정과 시드 CSV의 FAQ·질문 표현을 넣습니다. 벡터는 별도로 백필합니다([안내](../how-to/reset-local-db.md)).
 
 FAQ 벡터는 `faq_embeddings`에 variant ID와 Profile ID별로 저장합니다. `V15`까지 쓰던 엔티티의 벡터 컬럼은 `V25`에서 지웠습니다.
 

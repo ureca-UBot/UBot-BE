@@ -53,6 +53,15 @@ public class TelemapAlertService {
         return SurgingAlertDetailResponse.from(findAlert(alertId));
     }
 
+    /**
+     * 대기 중인 알림의 질문 수를 연결된 클러스터에 지금까지 쌓인 질문 수로 갱신하고, 바뀐 알림 수를 돌려줍니다.
+     * 클러스터가 연결되어 있지 않거나(NULL) 이미 정리되어 질문이 없는 알림은 갱신하지 않습니다.
+     */
+    @Transactional
+    public int refreshPendingQuestionCounts() {
+        return surgingAlertRepository.refreshPendingQuestionCounts();
+    }
+
     @Transactional
     public SurgingAlertDetailResponse markProcessed(Long alertId, Long administratorId) {
         SurgingAlert alert = findAlert(alertId);
