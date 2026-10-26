@@ -146,6 +146,57 @@ class TelemapRepositoryIntegrationTest {
     }
 
     @Test
+    @DisplayName("대기 중이고 클러스터가 연결된 알림만 누적 질문 수로 갱신하며 updated_at과 스냅샷은 바꾸지 않는다")
+    void refreshesQuestionCountsOnlyForLinkedPendingAlerts() {
+        long clusterId = vectors.createCluster(RegionSido.SEOUL, "대표", profileId,
+                vector(1.0f, 0.0f), NOW);
+        for (int i = 0; i < 3; i++) {
+            insertSurgingQuestion(createQuestionLog("원문" + i, null, NOW.minusMinutes(i)), clusterId, NOW.minusMinutes(i));
+        }
+        long emptyClusterId = vectors.createCluster(RegionSido.SEOUL, "질문 없음", profileId,
+                vector(0.0f, 1.0f), NOW);
+        List<SurgingQuestionSnapshot> snapshots = List.of(new SurgingQuestionSnapshot(1L, "질문", NOW));
+        SurgingAlert pending = alerts.saveAndFlush(SurgingAlert.create(RegionSido.SEOUL, clusterId, snapshots, 10, 10));
+        SurgingAlert processed = alerts.saveAndFlush(SurgingAlert.create(RegionSido.SEOUL, clusterId, snapshots, 10, 10));
+        SurgingAlert unlinked = alerts.saveAndFlush(SurgingAlert.create(RegionSido.SEOUL, snapshots, 10, 10));
+        SurgingAlert emptyCluster = alerts.saveAndFlush(
+                SurgingAlert.create(RegionSido.SEOUL, emptyClusterId, snapshots, 10, 10));
+        jdbc.update("UPDATE surging_alerts SET status = 'PROCESSED' WHERE id = ?", processed.getId());
+        LocalDateTime updatedAt = jdbc.queryForObject(
+                "SELECT updated_at FROM surging_alerts WHERE id = ?", LocalDateTime.class, pending.getId());
+
+        assertThat(alerts.refreshPendingQuestionCounts()).isEqualTo(1);
+        assertThat(alerts.refreshPendingQuestionCounts()).isZero();
+
+        assertThat(questionCount(pending)).isEqualTo(3);
+        assertThat(jdbc.queryForObject(
+                "SELECT updated_at FROM surging_alerts WHERE id = ?", LocalDateTime.class, pending.getId()))
+                .isEqualTo(updatedAt);
+        assertThat(jdbc.queryForObject(
+                "SELECT jsonb_array_length(question_snapshots) FROM surging_alerts WHERE id = ?",
+                Integer.class, pending.getId())).isEqualTo(1);
+        assertThat(questionCount(processed)).isEqualTo(10);
+        assertThat(questionCount(unlinked)).isEqualTo(10);
+        assertThat(questionCount(emptyCluster)).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("연결된 클러스터가 정리되면 알림은 남고 cluster_id만 비워진다")
+    void clearsClusterIdWhenClusterIsDeleted() {
+        long clusterId = vectors.createCluster(RegionSido.SEOUL, "대표", profileId,
+                vector(1.0f, 0.0f), NOW);
+        SurgingAlert alert = alerts.saveAndFlush(SurgingAlert.create(RegionSido.SEOUL, clusterId,
+                List.of(new SurgingQuestionSnapshot(1L, "질문", NOW)), 10, 10));
+
+        jdbc.update("DELETE FROM surging_clusters WHERE id = ?", clusterId);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM surging_alerts WHERE id = ?", Long.class, alert.getId())).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT cluster_id FROM surging_alerts WHERE id = ?", Long.class, alert.getId())).isNull();
+    }
+
+    @Test
     @DisplayName("대기 중 알림만 한 번 처리 완료할 수 있다")
     void marksPendingAlertProcessedOnce() {
         SurgingAlert alert = alerts.saveAndFlush(alert(RegionSido.SEOUL, "처리 대상"));
@@ -288,6 +339,11 @@ class TelemapRepositoryIntegrationTest {
                     ranking_eligible, region, created_at
                 ) VALUES (?, ?, ?, ?, true, 'SEOUL', ?) RETURNING id
                 """, Long.class, conversationId, userQuestion, subQuestion, userQuestion, createdAt);
+    }
+
+    private Integer questionCount(SurgingAlert alert) {
+        return jdbc.queryForObject(
+                "SELECT question_count FROM surging_alerts WHERE id = ?", Integer.class, alert.getId());
     }
 
     private long insertSurgingQuestion(long questionLogId, long clusterId, LocalDateTime occurredAt) {

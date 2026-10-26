@@ -33,6 +33,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 @DisplayName("급증 질문 등록 영속성 서비스")
 class TelemapSurgingQuestionPersistenceServiceTest {
@@ -144,7 +145,9 @@ class TelemapSurgingQuestionPersistenceServiceTest {
 
         service.registerQuestion(5L, 7L, VECTOR);
 
-        verify(alerts).save(any(SurgingAlert.class));
+        ArgumentCaptor<SurgingAlert> alert = ArgumentCaptor.forClass(SurgingAlert.class);
+        verify(alerts).save(alert.capture());
+        assertThat(alert.getValue().getClusterId()).isEqualTo(15L);
         verify(outbox).enqueue(OutboxEventType.SURGING_ALERT_LABEL, "45", Map.of("alertId", 45L));
     }
 

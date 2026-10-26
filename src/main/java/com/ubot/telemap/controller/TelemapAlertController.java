@@ -5,6 +5,7 @@ import com.ubot.common.ApiResponse;
 import com.ubot.common.PageResponseDto;
 import com.ubot.ranking.enums.RegionSido;
 import com.ubot.telemap.dto.response.SurgingAlertDetailResponse;
+import com.ubot.telemap.dto.response.SurgingAlertRefreshResponse;
 import com.ubot.telemap.dto.response.SurgingAlertSummaryResponse;
 import com.ubot.telemap.enums.SurgingAlertStatus;
 import com.ubot.telemap.service.TelemapAlertService;
@@ -44,6 +45,12 @@ public class TelemapAlertController {
             @PathVariable("alertId") @Positive Long alertId
     ) {
         return ApiResponse.success(telemapAlertService.getAlert(alertId));
+    }
+
+    @PatchMapping("/refresh")
+    public ApiResponse<SurgingAlertRefreshResponse> refreshQuestionCounts() {
+        return ApiResponse.success(
+                new SurgingAlertRefreshResponse(telemapAlertService.refreshPendingQuestionCounts()));
     }
 
     @PatchMapping("/{alertId}/processed")
