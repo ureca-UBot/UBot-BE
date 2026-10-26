@@ -1,39 +1,44 @@
 # 코드 구조와 요청 흐름
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
->
-> GitHub PR·이슈 상태: 2026-09-30 09:23 KST 조회 기준
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 ## 패키지 구조
 
 ```text
 com.ubot
-├── auth           인증 (JWT 발급·검증, refresh token, Security 설정)
-├── user           사용자 엔티티·저장소·서비스, 내 정보 조회·수정 (/auth/me)
-├── chat           질문 접수 (컨트롤러 → ChatService → chat.job), 답변 Worker (ChatJobWorker → ChatJobRunner → ChatJobProcessor → ChatAnswerProcessor), 답변 시도 기록·재시도
-├── ai             FAQ 프롬프트 구성과 LLM 호출 연결 (AiService)
-├── prompt         질문·FAQ를 프롬프트 템플릿에 반영 (PromptService)
-├── llm            LLM 요청 검증·Ollama 호출·오류 변환
-├── embedding      임베딩 서버 호출(EmbeddingService → EmbeddingClient)과 Embedding Profile 조회
-├── faq            FAQ·카테고리 CRUD, 수정 이력(old_faq)·참고 로그(faq_log), FAQ 벡터 검색
-├── forbiddenword  금지어 관리 API, 채팅 입력 금지어 필터 (메모리 캐시)
-├── unanswered     답을 찾지 못한 질문 저장과 유사 질문 묶기
-├── location       카카오 로컬 API 연동 (주소·좌표 검색)
-├── store          매장 조회 (목록·상세·근처·지도·클러스터, PostGIS), 관리자 매장 관리
-├── direction      매장 길찾기 (카카오 도보·대중교통, 카카오모빌리티 자동차)
-├── global         공통 설정 (프로세스 역할 APP_ROLE: api·worker·all)
-└── common         공통 응답·에러코드·전역 예외 처리, OpenAPI 설정
+├── auth, user, guest, conversation
+│   인증·토큰, 회원 정보, 비회원 세션·한도, 대화 소유권·목록·FAQ 선택
+├── chat, ai, prompt, llm, embedding, faq
+│   질문 작업, RAG·도구·가드, 프롬프트, 모델·임베딩 호출, FAQ 검색·관리
+├── forbiddenword, guardreview, unanswered, outbox
+│   금지어, 관리자 위험 문장 검토, 미응답 묶음, DB Outbox 후속 처리
+├── counsel
+│   상담 요청·배정·heartbeat·메시지 보호·통합 타임라인·관리자 안전 문장
+├── plan, addon, home, bundle, roaming
+│   요금제·부가서비스·홈상품·결합·로밍 상품 카탈로그
+├── subscription, contract, billing, usage
+│   회원 가입 상품, 약정·청구·사용량 조회와 변경
+├── location, store, direction, telemap, reservation
+│   위치·매장·길찾기·통신 지도·방문 예약
+├── notice, inquiry, notification, ranking
+│   공지·장애 배너, 고객 문의, 서비스 알림·리마인더, 인기·급상승 FAQ
+├── monitoring, retention, redis
+│   FAQ·서비스 운영 지표, 보관 기간 삭제, Redis 연결·관측
+├── global
+│   프로세스 역할과 공통 실행 설정
+└── common
+    공통 응답·오류·전역 예외·OpenAPI
 ```
 
 | 종류 | 위치 |
 |---|---|
-| DB 마이그레이션 | `src/main/resources/db/migration/V1`~`V33` |
+| DB 마이그레이션 | `src/main/resources/db/migration/V1`~`V57` |
 | 매장 조회 SQL | `src/main/resources/sql/store/*.sql` |
 | FAQ 프롬프트 | `src/main/resources/prompts/faq-system.txt`, `faq-user.txt` |
 | DB 이미지 | `infra/postgres/Dockerfile` |
 | 개발용 컨테이너 | `docker-compose.yml`(공통), `docker-compose.ollama.yml`, `docker-compose.vllm.yml`. `tools/ubot.ps1`이 `AI_MODE`에 맞는 파일을 골라 띄움 ([실행 환경](reference/configuration.md#실행-환경-docker-compose)) |
 | 배포용 | `Dockerfile`, `docker-compose.deploy.yml`, `infra/nginx/nginx.conf` ([deploy.md](deploy.md)) |
-| GitHub Actions | `.github/workflows/ci.yml`, `commit-message.yml`, `cd-manual.yml` |
+| GitHub Actions | `.github/workflows/ci.yml`, `commit-message.yml`, `cd-manual.yml`, `aws-be-deploy.yml`, `alert-config.yml` |
 | 응답·예외 작성 규칙 | `src/main/java/com/ubot/common/manual/*.md` |
 
 ## API 개요
@@ -49,18 +54,28 @@ com.ubot
 | 매장 | `GET /stores`, `/stores/{storeId}`, `/stores/nearby`, `/stores/map`, `/stores/map/clusters`, `/stores/regions/sidos`, `/stores/regions/sigungus` | 불필요 |
 | 길찾기 | `GET /stores/{storeId}/directions?mode=WALK\|CAR\|TRANSIT`, `POST /stores/{storeId}/directions/transit-detail` | 불필요 |
 | 위치 | `GET /locations/search?query=` | 불필요 |
+| 상품 카탈로그 | `GET /plans/**`, `/bundle-products/**`, `/addon-services/**`, `/roaming-products/**`, `/home-products/**` | 불필요 |
+| 가입·이용 정보 | 가입 상품, 계약, 청구, 사용량 API | JWT |
+| 대화 | 대화 목록·상세·삭제, FAQ 선택 기록, 통합 타임라인 | JWT |
+| 상담 | 상담 요청·메시지·종료, 상담사 대기열·배정·heartbeat | JWT + 사용자·상담사 역할 검사 |
+| 예약 | 매장 예약 생성·내역 조회·취소, 관리자 예약 관리 | JWT / 관리자 기능은 `ADMIN` |
+| 고객 지원 | 공지 조회, 문의 등록·내역, 알림 조회·읽음 처리 | 공개 조회 또는 JWT. 변경 기능은 `ADMIN` |
+| 실시간 순위 | 인기 검색어·지역별 순위 | 불필요 |
 | 관리자 FAQ | `/admin/faqs`, `/admin/deleted-faqs`, `/admin/faqs/restore`, `/admin/faq-categories/**`, `/admin/faq-logs/**`, `/admin/old-faqs/faq` | JWT + `ADMIN` |
 | 임베딩 백필 | `POST /admin/faqs/embeddings/backfill`, `POST /admin/unanswered-groups/embeddings/backfill` (지금 Profile에 없는 벡터 채우기) | JWT + `ADMIN` |
 | 관리자 금지어 | `/admin/forbidden-words/**` | JWT + `ADMIN` |
+| 운영 관리 | 미응답 질문, 가드 검토, 모니터링·장애 공지 API | JWT + `ADMIN` |
 | 관리자 게스트 설정 | `GET`, `PATCH /admin/guest-chat-settings` (게스트 최대 질문 횟수) | JWT + `ADMIN` |
 | 관리자 매장 | `/admin/stores/**` (등록·수정·삭제·활성화·목록·삭제 목록) | JWT + `ADMIN` |
 | 상태 확인 | `GET /actuator/health` | 불필요 |
 | 챗봇 | `POST /chat/questions/research` (`Idempotency-Key` 헤더, 본문 `intent`와 선택적 `latitude`·`longitude`) | JWT (회원 전용) |
 
+위 표는 기능 영역을 찾기 위한 진입점입니다. 정확한 메서드와 요청·응답 필드는 애플리케이션을 실행한 뒤 Swagger UI(`/swagger-ui.html`) 또는 OpenAPI 문서(`/v3/api-docs`)에서 확인합니다.
+
 ## 인증
 
 - 세션을 쓰지 않는 stateless 구조입니다(`SecurityConfig`).
-- 인증 없이 호출할 수 있는 경로는 `/auth/login`, `/auth/signup`, `/auth/refresh`, `/stores/**`, `/locations/**`, `/actuator/health`, Swagger(`/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`)입니다. `/admin/**`은 `ADMIN` 역할이 필요하고, 나머지는 모두 JWT가 필요합니다.
+- 인증 없이 호출할 수 있는 경로는 로그인·회원가입·토큰 재발급, 매장·위치·상품·공지·순위 공개 조회, 채팅 질문 접수와 작업 조회·취소, actuator health·Prometheus, Swagger입니다. 공개 채팅 경로도 서비스 계층에서 회원 또는 게스트 세션의 작업 소유권을 확인합니다. `/admin/**`은 `ADMIN` 역할이 필요하고, 나머지는 모두 JWT가 필요합니다.
 - `JwtAuthenticationFilter`가 `Authorization: Bearer <token>`을 검증한 뒤, 토큰의 사용자 ID로 **매 요청마다 DB에서 탈퇴하지 않은 사용자를 조회**합니다. 권한은 토큰의 `role` claim이 아니라 DB의 `users.role`에서 가져옵니다.
 - 인증이 필요 없는 경로라도 잘못되거나 만료된 Bearer 토큰을 보내면 필터에서 오류 응답이 나갑니다.
 - `GET /chat/jobs/*`는 게스트도 호출하므로 인증 없이 허용합니다. 본인 작업인지는 `ChatJobQueryService`가 회원은 JWT의 사용자, 게스트는 세션의 대화로 확인하고, 아니면 없는 작업과 같은 `CHAT-020`으로 거절합니다.
@@ -219,20 +234,6 @@ FAQ를 등록·수정·삭제·복원하면 같은 트랜잭션에서 공용 대
 - 정리 작업의 단계(대기 한도, 다시 발행, 넘겨받기, 메시지를 잃은 작업, 스트림 정리)는 따로 실행되어, Redis 장애로 한 단계가 실패해도 DB만 쓰는 단계는 진행합니다.
 - 남은 한계: 강제 종료로 다시 실행한 답변은 LLM을 한 번 더 부릅니다(최소 한 번 처리). 배포마다 새 Worker 이름(컨테이너 ID)이 그룹에 consumer로 쌓입니다. 처리 대기 메시지가 없는 이전 consumer는 동작에 영향이 없지만 `XINFO CONSUMERS chat:jobs chat-workers`에 남습니다.
 
-### 현재 상태와 남은 작업
-
-**후속 작업으로 정해 둔 것**
-
-- **모델 판단(status·evidence_ids) 활용**: 서버는 모델 출력 JSON을 파싱해 `answer`만 저장·반환하고, `status`·`evidence_ids`는 로그로만 남깁니다. 모델이 답을 보류(`ABSTAIN`)해도 서버 기준으로는 `SUCCESS`이며 미응답 질문으로 쌓이지 않습니다. 자세한 내용은 [LLM 모듈 안내](how-to/llm-module.md#출력-형식과-서버-처리)를 참고하세요.
-- **대화 이력 (#81)**: 상담 세션 없이 현재 질문에만 답합니다. 요청마다 시스템 지침과 이번 질문·FAQ만 전달하며, 이전 대화 기억은 2차 MVP 범위입니다.
-- **금지어 검사 고도화 (#98)**: 초기 구현 범위로 단순 부분 문자열 포함 여부만 봅니다(대소문자·공백 정규화 없음). 띄어쓰기 우회·유사 표현 탐지는 추후 고도화 범위입니다. 캐시는 애플리케이션 메모리에 두며 변경 후 갱신은 변경이 커밋된 인스턴스 안에서만 일어납니다. 서버를 다중화하면 Redis 등 분산 캐시로 바꾸는 것이 전제입니다.
-- **미응답 질문 관리 (#109)**: `question_log`·`faq_log`에는 성공한 답변만 남고, 답을 찾지 못한 질문은 [미응답 질문 테이블](#미응답-질문-저장-105)에 쌓입니다. 이를 조회하고 처리하는 관리자 API는 이슈 #109에서 진행합니다.
-
-**팀 결정이 필요한 것** (PR·이슈에 논의 기록 없음)
-
-- **임계값**: 질문 벡터 검색 후보에는 `CHAT_CONFIDENCE_THRESHOLD`(기본 `0.75`), 통과한 FAQ의 답변 문장에는 `FAQ_SENTENCE_SIMILARITY_THRESHOLD`(기본 `0.7`)를 적용합니다.
-- **프론트 배포 환경 연결**: GitHub Pages에 배포된 UBot-FE는 HTTPS 미적용 때문에 백엔드를 호출할 수 없습니다. CORS는 `CORS_ALLOWED_ORIGINS`로 허용할 origin을 지정할 수 있습니다. 선택지는 [프론트엔드 연동 가이드](how-to/frontend-integration.md#배포-환경-미해결)에 있습니다.
-
 ## FAQ 관리 흐름
 
 - **생성**: FAQ와 원본·유사 질문 variant를 저장한 뒤 각 variant의 질문 벡터(`QUESTION`)를 지금 Embedding Profile로 만들어 `faq_embeddings`에 저장합니다. 임베딩 실패 시 트랜잭션이 롤백됩니다.
@@ -266,19 +267,7 @@ Spring AI 의존성은 있지만 임베딩·벡터 저장은 직접 구현한 �
 ## 테스트 구성
 
 - `UbotBeApplicationTests`: 테스트 전용 DB 연결, Flyway로 만든 `vector`·`postgis` extension 버전, pgvector 스키마(1024·HNSW·cosine), Ollama 없는 벡터 저장·검색
-- 도메인 테스트: `auth`·`user`(통합), `chat`(컨트롤러·서비스·금지어·LLM 연결 통합·작업 대기열 DB 통합·Worker·오류 코드 컨버터), `ai`, `prompt`, `llm`, `embedding`, `faq`(서비스·벡터 저장소), `forbiddenword`(단위·통합·E2E), `unanswered`(서비스, 채팅 연결), `store`(컨트롤러·보안·서비스·저장소), `direction`, `location`
+- 도메인 테스트: 인증·게스트·대화, 채팅 접수·작업 조회·Worker 복구, AI·프롬프트·LLM·임베딩·FAQ·금지어·가드·미응답, 상담, 상품·가입·이용 정보, 매장·길찾기·예약, 공지·문의·알림·모니터링을 단위 또는 통합 수준에서 검증합니다.
 - LLM 관련 테스트는 모의 모델과 로컬 HTTP 서버로 호출 흐름·요청 검증·오류 처리를 확인합니다. 실제 Ollama 모델의 답변 품질을 검증하지는 않습니다.
 - 테스트 프로필에서는 Ollama 자동 구성을 끄고 결정적인 테스트용 임베딩 구현을 사용합니다. 실제 BGE-M3 품질이나 Ollama 연결은 검증하지 않습니다.
 - 예외: `embedding/analysis/IntentClassificationAnalysis`는 threshold 측정용 분석 테스트로, `localhost:11435`의 실제 Ollama를 호출합니다. 환경변수 `RUN_INTENT_ANALYSIS=true`가 있을 때만 실행되므로 평소의 `gradlew test`와 GitHub Actions에서는 건너뜁니다. 결과는 [Threshold 테스트 보고서](FAQ_Threshold_테스트_보고서.md)에 정리되어 있습니다.
-
-## 진행 중인 작업
-
-문서 맨 위의 기준 커밋과 GitHub 조회 시각 기준으로 `develop`에 들어오지 않은 작업입니다. merge되면 해당 내용을 위 본문으로 옮기고 이 표에서 지웁니다.
-
-| 번호 | 상태 | 내용 | merge 시 문서에 반영할 것 |
-|---|---|---|---|
-| 이슈 [#109](https://github.com/ureca-UBot/UBot-BE/issues/109) | 열림 | 관리자 미응답 질문 묶음 목록·상세 조회, 처리 상태 변경(승인·보류·반려) | API 개요, 미응답 질문 저장 |
-| 이슈 [#108](https://github.com/ureca-UBot/UBot-BE/issues/108) | 열림 | 비로그인 게스트 상태를 `HttpSession`(`JSESSIONID`, 30분)으로 관리. 로그인 사용자의 JWT·STATELESS 방식은 유지 | 인증, 프론트엔드 연동 가이드 |
-| 이슈 [#103](https://github.com/ureca-UBot/UBot-BE/issues/103) | 열림 | 반복 채팅 응답 캐시. 개인화·위치·시간에 따라 달라지는 응답은 제외, FAQ 수정 시 무효화 전략 검토 | 캐시 설정과 채팅 흐름 |
-| 이슈 [#96](https://github.com/ureca-UBot/UBot-BE/issues/96) | 열림 | 채팅 내 실시간 검색어 추천 API | API 개요 |
-| 이슈 [#74](https://github.com/ureca-UBot/UBot-BE/issues/74) | 열림 | soft delete 후 3년 지난 `User`·`Faq`·`FaqCategory` 영구 삭제 스케줄러(매일 00:00 KST) | 스케줄러 설정, FAQ 관리 흐름 |
