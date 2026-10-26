@@ -7,8 +7,8 @@ $migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\src\main\resource
 $sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
 $demoUsersSqlPath = Join-Path $PSScriptRoot 'seed-demo-users.sql'
 $usersSqlPath = Join-Path $PSScriptRoot 'seed-users.sql'
-$popularFaqDemoSqlPath = Join-Path $PSScriptRoot 'seed\faq_ranking_demo\seed-popular-faq-from-live-logs.sql'
-$demoActivitySqlPath = Join-Path $PSScriptRoot 'seed-demo-activity.sql'
+$demoFaqRankingSqlPath = Join-Path $PSScriptRoot 'seed-demo-faqranking.sql'
+$demoTelemapSqlPath = Join-Path $PSScriptRoot 'seed-demo-telemap.sql'
 . (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 
 function Invoke-Checked {
@@ -70,23 +70,23 @@ try {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
             -U $databaseUser -d $databaseName -f /tmp/seed-users.sql
     } 'User seed import failed.'
-    if (-not (Test-Path -LiteralPath $popularFaqDemoSqlPath)) {
-        throw "Popular FAQ demo seed SQL is missing: $popularFaqDemoSqlPath"
+    if (-not (Test-Path -LiteralPath $demoFaqRankingSqlPath)) {
+        throw "FAQ ranking demo seed SQL is missing: $demoFaqRankingSqlPath"
     }
-    Invoke-Checked { docker cp $popularFaqDemoSqlPath "${containerId}:/tmp/seed-popular-faq-from-live-logs.sql" } 'Could not copy popular FAQ demo seed SQL.'
+    Invoke-Checked { docker cp $demoFaqRankingSqlPath "${containerId}:/tmp/seed-demo-faqranking.sql" } 'Could not copy FAQ ranking demo seed SQL.'
     Invoke-Checked {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
-            -U $databaseUser -d $databaseName -f /tmp/seed-popular-faq-from-live-logs.sql
-    } 'Popular FAQ demo seed import failed.'
-    Invoke-Checked { docker cp $demoActivitySqlPath "${containerId}:/tmp/seed-demo-activity.sql" } 'Could not copy demo activity seed SQL.'
+            -U $databaseUser -d $databaseName -f /tmp/seed-demo-faqranking.sql
+    } 'FAQ ranking demo seed import failed.'
+    Invoke-Checked { docker cp $demoTelemapSqlPath "${containerId}:/tmp/seed-demo-telemap.sql" } 'Could not copy telemap demo seed SQL.'
     Invoke-Checked {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
-            -U $databaseUser -d $databaseName -f /tmp/seed-demo-activity.sql
-    } 'Demo activity seed import failed.'
+            -U $databaseUser -d $databaseName -f /tmp/seed-demo-telemap.sql
+    } 'Telemap demo seed import failed.'
 } finally {
     if ($containerId) {
         Remove-FaqSeedContainerFiles -ContainerId $containerId -SqlName 'seed-baseline.sql'
-        & docker compose exec -T postgres rm -f /tmp/seed-demo-users.sql /tmp/seed-users.sql /tmp/seed-popular-faq-from-live-logs.sql /tmp/seed-demo-activity.sql | Out-Null
+        & docker compose exec -T postgres rm -f /tmp/seed-demo-users.sql /tmp/seed-users.sql /tmp/seed-demo-faqranking.sql /tmp/seed-demo-telemap.sql | Out-Null
     }
     Remove-Item -LiteralPath $renderedSql -Force -ErrorAction SilentlyContinue
 }
