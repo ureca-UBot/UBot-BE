@@ -61,6 +61,11 @@ public class ChatContextCollector {
 		// 유사도 순서를 유지한 채 intent별로 묶습니다. 같은 intent가 여러 번 걸려도 핸들러는 한 번만 실행됩니다.
 		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = commonFaqs.stream()
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
+		// "내 데이터 사용량 알려줘"에 확인 방법 같은 일반 FAQ만 걸려도 본인 정보를 묻는 질문이면 사용자 정보를 붙입니다.
+		// 사용자 정보 핸들러는 FAQ를 쓰지 않으므로 빈 목록으로 실행합니다.
+		if (!resultsByIntent.containsKey(Intent.USER_DATA) && UserIntentHandler.asksOwnData(context.question())) {
+			resultsByIntent.put(Intent.USER_DATA, List.of());
+		}
 
 		// 사용자 ID는 핸들러가 아니라 수집기가 서버 문맥에서 넣습니다.
 		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question()).userId(context.userId());
