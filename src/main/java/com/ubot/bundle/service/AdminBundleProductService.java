@@ -70,7 +70,7 @@ public class AdminBundleProductService {
     ) {
         return PageResponseDto.from(productRepository.findAll(
                 ProductSpecification.filter(keyword, status, deleted),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "bundleProductId"))
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "bundleProductId"))
         ).map(AdminBundleProductResponseDto::from));
     }
 

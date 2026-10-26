@@ -412,8 +412,7 @@ class FaqServiceTest {
                 0,
                 10,
                 Sort.by(
-                        Sort.Order.desc("createdAt"),
-                        Sort.Order.desc("id")
+                        Sort.Order.asc("id")
                 )
         );
 
@@ -464,7 +463,7 @@ class FaqServiceTest {
     @Test
     void getActiveFaqList_loadsVariantsForThePageInOneQuery() {
         var pageable = PageRequest.of(0, 2, Sort.by(
-                Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+                Sort.Order.asc("id")));
         Faq first = faq(10L, "첫 질문", 1, category(2L, "카테고리"));
         Faq second = faq(11L, "둘째 질문", 1, category(2L, "카테고리"));
         when(faqRepository.findAllActives(pageable, "", null))

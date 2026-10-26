@@ -55,8 +55,7 @@ public class FaqCategoryService {
 
 		Page<FaqCategoryResponseDto> faqCategoryPage = faqCategoryRepository
 				.findByDeletedAtIsNull(PageRequest.of(page, size, Sort.by(
-						Sort.Order.desc("createdAt"),
-						Sort.Order.desc("id")
+						Sort.Order.asc("id")
 				)), normalizedKeyword)
 				.map(FaqCategoryResponseDto::from);
 

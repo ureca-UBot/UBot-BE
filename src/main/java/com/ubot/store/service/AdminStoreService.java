@@ -216,7 +216,7 @@ public class AdminStoreService {
         Pageable pageable = PageRequest.of(
                 page,
                 size,
-                Sort.by(Sort.Direction.DESC, "storeId")
+                Sort.by(Sort.Direction.ASC, "storeId")
         );
 
         return getStorePage(specification, pageable);
@@ -253,8 +253,7 @@ public class AdminStoreService {
         Pageable pageable = PageRequest.of(
                 page,
                 size,
-                Sort.by(Sort.Direction.DESC, "deletedAt")
-                        .and(Sort.by(Sort.Direction.DESC, "storeId"))
+                Sort.by(Sort.Direction.ASC, "storeId")
         );
 
         return getStorePage(specification, pageable);
