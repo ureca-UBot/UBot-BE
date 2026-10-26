@@ -28,7 +28,6 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +53,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 	@BeforeEach
 	void setUp() {
-		processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
+		processor = ChatTestFixtures.processor(new FaqRetrievalService(vector), ai, ChatTestFixtures.collector(), planner, ChatTestFixtures.disabledCache(), sentenceFilter, ChatTestFixtures.passthroughInputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		// 기본값은 유사도 기준과 같은 0.75입니다. 이전 대화 기준을 튜닝해 올렸을 때의 동작을 보려고 0.80으로 둡니다.
@@ -100,7 +99,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::isAnswered).containsExactly(true, false);
 		assertThat(captureMaterials().subQuestions().get(1).faqs()).isEmpty();
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
+				2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5));
 		assertThat(unanswered).noneMatch(candidate -> candidate.subQuestionIndex() == 1);
 	}
 
@@ -144,7 +143,7 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		assertThat(result.isFailed()).isFalse();
 		assertThat(unanswered).containsExactly(new UnansweredCandidate(
-				3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
+				3, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5));
 		assertThat(result.answer().answer()).isEqualTo("답변할 수 없습니다.");
 	}
 
@@ -159,9 +158,9 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				1, "유심 재발급", "유심 재발급", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
+				1, "유심 재발급", "유심 재발급", UnansweredReason.NO_FAQ, null, null));
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5, UnansweredSource.RETRIEVAL));
+				2, "해외 로밍 요금", "해외 로밍 요금", UnansweredReason.INSUFFICIENT_FAQ, 9L, 0.5));
 		verifyNoInteractions(ai);
 	}
 
@@ -180,7 +179,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.subQuestions()).extracting(SubQuestionFaqs::userText).containsOnlyNulls();
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				2, "해외 로밍 요금", "", UnansweredReason.NO_FAQ, null, null, UnansweredSource.RETRIEVAL));
+				2, "해외 로밍 요금", "", UnansweredReason.NO_FAQ, null, null));
 	}
 
 	@Test
@@ -300,7 +299,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
 		verify(vector, times(1)).getSimilarList(question, 3);
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77, UnansweredSource.RETRIEVAL));
+				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.77));
 		verifyNoInteractions(ai);
 	}
 
@@ -374,7 +373,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		verify(vector, times(1)).getSimilarList(question, 3);
 		verify(sentenceFilter, times(1)).filter(any(), any());
 		assertThat(unanswered).contains(new UnansweredCandidate(
-				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.9, UnansweredSource.RETRIEVAL));
+				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 147L, 0.9));
 		verifyNoInteractions(ai);
 	}
 
@@ -448,10 +447,8 @@ class ChatAnswerProcessorSubQuestionTest {
 		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(unanswered).containsExactly(
-				new UnansweredCandidate(1, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85,
-						UnansweredSource.LLM_MODEL),
-				new UnansweredCandidate(2, "eSIM 비용", "eSIM 비용", UnansweredReason.LLM_CONFLICT, 3L, 0.8,
-						UnansweredSource.LLM_MODEL));
+				new UnansweredCandidate(1, "유심 재발급 비용", "유심 재발급 비용", UnansweredReason.LLM_ABSTAIN, 2L, 0.85),
+				new UnansweredCandidate(2, "eSIM 비용", "eSIM 비용", UnansweredReason.LLM_CONFLICT, 3L, 0.8));
 	}
 
 	@ParameterizedTest
@@ -498,7 +495,7 @@ class ChatAnswerProcessorSubQuestionTest {
 		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
 		assertThat(unanswered).containsExactly(new UnansweredCandidate(3, "데이터 쉐어링", "데이터 쉐어링",
-				UnansweredReason.INSUFFICIENT_FAQ, 6L, 0.5, UnansweredSource.RETRIEVAL));
+				UnansweredReason.INSUFFICIENT_FAQ, 6L, 0.5));
 	}
 
 	@Test
@@ -529,11 +526,10 @@ class ChatAnswerProcessorSubQuestionTest {
 
 		processor.generateAnswer(attempt, null, NOT_CANCELLED, unanswered);
 
-		assertThat(unanswered).extracting(UnansweredCandidate::subQuestionIndex, UnansweredCandidate::reason,
-						UnansweredCandidate::source)
+		assertThat(unanswered).extracting(UnansweredCandidate::subQuestionIndex, UnansweredCandidate::reason)
 				.containsExactly(
-						tuple(1, UnansweredReason.LLM_ABSTAIN, UnansweredSource.LLM_MODEL),
-						tuple(2, UnansweredReason.LLM_ABSTAIN, UnansweredSource.LLM_MODEL));
+						tuple(1, UnansweredReason.LLM_ABSTAIN),
+						tuple(2, UnansweredReason.LLM_ABSTAIN));
 	}
 
 	private void plan(String... subQuestions) {

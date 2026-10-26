@@ -29,7 +29,6 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.service.FaqVectorService;
-import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import com.ubot.ranking.enums.RegionSido;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -65,7 +64,7 @@ class ChatServiceIntentRoutingTest {
 
 	@BeforeEach
 	void setUp() {
-		ChatAnswerProcessor processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(vector), ai, ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+		ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vector), ai, ChatTestFixtures.collector(nearbyStoreSearcher), ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
 		ReflectionTestUtils.setField(processor, "topK", 3);
 		ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
 		harness = new ChatJobTestHarness(attempts, processor).knowAttempts(attempt, guestAttempt);

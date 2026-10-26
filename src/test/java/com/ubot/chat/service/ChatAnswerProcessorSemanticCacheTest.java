@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -17,8 +19,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -34,10 +34,7 @@ import com.ubot.faq.cache.FaqCacheProperties;
 import com.ubot.faq.cache.FaqSemanticCacheService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.faq.retrieval.FaqRetrievalProperties;
 import com.ubot.faq.retrieval.FaqRetrievalService;
-import com.ubot.faq.retrieval.rerank.FaqRerankService;
-import com.ubot.faq.retrieval.rerank.RerankerClient;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 
@@ -49,42 +46,42 @@ class ChatAnswerProcessorSemanticCacheTest {
     private final AiService ai = mock(AiService.class);
     private final ChatContextCollector collector = mock(ChatContextCollector.class);
     private final UnansweredQuestionService unanswered = mock(UnansweredQuestionService.class);
-    private final RerankerClient reranker = mock(RerankerClient.class);
     private final FaqCacheProperties cacheProperties = new FaqCacheProperties();
 
     @Test
-    @DisplayName("HIT은 리랭커·자료 수집·LLM 없이 공식 답변과 해당 FAQ 한 건만 반환한다")
-    void hitSkipsRerankerAndLlm() {
+    @DisplayName("HIT은 자료 수집·LLM 없이 공식 답변과 해당 FAQ 한 건만 반환한다")
+    void hitSkipsCollectionAndLlm() {
         String officialAnswer = "물리적인 SIM 카드 없이 사용하는 디지털 SIM입니다.\n";
         FaqSearchResponseDto best = new FaqSearchResponseDto(14L, "eSIM이 무엇인가요?", officialAnswer, 0.98,
                 Intent.GENERAL, 114L, "이심의 의미", true);
         List<FaqSearchResponseDto> candidates = List.of(best, faq(322, 0.6, false));
-        when(vectors.getSimilarList(QUESTION, 10)).thenReturn(candidates);
+        when(vectors.getSimilarList(QUESTION, 3)).thenReturn(candidates);
 
-        ChatAnswerResult result = processor(true, true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
 
         assertThat(result.isFailed()).isFalse();
         assertThat(result.answer().answer()).isEqualTo(officialAnswer);
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L);
-        verify(vectors).getSimilarList(QUESTION, 10);
-        verify(vectors).searchWithVector(QUESTION, null, 10);
+        verify(vectors).getSimilarList(QUESTION, 3);
+        verify(vectors).searchWithVector(QUESTION, null, 3);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(reranker, ai, collector, unanswered);
+        verifyNoInteractions(collector, unanswered);
+        verify(ai).validateCachedAnswer(any(), eq(best.answer()), eq(String.valueOf(best.faqId())));
+        verify(ai, never()).generateAnswer(any());
     }
 
     @Test
-    @DisplayName("MISS는 검색을 반복하지 않고 기존 리랭커 순서로 LLM에 전달한다")
-    void missReusesDenseSearchAndReranks() {
-        when(vectors.getSimilarList(QUESTION, 10)).thenReturn(List.of(faq(14, 0.94, true), faq(322, 0.8, false)));
-        when(reranker.score(any(), any())).thenReturn(List.of(0.1, 0.9));
+    @DisplayName("MISS는 검색을 반복하지 않고 벡터 검색 순서로 LLM에 전달한다")
+    void missReusesDenseSearchOrder() {
+        when(vectors.getSimilarList(QUESTION, 3)).thenReturn(List.of(faq(14, 0.94, true), faq(322, 0.8, false)));
         prepareLlm();
 
-        ChatAnswerResult result = processor(true, true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
-        assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(322L, 14L);
-        verify(vectors).getSimilarList(QUESTION, 10);
-        verify(vectors).searchWithVector(QUESTION, null, 10);
+        assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L, 322L);
+        verify(vectors).getSimilarList(QUESTION, 3);
+        verify(vectors).searchWithVector(QUESTION, null, 3);
         verifyNoMoreInteractions(vectors);
         verify(ai).generateAnswer(any());
     }
@@ -95,11 +92,10 @@ class ChatAnswerProcessorSemanticCacheTest {
         when(vectors.getSimilarList(QUESTION, 3)).thenReturn(List.of(faq(14, 1, true), faq(322, 0.6, false)));
         prepareLlm();
 
-        ChatAnswerResult result = processor(false, false, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(false, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         verify(vectors).getSimilarList(QUESTION, 3);
-        verifyNoInteractions(reranker);
     }
 
     @Test
@@ -110,7 +106,7 @@ class ChatAnswerProcessorSemanticCacheTest {
         cacheProperties.setMinMargin(0.3);
         prepareLlm();
 
-        ChatAnswerResult result = processor(true, false, 1).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(true, 1).generateAnswer(attempt(), null, NOT_CANCELLED);
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).extracting(FaqSearchResponseDto::faqId).containsExactly(14L);
@@ -119,32 +115,22 @@ class ChatAnswerProcessorSemanticCacheTest {
         verifyNoMoreInteractions(vectors);
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
+    @Test
     @DisplayName("점수 차이로 MISS하면 원래 후보를 제거하지 않고 기존 RAG에 전달한다")
-    void marginMissPreservesOriginalCandidates(boolean rerankEnabled) {
+    void marginMissPreservesOriginalCandidates() {
         List<FaqSearchResponseDto> candidates = List.of(faq(14, 0.98, true), faq(322, 0.90, false));
-        int candidateK = rerankEnabled ? 10 : 3;
+        int candidateK = 3;
         when(vectors.getSimilarList(QUESTION, candidateK)).thenReturn(candidates);
-        if (rerankEnabled) {
-            when(reranker.score(any(), any())).thenReturn(List.of(0.1, 0.9));
-        }
         prepareLlm();
 
-        ChatAnswerResult result = processor(true, rerankEnabled, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
-        List<FaqSearchResponseDto> expected = rerankEnabled
-                ? List.of(candidates.get(1), candidates.getFirst()) : candidates;
+        ChatAnswerResult result = processor(true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
+        List<FaqSearchResponseDto> expected = candidates;
 
         assertThat(result.answer().answer()).isEqualTo("LLM 답변");
         assertThat(result.faqs()).containsExactlyElementsOf(expected);
         ArgumentCaptor<AnswerMaterials> materials = ArgumentCaptor.forClass(AnswerMaterials.class);
         verify(ai).generateAnswer(materials.capture());
         assertThat(materials.getValue().faqs()).containsExactlyElementsOf(expected);
-        if (rerankEnabled) {
-            verify(reranker).score(QUESTION, List.of("질문: FAQ 질문 14\n답변: 검색 답변", "질문: FAQ 질문 322\n답변: 검색 답변"));
-        } else {
-            verifyNoInteractions(reranker);
-        }
         verify(vectors).getSimilarList(QUESTION, candidateK);
         verify(vectors).searchWithVector(QUESTION, null, candidateK);
         verifyNoMoreInteractions(vectors);
@@ -155,22 +141,22 @@ class ChatAnswerProcessorSemanticCacheTest {
     void belowThresholdKeepsExistingUnansweredRoute() {
         when(vectors.getSimilarList(QUESTION, 3)).thenReturn(List.of(faq(14, 0.74, true), faq(322, 0.6, false)));
 
-        ChatAnswerResult result = processor(true, false, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
+        ChatAnswerResult result = processor(true, 3).generateAnswer(attempt(), null, NOT_CANCELLED);
 
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verify(vectors).getSimilarList(QUESTION, 3);
         verify(vectors).searchWithVector(QUESTION, null, 3);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(ai, collector, reranker);
+        verifyNoInteractions(ai, collector);
     }
 
     @Test
     @DisplayName("캐시를 켜도 기존 DB 검색 실패 코드를 유지한다")
     void keepsSearchFailureContract() {
         when(vectors.getSimilarList(QUESTION, 3)).thenThrow(new DataAccessResourceFailureException("검색 실패"));
-        assertThat(processor(true, false, 3).generateAnswer(attempt(), null, NOT_CANCELLED).errorCode())
+        assertThat(processor(true, 3).generateAnswer(attempt(), null, NOT_CANCELLED).errorCode())
                 .isEqualTo(ChatErrorCode.VECTOR_SEARCH_FAILED);
-        verifyNoInteractions(ai, collector, reranker);
+        verifyNoInteractions(ai, collector);
     }
 
     @Test
@@ -184,19 +170,17 @@ class ChatAnswerProcessorSemanticCacheTest {
                 throw new CancellationException("취소");
             }
         };
-        assertThatThrownBy(() -> processor(true, false, 3).generateAnswer(attempt(), null, cancellation))
+        assertThatThrownBy(() -> processor(true, 3).generateAnswer(attempt(), null, cancellation))
                 .isInstanceOf(CancellationException.class);
         verify(vectors).getSimilarList(QUESTION, 3);
         verify(vectors).searchWithVector(QUESTION, null, 3);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(ai, collector, reranker);
+        verifyNoInteractions(ai, collector);
     }
 
-    private ChatAnswerProcessor processor(boolean cacheEnabled, boolean rerankEnabled, int topK) {
+    private ChatAnswerProcessor processor(boolean cacheEnabled, int topK) {
         cacheProperties.setEnabled(cacheEnabled);
-        FaqRetrievalProperties retrievalProperties = new FaqRetrievalProperties();
-        retrievalProperties.getRerank().setEnabled(rerankEnabled);
-        ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, topK), ai, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors), ai, collector, ChatTestFixtures.originalSubQuestions(), new FaqSemanticCacheService(cacheProperties), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", topK);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

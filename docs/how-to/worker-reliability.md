@@ -11,6 +11,12 @@
 - 접수 당시 좌표·지역도 DB에 저장합니다. 복구된 메시지는 같은 요청 정보를 사용합니다.
 - 요청 정보(`request_context`)는 성공·실패 확정 시 같은 DB 트랜잭션에서 NULL로 지웁니다. 대기·실행·재선점·종료 중 대기열 반환 시에는 보존하며, 완료 트랜잭션이 롤백되면 삭제도 롤백됩니다. 기존에 완료된 행을 소급 정리하지는 않습니다. 결과 지도(`result_payload`)의 중심점·매장 좌표는 답변 재조회에 필요하므로 유지하고, Redis 메시지는 기존 ACK 후 스트림 정리 정책을 따릅니다.
 
+## 책임과 테스트 경계
+
+`ChatJobWorker`는 스트림 소비와 주기 실행의 시작·종료를 관리합니다. `ChatJobRunner`는 실행 슬롯, 선점, 마감, 취소, heartbeat, 결과 저장과 ACK를 소유합니다. `ChatJobRecoveryService`는 대기 만료·재발행·멈춘 실행의 회수 정책을 담당하며 같은 Runner의 슬롯을 예약합니다. 실행별 취소 상태는 `RunningJob`에 둡니다.
+
+`ChatJobWorkerTest`는 소비와 수명 주기를, `ChatJobRunnerTest`는 실행·완료 계약을, `ChatJobRecoveryServiceTest`는 복구 정책을 검증합니다. 채팅 API·서비스 테스트는 테스트 소스의 `ChatJobTestDriver`로 메시지를 제출하고 실제 Runner의 완료를 기다립니다. 운영 Worker에는 테스트용 전체 큐 처리 메서드가 없습니다. `polling-enabled=false`는 자동 소비와 주기 작업만 끄며 Runner의 실행 방식은 바꾸지 않습니다.
+
 ## 실행과 복구
 
 - 새 메시지가 없으면 실행 슬롯을 반환한 뒤 쉽니다. 동시 실행 수 1에서도 복구가 슬롯을 사용할 수 있습니다.
@@ -32,7 +38,7 @@
 | 상황 | 검증 위치 |
 |---|---|
 | DB가 멈춘 인증 조회·잠긴 작업 조회·잠긴 비회원 승계도 2초 안에 503, 복구 후 정상 조회 | `ChatJobDatabaseOutageIntegrationTest` |
-| 모델 재시도 로그에 작업·시도 연결, 저장 실패·권한 상실 시 완료로 오인하지 않음, 원문 비노출 | `ChatJobWorkerLoggingTest` |
+| 모델 재시도 로그에 작업·시도 연결, 저장 실패·권한 상실 시 완료로 오인하지 않음, 원문 비노출 | `ChatJobRunnerLoggingTest` (실행), `ChatJobWorkerLoggingTest` (스트림 소비) |
 | 모델 5xx의 상태·재시도·복구 성공, 4xx 즉시 실패·마감 만료 로그, HTTP 오류 본문 비노출 | `LlmRecoveryLoggingTest` |
 | 작업 조회 오류 WARN은 전역 핸들러에서 한 번 기록, 상세 원인·실행 수는 DEBUG, 응답 503 유지 | `ChatJobReadExecutorLoggingTest` |
 | Worker 내부 DB·예상 밖 예외의 오류 코드·예외 종류 보존, SQL·본문 비노출 | `ChatJobProcessorLoggingTest` |
@@ -49,11 +55,11 @@
 | 회수된 이전 실행의 늦은 성공·실패 | `ChatLlmIntegrationTest.staleOwnerCannotOverwriteOrFailTakenOverJob` |
 | 모델이 인터럽트를 무시하고 늦게 반환 | `ChatJobWorkerTest.timeoutFreesSlotAndDiscardsLateAnswerEvenIfModelIgnoresInterrupt` |
 | 끊긴 호출이 남아 있어도 모델 동시 호출 상한 유지, 기다리다 취소되면 호출 안 함 | `LlmServiceTest.limitsConcurrentModelCalls`, `cancelledWhileWaitingDoesNotCallModel` |
-| heartbeat가 끊긴 실행은 1분 만에 넘겨받고, 살아 있는 실행의 메시지는 건드리지 않음 | `ChatJobWorkerTest.silentRunIsReclaimedBeforeReclaimIdle`, `liveRunMessageIsNotReclaimed` |
+| heartbeat가 끊긴 실행은 1분 만에 넘겨받고, 살아 있는 실행의 메시지는 건드리지 않음 | `ChatJobRecoveryServiceTest.silentRunIsReclaimedBeforeReclaimIdle`, `liveRunMessageIsNotReclaimed` |
 | 메시지 내용 확인은 전달 횟수를 늘리지 않음 | `ChatJobStreamIntegrationTest.findJobIdsReadsWithoutClaiming` |
-| 대기 만료 작업을 페이지로 이어 처리, 한 번 1,000건 상한 | `ChatJobWorkerTest.expiresQueuedJobsInPagesUpToLimit` |
+| 대기 만료 작업을 페이지로 이어 처리, 한 번 1,000건 상한 | `ChatJobRecoveryServiceTest.expiresQueuedJobsInPagesUpToLimit` |
 | 동시 실행 수 1, 새 메시지가 없는 동안 회수 | `ChatJobWorkerTest.singleSlotWorkerRecoversWhileWaitingForNewMessages` |
-| 첫 1,000개 뒤 미발행 작업 | `ChatJobWorkerTest.republishScansBeyondFirstThousandPublishedJobs` |
+| 첫 1,000개 뒤 미발행 작업 | `ChatJobRecoveryServiceTest.republishScansBeyondFirstThousandPublishedJobs` |
 | heartbeat가 있는 정상 실행의 회수 방지 | `ChatJobStreamIntegrationTest.heartbeatProtectsLiveJobAndOldOwnerCannotRenewIt` |
 | 복구 발행 실패, 이전 예약, 다중 워커 동시 발행 | `ChatJobStreamIntegrationTest`의 atomic publish 테스트 |
 | 정리 전에 만료 작업 선점 | `ChatJobStreamIntegrationTest.expiredQueuedJobCannotBeClaimedBeforeCleanupRuns` |

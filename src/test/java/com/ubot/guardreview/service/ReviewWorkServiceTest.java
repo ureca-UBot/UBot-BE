@@ -33,6 +33,29 @@ class ReviewWorkServiceTest {
 		verify(repository).finding(3, 9, source, warning);
 	}
 	@Test
+	void 보류의_자료부족_의견도_소유권확인후_별도저장하고_금칙어후보를_만들지않는다() {
+		var held = new Source(1, "guard-check:1", "질문", null, "INPUT_LLM", "REVIEW", "{}");
+		var result = new com.ubot.guardreview.model.ReviewReassessment(
+				com.ubot.guardreview.model.ReviewReassessment.Verdict.INSUFFICIENT_CONTEXT, "자료가 부족합니다.", List.of());
+		service.finishReviewedSource(9, token, held, List.of(), result);
+		var order = inOrder(repository);
+		order.verify(repository).requireLease(9, token);
+		order.verify(repository).finishItem(1, true);
+		order.verify(repository).saveReassessment(1, result);
+		verify(repository, never()).insertCandidate(any(), any(), any());
+		verifyNoInteractions(catalog);
+	}
+	@Test
+	void 보류_분석도_소유권을_잃으면_재검토의견을_저장하지않는다() {
+		var held = new Source(1, "guard-check:1", "질문", null, "INPUT_LLM", "REVIEW", "{}");
+		var result = new com.ubot.guardreview.model.ReviewReassessment(
+				com.ubot.guardreview.model.ReviewReassessment.Verdict.NORMAL_POSSIBLE, "정상 가능성", List.of());
+		doThrow(new IllegalStateException("lease lost")).when(repository).requireLease(9, token);
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.finishReviewedSource(9, token, held, List.of(), result))
+				.isInstanceOf(IllegalStateException.class);
+		verify(repository, never()).saveReassessment(anyLong(), any());
+	}
+	@Test
 	void 서로다른_대화의_같은표현은_기존후보로_연결한다() {
 		when(repository.exact(eq(warning), anyString())).thenReturn(3L);
 		service.finishSource(9, token, source, List.of(new ReviewWorkService.Proposal(warning, null)), true);

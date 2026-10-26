@@ -36,7 +36,6 @@ import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 
 @DisplayName("매장 조회 FAQ의 문장 필터 분리")
 class ChatAnswerProcessorStoreDataTest {
@@ -151,7 +150,7 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(stores, sentenceFilter, ai);
         assertThat(unanswered).contains(new UnansweredCandidate(
-                1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74, UnansweredSource.RETRIEVAL));
+                1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74));
     }
 
     @Test
@@ -193,10 +192,10 @@ class ChatAnswerProcessorStoreDataTest {
     }
 
     private void search(List<FaqSearchResponseDto> candidates) {
-        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, 5, QUERY_VECTOR);
+        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, QUERY_VECTOR);
         when(retrieval.searchCandidates(QUESTION, null, 3, 0)).thenReturn(dense);
-        when(retrieval.rankCandidates(QUESTION, dense, 3))
-                .thenReturn(new RetrievalOutcome(candidates, candidates.getFirst(), false, null));
+        when(retrieval.selectCandidates(dense, 3))
+                .thenReturn(new RetrievalOutcome(candidates, candidates.getFirst()));
     }
 
     private ChatAnswerProcessor processor() {

@@ -16,7 +16,22 @@ public record LlmRequestDto(
         List<LlmMessageRequestDto> messages,
         List<ToolCallback> toolCallbacks,
         Map<String, Object> toolContext,
-        Map<String, Object> responseSchema) {
+        Map<String, Object> responseSchema,
+        GenerationOptions generationOptions) {
+
+    /** 가드 요청만 토큰 한도·스키마 이름·오류 본문 비기록을 지정합니다. 기존 답변 요청은 null입니다. */
+    public record GenerationOptions(String schemaName, int maxTokens, boolean redactErrors) {
+        public GenerationOptions {
+            if (schemaName == null || !schemaName.matches("[a-zA-Z0-9_-]{1,64}") || maxTokens < 1) {
+                throw new IllegalArgumentException("LLM 생성 옵션이 올바르지 않습니다.");
+            }
+        }
+    }
+
+    public LlmRequestDto(List<LlmMessageRequestDto> messages, List<ToolCallback> toolCallbacks,
+            Map<String, Object> toolContext, Map<String, Object> responseSchema) {
+        this(messages, toolCallbacks, toolContext, responseSchema, null);
+    }
 
     public LlmRequestDto {
         // 유효성은 LlmService에서 검사하고, 호출 중 원본 목록이 바뀌는 것은 방지합니다.
@@ -40,11 +55,16 @@ public record LlmRequestDto(
     }
 
     public LlmRequestDto withTools(List<ToolCallback> callbacks, Map<String, Object> context) {
-        return new LlmRequestDto(messages, callbacks, context, responseSchema);
+        return new LlmRequestDto(messages, callbacks, context, responseSchema, generationOptions);
     }
 
     public LlmRequestDto withResponseSchema(Map<String, Object> schema) {
-        return new LlmRequestDto(messages, toolCallbacks, toolContext, schema);
+        return new LlmRequestDto(messages, toolCallbacks, toolContext, schema, generationOptions);
+    }
+
+    public LlmRequestDto withGenerationOptions(String schemaName, int maxTokens, boolean redactErrors) {
+        return new LlmRequestDto(messages, toolCallbacks, toolContext, responseSchema,
+                new GenerationOptions(schemaName, maxTokens, redactErrors));
     }
 
     public boolean hasTools() {

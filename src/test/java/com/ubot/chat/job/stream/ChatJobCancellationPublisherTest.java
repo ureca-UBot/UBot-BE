@@ -7,7 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.worker.ChatJobRunner;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
@@ -28,10 +28,10 @@ class ChatJobCancellationPublisherTest {
 
 	@Test
 	void sameProcessWorkerIsCancelledBeforePublishing() {
-		var worker = mock(ChatJobWorker.class);
-		localBeans.registerSingleton("worker", worker);
+		var runner = mock(ChatJobRunner.class);
+		localBeans.registerSingleton("runner", runner);
 		doAnswer(call -> {
-			verify(worker).cancelJob(42L);
+			verify(runner).cancelJob(42L);
 			return 1L;
 		}).when(redis).convertAndSend(ChatJobCancellationPublisher.CHANNEL, "42");
 
@@ -41,7 +41,7 @@ class ChatJobCancellationPublisherTest {
 
 	@Test
 	void separateApiPublisherDeliversTheIdToWorkerSubscriber() {
-		var remoteWorker = mock(ChatJobWorker.class);
+		var remoteWorker = mock(ChatJobRunner.class);
 		var subscriber = new ChatJobCancellationSubscriber(remoteWorker);
 		doAnswer(call -> {
 			var message = mock(Message.class);
@@ -56,16 +56,16 @@ class ChatJobCancellationPublisherTest {
 
 	@Test
 	void redisFailureKeepsCommittedCancellationAndLocalInterruption() {
-		var worker = mock(ChatJobWorker.class);
-		localBeans.registerSingleton("worker", worker);
+		var runner = mock(ChatJobRunner.class);
+		localBeans.registerSingleton("runner", runner);
 		doThrow(new DataAccessResourceFailureException("redis unavailable"))
 				.when(redis).convertAndSend(ChatJobCancellationPublisher.CHANNEL, "42");
 
 		assertThatCode(() -> publisher().publish(42L)).doesNotThrowAnyException();
-		verify(worker).cancelJob(42L);
+		verify(runner).cancelJob(42L);
 	}
 
 	private ChatJobCancellationPublisher publisher() {
-		return new ChatJobCancellationPublisher(redis, localBeans.getBeanProvider(ChatJobWorker.class));
+		return new ChatJobCancellationPublisher(redis, localBeans.getBeanProvider(ChatJobRunner.class));
 	}
 }

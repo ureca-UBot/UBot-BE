@@ -34,13 +34,32 @@ LLM 호출은 대부분 `ai-worker`에서 나오지만, 관리자 기능(미응�
 
 | 지표 | 종류 | 태그 | 의미 |
 |---|---|---|---|
-| `llm_requests_seconds` | histogram | `kind`=`answer`·`judgment`, `outcome`=`success`·`timeout`·`unavailable`·`invalid_response`·`cancelled`·`error` | 모델 서버 호출 시간. 동시 호출 차례를 받은 뒤부터 잼. 요청 형식 오류(LLM-001)는 호출 전이라 세지 않음 |
-| `llm_permit_wait_seconds` | histogram | – | 동시 호출 차례를 기다린 시간. 바로 받으면 0 |
-| `llm_permit_rejected_total` | counter | – | 대기 한도(FAQ AI 검토 등) 안에 차례를 얻지 못해 `LLM_BUSY`로 거절한 호출 |
-| `llm_concurrency_limit` | gauge | – | 동시 호출 상한(`LLM_MAX_CONCURRENT`) |
-| `llm_concurrency_in_use` | gauge | – | 지금 모델 서버에 가 있는 호출 수 |
-| `llm_concurrency_waiting` | gauge | – | 차례를 기다리는 호출 수. 계속 0보다 크면 모델 서버 앞에서 줄을 서고 있음 |
+| `llm_requests_seconds` | histogram | `client`=`chat`·`guard`, `kind`=`answer`·`judgment`, `outcome`=`success`·`timeout`·`unavailable`·`invalid_response`·`cancelled`·`error` | 모델 서버 호출 시간. 동시 호출 차례를 받은 뒤부터 잼. 요청 형식 오류(LLM-001)는 호출 전이라 세지 않음 |
+| `llm_permit_wait_seconds` | histogram | `client`=`chat`·`guard` | 동시 호출 차례를 기다린 시간. 바로 받으면 0. 대기 중 시간 초과·취소도 포함 |
+| `llm_permit_rejected_total` | counter | `client`=`chat`·`guard` | 대기 한도(FAQ AI 검토 등) 안에 차례를 얻지 못해 `LLM_BUSY`로 거절한 호출 |
+| `llm_concurrency_limit` | gauge | `client`=`chat`·`guard` | 해당 서버의 동시 호출 상한 |
+| `llm_concurrency_in_use` | gauge | `client`=`chat`·`guard` | 해당 서버에서 지금 모델을 호출 중인 수 |
+| `llm_concurrency_waiting` | gauge | `client`=`chat`·`guard` | 해당 서버에서 차례를 기다리는 호출 수. 계속 0보다 크면 모델 서버 앞에서 줄을 서고 있음 |
 | `ai_output_guard_total` | counter | `stage`=`body`·`evidence`, `outcome`=`pass`·`filtered`·`rejected`·`warning`, `rule` | 출력 가드 검사 결과. `rule`은 거절한 규칙 이름(`no_safe_content` 등)이고 그 밖에는 `none` |
+
+요청·허가 대기 지표의 `client=chat`은 기존 답변 생성·질문 분류, `client=guard`는 입력·출력 AI 가드입니다.
+동시성 게이지의 `client`는 허가를 소유한 서버를 나타냅니다. 같은 서버를 공유하면 `client=chat` 한 게이지가
+답변 생성·분류·가드의 실제 합산 점유를 표시하고, 별도 서버일 때만 `client=guard` 게이지를 등록합니다.
+두 서버 모두 같은 `client` 태그 키를 써 Prometheus 등록 충돌을 피합니다. 모델명·URL 등 가변값은 태그에 넣지 않습니다.
+요청 지표의 성공은 모델 통신 성공이며 ALLOW 판정과 같지 않습니다. 호출 뒤 판정 JSON 파서·안전 정책의 거절은 판정 로그로 확인합니다.
+
+관리자 운영 개요 API의 기존 `llm` 지연·시간 초과율·오류율·허가 대기는 `client="chat"`만 집계합니다.
+비율의 분자·분모와 `UBotLlmTimeoutRateHigh`의 최소 호출 수에도 같은 필터를 적용하며, 가드 호출로 비율이 희석되거나
+알림이 발화하지 않도록 합니다. 동시성 게이지도 별도 가드 서버를 제외합니다. 다만 같은 서버의 허가를 공유하는 가드의
+실제 점유·대기는 그 채팅 서버 게이지에 포함됩니다. `client` 태그가 없던 과거 series는 이 집계에 포함하지 않습니다.
+관리자 응답 형식·화면은 유지하며, 가드 지표는 `client="guard"`로 아래처럼 별도 조회합니다.
+
+```promql
+# 입력·출력 AI 가드 모델 호출 p95와 통신 실패율(호출 허가 거절은 별도 counter)
+histogram_quantile(0.95, sum(rate(llm_requests_seconds_bucket{client="guard"}[1h])) by (le))
+(sum(rate(llm_requests_seconds_count{client="guard",outcome!~"success|cancelled"}[1h])) or vector(0))
+  / sum(rate(llm_requests_seconds_count{client="guard"}[1h]))
+```
 
 ## Retrieval
 
@@ -80,7 +99,9 @@ NO_FAQ·FAQ 부족은 따로 세지 않고 작업 결과 코드로 봅니다. `c
 
 ## Redis
 
-redis-exporter가 `--check-single-streams=chat:jobs`로 답변 작업 스트림을 조회합니다. 다른 Compose 파일로 redis-exporter를 띄운다면 같은 옵션을 넣어야 합니다.
+공통 로컬 Compose의 redis-exporter는 `--check-single-streams=chat:jobs`로 답변 작업 스트림을 조회합니다. 다른 Compose 파일로 redis-exporter를 띄운다면 같은 옵션을 넣어야 합니다.
+
+AWS `docker-compose.monitoring.yml`은 현재 Redis 주소만 전달하고 이 옵션을 지정하지 않습니다. 따라서 AWS에서 `redis_up=1`이어도 아래 Stream length·PEL·lag 시계열이 존재한다고 가정할 수 없습니다. 관리자 운영 API의 값이 `null`이면 0으로 바꾸지 말고 실제 exporter 인자와 Prometheus series를 확인합니다.
 
 | 지표 | 의미 |
 |---|---|
@@ -105,12 +126,12 @@ histogram_quantile(0.95, sum(rate(chat_worker_execution_seconds_bucket[1h])) by 
 (sum(increase(chat_worker_completed_total{code="CHAT-012"}[1h])) or vector(0))
   / sum(increase(chat_worker_completed_total[1h]))
 
-# LLM 시간 초과 비율
-(sum(increase(llm_requests_seconds_count{outcome="timeout"}[1h])) or vector(0))
-  / sum(increase(llm_requests_seconds_count[1h]))
+# 기존 답변 생성·분류 LLM 시간 초과 비율
+(sum(increase(llm_requests_seconds_count{client="chat",outcome="timeout"}[1h])) or vector(0))
+  / sum(increase(llm_requests_seconds_count{client="chat"}[1h]))
 
 # Worker의 LLM 동시 호출 포화도
-sum(llm_concurrency_in_use{role!="api"}) / sum(llm_concurrency_limit{role!="api"})
+sum(llm_concurrency_in_use{client="chat",role!="api"}) / sum(llm_concurrency_limit{client="chat",role!="api"})
 
 # 출력 가드 거절률
 (sum(increase(ai_output_guard_total{stage="body",outcome="rejected"}[1h])) or vector(0))

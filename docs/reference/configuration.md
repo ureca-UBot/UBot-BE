@@ -1,6 +1,6 @@
 # 설정 Reference
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 ## 설정 파일
 
@@ -20,6 +20,17 @@ src/main/resources/
 
 자동 테스트는 별도 DB 컨테이너의 임의 호스트 포트와 접속 정보를 사용합니다. 개발 `.env`, 고정 포트, 개발 DB·볼륨을 공유하지 않습니다. `test` 프로필만 지정해 `bootRun`을 실행하는 것은 Testcontainers 기반 테스트 실행과 다릅니다.
 
+### 설정을 바꾸기 전에 확인할 것
+
+| 확인 항목 | 확인 방법 |
+|---|---|
+| 이름과 기본값 | `.env.example`, `application*.yml`, 해당 `@ConfigurationProperties`를 함께 확인합니다. |
+| 적용 프로세스 | API·Worker·일회성 작업 중 어느 프로세스가 읽는지 Compose의 `environment`·`env_file`을 확인합니다. |
+| 단위 | `Duration` 값은 `ms`, `s`, `m`처럼 단위를 명시하고, 숫자 설정은 동시 실행 수·건수·바이트 중 무엇인지 확인합니다. |
+| 적용 시점 | 대부분 기동 시 바인딩되므로 변경 후 해당 프로세스를 다시 시작해야 합니다. |
+| 함께 바뀌는 저장 상태 | 임베딩 엔진·모델·버전은 Embedding Profile과 백필에, DB 스키마는 Flyway 이력에, 캐시 설정은 Redis·로컬 캐시 동작에 영향을 줍니다. |
+| 실패 동작 | 필수값·검증 위반은 기동 실패로, 외부 의존성 장애는 기능별 오류나 제한된 재시도로 나타납니다. 복구 경계는 [신뢰성 모델](../reliability-model.md)을 확인합니다. |
+
 `prod`는 `local`과 달리 접속 정보에 기본값이 없고(`POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`, `REDIS_HOST` 필수), health 상세를 숨기고, Swagger UI와 API 문서를 끄고, 종료할 때 처리 중인 요청을 최대 30초 기다립니다. 배포된 백엔드가 이 프로필로 실행됩니다. 배포 스크립트는 서버 `.env`의 `SPRING_PROFILES_ACTIVE`가 `prod`가 아니면 배포하지 않습니다([deploy.md](../deploy.md#서버의-env)).
 
 ## 실행 환경 (Docker Compose)
@@ -32,6 +43,16 @@ src/main/resources/
 | `docker-compose.ollama.yml` | `ollama`, `ollama-init` | `AI_MODE=ollama` (기본) |
 | `docker-compose.ollama.gpu.yml` | `ollama`에 NVIDIA GPU 연결 | `AI_MODE=ollama`이고 `.env`의 `OLLAMA_GPU=true`일 때 `ubot.ps1 up`이 덧붙임. 배포 워크플로는 쓰지 않음 |
 | `docker-compose.vllm.yml` | `vllm`(답변 생성), `vllm-embedding`(임베딩) | `AI_MODE=vllm`. NVIDIA GPU 필요 |
+
+AWS BE EC2는 위 로컬 조합 대신 다음 세 파일을 사용합니다.
+
+| 파일 | 서비스·강제 설정 | 쓰는 경우 |
+|---|---|---|
+| `docker-compose.api.yml` | `backend`, Nginx, `APP_ROLE=api`, `AI_MODE=vllm`, `AI_RUNTIME_MANAGED=false`, `COUNSEL_SEED_ON_START=false` | AWS API 교체 |
+| `docker-compose.worker.yml` | `ai-worker`, `APP_ROLE=worker`, `AI_MODE=vllm`, `AI_RUNTIME_MANAGED=false`, `CHAT_WORKER_CONCURRENCY` 기본 2, `FAQ_CACHE_ENABLED=true` | AWS Worker 교체 |
+| `docker-compose.monitoring.yml` | Prometheus, PostgreSQL/Redis exporter, cAdvisor | 별도 State EC2와 API·Worker 계측 |
+
+AWS 조합은 DB·Redis·GPU 모델을 BE EC2에 띄우지 않습니다. `NLB_DNS`로 답변 `8000/v1`과 임베딩 `8001/v1` 주소를 만들고, 서버 `.env`의 State DB·Redis 주소를 사용합니다. 로컬 기본값과 AWS Compose의 명시적 덮어쓰기를 구분해야 합니다.
 
 | 명령 | 하는 일 |
 |---|---|
@@ -82,24 +103,12 @@ src/main/resources/
 | `VLLM_ENABLE_THINKING` | Docker Compose: vLLM 답변 생성 서버의 thinking 모드 기본값 | `false` | Spring에서 읽지 않음 |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
-| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 캐시 실패 후 하위 질문마다 FAQ 질문 벡터 검색 후보의 코사인 유사도 기준. 통과한 후보만 답변 문장 검사에 사용하고, 남은 FAQ가 없으면 그 하위 질문은 근거 없음으로 처리 | `0.75` | `0.75` |
-| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | `FaqSentenceFilterService`: 질문 유사도 기준을 통과한 FAQ에서 하위 질문의 검색어와 각 답변 문장의 코사인 유사도 기준. 통과한 문장만 답변 LLM에 전달 | `0.7` | `0.7` |
+| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 캐시 실패 후 하위 질문마다 FAQ 질문 벡터 검색 후보의 코사인 유사도 기준. 통과한 후보만 답변 문장 검사에 사용하고, 남은 FAQ가 없으면 그 하위 질문은 근거 없음으로 처리 | `0.79` | `0.79` |
+| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | `FaqSentenceFilterService`: 질문 유사도 기준을 통과한 FAQ에서 하위 질문의 검색어와 각 답변 문장의 코사인 유사도 기준. 통과한 문장만 답변 LLM에 전달 | `0.49` | `0.49` |
 | `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 판정 LLM으로 질문을 정리할지 여부. 켜면 질문 분리·멀티턴 표지가 있는 질문, 또는 원문 검색이 기준에 못 미친 질문만 판정 LLM이 이전 대화(최대 3턴)를 참고해 하위 질문(최대 3개)별 검색어를 만듦(LLM 호출이 한 번 늘어남). 검색어는 검색에만 쓰고, 답변 LLM에는 원문과 원문 조각, 멀티턴이면 이전 대화를 넘김. 끄면 원문 하나로 검색하고 이전 대화도 넘기지 않음 | `true` | 키가 없으면 `true` |
-| `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 판정할 표지가 없는 질문을 원문으로 먼저 검색할 때, 이전 대화가 있으면 이 값 이상이어야 판정 없이 끝냄(이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`). 기본값은 유사도 기준과 같고 튜닝용으로 따로 둠. `CHAT_CONFIDENCE_THRESHOLD`보다 낮으면 그 값을 씀 | `0.75` | 키가 없으면 `0.75` |
-| `FAQ_RERANK_ENABLED` | 캐시 실패 후 질문 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 켜면 Reranker 서버가 떠 있어야 함. 전달 여부는 켜든 끄든 `CHAT_CONFIDENCE_THRESHOLD`(코사인 유사도)로 정하고, 정렬 뒤 답변 문장을 임베딩해 비교([Reranker 테스트 보고서](../FAQ_Reranker_테스트_보고서.md)) | `false` | 키가 없으면 `false` |
-| `FAQ_RERANK_CANDIDATE_K` | `FaqRetrievalService`: Reranker를 켰을 때 벡터 검색에서 가져올 후보 수. 켠 상태에서 `CHAT_TOP_K`보다 작으면 기동 실패 | `10` | 키가 없으면 `10` |
-| `FAQ_RERANK_MODEL` | `FaqRetrievalConfig`: Reranker 서버에 요청할 모델 이름. Compose의 `RERANKER_SERVED_MODEL_NAME`과 같아야 함 | `ubot-reranker` | 키가 없으면 `ubot-reranker` |
-| `FAQ_RERANK_BASE_URL` | `FaqRetrievalConfig`: Reranker 서버 주소. 이 주소의 `/v1/rerank`를 호출 | `http://localhost:8002` | 키가 없으면 `http://localhost:8002` |
-| `FAQ_RERANK_CONNECT_TIMEOUT` | `FaqRetrievalConfig`: Reranker 서버 연결 제한 시간 | `500ms` | 키가 없으면 `500ms` |
-| `FAQ_RERANK_READ_TIMEOUT` | `FaqRetrievalConfig`: Reranker 응답 제한 시간. 넘으면 실패로 처리 | `1500ms` | 키가 없으면 `1500ms` |
-| `FAQ_RERANK_FALLBACK_ENABLED` | `FaqRetrievalService`: Reranker를 쓰지 못했을 때 이미 받아 둔 벡터 검색 상위 `CHAT_TOP_K`개로 답할지 여부. `false`면 그 요청은 실패 | `true` | 키가 없으면 `true` |
-| `FAQ_RERANK_MAX_CONCURRENT` | `FaqRetrievalService`: 동시에 나가는 Reranker 호출 수의 한도. 넘치는 요청은 기다리지 않고 벡터 검색 결과로 답함 | `32` | 키가 없으면 `32` |
-| `FAQ_RERANK_FAILURE_THRESHOLD` | `FaqRetrievalService`: 연속으로 이만큼 실패하면 Reranker 호출을 건너뛰기 시작 | `5` | 키가 없으면 `5` |
-| `FAQ_RERANK_FAILURE_COOLDOWN` | `FaqRetrievalService`: 연속 실패 뒤 Reranker를 호출하지 않는 시간. 지나면 한 건만 보내 보고 성공하면 재개 | `10s` | 키가 없으면 `10s` |
-| `RERANKER_PORT` | Docker Compose: Reranker 서버의 호스트 포트. `reranker` 프로필로 띄울 때만 사용 | `8002` | Spring에서 읽지 않음 |
-| `VLLM_RERANKER_GPU_MEMORY_UTILIZATION` | Docker Compose: Reranker 서버가 쓸 GPU 메모리 비율 | `0.2` | Spring에서 읽지 않음 |
+| `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 이전 대화가 있는 질문을 원문으로 먼저 검색할 때, 이 값과 `CHAT_CONFIDENCE_THRESHOLD` 중 큰 값을 기준으로 사용. 기본 설정에서 유효 기준은 0.79이며 이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`를 사용 | 없음 | 키가 없으면 `0.75` |
 | `APP_ROLE` | `AppRole`(`app.role`): 프로세스 역할. `api`는 접수·상태 조회와 나머지 API·스케줄러, `worker`는 답변 Worker만(랭킹·보관 기간 삭제 스케줄러 없음, HTTP는 `/actuator`만 받고 나머지는 `404 G-004`), `all`은 둘 다. 배포 Compose는 `backend=api`, `ai-worker=worker`로 정함 | `all` | `all`. 다른 값이면 기동되지 않음 |
-| `CHAT_WORKER_CONCURRENCY` | `ChatJobWorker`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
+| `CHAT_WORKER_CONCURRENCY` | `ChatJobRunner`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
 | `COUNSEL_EMBEDDING_WORKER_ENABLED` | `CounselEmbeddingWorker`: 상담 전용 Redis 큐의 임베딩만 처리. `worker/all` 역할에서 기본 실행하며 `api`에서는 실행하지 않음. 별도 스레드 1개이며 기존 채팅 큐·실행 풀·DB를 사용하지 않음. 필요하면 `false`로 비활성화 | `true` | `true` (`test` 프로필은 `false`) |
 | `COUNSEL_ENABLED` | 기존 BE 상담 API·배정/미완료 메시지 복구 활성화 | `true` | `true` |
 | `COUNSEL_EMBEDDING_TRANSPORT` | 상담 임베딩 경로. 기본 `worker`는 기존 ai-worker에 위임. 자동 HTTP 우회 없음 | `worker` | `worker` |
@@ -110,11 +119,11 @@ src/main/resources/
 | `COUNSEL_BLOCK_THRESHOLD` | 상담 문장 코사인 유사도 후보 기준 | `0.95` | `0.95` |
 | `CHAT_WORKER_READ_BLOCK` | 새 메시지가 없을 때 다음 읽기까지 쉬는 간격. 실행 슬롯은 반환함 | `2s` | `2s` |
 | `CHAT_WORKER_CONSUMER_NAME` | `ChatJobWorker`: Redis Streams 그룹(`chat-workers`) 안의 Worker 이름. Worker마다 달라야 함. 빈 값으로 두면 기동 실패 | 주석 처리 | `HOSTNAME`(컨테이너 ID), 없으면 `local` |
-| `CHAT_WORKER_MAX_QUEUE_WAIT` | `ChatJobWorker`: 접수 후 전체 실행·복구 기한. 실행·넘겨받기 마감은 이 기한을 넘지 않음. 만료 작업은 `CHAT-016`으로 처리하며 발행 표시는 이보다 1분 길게 둠 | `10m` | `10m` |
-| `CHAT_WORKER_REPUBLISH_AFTER` | `ChatJobWorker`: 이 시간 넘게 대기 중인데 발행 표시가 없는 작업(발행 실패, Redis 데이터 유실)을 다시 발행. `CHAT_WORKER_MAX_QUEUE_WAIT`보다 짧아야 하며 아니면 기동 실패 | `30s` | `30s` |
+| `CHAT_WORKER_MAX_QUEUE_WAIT` | `ChatJobRecoveryService`: 접수 후 전체 실행·복구 기한. 실행·넘겨받기 마감은 이 기한을 넘지 않음. 만료 작업은 `CHAT-016`으로 처리하며 발행 표시는 이보다 1분 길게 둠 | `10m` | `10m` |
+| `CHAT_WORKER_REPUBLISH_AFTER` | `ChatJobRecoveryService`: 이 시간 넘게 대기 중인데 발행 표시가 없는 작업(발행 실패, Redis 데이터 유실)을 다시 발행. `CHAT_WORKER_MAX_QUEUE_WAIT`보다 짧아야 하며 아니면 기동 실패 | `30s` | `30s` |
 | `CHAT_WORKER_HEARTBEAT_TIMEOUT` | 실행 중인 작업의 DB heartbeat가 이 시간 이상 없으면 Worker가 죽은 것으로 보고 메시지를 회수. heartbeat는 이 값의 3분의 1(최대 15초)마다 갱신. `CHAT_WORKER_RECLAIM_IDLE`보다 길 수 없음 | `1m` | `1m` |
 | `CHAT_WORKER_RECLAIM_IDLE` | 이 시간 이상 ACK되지 않은 메시지는 작업 상태를 보지 않고 회수 시도(마지막 안전망). 메시지도 없이 heartbeat가 두 배 동안 없으면 실패 처리 | `5m` | `5m` |
-| `CHAT_WORKER_MAX_DELIVERIES` | `ChatJobWorker`: 한 메시지를 Worker에 전달하는 최대 횟수. 다 쓰면 다시 실행하지 않고 `CHAT-015`로 실패 처리. 1 미만이면 기동 실패 | `3` | `3` |
+| `CHAT_WORKER_MAX_DELIVERIES` | `ChatJobRecoveryService`: 한 메시지를 Worker에 전달하는 최대 횟수. 다 쓰면 다시 실행하지 않고 `CHAT-015`로 실패 처리. 1 미만이면 기동 실패 | `3` | `3` |
 | `CHAT_WORKER_RECOVERY_INTERVAL` | `ChatJobWorker`: 발행이 빠진 작업을 다시 발행하고, 방치된 메시지를 넘겨받고, 오래 기다리거나 멈춘 작업을 정리하는 간격 | `15s` | `15s` |
 | `CHAT_WORKER_RESULT_TTL` | Redis 결과 캐시 TTL. DB 원본은 지도까지 보존함 | `24h` | `24h` |
 | `CHAT_WORKER_EXECUTION_TIMEOUT` | 임베딩·도구·LLM·모델 복구 대기를 포함한 한 실행의 제한. 재시도마다 연장하지 않음. 전체 기한과 비교해 이른 시각에 CHAT-016으로 끝내고 늦은 결과 폐기 | `180s` | `180s` |
@@ -230,7 +239,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 | 설정 | 값 | 위치 |
 |---|---|---|
-| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V33`) | — |
+| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V57`, 일부 번호는 없음) | — |
 | `baseline-on-migrate` | `true` | `application.yml` |
 | `baseline-version` | `0` | `application.yml` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
@@ -258,6 +267,10 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V31` | `chat_jobs`(답변 작업: 답변 시도와 1:1, 상태 `QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`, 시작·종료 시각). 시도를 지우면 함께 지워짐 |
 | `V32` | `faq`, `old_faq`에 `cacheable` 추가, `faq_question_variants` 생성 및 기존 질문 이관, `faq_embeddings`의 연결 키를 FAQ ID에서 variant ID로 변경 |
 | `V33` | `chat_jobs`에 요청 정보(`request_context`)·성공 결과(`result_payload`) JSONB, `heartbeat_at`, `updated_at`, 복구용 인덱스와 처리 단계(`phase`)·단계 갱신 시각(`phase_updated_at`)·마감(`deadline_at`) 추가. 기존 작업의 단계·마감은 NULL 유지. 요청 좌표·지역은 작업 종료와 같은 트랜잭션에서 삭제 |
+| `V34`~`V38` | LLM 답변 보류 사유, 하위 질문·검색어, 미응답 저장 Outbox, 고객 문의 추가 |
+| `V39`~`V42` | 상담 도메인 통합, 대화 soft delete, 미응답 묶음 이름·추천 카테고리, FAQ 개선 제외 항목 추가 |
+| `V45`~`V51` | 미응답 재검증, 상품·가입 데이터 확장과 시드, Guard Review·출처 키 해시, 모델 판정 출처와 상품 데이터 의도 추가 |
+| `V52`~`V57` | 통신 지도, 출력 가드 전후 응답·판정·검토 출처·재평가 이력 추가, 이전 미응답 출처 컬럼 제거 |
 
 표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/reset-local-db.ps1`이 기본 계정과 시드 CSV의 FAQ·질문 표현을 넣습니다. 벡터는 별도로 백필합니다([안내](../how-to/reset-local-db.md)).
 
@@ -302,11 +315,11 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 | 인증 없이 호출 가능한 경로, `ADMIN` 경로 | [architecture.md#인증](../architecture.md#인증) | `SecurityConfig` |
 | 채팅 질문 최대 길이 | 4000자 | `ChatRequestDto`, `ChatService` |
 | 답변 작업 스트림 | 키 `chat:jobs`, 그룹 `chat-workers`, 수동 ACK. 발행 표시 `chat:jobs:published:{jobId}`, 결과 키 `chat:jobs:result:{jobId}` | `ChatJobStream`, `ChatJobResultStore` |
-| 다시 발행 | 정리 한 번에 대기 작업 최대 1,000건의 발행 표시를 확인하고, 최대 100건을 다시 발행 | `ChatJobWorker` |
-| 넘겨받기 | 정리 한 번에 방치된 메시지 최대 100건을 확인하고, 그중 빈 슬롯 수만큼 넘겨받음. 메시지를 잃은 작업은 한 번에 최대 100건을 실패 처리 | `ChatJobWorker` |
+| 다시 발행 | 1,000건씩 발행 표시를 확인하고, 정리 한 번에 최대 1,000건을 다시 발행 | `ChatJobRecoveryService` |
+| 넘겨받기 | 정리 한 번에 방치된 메시지 최대 100건을 확인하고, 그중 빈 슬롯 수만큼 넘겨받음. 메시지를 잃은 작업은 한 번에 최대 100건을 실패 처리 | `ChatJobRecoveryService` |
 | 스트림 정리 | 정리마다 모든 메시지가 ACK된 앞부분을 `XTRIM MINID`로 지움 | `ChatJobStream` |
 | 답변 Worker 종료 대기 | 실행 중인 작업을 20초 기다린 뒤 끝나지 않은 작업은 대기 상태로 돌려놓고 메시지를 다시 발행함. 배포 Compose의 `stop_grace_period`는 35초 | `ChatJobWorker`, `docker-compose.deploy.yml` |
-| 정리 작업 한 번에 처리하는 작업 수 | 대기 초과 최대 100건 | `ChatJobWorker` |
+| 정리 작업 한 번에 처리하는 작업 수 | 대기 초과 100건씩, 정리 한 번에 최대 1,000건 | `ChatJobRecoveryService` |
 | Ollama 임베딩 요청 옵션 | `num_ctx: 4096`, `keep_alive: 30m` | `OllamaEmbeddingClient` |
 | 임베딩 차원 | 1024 (DB 컬럼 `vector(1024)`와 같음). 다른 차원의 응답은 거절 | `EmbeddingClient` |
 | Nginx 프록시 응답 제한 시간 | `180s`. 임베딩 백필 경로만 `3600s` | `infra/nginx/nginx.conf` |
@@ -342,6 +355,68 @@ JPA의 `ddl-auto: none`은 JPA 테이블 자동 생성을 끄는 설정입니다
 - 답변 시도 기록(`answer_attempts_history.llm_model`)에는 선택된 엔진의 모델 이름이 남습니다. `ollama`면 `OLLAMA_CHAT_MODEL`, `vllm`이면 `LLM_MODEL` 값입니다.
 
 자세한 내용은 [LLM 모듈 안내](../how-to/llm-module.md#ai-실행-엔진-선택)에 있습니다.
+
+## 입력·출력 AI 가드 모델 설정
+
+가드의 API 모델명은 `AiGuardModelService`에서 실행 환경에 맞게 결정합니다. 설정하지 않은 엔진은
+`AI_MODE`의 답변 생성 엔진을 따릅니다(`custom`이면 `AI_CHAT_ENGINE`). Ollama는 `OLLAMA_CHAT_MODEL`,
+vLLM은 `LLM_MODEL`을 기본 모델명으로 사용합니다. Hugging Face 체크포인트 이름을 요청 모델명으로 고정하지 않습니다.
+vLLM의 `LLM_MODEL`은 서버의 `LLM_SERVED_MODEL_NAME`과 같아야 합니다. 실험에서 선택한 체크포인트와 프롬프트 기록은
+`src/main/resources/prompts/ai-guard/provenance.json`에 그대로 보존합니다.
+
+| 환경변수 | 생략하거나 비웠을 때 | 별도 지정 시 |
+|---|---|---|
+| `AI_GUARD_ENGINE` | 답변 생성 엔진 | `ollama` 또는 `vllm` |
+| `AI_GUARD_BASE_URL` | 선택한 엔진의 기존 주소. Ollama는 `ollama.base-url`/`OLLAMA_BASE_URL`, vLLM은 `LLM_BASE_URL` | 해당 엔진의 가드 전용 주소. vLLM은 `/v1`까지 포함 |
+| `AI_GUARD_MODEL` | Ollama는 `spring.ai.ollama.chat.options.model`/`OLLAMA_CHAT_MODEL`, vLLM은 `LLM_MODEL`(기본 `ubot-chat`) | Ollama 등록 모델명 또는 vLLM의 served model name |
+| `AI_GUARD_CONNECT_TIMEOUT` | `LLM_CONNECT_TIMEOUT`(기본 `3s`) | 가드 연결 제한 시간 |
+| `AI_GUARD_READ_TIMEOUT` | `LLM_READ_TIMEOUT`(기본 `120s`) | 가드 응답 제한 시간 |
+| `AI_GUARD_MAX_CONCURRENT` | `LLM_MAX_CONCURRENT`(기본 `4`) | 별도 가드 서버의 호출 허가 수. 같은 서버에서는 기존 답변 생성 상한을 공유하며 이 값으로 늘리지 않음 |
+| `AI_GUARD_PERMIT_WAIT_TIMEOUT` | `5s` | 가드 호출 허가 대기 시간 |
+| `AI_OUTPUT_GUARD_MAX_TOKENS` | `1024` | 출력 판정 JSON 생성 상한. 허용 1024~4096이며 범위 밖은 시작 시 설정 오류. 입력 판정·답변 생성 한도에는 적용하지 않음 |
+
+가드와 답변 생성이 같은 서버를 사용하면 기존 `LlmService`의 동시 호출 허가·취소·지표 처리를 공유합니다.
+별도 연결 설정이 없으면 전송 클라이언트도 그대로 재사용합니다. 같은 서버에 다른 모델명이나 제한 시간을 지정해도
+공유한 허가를 얻은 뒤 해당 설정으로 호출합니다. 취소·시간 초과 후에도 실제 호출이 계속 실행 중이면 허가를 먼저 돌려주지 않습니다.
+가드 대기 한도를 넘으면 `LLM_BUSY`를 반환하며, 이를 안전 판정이나 자동 재시도로 바꾸지 않습니다.
+
+서버는 URL의 프로토콜·호스트·포트로 구분합니다. 호스트 대소문자, 기본 포트 표기, 끝의 `/`나 API 경로 차이로
+같은 서버의 허가를 분리하지 않으며, `localhost`·`127.0.0.1`·`[::1]`도 같은 로컬 서버로 봅니다.
+다른 DNS 이름이나 프록시 뒤의 실제 서버가 같은지는 조회하지 않습니다. 같은 모델 서버에는 같은 주소를 사용하세요.
+별도 서버일 때만 가드 전용 허가를 사용하며, 답변 생성의 기존 호출 상한은 변경하지 않습니다.
+요청 시간·실패·허가 대기·포화 지표에는 `client=guard`를 사용해 답변 생성·기존 분류(`client=chat`)와 구분합니다.
+동시성 게이지는 서버의 허가 소유자를 표시합니다. 공유 서버는 `client=chat`의 한 게이지에 가드 점유까지 합산하고,
+별도 가드 서버만 `client=guard` 게이지를 추가합니다. 모델명·주소·질문 등의 가변 태그는 등록하지 않습니다.
+
+입력·출력 가드의 `forbidden_words`에는 해당 요청의 질문·답변·대화·근거·조회 자료에서 매칭된 활성 금칙어만 넣습니다.
+기존 코드 필터의 공백·숨은 문자·전각 문자·대소문자와 단어 경계 규칙을 재사용하며, JSON 필드명이나 서로 다른 필드를
+이어 붙인 문자열은 매칭 대상으로 만들지 않습니다. 캐시를 읽기만 하므로 추가 DB 조회나 등록 변경은 하지 않습니다.
+활성 금칙어의 정규화 값과 띄어쓰기 변형 패턴은 시작·변경 이벤트에 따른 캐시 갱신 때 한 번 계산합니다.
+원문과 함께 하나의 불변 스냅샷으로 교체하며, 질문·답변을 검사할 때 금칙어를 다시 정규화하거나 패턴을 재컴파일하지 않습니다.
+자료에 없는 금칙어가 늘어도 전달 목록은 늘지 않으며, 매칭된 단어를 개수 순으로 임의 누락시키지 않습니다.
+금칙어 매칭은 프롬프트 자료 선정이며, 인용·피해 신고 등의 안전 판정 기준이나 판정 프롬프트 원본은 변경하지 않습니다.
+
+`AI_INPUT_GUARD_ENABLED`, `AI_OUTPUT_GUARD_ENABLED`, `AI_INPUT_LLM_GUARD_ENABLED`,
+`AI_OUTPUT_LLM_GUARD_ENABLED`는 모두 기본 `true`입니다. 로컬에서 AI 가드 없이 개발하려면 두 `*_LLM_GUARD_ENABLED`만
+`false`로 지정할 수 있습니다. 코드 가드는 유지하며, 답변 생성·기존 질문 분류의 모델 설정은 여전히 필요합니다.
+`AI_INPUT_GUARD_ENABLED=false`는 AI 판정뿐 아니라 기존 금칙어·프롬프트 주입 코드 검사까지 끄는 전체 스위치입니다.
+공통 인사·이모지 정리와 빈 질문 검증은 유지합니다. 코드 검사를 유지하려면 전체 스위치는 true로 두고
+`AI_INPUT_LLM_GUARD_ENABLED=false`만 지정하세요. 안전 판정이 OFF인 분류 전용 호출이 실패하면 원문 검색으로 복구하지만,
+활성 안전 판정의 BLOCK·REVIEW·실패와 대화 DB 조회 실패는 원문 검색으로 우회하지 않습니다.
+공식 FAQ 캐시 적중은 출력 코드 검사만 거치고, 새로 생성한 답변은 활성화된 출력 LLM 검사를 거칩니다.
+
+로컬 Ollama를 쓸 때는 `.env.example`의 `OLLAMA_CHAT_MODEL`과 로컬에 준비한 모델명을 맞추세요.
+로컬의 답변 생성은 Ollama로 두고 가드만 별도 vLLM에 보내려면 다음처럼 세 값을 명시합니다.
+
+```properties
+AI_GUARD_ENGINE=vllm
+AI_GUARD_BASE_URL=http://guard-host:8000/v1
+AI_GUARD_MODEL=ubot-guard
+```
+
+`ubot-guard`는 예시이며 실제 가드 서버에 등록한 이름으로 바꿔야 합니다. 반대로 가드만 Ollama를 쓰려면
+`AI_GUARD_ENGINE=ollama`와 Ollama 주소·등록 모델명을 지정합니다. 이 설정은 답변 생성·임베딩 설정을 바꾸지 않으며,
+모델을 자동 다운로드하거나 서버를 실행하지 않습니다. 지정한 주소에 해당 모델이 준비되어 있어야 합니다.
 
 ## 관리자 위험 표현 분석 전용 모델 설정
 

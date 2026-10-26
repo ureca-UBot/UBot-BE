@@ -49,7 +49,7 @@ class ChatAnswerProcessorResearchTest {
 
     @BeforeEach
     void setUp() {
-        processor = ChatTestFixtures.processor(FaqRetrievalService.denseOnly(faqVectorService), aiService, chatContextCollector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
+        processor = ChatTestFixtures.processor(new FaqRetrievalService(faqVectorService), aiService, chatContextCollector, ChatTestFixtures.originalSubQuestions(), ChatTestFixtures.disabledCache(), ChatTestFixtures.passthroughSentenceFilter(), ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
     }

@@ -1,5 +1,8 @@
 package com.ubot.guardreview.controller;
 
+import com.ubot.guardreview.dto.response.ReviewCheckResponseDto;
+import com.ubot.guardreview.dto.response.ReviewCheckDetailResponseDto;
+
 import com.ubot.auth.config.CustomUserDetails;
 import com.ubot.common.ApiResponse;
 import com.ubot.guardreview.model.ReviewModels.Kind;
@@ -7,6 +10,9 @@ import com.ubot.guardreview.model.ReviewModels.Candidate;
 import com.ubot.common.PageResponseDto;
 import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.guardreview.service.ReviewService;
+import com.ubot.guardreview.service.ReviewCheckService;
+import com.ubot.guardreview.model.ReviewCheckModels.Origin;
+import com.ubot.guardreview.model.ReviewCheckModels.Outcome;
 import com.ubot.notification.repository.NotificationRepository;
 import com.ubot.notification.service.NotificationService;
 import java.util.List;
@@ -40,6 +46,7 @@ public class AdminReviewController {
 	private final ReviewRepository repository;
 	private final NotificationRepository notifications;
 	private final NotificationService notificationService;
+	private final ReviewCheckService checks;
 	private long admin(CustomUserDetails user) {
 		if (user == null || user.getAuthorities().stream().noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority())))
 			throw new org.springframework.security.access.AccessDeniedException("관리자 권한이 필요합니다.");
@@ -53,9 +60,42 @@ public class AdminReviewController {
 	@GetMapping("/candidates")
 	public ApiResponse<PageResponseDto<Candidate>> getCandidatePage(@AuthenticationPrincipal CustomUserDetails user,
 			@RequestParam Kind kind, @RequestParam(defaultValue = "0") int page,
-			@RequestParam(defaultValue = "20") int size) {
+			@RequestParam(defaultValue = "20") int size,
+			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome) {
 		admin(user);
-		return ApiResponse.success(service.getCandidatePage(kind, page, size));
+		return ApiResponse.success(service.getCandidatePage(kind, page, size, origin, outcome));
+	}
+	@GetMapping("/checks")
+	public ApiResponse<PageResponseDto<ReviewCheckResponseDto>> getFilteredChecks(
+			@AuthenticationPrincipal CustomUserDetails user,
+			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome,
+			@RequestParam(required = false) List<Origin> origins, @RequestParam(required = false) List<Outcome> outcomes,
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+		if (origins == null && outcomes == null) return getChecks(user, origin, outcome, page, size);
+		admin(user);
+		var sources = new java.util.ArrayList<Origin>(origins == null ? List.of() : origins);
+		var results = new java.util.ArrayList<Outcome>(outcomes == null ? List.of() : outcomes);
+		if (origin != null) sources.add(origin);
+		if (outcome != null) results.add(outcome);
+		return ApiResponse.success(checks.pageFiltered(sources, results, page, size));
+	}
+	private ApiResponse<PageResponseDto<ReviewCheckResponseDto>> getChecks(
+			@AuthenticationPrincipal CustomUserDetails user,
+			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome,
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+		admin(user);
+		return ApiResponse.success(checks.page(origin, outcome, page, size));
+	}
+	@PostMapping("/checks/analysis")
+	public ApiResponse<Long> startCheckAnalysis(@AuthenticationPrincipal CustomUserDetails user,
+			@Valid @RequestBody com.ubot.guardreview.dto.request.ReviewCheckAnalysisRequestDto body) {
+		return ApiResponse.success(service.startCheckAnalysis(body.checkIds(), admin(user)));
+	}
+	@GetMapping("/checks/{id}")
+	public ApiResponse<ReviewCheckDetailResponseDto> getCheck(
+			@AuthenticationPrincipal CustomUserDetails user, @PathVariable long id) {
+		admin(user);
+		return ApiResponse.success(checks.detail(id));
 	}
 	@GetMapping("/runs/{id}")
 	public ApiResponse<ReviewRunResponseDto> getRun(@AuthenticationPrincipal CustomUserDetails user,
@@ -74,7 +114,7 @@ public class AdminReviewController {
 	public ApiResponse<Settings> updateSettings(@AuthenticationPrincipal CustomUserDetails user,
 			@Valid @RequestBody ReviewSettingsRequestDto body) {
 		return ApiResponse.success(service.updateSettings(body.enabled(), body.intervalMinutes(),
-				body.groupingThreshold(), body.revision(), admin(user)));
+				body.groupingThreshold(), body.revision(), admin(user), body.analysisSource()));
 	}
 	@PostMapping("/analysis")
 	public ApiResponse<Long> startAnalysis(@AuthenticationPrincipal CustomUserDetails user) {
@@ -85,6 +125,11 @@ public class AdminReviewController {
 		admin(user);
 		service.resumeAnalysis(id);
 		return ApiResponse.success(null);
+	}
+	@PostMapping("/reassessment")
+	public ApiResponse<Long> startReassessment(@AuthenticationPrincipal CustomUserDetails user,
+			@Valid @RequestBody com.ubot.guardreview.dto.request.ReviewReassessmentRequestDto body) {
+		return ApiResponse.success(service.startReassessment(body.origin(), body.checkIds(), admin(user)));
 	}
 	@PostMapping("/validation")
 	public ApiResponse<Long> startValidation(@AuthenticationPrincipal CustomUserDetails user,
@@ -111,9 +156,10 @@ public class AdminReviewController {
 	}
 	@GetMapping("/candidates/{id}/findings")
 	public ApiResponse<List<Map<String, Object>>> getFindings(@AuthenticationPrincipal CustomUserDetails user,
-			@PathVariable long id) {
+			@PathVariable long id,
+			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome) {
 		admin(user);
-		return ApiResponse.success(repository.findings(id));
+		return ApiResponse.success(repository.findings(id, origin, outcome));
 	}
 	@GetMapping("/notifications")
 	public ApiResponse<List<Map<String, Object>>> getNotifications(@AuthenticationPrincipal CustomUserDetails user) {

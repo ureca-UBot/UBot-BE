@@ -66,9 +66,9 @@ class AiOutputGuardLoggingTest {
     @Test
     void logsPartialRemovalUsingExistingReasonWithoutExposingRemovedContent() {
         String answer = "할인율은 25%입니다. 바보야 고객비밀값-ABC123.";
-        assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo("할인율은 25%입니다.");
+        assertThatThrownBy(() -> guard.filterAnswer(answer, materials, null)).isInstanceOf(LlmException.class);
         assertThat(messages()).singleElement().asString()
-                .contains("결과=FILTERED", "POLICY_VIOLATION", "FORBIDDEN_WORD=1", "제거단위수=1", "거절사유=NONE")
+                .contains("결과=REJECTED", "POLICY_VIOLATION", "FORBIDDEN_WORD=1", "제거단위수=1", "거절사유=WHOLE_ANSWER_REJECTION")
                 .doesNotContain("바보", "고객비밀값-ABC123", "25%");
     }
 
@@ -96,16 +96,16 @@ class AiOutputGuardLoggingTest {
     @Test
     void identifiesQuantityCheckAndCountsOnlyRemovedSentences() {
         String answer = "할인율은 25%입니다. 할인율은 50%입니다.";
-        assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo("할인율은 25%입니다.");
+        assertThatThrownBy(() -> guard.filterAnswer(answer, materials, null)).isInstanceOf(LlmException.class);
         assertThat(messages()).singleElement().asString()
-                .contains("결과=FILTERED", "QUANTITY_CONFLICT=1", "제거단위수=1", "거절사유=NONE")
+                .contains("결과=REJECTED", "QUANTITY_CONFLICT=1", "제거단위수=1", "거절사유=WHOLE_ANSWER_REJECTION")
                 .doesNotContain("25%", "50%");
     }
 
     @Test
     void countsDifferentRemovedUnitsOnceEach() {
         String answer = "할인율은 25%입니다. 바보야. 할인율은 50%입니다.";
-        assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo("할인율은 25%입니다.");
+        assertThatThrownBy(() -> guard.filterAnswer(answer, materials, null)).isInstanceOf(LlmException.class);
         assertThat(messages()).singleElement().asString()
                 .contains("FORBIDDEN_WORD=1", "QUANTITY_CONFLICT=1", "제거단위수=2");
     }
@@ -136,11 +136,11 @@ class AiOutputGuardLoggingTest {
     @Test
     void inspectionEntryPointLogsExactlyOnceAndKeepsResultReasons() {
         var result = guard.inspectAnswer("할인율은 25%입니다. 바보야.", List.of("1"), materials, null);
-        assertThat(result.rejected()).isFalse();
-        assertThat(result.answer()).isEqualTo("할인율은 25%입니다.");
+        assertThat(result.rejected()).isTrue();
+        assertThat(result.answer()).isNull();
         assertThat(result.reasons()).containsExactly(com.ubot.ai.dto.OutputGuardResult.Reason.POLICY_VIOLATION);
         assertThat(messages()).singleElement().asString()
-                .contains("단계=BODY", "결과=FILTERED", "FORBIDDEN_WORD=1", "제거단위수=1");
+                .contains("단계=BODY", "결과=REJECTED", "FORBIDDEN_WORD=1", "제거단위수=1");
     }
 
     @Test

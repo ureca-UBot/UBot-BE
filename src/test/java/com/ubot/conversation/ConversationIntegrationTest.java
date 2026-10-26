@@ -1,12 +1,15 @@
 package com.ubot.conversation;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
@@ -62,11 +65,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 		"CHAT_TOP_K=3",
 		"CHAT_CONFIDENCE_THRESHOLD=0.75",
 		"CHAT_MAX_ATTEMPTS=3"})
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("회원 대화방 통합 테스트")
 class ConversationIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
 	@Autowired MockMvc mvc;
 	@Autowired JwtUtil jwt;
 	@Autowired ObjectMapper objectMapper;
@@ -78,7 +83,7 @@ class ConversationIntegrationTest {
 	@Autowired UnansweredQuestionGroupRepository unansweredQuestionGroups;
 	@Autowired JdbcTemplate jdbc;
 	@Autowired StringRedisTemplate redis;
-	@Autowired ChatJobWorker worker;
+	@Autowired ChatJobTestDriver driver;
 	@MockitoBean FaqVectorService vector;
 	@MockitoBean FaqSentenceFilterService sentenceFilter;
 	@MockitoBean LlmClient llm;
@@ -88,6 +93,7 @@ class ConversationIntegrationTest {
 
 	@BeforeEach
 	void setup() {
+        AiGuardTestSupport.allow(guardModel);
 		FaqSearchMockSupport.bridgeSearch(vector);
 		FaqSearchMockSupport.passAnswers(sentenceFilter);
 		redis.delete(ChatJobStream.STREAM_KEY);
@@ -208,7 +214,7 @@ class ConversationIntegrationTest {
 		when(vector.getSimilarList(anyString(), eq(3))).thenReturn(List.of());
 		var submitted = mvc.perform(question("결과 없는 질문", null).header("Authorization", bearer(member)))
 				.andExpect(status().isAccepted()).andReturn();
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		String body = submitted.getResponse().getContentAsString(StandardCharsets.UTF_8);
 		UUID conversationId = UUID.fromString(objectMapper.readTree(body).path("data").path("conversationId").asString());
 		String jobId = objectMapper.readTree(body).path("data").path("jobId").asString();
@@ -280,7 +286,7 @@ class ConversationIntegrationTest {
 		UUID conversationId = UUID.fromString(submitted.path("conversationId").asString());
 		String jobId = submitted.path("jobId").asString();
 		String key = submitted.path("idempotencyKey").asString();
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
 				.andExpect(status().isNoContent());
 
@@ -309,7 +315,7 @@ class ConversationIntegrationTest {
 		assertThat(jdbc.queryForObject("select deleted_at from conversations where public_id = ?",
 				LocalDateTime.class, conversationId)).isNull();
 
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		mvc.perform(delete("/conversations/{id}", conversationId).header("Authorization", bearer(member)))
 				.andExpect(status().isNoContent());
 	}
@@ -382,7 +388,7 @@ class ConversationIntegrationTest {
 	private UUID complete(MockHttpServletRequestBuilder request) throws Exception {
 		String body = mvc.perform(request).andExpect(status().isAccepted())
 				.andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
-		worker.processAvailableJobs();
+		driver.processAvailableJobs();
 		JsonNode conversationId = objectMapper.readTree(body).path("data").path("conversationId");
 		return conversationId.isString() ? UUID.fromString(conversationId.asString()) : null;
 	}

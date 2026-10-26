@@ -2,8 +2,6 @@ package com.ubot.chat.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -37,22 +35,17 @@ import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.chat.context.ChatContextCollector;
 import com.ubot.chat.context.GeneralIntentHandler;
 import com.ubot.chat.context.StoreIntentHandler;
-import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.faq.cache.FaqCacheProperties;
 import com.ubot.faq.cache.FaqSemanticCacheService;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
-import com.ubot.faq.retrieval.FaqRetrievalProperties;
 import com.ubot.faq.retrieval.FaqRetrievalService;
 import com.ubot.faq.retrieval.FaqSentenceFilterService;
-import com.ubot.faq.retrieval.rerank.FaqRerankService;
-import com.ubot.faq.retrieval.rerank.RerankerClient;
 import com.ubot.faq.service.FaqVectorService;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.exception.UserErrorCode;
@@ -68,38 +61,28 @@ class ChatAnswerProcessorIntentValidationTest {
 
     private final FaqVectorService vectors = mock(FaqVectorService.class);
     private final EmbeddingService embeddings = mock(EmbeddingService.class);
-    private final RerankerClient reranker = mock(RerankerClient.class);
     private final UserService users = mock(UserService.class);
     private final NearbyStoreSearcher stores = mock(NearbyStoreSearcher.class);
     private final AiService ai = mock(AiService.class);
     private final List<UnansweredCandidate> unanswered = new ArrayList<>();
 
-    @ParameterizedTest(name = "캐시={0}, 리랭커={1}, 위치={2}, 일반 문장 통과={3}")
+    @ParameterizedTest(name = "캐시={0}, 위치={1}, 일반 문장 통과={2}")
     @CsvSource({
-            "false, false, false, false", "false, false, false, true",
-            "false, false, true, false", "false, false, true, true",
-            "false, true, false, false", "false, true, false, true",
-            "false, true, true, false", "false, true, true, true",
-            "true, false, false, false", "true, false, false, true",
-            "true, false, true, false", "true, false, true, true",
-            "true, true, false, false", "true, true, false, true",
-            "true, true, true, false", "true, true, true, true"
+            "false, false, false", "false, false, true", "false, true, false", "false, true, true",
+            "true, false, false", "true, false, true", "true, true, false", "true, true, true"
     })
     @DisplayName("세 의도가 섞여도 일반 문장만 비교하고 조회 자료와 후보 순서를 유지한다")
     void mixedIntentsPreserveDataAcrossConfigurations(
-            boolean cacheEnabled, boolean rerankEnabled, boolean hasLocation, boolean generalPasses) {
+            boolean cacheEnabled, boolean hasLocation, boolean generalPasses) {
         FaqSearchResponseDto general = faq(1L, Intent.GENERAL, 0.90, true);
         FaqSearchResponseDto user = faq(2L, Intent.USER_DATA, 0.89, false);
         FaqSearchResponseDto store = faq(3L, Intent.STORE_DATA, 0.88, false);
         List<FaqSearchResponseDto> candidates = List.of(general, user, store);
-        int candidateK = rerankEnabled ? 10 : 3;
+        int candidateK = 3;
         when(vectors.searchWithVector(QUESTION, null, candidateK))
                 .thenReturn(new FaqVectorService.SearchResult(candidates, QUERY_VECTOR));
         when(embeddings.embedTexts(List.of(general.answer())))
                 .thenReturn(List.of(generalPasses ? QUERY_VECTOR : new PGvector(new float[] {0, 1})));
-        if (rerankEnabled) {
-            when(reranker.score(eq(QUESTION), anyList())).thenReturn(List.of(0.1, 0.2, 0.3));
-        }
         existingUser();
         StoreMapResult map = new StoreMapResult(LOCATION, null, 3.0, List.of());
         if (hasLocation) {
@@ -108,11 +91,11 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("수집 자료 기반 답변", null, false));
 
-        ChatAnswerResult result = processor(cacheEnabled, rerankEnabled)
+        ChatAnswerResult result = processor(cacheEnabled)
                 .generateAnswer(attempt(null), hasLocation ? LOCATION : null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
-        List<FaqSearchResponseDto> expectedOrder = rerankEnabled ? List.of(store, user, general) : candidates;
+        List<FaqSearchResponseDto> expectedOrder = candidates;
         assertThat(result.faqs()).containsExactlyElementsOf(expectedOrder.stream()
                 .filter(faq -> faq.intent() != Intent.GENERAL || generalPasses).toList());
         AnswerMaterials materials = capturedMaterials();
@@ -135,11 +118,6 @@ class ChatAnswerProcessorIntentValidationTest {
         verifyNoMoreInteractions(embeddings);
         verify(vectors).searchWithVector(QUESTION, null, candidateK);
         verifyNoMoreInteractions(vectors);
-        if (rerankEnabled) {
-            verify(reranker).score(eq(QUESTION), anyList());
-        } else {
-            verifyNoInteractions(reranker);
-        }
         assertThat(unanswered).isEmpty();
     }
 
@@ -155,7 +133,7 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("실제 조회 경로 답변", null, false));
 
-        ChatAnswerResult result = processor(true, false).generateAnswer(attempt(null), null, () -> { }, unanswered);
+        ChatAnswerResult result = processor(true).generateAnswer(attempt(null), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().answer()).isEqualTo("실제 조회 경로 답변");
@@ -169,7 +147,7 @@ class ChatAnswerProcessorIntentValidationTest {
             assertThat(materials.tools()).containsExactly(AiTool.STORE_SEARCH);
             verifyNoInteractions(users);
         }
-        verifyNoInteractions(embeddings, stores, reranker);
+        verifyNoInteractions(embeddings, stores);
         assertThat(unanswered).isEmpty();
     }
 
@@ -185,7 +163,7 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("추가 확인이 필요합니다.", null, false, "ABSTAIN"));
 
-        ChatAnswerResult result = processor(true, false).generateAnswer(attempt(intent), null, () -> { }, unanswered);
+        ChatAnswerResult result = processor(true).generateAnswer(attempt(intent), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
@@ -198,7 +176,7 @@ class ChatAnswerProcessorIntentValidationTest {
         }
         verify(vectors).searchWithVector(QUESTION, intent, 3);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(embeddings, stores, reranker);
+        verifyNoInteractions(embeddings, stores);
         assertThat(unanswered).isEmpty();
     }
 
@@ -211,14 +189,14 @@ class ChatAnswerProcessorIntentValidationTest {
         when(users.getActiveUser(1L)).thenThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("사용자 정보를 찾을 수 없습니다.", null, false, "ABSTAIN"));
 
-        ChatAnswerResult result = processor(false, false).generateAnswer(attempt(null), null, () -> { }, unanswered);
+        ChatAnswerResult result = processor(false).generateAnswer(attempt(null), null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.answer().abstained()).isTrue();
         assertThat(capturedMaterials().sections()).extracting(ContextSection::content)
                 .containsExactly("사용자 정보를 찾을 수 없습니다.");
         assertThat(unanswered).isEmpty();
-        verifyNoInteractions(embeddings, stores, reranker);
+        verifyNoInteractions(embeddings, stores);
     }
 
     @ParameterizedTest
@@ -251,7 +229,7 @@ class ChatAnswerProcessorIntentValidationTest {
         existingUser();
         when(ai.generateAnswer(any())).thenReturn(new AiAnswer("조회 자료와 일반 안내 답변", null, false));
 
-        ChatAnswerResult result = processor(true, false, planner).generateAnswer(attempt, null, () -> { }, unanswered);
+        ChatAnswerResult result = processor(true, planner).generateAnswer(attempt, null, () -> { }, unanswered);
 
         assertThat(result.errorCode()).isNull();
         assertThat(result.subQuestions()).containsExactly(
@@ -271,29 +249,27 @@ class ChatAnswerProcessorIntentValidationTest {
         verify(vectors).searchWithVector(userQuestion, null, 3);
         verify(vectors).searchWithVector(storeQuestion, null, 3);
         verifyNoMoreInteractions(vectors);
-        verifyNoInteractions(stores, reranker);
+        verifyNoInteractions(stores);
         if (generalPasses) {
             assertThat(unanswered).isEmpty();
         } else {
             assertThat(unanswered).contains(new UnansweredCandidate(1, generalQuestion, generalQuestion,
-                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore(), UnansweredSource.RETRIEVAL));
+                    UnansweredReason.INSUFFICIENT_FAQ, general.faqId(), general.similarityScore()));
             assertThat(unanswered).hasSize(1);
         }
     }
 
-    private ChatAnswerProcessor processor(boolean cacheEnabled, boolean rerankEnabled) {
-        return processor(cacheEnabled, rerankEnabled, ChatTestFixtures.originalSubQuestions());
+    private ChatAnswerProcessor processor(boolean cacheEnabled) {
+        return processor(cacheEnabled, ChatTestFixtures.originalSubQuestions());
     }
 
-    private ChatAnswerProcessor processor(boolean cacheEnabled, boolean rerankEnabled, SubQuestionPlanner planner) {
-        FaqRetrievalProperties retrievalProperties = new FaqRetrievalProperties();
-        retrievalProperties.getRerank().setEnabled(rerankEnabled);
+    private ChatAnswerProcessor processor(boolean cacheEnabled, SubQuestionPlanner planner) {
         FaqCacheProperties cacheProperties = new FaqCacheProperties();
         cacheProperties.setEnabled(cacheEnabled);
         ChatContextCollector collector = new ChatContextCollector(List.of(
                 new GeneralIntentHandler(), ChatTestFixtures.userIntentHandler(users), new StoreIntentHandler(stores),
                 ChatTestFixtures.productIntentHandler()));
-        ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors, new FaqRerankService(reranker), retrievalProperties, 3), ai, collector, planner, new FaqSemanticCacheService(cacheProperties), new FaqSentenceFilterService(embeddings, 0.6), ChatTestFixtures.inputGuard());
+        ChatAnswerProcessor processor = ChatTestFixtures.processor(new FaqRetrievalService(vectors), ai, collector, planner, new FaqSemanticCacheService(cacheProperties), new FaqSentenceFilterService(embeddings, 0.6), ChatTestFixtures.inputGuard());
         ReflectionTestUtils.setField(processor, "topK", 3);
         ReflectionTestUtils.setField(processor, "confidenceThreshold", 0.75);
         return processor;

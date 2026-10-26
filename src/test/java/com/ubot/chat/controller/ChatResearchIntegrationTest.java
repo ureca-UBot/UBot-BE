@@ -1,12 +1,15 @@
 package com.ubot.chat.controller;
 
+import com.ubot.ai.service.AiGuardModelService;
+import com.ubot.ai.service.AiGuardTestSupport;
+
 import com.ubot.PgvectorTestConfiguration;
 import com.ubot.RedisTestConfiguration;
 import com.ubot.auth.util.JwtUtil;
 import com.ubot.chat.entity.AnswerAttemptsHistory;
 import com.ubot.chat.exception.ChatErrorCode;
 import com.ubot.chat.job.stream.ChatJobStream;
-import com.ubot.chat.job.worker.ChatJobWorker;
+import com.ubot.chat.job.support.ChatJobTestDriver;
 import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.chat.repository.QuestionLogRepository;
 import com.ubot.common.ErrorCode;
@@ -64,11 +67,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "CHAT_TOP_K=3",
         "CHAT_CONFIDENCE_THRESHOLD=0.75",
         "CHAT_MAX_ATTEMPTS=3" })
-@Import({PgvectorTestConfiguration.class, RedisTestConfiguration.class})
+@Import({ChatJobTestDriver.Config.class, PgvectorTestConfiguration.class, RedisTestConfiguration.class})
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("의도 재검색 통합 테스트")
 class ChatResearchIntegrationTest {
+    @MockitoBean AiGuardModelService guardModel;
+
     private static final String QUESTION = "유심 재발급 방법";
 
     @Autowired
@@ -92,7 +97,7 @@ class ChatResearchIntegrationTest {
     @Autowired
     StringRedisTemplate redis;
     @Autowired
-    ChatJobWorker worker;
+    ChatJobTestDriver driver;
     @MockitoBean
     FaqVectorService vector;
     @MockitoBean
@@ -106,12 +111,13 @@ class ChatResearchIntegrationTest {
 
     @BeforeEach
     void setup() {
+        AiGuardTestSupport.allow(guardModel);
         FaqSearchMockSupport.bridgeSearch(vector);
         FaqSearchMockSupport.passAnswers(sentenceFilter);
         redis.delete(ChatJobStream.STREAM_KEY);
         redis.delete(redis.keys("chat:jobs:result:*"));
         redis.delete(redis.keys("chat:jobs:published:*"));
-        flow = new ChatJobTestFlow(mvc, worker);
+        flow = new ChatJobTestFlow(mvc, driver);
         unansweredQuestions.deleteAllInBatch();
         unansweredQuestionGroups.deleteAllInBatch();
         faqLogs.deleteAllInBatch();

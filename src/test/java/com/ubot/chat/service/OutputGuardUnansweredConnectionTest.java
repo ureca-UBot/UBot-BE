@@ -40,7 +40,6 @@ import com.ubot.llm.service.LlmService;
 import com.ubot.prompt.service.PromptService;
 import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.enums.UnansweredSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -65,13 +64,19 @@ class OutputGuardUnansweredConnectionTest {
 
 	@BeforeEach void setUp() {
 		var guard = output();
-		ai = new AiService(prompts, llm, mock(AiToolRegistry.class), guard, SubQuestionLabels.withoutMorphology());
+		ai = new AiService(prompts,
+                llm,
+                mock(AiToolRegistry.class),
+                guard,
+                SubQuestionLabels.withoutMorphology(),
+                org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
+                new com.ubot.ai.config.AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		processor = processorFor(ai);
 		when(planner.plan(attempt, QUESTION)).thenReturn(SubQuestionPlan.original(QUESTION, SubQuestionPlan.Source.ORIGINAL));
 		when(retrieval.searchCandidates(QUESTION, null, 3, 0))
-				.thenReturn(new DenseFaqCandidates(List.of(unrelatedFaq()), 0, vector()));
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(unrelatedFaq()), unrelatedFaq(), false, null));
+				.thenReturn(new DenseFaqCandidates(List.of(unrelatedFaq()), vector()));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(unrelatedFaq()), unrelatedFaq()));
 		when(profiles.getCurrentProfileId()).thenReturn(1L);
 		when(prompts.createSlotPrompt(any(), any(), any(), any(), any())).thenReturn(new LlmRequestDto(List.of()));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(NOTICE));
@@ -97,8 +102,8 @@ class OutputGuardUnansweredConnectionTest {
 	void 상태만으로는_후보를_저장하지_않는다(String status) {
 		var supported = new com.ubot.faq.dto.response.FaqSearchResponseDto(17L, "회선 정지 방법",
 				"회선 정지는 앱에서 신청할 수 있습니다.", .91, com.ubot.faq.enums.Intent.GENERAL);
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(supported), supported, false, null));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(supported), supported));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"answer\":\"" + NOTICE
 				+ "\",\"status\":\"" + status + "\",\"evidence_ids\":[\"17\"]}"));
 		assertThat(processor.generateAnswer(attempt, null, () -> {}, candidates).isFailed()).isFalse();
@@ -113,27 +118,25 @@ class OutputGuardUnansweredConnectionTest {
 	@Test void 정상_답변과_기존_출력_검사는_유지한다() {
 		var supported = new com.ubot.faq.dto.response.FaqSearchResponseDto(17L, "회선 정지 방법",
 				"회선 정지는 앱에서 신청할 수 있습니다.", .91, com.ubot.faq.enums.Intent.GENERAL);
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(supported), supported, false, null));
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(supported), supported));
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(supported.answer()));
 		var result = processor.generateAnswer(attempt, null, () -> {}, candidates);
 		assertThat(result.isFailed()).isFalse();
 		assertThat(result.answer().answer()).isEqualTo(supported.answer());
 		assertThat(candidates).isEmpty();
 	}
-	@Test void 검색_미응답은_기존_출처와_재사용_벡터를_유지한다() {
-		when(retrieval.rankCandidates(eq(QUESTION), any(), eq(3)))
-				.thenReturn(new RetrievalOutcome(List.of(), null, false, null));
+	@Test void 검색_미응답은_재사용_벡터를_유지한다() {
+		when(retrieval.selectCandidates(any(), eq(3)))
+				.thenReturn(new RetrievalOutcome(List.of(), null));
 
 		assertThat(processor.generateAnswer(attempt, null, () -> {}, candidates).errorCode())
 				.isEqualTo(ChatErrorCode.NO_FAQ);
 		assertThat(candidates).singleElement().satisfies(candidate -> {
-			assertThat(candidate.source()).isEqualTo(UnansweredSource.RETRIEVAL);
 			assertThat(candidate.embeddingProfileId()).isEqualTo(1L);
 			assertThat(candidate.queryEmbedding()).containsExactlyElementsOf(
 					java.util.stream.IntStream.range(0, vector().toArray().length)
 							.mapToObj(index -> index == 0 ? 1F : 0F).toList());
-			assertThat(candidate.rejectedThreshold()).isNull();
 		});
 		verifyNoInteractions(llm);
 	}
@@ -157,24 +160,34 @@ class OutputGuardUnansweredConnectionTest {
 
 		var reason = "ABSTAIN".equals(status) ? UnansweredReason.LLM_ABSTAIN : UnansweredReason.LLM_CONFLICT;
 		verify(harness.unanswered).enqueueUnansweredQuestion(eq(71L), argThat(candidate ->
-				candidate.source() == UnansweredSource.LLM_MODEL && candidate.reason() == reason
+				candidate.reason() == reason
 						&& candidate.subQuestion().equals(QUESTION)));
 		assertThat(harness.jobs.getFirst().getStatus())
 				.isEqualTo(com.ubot.chat.job.entity.ChatJobStatus.SUCCEEDED);
 		verify(llm, times(1)).generateAnswer(any());
 	}
 
-	@Test void 가드가_바꾼_ABSTAIN은_모델_미응답으로_재분류하거나_Outbox에_등록하지_않는다() {
+	@Test void 가드가_제외한_칸은_ABSTAIN으로_고지하되_모델_미응답이나_Outbox에_등록하지_않는다() {
 		var guard = mock(AiOutputGuardService.class);
+		var outputAi = mock(com.ubot.ai.service.AiLlmOutputGuardService.class);
 		when(guard.inspectAnswer(any(), any(), any(), any()))
 				.thenReturn(new OutputGuardResult("", false, Set.of(OutputGuardResult.Reason.ANSWER_ERROR), true));
-		var guardedAi = new AiService(prompts, llm, mock(AiToolRegistry.class), guard,
-				SubQuestionLabels.withoutMorphology());
+		var guardedAi = new AiService(prompts,
+                llm,
+                mock(AiToolRegistry.class),
+                guard,
+                SubQuestionLabels.withoutMorphology(),
+                outputAi,
+                new com.ubot.ai.config.AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		var guardedProcessor = processorFor(guardedAi);
 		when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(
 				"{\"answers\":[{\"answer\":\"근거 없는 안내\",\"status\":\"ANSWER\"}],\"evidence_ids\":[\"17\"]}"));
 
 		var result = guardedProcessor.generateAnswer(attempt, null, () -> {}, candidates);
+		assertThat(result.isFailed()).isFalse();
+		assertThat(result.answer().status()).isEqualTo("ABSTAIN");
+		assertThat(result.answer().answer()).doesNotContain("근거 없는 안내")
+				.contains("확인해 드리기 어렵습니다.");
 		assertThat(result.answer().slotOutcomes()).containsExactly(new AiAnswer.SlotOutcome("ABSTAIN", true));
 		assertThat(candidates).isEmpty();
 		var harness = runJob(guardedProcessor);
@@ -183,6 +196,7 @@ class OutputGuardUnansweredConnectionTest {
 		assertThat(harness.jobs.getFirst().getStatus())
 				.isEqualTo(com.ubot.chat.job.entity.ChatJobStatus.SUCCEEDED);
 		verify(guard, times(2)).inspectAnswer(any(), any(), any(), any());
+		verifyNoInteractions(outputAi);
 	}
 
 	private ChatJobTestHarness runJob(ChatAnswerProcessor processor) {

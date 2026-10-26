@@ -17,7 +17,8 @@ public enum LlmErrorCode implements ErrorCode {
 	LLM_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "LLM-004", "답변 생성 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."),
 	LLM_RESPONSE_INVALID(HttpStatus.INTERNAL_SERVER_ERROR, "LLM-005", "답변을 만들지 못했습니다. 잠시 후 다시 시도해주세요."),
 	LLM_OUTPUT_REJECTED(HttpStatus.UNPROCESSABLE_CONTENT, "LLM-006", "검사 후 제공할 수 있는 답변이 없습니다. 질문을 바꾸어 다시 입력해주세요."),
-	LLM_BUSY(HttpStatus.TOO_MANY_REQUESTS, "LLM-007", "요청이 많아 답변이 늦어지고 있습니다. 잠시 후 다시 시도해주세요.");
+	LLM_BUSY(HttpStatus.TOO_MANY_REQUESTS, "LLM-007", "요청이 많아 답변이 늦어지고 있습니다. 잠시 후 다시 시도해주세요."),
+	LLM_GUARD_REVIEW_REQUIRED(HttpStatus.UNPROCESSABLE_CONTENT, "LLM-008", "안전 여부를 확인하지 못했습니다. 내용을 구체적으로 바꾸어 다시 질문해 주세요.");
 
 	private final HttpStatus status;
 	private final String code;

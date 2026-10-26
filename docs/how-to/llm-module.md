@@ -1,6 +1,6 @@
 # LLM 모듈 연결 안내
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 ## 구현 범위
 
@@ -10,7 +10,8 @@
 ```text
 POST /chat/questions
   → ChatService: 금지어 검사, 답변 시도 기록과 답변 작업(chat_jobs) 생성 → 202 jobId
-  → Redis Streams chat:jobs → ChatJobWorker(APP_ROLE=worker): 메시지를 읽고 작업 선점
+  → Redis Streams chat:jobs → ChatJobWorker(APP_ROLE=worker): 빈 실행 슬롯에서 메시지 소비
+  → ChatJobRunner: 작업 선점, 실행 마감·취소·완료 관리
   → ChatJobProcessor
   → ChatAnswerProcessor: FAQ 검색 및 각 결과의 유사도 필터링, intent별 답변 자료 수집
   → AiService.generateAnswer(AnswerMaterials)
@@ -24,7 +25,7 @@ POST /chat/questions
   → GET /chat/jobs/{jobId}: 답변 조회
 ```
 
-FAQ 질문 벡터로 후보를 검색합니다. 캐시가 승인하지 않으면 `FAQ_RERANK_ENABLED` 설정에 따라 후보를 다시 정렬하고, `CHAT_CONFIDENCE_THRESHOLD`로 질문 벡터 유사도를 검사합니다. 통과한 후보 중 최대 `CHAT_TOP_K`개의 답변 문장을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 LLM에 전달하고, 실제 통과한 FAQ를 참고 로그에 저장합니다. 두 유사도 검사 중 어느 단계에서든 통과한 FAQ가 없으면 `INSUFFICIENT_FAQ`, 검색 결과 자체가 없으면 `NO_FAQ`를 반환합니다.
+FAQ 질문 벡터로 후보를 검색합니다. 캐시가 승인하지 않으면 벡터 검색 순서를 유지하고, `CHAT_CONFIDENCE_THRESHOLD`로 질문 벡터 유사도를 검사합니다. 통과한 후보 중 최대 `CHAT_TOP_K`개의 답변 문장을 임베딩해 사용자 질문과 비교합니다. `FAQ_SENTENCE_SIMILARITY_THRESHOLD`를 통과한 문장만 LLM에 전달하고, 실제 통과한 FAQ를 참고 로그에 저장합니다. 두 유사도 검사 중 어느 단계에서든 통과한 FAQ가 없으면 `INSUFFICIENT_FAQ`, 검색 결과 자체가 없으면 `NO_FAQ`를 반환합니다.
 
 프롬프트는 `src/main/resources/prompts/faq-system.txt`(시스템 지침)와
 `faq-user.txt`(사용자 메시지 템플릿)로 분리되어 있고, 두 파일 모두 본문이 들어 있습니다.
@@ -159,9 +160,13 @@ AI_EMBEDDING_ENGINE=ollama
 AI_MODE=vllm
 LLM_BASE_URL=http://<GPU_HOST>:8000/v1
 LLM_MODEL=ubot-chat
+LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
+LLM_SERVED_MODEL_NAME=ubot-chat
 ```
 
-- `LLM_BASE_URL`은 `/v1`까지 적고, `LLM_MODEL`은 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에 있습니다.
+- 현재 vLLM 답변 체크포인트는 `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16`(GPTQ W4A16)입니다. 이는 과거 로컬 검증에 쓴 `Qwen/Qwen3-4B-AWQ`와 다릅니다.
+- `LLM_HF_MODEL`은 vLLM이 실제로 불러올 체크포인트입니다. `LLM_MODEL`은 백엔드가 API 요청에 넣는 이름이며 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같은 `ubot-chat`이어야 합니다.
+- `LLM_BASE_URL`은 `/v1`까지 적습니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에서 확인합니다.
 - 제한 시간은 두 구현체 모두 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다. 자동 재시도는 하지 않습니다.
 - 도구가 붙은 요청은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회, 도구 실행 라운드 최대 8회)는 `OllamaClient`와 같습니다. 최종 형식 오류에 한해 도구 없이 스키마 재호출 1회를 적용합니다. vLLM은 `--enable-auto-tool-choice`와 `--tool-call-parser`로 실행되어 있어야 하며(`infra/llm`에 반영), 그렇지 않으면 도구가 붙은 요청을 거절합니다.
 - 생성 옵션(temperature, Thinking Mode 등)은 요청에 넣지 않고 서버 기본 설정을 따릅니다. Qwen3의 Thinking Mode는 모델 서버 설정 `VLLM_ENABLE_THINKING`(기본 `false`)으로 정합니다. Thinking을 켠 서버에서 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다.
@@ -222,7 +227,6 @@ $env:EMBEDDING_LIVE_BASE_URL = "http://localhost:8001/v1"
 |---|---|---|
 | `8000` | `ubot-chat` | 답변 생성 (연결됨) |
 | `8001` | `ubot-embedding` | 임베딩 (연결됨) |
-| `8002` | `ubot-reranker` | Reranker (예정) |
 
 ### Embedding Profile
 

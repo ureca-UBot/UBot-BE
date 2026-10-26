@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.ubot.ai.config.AiInputGuardProperties;
 import com.ubot.forbiddenword.service.ForbiddenWordFilterService;
 import kr.pe.bab2min.Kiwi;
 import org.junit.jupiter.api.AfterAll;
@@ -62,7 +63,8 @@ class QuestionRouterTest {
 			"요금제 알려줘 그리고 안녕😊 유심 재발급 알려줘",
 			"로밍 신청 방법, 유심 재발급 알려줘"})
 	void keepsSplitMarkersAfterInputGuard(String question) {
-		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService());
+		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService(),
+				new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		String prepared = guard.prepareQuestion(question);
 
 		assertThat(router.route(prepared, false).splitMarks()).contains("나열어");
@@ -71,7 +73,8 @@ class QuestionRouterTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"그럼", "그러면", "그래서", "그리고", "또", "아니", "그건", "그거"})
 	void keepsMultiTurnLeadsAfterInputGuard(String lead) {
-		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService());
+		var guard = new ChatInputGuardService(mock(ForbiddenWordFilterService.class), new ChatPromptInjectionService(),
+				new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 		String prepared = guard.prepareQuestion(lead + " 유심 재발급 비용은 얼마인가요?");
 
 		assertThat(prepared).startsWith(lead + " ");
@@ -111,6 +114,20 @@ class QuestionRouterTest {
 	@DisplayName("주제를 바꾼 독립 질문은 이전 대화가 있어도 표지가 없다")
 	void leavesIndependentQuestion(String question) {
 		assertThat(router.route(question, true).needsJudge()).isFalse();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"내 정보 알려줘", "내 회선 정보 알려줘", "제 정보 알려 주세요"})
+	void completeSelfQuestionsDoNotNeedHistoryOnlyBecauseTheyAreShort(String question) {
+		assertThat(router.route(question, true).multiTurnMarks()).doesNotContain("짧음");
+		assertThat(router.route(question, true).needsJudge()).isFalse();
+	}
+
+	@ParameterizedTest
+	@CsvSource(delimiter = '|', value = {"내 정보도 알려줘|도", "그럼 내 정보 알려줘|이어 묻기", "내 그거 알려줘|지시어"})
+	void explicitSelfOwnerDoesNotRemoveOtherContextMarkers(String question, String mark) {
+		assertThat(router.route(question, true).multiTurnMarks()).contains(mark);
+		assertThat(router.route(question, true).needsJudge()).isTrue();
 	}
 
 	@ParameterizedTest

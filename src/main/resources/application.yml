@@ -101,6 +101,22 @@ app:
     chat-engine: ${AI_CHAT_ENGINE:}
     embedding-engine: ${AI_EMBEDDING_ENGINE:}
     embedding-profile-version: ${EMBEDDING_PROFILE_VERSION:1}
+    input-guard:
+      # 기본 ON. false이면 기존 금칙어·프롬프트 주입 코드 검사와 통합 AI 안전 판정을 모두 끕니다.
+      # 코드 검사를 유지하고 AI 안전 판정만 끄려면 enabled=true, llm-enabled=false로 지정합니다.
+      # 공통 정리·기존 질문 분류는 유지합니다.
+      # 실행 환경에서 값을 변경한 뒤 애플리케이션을 재시작하면 적용됩니다.
+      enabled: ${AI_INPUT_GUARD_ENABLED:true}
+      # 기본 ON. false이면 코드 검사 뒤에 기존 질문 정리 전용 분류기를 사용합니다.
+      # 전체 enabled=false가 우선하며, 분류가 필요한 요청의 기존 LLM 호출은 유지됩니다.
+      llm-enabled: ${AI_INPUT_LLM_GUARD_ENABLED:true}
+    output-guard:
+      # 기본 ON. false이면 일반 답변·FAQ 캐시의 출력 코드 검사와 출력 LLM 호출을 모두 생략합니다.
+      # 입력 AI·답변 생성은 유지됩니다. 실행 환경에서 값을 변경한 뒤 애플리케이션을 재시작하면 적용됩니다.
+      enabled: ${AI_OUTPUT_GUARD_ENABLED:true}
+      # 기본 ON. 전체 출력 검사가 켜져 있을 때 false로 두면 코드 검사만 실행합니다.
+      # 전체 enabled=false가 우선하며, 이 값이 true여도 출력 LLM은 호출하지 않습니다.
+      llm-enabled: ${AI_OUTPUT_LLM_GUARD_ENABLED:true}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:}
   jwt:
@@ -119,6 +135,13 @@ ranking:
   baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:10}
   trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
 
+telemap:
+  window-minutes: ${TELEMAP_WINDOW_MINUTES:10}
+  count-threshold: ${TELEMAP_COUNT_THRESHOLD:20}
+  cluster-threshold: ${TELEMAP_CLUSTER_THRESHOLD:0.7}
+  cluster-minimum-age-minutes: ${TELEMAP_CLUSTER_MINIMUM_AGE_MINUTES:1440}
+  max-questions-for-subject: ${TELEMAP_MAX_QUESTIONS_FOR_SUBJECT:20}
+
 faq-monitoring:
   ai-review:
     max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
@@ -129,35 +152,22 @@ faq-monitoring:
     max-llm-queue-wait-millis: ${FAQ_AI_REVIEW_MAX_LLM_QUEUE_WAIT_MILLIS:5000}
   improvement:
     top-k: ${CHAT_TOP_K:3}
-    low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.80}
-    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.30}
-    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.05}
-    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:10080}
-    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:20}
-    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:20}
+    low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.82}
+    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.40}
+    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.07}
+    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:1440}
+    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:10}
+    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:10}
 
 faq:
+  confidence-threshold: ${CHAT_CONFIDENCE_THRESHOLD:0.79}
   cache:
     # 공식 FAQ 답변을 그대로 반환합니다. 운영 질문셋 검증 후 켭니다.
-    enabled: ${FAQ_CACHE_ENABLED:false}
+    enabled: ${FAQ_CACHE_ENABLED:true}
     min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
     min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
-  retrieval:
-    rerank:
-      # 벡터 검색 후보를 Reranker로 다시 정렬할지 여부. 꺼 두면 Reranker 서버가 없어도 됩니다.
-      enabled: ${FAQ_RERANK_ENABLED:false}
-      candidate-k: ${FAQ_RERANK_CANDIDATE_K:10}
-      model: ${FAQ_RERANK_MODEL:ubot-reranker}
-      base-url: ${FAQ_RERANK_BASE_URL:http://localhost:8002}
-      connect-timeout: ${FAQ_RERANK_CONNECT_TIMEOUT:500ms}
-      read-timeout: ${FAQ_RERANK_READ_TIMEOUT:1500ms}
-      fallback-enabled: ${FAQ_RERANK_FALLBACK_ENABLED:true}
-      # 요청이 몰리거나 Reranker가 연속으로 실패할 때 호출을 건너뛰는 보호 장치
-      max-concurrent: ${FAQ_RERANK_MAX_CONCURRENT:32}
-      failure-threshold: ${FAQ_RERANK_FAILURE_THRESHOLD:5}
-      failure-cooldown: ${FAQ_RERANK_FAILURE_COOLDOWN:10s}
   variant:
-    sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.6}
+    sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.49}
 
 product:
   # 요금제 조회 도구가 약정 할인가를 계산하는 선택약정 할인율(%). FAQ의 선택약정 할인율 문장과 같아야 합니다(ContractDiscountConsistencyTest).

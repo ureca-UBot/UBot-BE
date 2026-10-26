@@ -635,7 +635,7 @@ SGLang
 → 대체/벤치마크용
 ```
 
-로컬 RTX 3060 + Qwen3-4B-AWQ 환경에서는 SGLang이 vLLM보다 느리게 동작하는 현상을 확인했습니다.
+2026-10-07에 로컬 RTX 3060 + `Qwen/Qwen3-4B-AWQ`로 수행한 과거 비교에서는 SGLang이 vLLM보다 느리게 동작하는 현상을 확인했습니다.
 
 다만 해당 결과는 로컬 GPU, Docker/WSL, 단일 요청 중심의 개발 환경 결과이므로 최종 성능 판단은 AWS L4에서 동일 조건으로 벤치마크한 뒤 결정합니다.
 
@@ -719,7 +719,7 @@ GPU LLM Server
 
 ```text
 Model
-→ Qwen3-4B-AWQ
+→ RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
 
 GPU
 → NVIDIA L4 1장
@@ -863,7 +863,7 @@ Backend 설정은 [LLM 모듈 안내](../../docs/how-to/llm-module.md#임베딩-
 
 # 검증 완료 항목
 
-현재 로컬에서 확인한 항목:
+현재 기본 답변 모델은 `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16`입니다. 아래는 2026-10-07에 `Qwen/Qwen3-4B-AWQ`로 수행한 로컬 검증 기록이며, 현재 모델의 검증 결과로 해석하지 않습니다.
 
 ```text
 vLLM Docker 실행              ✅
@@ -884,7 +884,7 @@ Served Model ubot-chat 통일    ✅
 Engine 전환                   ✅
 ```
 
-vLLM `v0.31.0` + Qwen3-4B-AWQ, 로컬 RTX 3060 12GB에서 확인한 항목 (2026-10-07):
+vLLM `v0.31.0` + `Qwen/Qwen3-4B-AWQ`, 로컬 RTX 3060 12GB에서 확인한 항목 (2026-10-07):
 
 ```text
 Tool Calling (hermes parser)        ✅
@@ -910,7 +910,7 @@ AWS L4 환경에서는 아직 확인하지 않았습니다.
 
 # Serving 구조
 
-Chat, Embedding, Reranker는 Port와 Served Model Name을 나눠서 운영합니다.
+Chat, Embedding은 Port와 Served Model Name을 나눠서 운영합니다.
 
 ```text
 :8000
@@ -922,8 +922,6 @@ ubot-embedding
 → Embedding (구성됨)
 
 :8002
-ubot-reranker
-→ Reranker (예정)
 ```
 
 `8002` 서비스는 아직 구성하지 않았습니다.

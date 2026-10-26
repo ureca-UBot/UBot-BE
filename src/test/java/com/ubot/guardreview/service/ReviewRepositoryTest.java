@@ -4,8 +4,8 @@ import static com.ubot.guardreview.model.ReviewModels.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-import com.ubot.guardreview.repository.ReviewRepository;
 import com.ubot.forbiddenword.service.ForbiddenWordCatalogLock;
+import com.ubot.guardreview.repository.ReviewRepository;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,7 +15,8 @@ class ReviewRepositoryTest {
 	JdbcTemplate jdbc = mock(JdbcTemplate.class);
 	ReviewRepository repository = new ReviewRepository(jdbc, mock(ForbiddenWordCatalogLock.class));
 	String sql() {
-		return mockingDetails(jdbc).getInvocations().iterator().next().getArgument(0, String.class);
+		return mockingDetails(jdbc).getInvocations().stream().map(i -> i.getArgument(0, String.class))
+				.collect(java.util.stream.Collectors.joining("\n"));
 	}
 	@Test
 	void 의미묶기는_같은위험유형_의도_모델프로필로_한정한다() {
@@ -24,6 +25,25 @@ class ReviewRepositoryTest {
 		repository.similar(new Suggestion(Kind.WARNING, "FRAUD", "위험 요구", "검토", Stage.INPUT, "HARMFUL_REQUEST"),
 				new Vector("profile-1", values), .97);
 		assertThat(sql()).contains("kind='WARNING'", "category=?", "intent=?", "embedding_profile=?");
+	}
+	@Test
+	void 보류선택_스냅샷은_출처_판정_ID_기간을_AND로_고정하고_정리와_경합하지않는다() {
+		repository.snapshotReviewSources(7, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				java.util.List.of(1L, 2L));
+		assertThat(sql()).contains("g.origin=? AND g.outcome='REVIEW'", "g.id IN (SELECT value::bigint FROM jsonb_array_elements_text(?::jsonb))", "g.details_retained",
+				"g.created_at<=", "g.created_at>=LOCALTIMESTAMP", "days => 30", "FOR SHARE OF g",
+				"original_guard_reasons", "original_guard_explanation");
+		verify(jdbc).update(contains("g.id IN"), eq(7L), eq("INPUT_LLM"), eq("[1,2]"), eq(7L));
+		assertThat(sql()).doesNotContain("UPDATE guard_review_checks", "FROM answer_attempts_history");
+	}
+	@Test
+	void 보류재검토_의견은_원래판정과_별도로_저장하고_상세만료시_지운다() {
+		repository.saveReassessment(1, new com.ubot.guardreview.model.ReviewReassessment(
+				com.ubot.guardreview.model.ReviewReassessment.Verdict.NORMAL_POSSIBLE, "검토 의견", java.util.List.of()));
+		assertThat(sql()).contains("reassessment=?::jsonb", "status='COMPLETED'").doesNotContain("guard_review_checks");
+		clearInvocations(jdbc);
+		repository.clearSourceSnapshots(100);
+		assertThat(sql()).contains("reassessment=NULL", "i.reassessment IS NOT NULL", "NOT r.details_retained");
 	}
 	@Test
 	void 재분석_경고_중복은_벡터가_아닌_원본과_유형으로_확인한다() {
@@ -35,22 +55,31 @@ class ReviewRepositoryTest {
 	@Test
 	void 동시_작업은_건너뛰고_만료된_lease만_재접수한다() {
 		repository.claim(UUID.randomUUID());
-		assertThat(sql()).contains("FOR UPDATE SKIP LOCKED", "lease_until < LOCALTIMESTAMP", "lease_token=?",
-				"CASE WHEN kind='VALIDATION' THEN 0 ELSE 1 END,id");
+		assertThat(sql()).contains("FOR UPDATE SKIP LOCKED", "lease_until < LOCALTIMESTAMP", "lease_token=?");
 	}
 	@Test
-	void 스냅샷은_재시도와_하위질문을_증식시키지않는다() {
+	void 스냅샷은_가드전_수집응답만_읽고_최종답변이나_질문전용기록은_읽지않는다() {
 		repository.snapshotSources(7, AnalysisMode.FULL);
 		assertThat(sql())
-				.contains("PARTITION BY a.conversation_id,a.user_id,a.idempotency_key", "source_rank=1",
-						"a.created_at <=", "a.attempt_count DESC", "ON CONFLICT(run_id,source_key) DO NOTHING")
-				.doesNotContain("source_attempt_id IS NULL");
+				.contains("s.run_id IS NULL", "s.capture_id IS NOT NULL", "s.guard_outcome<>'PENDING'",
+						"ON CONFLICT(run_id,source_key) DO NOTHING", "s.updated_at <=", "s.final_answer_snapshot", "s.guard_stage")
+				.doesNotContain("question_log", "FROM answer_attempts_history");
 	}
 	@Test
-	void 의도_재검색도_포함하고_하위질문_중복답변은_한번만_읽는다() {
-		repository.snapshotSources(7, AnalysisMode.INCREMENTAL);
-		assertThat(sql()).contains("attempt_id=a.attempt_id", "ORDER BY sub_question_index,id LIMIT 1", "created_at <=")
-				.doesNotContain("source_attempt_id IS NULL");
+	void 검사_분석과_보류_재검토는_기존_해시_제약에_맞는_같은_중복키를_사용한다() {
+		String hashedKey = "'sha256:'||encode(sha256(convert_to('guard-check:'||g.id,'UTF8')),'hex')";
+		repository.snapshotSources(7, AnalysisMode.INCREMENTAL, AnalysisSource.INPUT_LLM);
+		assertThat(sql()).contains(hashedKey, "previous.source_key=g.source_key", "g.origin=?", "g.outcome IN ('PASS','FILTERED','REJECTED')");
+		clearInvocations(jdbc);
+		repository.snapshotReviewSources(8, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				java.util.List.of(1L));
+		assertThat(sql()).contains("g.attempt_id," + hashedKey);
+	}
+	@Test
+	void 원본질문은_시도이력에서_읽고_같은수집키의_재저장은_중복생성하지않는다() {
+		assertThatThrownBy(() -> repository.captureResponse(UUID.randomUUID(), 3, "답변"))
+				.isInstanceOf(com.ubot.guardreview.exception.ReviewException.class);
+		assertThat(sql()).contains("a.question", "a.attempt_id=?", "ON CONFLICT(capture_id)");
 	}
 	@Test
 	void 후보목록은_고정200건_대신_요청페이지로_조회한다() {
@@ -62,7 +91,7 @@ class ReviewRepositoryTest {
 	@Test
 	void 증분기준은_최신_성공_내용이며_실패와_단순시각은_아니다() {
 		repository.snapshotSources(7, AnalysisMode.INCREMENTAL);
-		assertThat(sql()).contains("jsonb_build_array(s.question,s.answer)", "sha256", "previous.status='COMPLETED'",
+		assertThat(sql()).contains("s.source_fingerprint", "previous.run_id IS NOT NULL", "previous.status='COMPLETED'",
 				"ORDER BY previous.finished_at DESC,previous.id DESC LIMIT 1", "IS DISTINCT FROM", "?='FULL'");
 	}
 	@Test
@@ -104,8 +133,16 @@ class ReviewRepositoryTest {
 		repository.findings(2);
 		assertThat(sql())
 				.contains("i.question_snapshot", "i.answer_snapshot", "detailsRetained",
-						"i.source_fingerprint=f.source_fingerprint")
+						"i.source_fingerprint=f.source_fingerprint", "i.guard_stage AS \"guardStage\"")
 				.doesNotContain("question_log", "answer_attempts_history");
+	}
+
+	@Test
+	void 검사생략의_검사시각은_비우고_이미_기록한_거절은_덮어쓰지않는다() {
+		repository.recordCaptureResult(3, "원문", "답변", "SKIPPED", "[]", "DISABLED");
+		assertThat(sql()).contains("guard_stage=?", "CASE WHEN ?='SKIPPED' THEN NULL", "guard_outcome='PENDING'");
+		verify(jdbc).update(anyString(), eq("원문"), eq("답변"), eq("SKIPPED"), eq("[]"),
+				eq("DISABLED"), eq("SKIPPED"), eq("원문"), eq(3L));
 	}
 	@Test
 	void 진행중_분석은_소유권이_없는_재검사에만_양보한다() {

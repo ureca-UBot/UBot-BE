@@ -23,7 +23,6 @@ import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.service.UnansweredQuestionService;
 
 @SpringBootTest(properties = "OUTBOX_POLL_DELAY_MS=3600000")
@@ -152,22 +151,6 @@ class OutboxWorkerTest {
     }
 
     @Test
-    @DisplayName("대기열에 넣은 발생 경로를 그대로 저장한다")
-    void keepsSource() {
-        given(embeddingService.embedText(anyString())).willReturn(vector());
-        Long attemptId = attempt("요금제 해지 위약금");
-
-        service.enqueueUnansweredQuestion(attemptId, new UnansweredCandidate(
-                1, "요금제 해지 위약금", "요금제 해지 위약금", UnansweredReason.INSUFFICIENT_FAQ, null, 0.8,
-                UnansweredSource.OUTPUT_GUARD));
-        worker.processPending();
-
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT source FROM unanswered_questions WHERE attempt_id = ?", String.class, attemptId))
-                .isEqualTo("OUTPUT_GUARD");
-    }
-
-    @Test
     @DisplayName("재시도 횟수를 다 쓴 질문은 더 처리하지 않는다")
     void skipsExhaustedQuestion() {
         Long attemptId = attempt("해지 위약금");
@@ -198,7 +181,6 @@ class OutboxWorkerTest {
 
     private static UnansweredCandidate candidate(
             int index, String question, UnansweredReason reason, Long bestFaqId, Double bestSimilarity) {
-        return new UnansweredCandidate(index, question, question, reason, bestFaqId, bestSimilarity,
-                UnansweredSource.RETRIEVAL);
+        return new UnansweredCandidate(index, question, question, reason, bestFaqId, bestSimilarity);
     }
 }

@@ -36,8 +36,13 @@ public final class UserRecordClaims {
     // 원 단위 금액: "78,000원", "7만 8,000원", "7만원"
     private static final Pattern MONEY = Pattern.compile(
             "(?<![\\d.,])(?:(\\d{1,4})\\s*만\\s*)?(\\d{1,3}(?:,\\d{3})+|\\d+)?\\s*원");
+    // Mbps의 MB 접두어를 용량으로 읽지 않으며, GB입니다 같은 한국어 접미사는 허용합니다.
     private static final Pattern DATA = Pattern.compile(
-            "(?<![\\d.,])(\\d+(?:\\.\\d+)?)\\s*(GB|MB|기가바이트|메가바이트|기가)", Pattern.CASE_INSENSITIVE);
+            "(?<![\\d.,])(\\d+(?:\\.\\d+)?)\\s*(GB|MB|기가바이트|메가바이트|기가)(?![a-zA-Z0-9])",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern EXHAUSTED_SPEED = Pattern.compile(
+            "(?:소진\\s*후|소진한\\s*뒤|소진\\s*시)[^,;.!?。！？\\n]{0,24}?"
+                    + "(\\d+(?:\\.\\d+)?)\\s*(Gbps|Mbps|Kbps)(?![a-zA-Z0-9])", Pattern.CASE_INSENSITIVE);
 
     // 청구서 금액을 말하는 문장의 표지입니다. "요금"·"금액"은 월과 함께 나올 때만 청구 금액으로 봅니다.
     private static final Pattern BILL_MARKER = Pattern.compile("청구|미납|납부");
@@ -148,6 +153,23 @@ public final class UserRecordClaims {
                     handled.add(new int[] {data.start(), data.end()});
                     conflict = true;
                 }
+            }
+            // 속도는 용량과 분리하고 조회된 요금제의 소진 후 속도와 비교합니다.
+            Matcher speed = EXHAUSTED_SPEED.matcher(sentence);
+            while (speed.find()) {
+                double claimedKbps = Double.parseDouble(speed.group(1)) * switch (Character.toLowerCase(speed.group(2).charAt(0))) {
+                    case 'g' -> 1_000_000;
+                    case 'm' -> 1_000;
+                    default -> 1;
+                };
+                boolean matched = byPhone(sentence, subscriptions,
+                        subscription -> digits(subscription.subscription().phoneNumber())).stream()
+                        .filter(subscription -> subscription.plan() != null)
+                        .map(subscription -> subscription.plan().summary().exhaustedSpeedKbps())
+                        .filter(Objects::nonNull)
+                        .anyMatch(kbps -> Math.abs(kbps - claimedKbps) < 0.000001);
+                handled.add(new int[] {speed.start(1), speed.end(2)});
+                if (!matched) conflict = true;
             }
         }
         return new Verdict(mask(sentence, handled), conflict);

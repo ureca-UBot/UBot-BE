@@ -38,7 +38,6 @@ import com.ubot.faq.retrieval.FaqSentenceFilterService.MatchedFaq;
 import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.user.dto.response.UserResponseDto;
 import com.ubot.user.enums.UserRole;
 import com.ubot.user.service.UserService;
@@ -138,7 +137,7 @@ class ChatAnswerProcessorUserDataTest {
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(users, stores, sentenceFilter, ai);
         assertThat(unanswered).contains(new UnansweredCandidate(
-				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 1001L, 0.74, UnansweredSource.RETRIEVAL));
+				1, question, question, UnansweredReason.INSUFFICIENT_FAQ, 1001L, 0.74));
     }
 
     @Test
@@ -160,10 +159,10 @@ class ChatAnswerProcessorUserDataTest {
     }
 
     private void search(String question, List<FaqSearchResponseDto> candidates) {
-        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, 5, QUERY_VECTOR);
+        DenseFaqCandidates dense = new DenseFaqCandidates(candidates, QUERY_VECTOR);
         when(retrieval.searchCandidates(question, null, 3, 0)).thenReturn(dense);
-        when(retrieval.rankCandidates(question, dense, 3))
-                .thenReturn(new RetrievalOutcome(candidates, candidates.getFirst(), false, null));
+        when(retrieval.selectCandidates(dense, 3))
+                .thenReturn(new RetrievalOutcome(candidates, candidates.getFirst()));
     }
 
     private void existingUser() {

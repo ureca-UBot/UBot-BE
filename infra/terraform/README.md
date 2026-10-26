@@ -2,7 +2,7 @@
 
 UBot 테스트 인프라를 Terraform으로 생성·관리하기 위한 구성입니다.
 
-현재 범위는 AWS 네트워크와 GPU 테스트 서버까지이며, GPU 서버에서는 vLLM/SGLang 등의 LLM Serving Runtime을 별도로 실행합니다.
+현재 범위는 AWS 네트워크·GPU 테스트 서버와 실제 AWS PoC 자원입니다. GPU 서버에서는 vLLM/SGLang 등의 LLM Serving Runtime을 실행합니다.
 
 Terraform CLI와 AWS CLI는 로컬에 직접 설치하지 않고 Docker를 통해 실행합니다.
 
@@ -31,16 +31,18 @@ infra/terraform/
 │  ├─ variables.tf
 │  └─ versions.tf
 │
-└─ gpu-test/
-   ├─ .terraform.lock.hcl
-   ├─ backend.hcl.example
-   ├─ main.tf
-   ├─ outputs.tf
-   ├─ terraform.tfvars.example
-   ├─ variables.tf
-   ├─ versions.tf
-   └─ scripts/
-      └─ bootstrap.sh.tftpl
+├─ gpu-test/
+│  ├─ .terraform.lock.hcl
+│  ├─ backend.hcl.example
+│  ├─ main.tf
+│  ├─ outputs.tf
+│  ├─ terraform.tfvars.example
+│  ├─ variables.tf
+│  ├─ versions.tf
+│  └─ scripts/
+│     └─ bootstrap.sh.tftpl
+│
+└─ aws-poc/        → 실제 AWS PoC 자원과 GPU 확장 구성
 ```
 
 Terraform 실행 도구는 인프라 코드와 분리되어 있습니다.
@@ -57,9 +59,12 @@ tools/terraform/
 bootstrap  → Terraform remote state용 S3 생성 (거의 1회만 실행)
 network    → VPC / Public Subnet / IGW / Route Table 생성 (유지)
 gpu-test   → Security Group / IAM+SSM / g6.xlarge GPU EC2 / optional EIP (수시 생성·삭제)
+aws-poc    → VPC / FE·BE·State / ECR·OIDC / NLB / GPU AMI·ASG (기존 state 기준 관리)
 ```
 
 `gpu-test`는 `network`의 VPC/Subnet을 remote state가 아니라 Name 태그(`ubot-vpc`, `ubot-public-subnet`)로 조회합니다. `network`의 `project_name`을 바꾸면 `gpu-test`의 `network_vpc_name`, `network_public_subnet_name`도 함께 바꿔야 합니다.
+
+스택별 구성은 [Terraform 스택](stacks.md)에, `aws-poc`의 실행 방법과 검증 결과는 [AWS CD와 GPU 자원 구성](aws-poc.md)에 있습니다.
 
 ---
 

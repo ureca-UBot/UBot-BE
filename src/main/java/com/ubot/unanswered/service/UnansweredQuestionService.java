@@ -10,7 +10,6 @@ import com.ubot.chat.repository.AnswerAttemptsHistoryRepository;
 import com.ubot.embedding.service.EmbeddingProfileService;
 import com.ubot.embedding.service.EmbeddingService;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.repository.UnansweredQuestionRepository;
 import com.ubot.unanswered.repository.UnansweredQuestionVectorRepository;
 import com.ubot.unanswered.repository.UnansweredReverifyRepository;
@@ -22,7 +21,6 @@ import com.ubot.outbox.OutboxEventRepository;
 import com.ubot.outbox.OutboxEventType;
 import com.ubot.unanswered.dto.UnansweredCandidate;
 import java.util.Optional;
-import java.util.OptionalDouble;
 
 @Service
 public class UnansweredQuestionService {
@@ -31,7 +29,6 @@ public class UnansweredQuestionService {
     private final EmbeddingProfileService embeddingProfileService;
     private final UnansweredQuestionRepository unansweredQuestionRepository;
     private final UnansweredQuestionVectorRepository unansweredQuestionVectorRepository;
-    private final RejectedQuestionDuplicateChecker rejectedQuestionDuplicateChecker;
     private final AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final UnansweredReverifyRepository reverifyRepository;
@@ -43,18 +40,16 @@ public class UnansweredQuestionService {
             EmbeddingProfileService embeddingProfileService,
             UnansweredQuestionRepository unansweredQuestionRepository,
             UnansweredQuestionVectorRepository unansweredQuestionVectorRepository,
-            RejectedQuestionDuplicateChecker rejectedQuestionDuplicateChecker,
             AnswerAttemptsHistoryRepository answerAttemptsHistoryRepository,
             OutboxEventRepository outboxEventRepository,
             UnansweredReverifyRepository reverifyRepository,
             @Value("${UNANSWERED_GROUP_THRESHOLD:0.6}") double groupThreshold,
-            @Value("${CHAT_CONFIDENCE_THRESHOLD:0.75}") double confidenceThreshold
+            @Value("${faq.confidence-threshold}") double confidenceThreshold
     ) {
         this.embeddingService = embeddingService;
         this.embeddingProfileService = embeddingProfileService;
         this.unansweredQuestionRepository = unansweredQuestionRepository;
         this.unansweredQuestionVectorRepository = unansweredQuestionVectorRepository;
-        this.rejectedQuestionDuplicateChecker = rejectedQuestionDuplicateChecker;
         this.answerAttemptsHistoryRepository = answerAttemptsHistoryRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.reverifyRepository = reverifyRepository;
@@ -71,12 +66,10 @@ public class UnansweredQuestionService {
         payload.put("reason", candidate.reason().name());
         payload.put("bestFaqId", candidate.bestFaqId());
         payload.put("bestSimilarity", candidate.bestSimilarity());
-        payload.put("source", candidate.source().name());
         if (candidate.queryEmbedding() != null && candidate.embeddingProfileId() != null) {
             payload.put("embeddingProfileId", candidate.embeddingProfileId());
             payload.put("queryEmbedding", candidate.queryEmbedding());
         }
-        if (candidate.rejectedThreshold() != null) payload.put("rejectedThreshold", candidate.rejectedThreshold());
         outboxEventRepository.enqueue(OutboxEventType.UNANSWERED_QUESTION,
                 attemptId + ":" + candidate.subQuestionIndex(), payload);
     }
@@ -97,7 +90,7 @@ public class UnansweredQuestionService {
             Double bestSimilarity
     ) {
         createUnansweredQuestion(attemptId, subQuestionIndex, subQuestion, userText, reason, bestFaqId, bestSimilarity,
-                UnansweredSource.RETRIEVAL);
+                null);
     }
 
     @Transactional
@@ -109,28 +102,7 @@ public class UnansweredQuestionService {
             UnansweredReason reason,
             Long bestFaqId,
             Double bestSimilarity,
-            UnansweredSource source
-    ) {
-        createUnansweredQuestion(attemptId, subQuestionIndex, subQuestion, userText, reason, bestFaqId, bestSimilarity,
-                source, null, OptionalDouble.empty());
-    }
-
-    /**
-     * 기존 저장·대기 묶기를 공유합니다. 출력 가드는 이미 선별한 정상 FAQ 부족 후보만 이 경로로 넘깁니다.
-     * 반려 기준이 없으면 자동 생략하지 않으며, 확정된 반려 중복이어도 사용자 답변 흐름은 바꾸지 않습니다.
-     */
-    @Transactional
-    public void createUnansweredQuestion(
-            Long attemptId,
-            int subQuestionIndex,
-            String subQuestion,
-            String userText,
-            UnansweredReason reason,
-            Long bestFaqId,
-            Double bestSimilarity,
-            UnansweredSource source,
-            QuestionEmbedding reusableEmbedding,
-            OptionalDouble rejectedThreshold
+            QuestionEmbedding reusableEmbedding
     ) {
         // 같은 멱등키의 저장도 기존 재시도 생성과 같은 최초 행 잠금을 사용합니다.
         // 동시 재시도가 중복 확인을 함께 통과해서 묶음 건수를 늘리지 않게 합니다.
@@ -151,13 +123,6 @@ public class UnansweredQuestionService {
                 ? reusableEmbedding.vector()
                 : unansweredQuestionVectorRepository.findQuestionEmbedding(subQuestion, profileId)
                         .orElseGet(() -> embeddingService.embedText(subQuestion));
-
-        if (source == UnansweredSource.OUTPUT_GUARD && rejectedThreshold.isPresent()
-                && rejectedQuestionDuplicateChecker.check(subQuestion, profileId,
-                        new QuestionEmbedding(subQuestion, profileId, vector), rejectedThreshold.getAsDouble())
-                        .skipRegistration()) {
-            return;
-        }
 
         Long groupId = unansweredQuestionVectorRepository
                 .findNearestGroupId(
@@ -185,8 +150,7 @@ public class UnansweredQuestionService {
                 profileId,
                 reason,
                 bestFaqId,
-                bestSimilarity,
-                source
+                bestSimilarity
         );
         reverifyRepository.reverifyQuestion(questionId, confidenceThreshold);
 
