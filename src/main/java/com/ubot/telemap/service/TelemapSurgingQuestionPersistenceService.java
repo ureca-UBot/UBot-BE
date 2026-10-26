@@ -97,7 +97,7 @@ public class TelemapSurgingQuestionPersistenceService {
         Collections.reverse(snapshots);
 
         SurgingAlert alert = surgingAlertRepository.save(SurgingAlert.create(
-                region, snapshots, Math.toIntExact(questionCount), telemapProperties.getWindowMinutes()));
+                region, clusterId, snapshots, Math.toIntExact(questionCount), telemapProperties.getWindowMinutes()));
         outboxEventRepository.enqueue(
                 OutboxEventType.SURGING_ALERT_LABEL,
                 String.valueOf(alert.getId()),

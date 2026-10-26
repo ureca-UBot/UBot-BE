@@ -78,6 +78,16 @@ class TelemapAlertServiceTest {
     }
 
     @Test
+    @DisplayName("대기 중 알림의 질문 수를 일괄 갱신하고 바뀐 알림 수를 반환한다")
+    void refreshesPendingQuestionCounts() {
+        when(alerts.refreshPendingQuestionCounts()).thenReturn(3);
+
+        assertThat(service.refreshPendingQuestionCounts()).isEqualTo(3);
+
+        verify(alerts).refreshPendingQuestionCounts();
+    }
+
+    @Test
     @DisplayName("존재하지 않는 알림 조회를 거부한다")
     void rejectsMissingAlert() {
         when(alerts.findById(99L)).thenReturn(Optional.empty());

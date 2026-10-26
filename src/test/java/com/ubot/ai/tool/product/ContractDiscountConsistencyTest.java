@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
  */
 class ContractDiscountConsistencyTest {
 
-    private static final Path SEED = Path.of("tools/faq-db/seed/baseline-faqs.csv");
+    private static final Path SEED = Path.of("tools/faq-db/seed/baseline/baseline-faqs.csv");
     private static final Path APPLICATION = Path.of("src/main/resources/application.yml");
     private static final Pattern DEFAULT_PERCENT = Pattern.compile("PRODUCT_CONTRACT_DISCOUNT_PERCENT:(\\d+)");
     private static final Pattern PERCENT = Pattern.compile("(\\d+)\\s*%");

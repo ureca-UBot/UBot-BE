@@ -2,12 +2,13 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
-$migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\src\main\resources\db\migration')).Path
-$sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
-$demoUsersSqlPath = Join-Path $PSScriptRoot 'seed-demo-users.sql'
-$usersSqlPath = Join-Path $PSScriptRoot 'seed-users.sql'
-. (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
+$toolsPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$seedPath = (Resolve-Path (Join-Path $toolsPath 'seed\baseline')).Path
+$migrationPath = (Resolve-Path (Join-Path $toolsPath '..\..\src\main\resources\db\migration')).Path
+$sqlPath = Join-Path $seedPath 'seed-baseline.sql'
+$demoUsersSqlPath = Join-Path $toolsPath 'seed\users\seed-demo-users.sql'
+$usersSqlPath = Join-Path $toolsPath 'seed\users\seed-users.sql'
+. (Join-Path $toolsPath 'lib\faq-seed-common.ps1')
 
 function Invoke-Checked {
     param([scriptblock] $Command, [string] $Message)
@@ -16,7 +17,7 @@ function Invoke-Checked {
 }
 
 # Validate both CSV files before removing the PostgreSQL volume.
-$seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
+$seedSummary = Get-FaqSeedSummary -ToolsPath $toolsPath
 $renderedSql = New-FaqSeedSql -TemplatePath $sqlPath -DeletedFaqIds @(Get-FaqDeletedIds -SeedPath $seedPath)
 
 $containerId = (& docker compose ps --all --quiet postgres).Trim()
@@ -85,13 +86,15 @@ SELECT
   (SELECT count(*) FROM faq WHERE deleted_at IS NOT NULL),
   (SELECT count(*) FROM faq_question_variants),
   (SELECT count(*) FROM faq_embeddings),
+  (SELECT count(*) FROM question_log),
+  (SELECT count(*) FROM faq_log),
   (SELECT count(*) FROM plans),
   (SELECT count(*) FROM subscriptions),
   (SELECT count(*) FROM subscription_bundles),
   (SELECT count(*) FROM bundle_groups);
 '@).Trim()
-$expected = "311|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.deletedCount)|$($seedSummary.variantCount)|0|107|382|137|61"
+$expected = "311|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.deletedCount)|$($seedSummary.variantCount)|0|0|0|107|382|137|61"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "Baseline seed verification failed: $verification"
 }
-Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs ($($seedSummary.deletedCount) soft-deleted) and $($seedSummary.variantCount) variants, 310 users with subscriptions. No vectors were inserted."
+Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs ($($seedSummary.deletedCount) soft-deleted) and $($seedSummary.variantCount) variants. No demo activity or vectors were inserted."

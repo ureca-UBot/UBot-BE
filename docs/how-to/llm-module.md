@@ -284,7 +284,7 @@ WHERE f.deleted_at IS NULL;
 
 배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
 
-현재 시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)는 FAQ와 질문 표현만 적재합니다. 시드 적재 뒤에는 백필로 검색에 필요한 `QUESTION` 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
+현재 시드 스크립트(`tools/faq-db/scripts/reset-local-db.ps1`, `tools/faq-db/scripts/reset-faq-data.ps1`)는 FAQ와 질문 표현만 적재합니다. 시드 적재 뒤에는 백필로 검색에 필요한 `QUESTION` 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|

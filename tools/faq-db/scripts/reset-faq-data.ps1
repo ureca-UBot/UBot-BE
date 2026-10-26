@@ -2,8 +2,9 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$seedPath = (Resolve-Path (Join-Path $PSScriptRoot 'seed')).Path
-. (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
+$toolsPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$seedPath = (Resolve-Path (Join-Path $toolsPath 'seed\baseline')).Path
+. (Join-Path $toolsPath 'lib\faq-seed-common.ps1')
 
 function Invoke-Checked {
     param([scriptblock] $Command, [string] $Message)
@@ -11,8 +12,8 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) { throw $Message }
 }
 
-$seedSummary = Get-FaqSeedSummary -ToolsPath $PSScriptRoot
-$renderedSql = New-FaqSeedSql -TemplatePath (Join-Path $PSScriptRoot 'seed-baseline.sql') `
+$seedSummary = Get-FaqSeedSummary -ToolsPath $toolsPath
+$renderedSql = New-FaqSeedSql -TemplatePath (Join-Path $seedPath 'seed-baseline.sql') `
     -DeletedFaqIds @(Get-FaqDeletedIds -SeedPath $seedPath)
 Invoke-Checked { docker compose up -d postgres } 'Could not start PostgreSQL.'
 $containerId = (& docker compose ps --quiet postgres).Trim()

@@ -58,6 +58,7 @@ class TelemapAlertLabelServiceTest {
     @DisplayName("LLM이 만든 유효한 제목을 저장하고 활성 관리자 모두에게 알림을 보낸다")
     void labelsAndNotifiesAdministrators() {
         SurgingAlert alert = alert(10L, null, 3);
+        mockSubjectUpdate(alert);
         when(alerts.findById(10L)).thenReturn(Optional.of(alert));
         when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto("{\"subject\":\"서울 5G 장애 문의 급증\"}"));
         when(users.findAllByRoleAndDeletedAtIsNull(UserRole.ADMIN)).thenReturn(List.of(
@@ -96,6 +97,7 @@ class TelemapAlertLabelServiceTest {
     @DisplayName("유효하지 않은 LLM 응답이면 지역 기반 기본 제목을 사용한다")
     void fallsBackForInvalidLlmOutput(String output) {
         SurgingAlert alert = alert(12L, null, 1);
+        mockSubjectUpdate(alert);
         when(alerts.findById(12L)).thenReturn(Optional.of(alert));
         when(llm.generateAnswer(any())).thenReturn(new LlmResponseDto(output));
         when(users.findAllByRoleAndDeletedAtIsNull(UserRole.ADMIN)).thenReturn(List.of());
@@ -109,6 +111,7 @@ class TelemapAlertLabelServiceTest {
     @DisplayName("LLM 호출 실패 시에도 기본 제목으로 관리자 알림을 만든다")
     void fallsBackWhenLlmFails() {
         SurgingAlert alert = alert(13L, null, 1);
+        mockSubjectUpdate(alert);
         when(alerts.findById(13L)).thenReturn(Optional.of(alert));
         when(llm.generateAnswer(any())).thenThrow(new IllegalStateException("LLM unavailable"));
         when(users.findAllByRoleAndDeletedAtIsNull(UserRole.ADMIN)).thenReturn(List.of());
@@ -143,5 +146,12 @@ class TelemapAlertLabelServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(alert, "id", id);
         if (subject != null) alert.updateSubject(subject);
         return alert;
+    }
+
+    private void mockSubjectUpdate(SurgingAlert alert) {
+        when(alerts.updateSubjectIfBlank(any(), any(), any())).thenAnswer(invocation -> {
+            alert.updateSubject(invocation.getArgument(1));
+            return 1;
+        });
     }
 }
