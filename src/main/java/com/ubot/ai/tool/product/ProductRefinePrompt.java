@@ -12,10 +12,14 @@ public record ProductRefinePrompt(String answer) implements ProductListAnswer {
 
     static final String GUIDE = "원하시는 조건을 선택해 주세요.";
 
+    /** subject는 목록 답변의 주어입니다. 예: "무제한 요금제" → "무제한 요금제는 15가지가 있습니다." */
+    static ProductRefinePrompt of(String subject, long total) {
+        return new ProductRefinePrompt(subject + ProductListing.topicParticle(subject) + " " + total + "가지가 있습니다.\n" + GUIDE);
+    }
+
     static ProductRefinePrompt of(ProductListAnswer base, long total) {
         return switch (base) {
-            case ProductListing listing -> new ProductRefinePrompt(listing.subject()
-                    + ProductListing.topicParticle(listing.subject()) + " " + total + "가지가 있습니다.\n" + GUIDE);
+            case ProductListing listing -> of(listing.subject(), total);
             case PlanSeriesOverview overview -> new ProductRefinePrompt(overview.summary() + "\n\n" + GUIDE);
             case ProductRefinePrompt prompt -> prompt;
         };

@@ -58,8 +58,8 @@ public class RoamingTools {
                     ProductDescriptions::of, this::card, recorder,
                     ProductSearch.withCountries(ProductType.ROAMING, name, sold, ProductRefine.COUNTRY,
                             countries.isEmpty() ? null : String.join(", ", countries)),
-                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false, String.join(", ", countries),
-                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)));
+                    ProductToolResults.listSubject(true, PRODUCT_LABEL, false, String.join(", ", countries),
+                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)), listRequested);
             return result + "\n" + countriesLine;
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.

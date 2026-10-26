@@ -62,9 +62,9 @@ public class AddonTools {
             return ProductToolResults.format(PRODUCT_LABEL, "월 요금 낮은 순", found, AddonTools::line,
                     ProductDescriptions::of, this::card, recorder,
                     ProductSearch.of(ProductType.ADDON, name, ProductRefine.CATEGORY, addonCategory),
-                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false,
+                    ProductToolResults.listSubject(true, PRODUCT_LABEL, false,
                             displayName == null && addonCategory != null ? categoryLabel(addonCategory) : null,
-                            displayName));
+                            displayName), listRequested);
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("부가서비스 조회 도구 실패: name={}, category={}", name, category, exception);

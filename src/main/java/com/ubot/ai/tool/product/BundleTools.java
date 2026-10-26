@@ -74,8 +74,8 @@ public class BundleTools {
             return ProductToolResults.format(PRODUCT_LABEL, "할인액 큰 순", found, BundleTools::line,
                     ProductDescriptions::of, this::card, recorder,
                     ProductSearch.of(ProductType.BUNDLE, name, ProductRefine.BUNDLE_TYPE, type, ProductRefine.LINE_COUNT, lines),
-                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, lines != null,
-                            displayName == null && type != null ? typeLabel(type) : null, displayName));
+                    ProductToolResults.listSubject(true, PRODUCT_LABEL, lines != null,
+                            displayName == null && type != null ? typeLabel(type) : null, displayName), listRequested);
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("결합 상품 조회 도구 실패: name={}, bundleType={}, lineCount={}", name, bundleType, lineCount, exception);

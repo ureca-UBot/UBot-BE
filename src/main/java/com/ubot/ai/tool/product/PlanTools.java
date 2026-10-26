@@ -135,14 +135,16 @@ public class PlanTools {
                             name);
                     return ProductToolResults.format(PRODUCT_LABEL, order, named, this::line, ProductDescriptions::of,
                             this::card, recorder, ProductSearch.of(ProductType.PLAN, name, ProductRefine.SORT, sort),
-                            (String) null);
+                            null, false);
                 }
             }
             boolean unfiltered = !StringUtils.hasText(name) && network == null && target == null
                     && feeLimit == null && dataFloor == null && unlimitedOnly == null;
             // 조건 없이 요금제 종류를 물었는데 결과가 다 들어가지 않으면, 월정액 낮은 순 5개는 종류에 대한 답이 아니므로
             // 시리즈별 개요로 답합니다. 질문에 시리즈 이름이 둘 이상 있어 하나로 정하지 못한 경우도 개요에 그 시리즈들이 보입니다.
-            if (Boolean.TRUE.equals(listRequested) && unfiltered && found.total() > recorder.limit()) {
+            // 모델이 목록 요청 표시를 빠뜨려도, 하나를 고르는 질문이 아니면 목록을 묻는 것으로 봅니다(ProductToolResults.promptsRefine).
+            if ((Boolean.TRUE.equals(listRequested) || ProductToolResults.promptsRefine(recorder, found.total()))
+                    && unfiltered && found.total() > recorder.limit()) {
                 Optional<PlanSeriesOverview> overview = productNameIndex.planOverview();
                 if (overview.isPresent()) {
                     log.info("요금제 조회 도구: 조건 없는 목록 요청이라 시리즈 개요로 답합니다: 시리즈수={}", overview.get().groups().size());
@@ -158,13 +160,13 @@ public class PlanTools {
             if (Boolean.TRUE.equals(listRequested) && unfilteredSeriesQuestion) {
                 log.info("요금제 조회 도구: 질문에 시리즈 이름이 있는데 조건 없이 조회해 목록 답변을 만들지 않습니다");
             }
-            String listSubject = unfilteredSeriesQuestion ? null : ProductToolResults.listSubject(listRequested, PRODUCT_LABEL,
+            String listSubject = unfilteredSeriesQuestion ? null : ProductToolResults.listSubject(true, PRODUCT_LABEL,
                     feeLimit != null || dataFloor != null,
                     network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
                     unlimitedOnly != null ? "데이터 무제한" : null,
                     ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
             return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
-                    this::card, recorder, search, listSubject);
+                    this::card, recorder, search, listSubject, listRequested);
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("요금제 조회 도구 실패: name={}, networkType={}, targetGroup={}", name, networkType, targetGroup, exception);

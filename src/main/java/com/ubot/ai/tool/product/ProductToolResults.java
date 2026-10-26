@@ -34,6 +34,8 @@ final class ProductToolResults {
             + "특정 상품 하나의 정보를 물으면 비운다.";
     // 1: "하나·둘·셋·넷" 단독 표현. 뒤에 조사·다른 글자가 붙은 "하나로", "넷플릭스"는 제외합니다.
     // 2: "한·두·세·네" 또는 숫자 1~4 뒤에 "개·가지". "1개월"은 제외합니다.
+    // 상품 하나를 고르는 질문의 말입니다. "제일 싼 거", "데이터 가장 많은 요금제", "추천해 줘"는 위 행만으로 답할 수 있어 목록으로 바꾸지 않습니다.
+    private static final Pattern PICK = Pattern.compile("제일|가장|젤|최저|최고|최대|최소|추천");
     private static final Pattern REQUESTED_COUNT = Pattern.compile(
             "(?<![가-힣A-Za-z0-9])(?:(하나|둘|셋|넷)(?=만|\\s|$|[.?!,]|알려|추천|골라|보여)"
                     + "|(한|두|세|네|[1-4])\\s*(?:개|가지)(?!월))");
@@ -52,14 +54,15 @@ final class ProductToolResults {
      * 행 끝에는 다듬은 설명 문장(description, ProductDescriptions.of)을 붙입니다. 상품 설명에는 "표시 월정액은 부가세 포함"처럼
      * 같은 종류 상품에 똑같이 들어간 문장이 많아, 돌려준 상품 모두에 있는 문장은 행마다 쓰지 않고 "공통" 줄에 한 번만 씁니다.
      * 조건에 맞는 상품이 LLM에 돌려준 행보다 많으면 조건을 좁혀 달라고 안내하게 합니다.
-     * listSubject는 LLM이 목록 요청이라고 표시했을 때의 답변 주어이고(listSubject 참고), 아니면 null입니다.
-     * 목록 요청이고 상품이 2개 이상이면 AiService가 목록 답변을 만들 수 있게 기록합니다.
+     * subject는 목록 답변·조건 선택 안내의 주어이고(listSubject 참고), 목록 답변을 만들면 안 되는 조회면 null입니다.
+     * LLM이 목록 요청이라고 표시했고(listRequested) 상품이 2개 이상이면 AiService가 목록 답변을 만들 수 있게 기록합니다.
+     * 결과가 상한을 넘으면 표시와 상관없이 조건 선택 안내를 기록합니다(promptsRefine 참고).
      * search는 도구가 실제로 적용한 조건으로, 0건이어도 함께 기록해 버튼 조건 선택(ProductRefine)에 씁니다.
      */
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
-            ProductSearch search, String listSubject) {
-        return format(productLabel, order, found, line, description, card, recorder, search, listSubject, null);
+            ProductSearch search, String subject, Boolean listRequested) {
+        return format(productLabel, order, found, line, description, card, recorder, search, subject, listRequested, null);
     }
 
     /**
@@ -69,12 +72,12 @@ final class ProductToolResults {
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
             ProductSearch search, ProductListAnswer listAnswer) {
-        return format(productLabel, order, found, line, description, card, recorder, search, null, listAnswer);
+        return format(productLabel, order, found, line, description, card, recorder, search, null, true, listAnswer);
     }
 
     private static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
-            ProductSearch search, String listSubject, ProductListAnswer listAnswer) {
+            ProductSearch search, String subject, Boolean listRequested, ProductListAnswer listAnswer) {
         if (found.items().isEmpty()) {
             recorder.searched(new ProductDataRecorder.SearchRecord(search, 0, null));
             return String.format(NOT_FOUND_MESSAGE, productLabel);
@@ -110,12 +113,17 @@ final class ProductToolResults {
         long listed = requested.orElse(items.size());
         // 버튼 조건 조회는 LLM 답변이 없어 상품이 하나여도 목록 답변으로 답합니다.
         int listMinimum = recorder.refineSearch() ? 1 : 2;
-        ProductListAnswer listing = listAnswer != null ? listAnswer : listSubject == null || items.size() < listMinimum ? null
-                : new ProductListing(listSubject, order, found.total(), items.stream().limit(listed).map(card).toList());
-        // 목록 요청인데 결과가 다 들어가지 않으면 첫 답변은 목록 대신 조건을 고르라고 안내합니다. 선택지는 AiService가 붙입니다.
-        // "하나만"처럼 개수를 말했으면 그 개수로 답할 수 있어 목록을 씁니다. 버튼 조건 조회는 목록과 선택지를 함께 보여 줍니다.
-        if (listing != null && !recorder.refineSearch() && found.total() > recorder.limit() && requested.isEmpty()) {
-            listing = ProductRefinePrompt.of(listing, found.total());
+        ProductListAnswer listing = listAnswer != null ? listAnswer
+                : !Boolean.TRUE.equals(listRequested) || subject == null || items.size() < listMinimum ? null
+                : new ProductListing(subject, order, found.total(), items.stream().limit(listed).map(card).toList());
+        // 결과가 다 들어가지 않으면 첫 답변은 목록 대신 조건을 고르라고 안내합니다. 선택지는 AiService가 붙입니다.
+        // 작은 모델은 "무제한 요금제 알려줘"에도 목록 요청 표시를 빠뜨리므로 표시와 상관없이 판단합니다.
+        if (promptsRefine(recorder, found.total())) {
+            if (listAnswer != null) {
+                listing = ProductRefinePrompt.of(listAnswer, found.total());
+            } else if (subject != null) {
+                listing = ProductRefinePrompt.of(subject, found.total());
+            }
         }
         recorder.searched(new ProductDataRecorder.SearchRecord(search, found.total(), listing));
         return text.toString().stripTrailing();
@@ -140,6 +148,18 @@ final class ProductToolResults {
                 .toList();
         String subject = words.isEmpty() ? productLabel : String.join(" ", words) + " " + productLabel;
         return hiddenConditions || words.isEmpty() ? "조건에 맞는 " + subject : subject;
+    }
+
+    /**
+     * 첫 답변을 목록 대신 조건 선택 안내(ProductRefinePrompt)로 바꿀지입니다. LLM 경로에서 결과가 상한을 넘으면 LLM은
+     * 앞의 몇 행만 보고 답해 목록이 늘 모자라므로, 모델의 목록 요청 표시와 상관없이 바꿉니다.
+     * 다만 "하나만"처럼 개수를 말했거나 "제일 싼 거"처럼 하나를 고르는 질문은 앞의 행만으로 답할 수 있어 바꾸지 않습니다.
+     * 버튼 조건 조회는 목록과 선택지를 함께 보여 주므로 바꾸지 않습니다.
+     */
+    static boolean promptsRefine(ProductDataRecorder recorder, long total) {
+        String question = recorder.question();
+        return !recorder.refineSearch() && total > recorder.limit() && requestedCount(question).isEmpty()
+                && (question == null || !PICK.matcher(question).find());
     }
 
     /**

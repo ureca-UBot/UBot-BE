@@ -83,12 +83,28 @@ class PlanToolsTest {
     }
 
     @Test
-    void 목록_요청이_아니거나_개수를_말했거나_버튼_조회면_안내로_바꾸지_않는다() {
+    void 모델이_목록_요청_표시를_빠뜨려도_결과가_넘치면_안내로_바꾼다() {
+        List<Plan> unlimited = List.of(plan("Ubot 다이렉트 61"), plan("Ubot 청년 무제한"));
+        when(catalog.searchPlans(any(), anyInt())).thenReturn(new Found<>(unlimited, 15));
+        var unlimitedRecorder = new ProductDataRecorder("무제한 요금제 알려줘");
+
+        planTools.searchPlans(null, null, null, null, null, true, null, null,
+                new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, unlimitedRecorder)));
+
+        assertThat(unlimitedRecorder.listing()).hasValueSatisfying(listing -> assertThat(listing.answer())
+                .isEqualTo("데이터 무제한 요금제는 15가지가 있습니다.\n원하시는 조건을 선택해 주세요."));
+    }
+
+    @Test
+    void 하나를_고르는_질문이거나_개수를_말했거나_버튼_조회면_안내로_바꾸지_않는다() {
         List<Plan> cheapest = List.of(plan("Ubot 실속 LTE 500MB/60분"), plan("Ubot 통화 전용"));
         when(catalog.searchPlans(any(), anyInt())).thenReturn(new Found<>(cheapest, 107));
 
-        planTools.searchPlans(null, null, null, null, null, null, null, null, toolContext);
-        assertThat(recorder.listing()).isEmpty();
+        var pickRecorder = new ProductDataRecorder("요금제 중에 제일 싼 거 뭐야?");
+        planTools.searchPlans(null, null, null, null, null, null, null, null,
+                new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, pickRecorder)));
+        assertThat(pickRecorder.listing()).isEmpty();
+        assertThat(pickRecorder.refine()).isPresent();
 
         var oneRecorder = new ProductDataRecorder("요금제 하나만 알려줘");
         planTools.searchPlans(null, null, null, null, null, null, null, true,
