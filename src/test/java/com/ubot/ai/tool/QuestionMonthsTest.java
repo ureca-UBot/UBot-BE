@@ -27,6 +27,23 @@ class QuestionMonthsTest {
     }
 
     @Test
+    void 범위는_말한_연도를_따르고_해를_넘겨도_이어지며_한_해_안에서_해석한다() {
+        // 범위 앞의 연도를 끝 달까지 적용하고, 범위 안의 "10월"을 올해로 따로 읽지 않습니다.
+        assertThat(QuestionMonths.find("2025년 8월부터 10월까지 청구서 알려줘", OCTOBER, 3).months())
+                .containsExactly(YearMonth.of(2025, 8), YearMonth.of(2025, 9), YearMonth.of(2025, 10));
+        assertThat(QuestionMonths.find("2025년 11월~2026년 1월 요금", OCTOBER, 3).months())
+                .containsExactly(YearMonth.of(2025, 11), YearMonth.of(2025, 12), YearMonth.of(2026, 1));
+        // 시작 달이 끝 달보다 크면 해를 넘긴 범위입니다.
+        assertThat(QuestionMonths.find("11월~1월 요금", OCTOBER, 3).months())
+                .containsExactly(YearMonth.of(2025, 11), YearMonth.of(2025, 12), YearMonth.of(2026, 1));
+        // 끝 달이 기준 달보다 뒤면 범위 전체를 작년으로 봅니다(2026-08, 2026-09, 2025-10으로 갈라지지 않음).
+        assertThat(QuestionMonths.find("8~10월 청구서", YearMonth.of(2026, 9), 3).months())
+                .containsExactly(YearMonth.of(2025, 8), YearMonth.of(2025, 9), YearMonth.of(2025, 10));
+        // 범위 안의 "사용" 표현도 그대로 표시합니다.
+        assertThat(QuestionMonths.find("8월부터 9월 사용분 요금", OCTOBER, 3).usageMonthMentioned()).isTrue();
+    }
+
+    @Test
     void 개수를_제한하고_날짜는_달로_보지_않는다() {
         assertThat(QuestionMonths.find("최근 6개월 요금", OCTOBER, 3).months()).hasSize(3);
         assertThat(QuestionMonths.find("8월 5일에 낸 요금", OCTOBER, 3).months()).isEmpty();

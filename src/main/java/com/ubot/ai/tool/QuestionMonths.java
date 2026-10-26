@@ -20,9 +20,10 @@ public final class QuestionMonths {
     // "8월", "2026년 9월". 뒤에 "사용"이 붙으면 청구 월과 다를 수 있어 따로 표시합니다. "8월 5일"은 날짜라 뺍니다.
     private static final Pattern MONTH = Pattern.compile(
             "(?:(\\d{4})\\s*년\\s*)?(?<!\\d)(1[0-2]|0?[1-9])\\s*월(?!\\s*\\d{1,2}\\s*일)(\\s*사용)?");
-    // "8~10월", "8월부터 10월까지", "8-10월"
+    // "8~10월", "8월부터 10월까지", "8-10월", "2025년 8월부터 10월까지", "2025년 11월~2026년 2월"
     private static final Pattern RANGE = Pattern.compile(
-            "(?<!\\d)(1[0-2]|0?[1-9])\\s*월?\\s*(?:~|-|부터)\\s*(1[0-2]|0?[1-9])\\s*월");
+            "(?:(\\d{4})\\s*년\\s*)?(?<!\\d)(1[0-2]|0?[1-9])\\s*월?\\s*(?:~|-|부터)\\s*"
+                    + "(?:(\\d{4})\\s*년\\s*)?(1[0-2]|0?[1-9])\\s*월");
     // "최근 3개월", "지난 두 달", "요즘 석 달"
     private static final Pattern RECENT = Pattern.compile(
             "(?:최근|지난|요즘)\\s*(\\d|한|두|세|석|네|넉)\\s*(?:개월|달)");
@@ -43,13 +44,18 @@ public final class QuestionMonths {
             return new Found(List.of(), false);
         }
         Set<YearMonth> months = new LinkedHashSet<>();
+        // 범위로 읽은 구간입니다. 아래에서 달 하나씩 다시 읽으면 연도 없는 끝 달("10월")을 따로 해석하게 되어 건너뜁니다.
+        List<int[]> rangeSpans = new ArrayList<>();
         Matcher range = RANGE.matcher(question);
         while (range.find()) {
-            int from = Integer.parseInt(range.group(1));
-            int to = Integer.parseInt(range.group(2));
-            for (int month = from; month <= to; month++) {
-                months.add(resolve(null, month, current));
+            Range found = rangeOf(range, current);
+            if (found.start().isAfter(found.end())) {
+                continue;
             }
+            for (YearMonth month = found.start(); !month.isAfter(found.end()); month = month.plusMonths(1)) {
+                months.add(month);
+            }
+            rangeSpans.add(new int[] {range.start(), range.end()});
         }
         Matcher recent = RECENT.matcher(question);
         if (recent.find()) {
@@ -62,6 +68,10 @@ public final class QuestionMonths {
         Matcher month = MONTH.matcher(question);
         while (month.find()) {
             usageMonthMentioned |= month.group(3) != null;
+            int at = month.start();
+            if (rangeSpans.stream().anyMatch(span -> at >= span[0] && at < span[1])) {
+                continue;
+            }
             months.add(resolve(month.group(1), Integer.parseInt(month.group(2)), current));
         }
         return new Found(new ArrayList<>(months).stream().limit(limit).toList(), usageMonthMentioned);
@@ -79,6 +89,35 @@ public final class QuestionMonths {
 
     private static int recentCount(String word) {
         return Character.isDigit(word.charAt(0)) ? Integer.parseInt(word) : COUNT_WORDS.get(word);
+    }
+
+    /**
+     * 범위의 처음과 끝 달입니다. 끝 달을 먼저 정하고(끝 연도, 없으면 시작 연도 기준, 둘 다 없으면 기준 달에서 가장 가까운 지난 달),
+     * 시작 달은 끝 달보다 늦지 않은 가장 가까운 달로 정합니다. 그래서 "11월~2월"은 해를 넘겨 이어지고,
+     * 기준이 2026-09일 때 "8~10월"은 2025-08~2025-10처럼 한 해 안에서 이어집니다.
+     */
+    private static Range rangeOf(Matcher range, YearMonth current) {
+        String fromYear = range.group(1);
+        int from = Integer.parseInt(range.group(2));
+        String toYear = range.group(3);
+        int to = Integer.parseInt(range.group(4));
+        YearMonth end;
+        if (toYear != null) {
+            end = YearMonth.of(Integer.parseInt(toYear), to);
+        } else if (fromYear != null) {
+            int year = Integer.parseInt(fromYear);
+            end = YearMonth.of(to >= from ? year : year + 1, to);
+        } else {
+            end = resolve(null, to, current);
+        }
+        if (fromYear != null) {
+            return new Range(YearMonth.of(Integer.parseInt(fromYear), from), end);
+        }
+        YearMonth start = YearMonth.of(end.getYear(), from);
+        return new Range(start.isAfter(end) ? start.minusYears(1) : start, end);
+    }
+
+    private record Range(YearMonth start, YearMonth end) {
     }
 
     private static YearMonth resolve(String year, int month, YearMonth current) {
