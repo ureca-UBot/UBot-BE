@@ -12,6 +12,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 /** LLM이 부가서비스 정보가 필요할 때 호출하는 부가서비스 조회 도구입니다. 분류 조건은 요금제 도구처럼 문자열로 받아 너그럽게 해석합니다. */
 @Slf4j
@@ -46,6 +47,16 @@ public class AddonTools {
             ProductCatalogQuery.Found<AddonService> found = productCatalogQuery.searchAddons(name, addonCategory);
             log.info("부가서비스 조회 도구: name={}, category={}, listRequested={}, 결과={}건 중 {}건", name, category,
                     listRequested, found.total(), found.items().size());
+            // "V컬러링"처럼 상품 이름("Ubot 컬러링") 앞뒤에 다른 말이 붙으면 부분 일치로 찾지 못하므로,
+            // 검색어 안에 들어 있는 부가서비스 이름이 하나면 그 이름으로 다시 찾습니다.
+            if (found.total() == 0 && StringUtils.hasText(name)) {
+                List<String> within = productNameIndex.namesMentionedIn(name, ProductType.ADDON);
+                if (within.size() == 1) {
+                    log.info("부가서비스 조회 도구: 이름 '{}'로 찾지 못해 그 안의 상품 이름 '{}'로 다시 찾습니다", name, within.getFirst());
+                    name = within.getFirst();
+                    found = productCatalogQuery.searchAddons(name, addonCategory);
+                }
+            }
             String displayName = ProductCatalogQuery.displayName(name, ProductCatalogQuery.ADDON_WORDS);
             // 이름이 있으면 분류 말을 빼서 "데이터 충전 데이터 부가서비스"처럼 겹치지 않게 합니다.
             return ProductToolResults.format(PRODUCT_LABEL, "월 요금 낮은 순", found, AddonTools::line,
