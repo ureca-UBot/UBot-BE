@@ -123,6 +123,26 @@ class ChatAttemptsServiceResearchTest {
     }
 
     @Test
+    void missingOrInsufficientFaqCanBeResearchedWithAnotherIntent() {
+        for (var code : List.of(ChatErrorCode.NO_FAQ, ChatErrorCode.INSUFFICIENT_FAQ)) {
+            var source = new AnswerAttemptsHistory(user.getId(), "요금제 질문", 1,
+                    "no-evidence-" + UUID.randomUUID(), LocalDateTime.now(), "", "");
+            source.fail(code);
+            attempts.saveAndFlush(source);
+
+            var research = attemptsService.createResearchAttempt(user.getId(), source.getIdempotencyKey(),
+                    Intent.PRODUCT_DATA);
+
+            assertThat(research.getSourceAttemptId()).isEqualTo(source.getId());
+            assertThat(research.getQuestion()).isEqualTo(source.getQuestion());
+            assertThat(research.getIntent()).isEqualTo(Intent.PRODUCT_DATA);
+            assertThat(research.getStatus()).isEqualTo("PENDING");
+            assertRejected(() -> attemptsService.createResearchAttempt(user.getId(), source.getIdempotencyKey(),
+                    Intent.PRODUCT_DATA), ChatErrorCode.ALREADY_RESEARCHED);
+        }
+    }
+
+    @Test
     void pendingOriginalCannotBeResearched() {
         var pending = attempts.saveAndFlush(new AnswerAttemptsHistory(user.getId(), "질문", 1,
                 "p-" + UUID.randomUUID(), LocalDateTime.now(), "", ""));
