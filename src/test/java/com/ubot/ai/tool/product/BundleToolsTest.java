@@ -1,6 +1,7 @@
 package com.ubot.ai.tool.product;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,10 +23,10 @@ class BundleToolsTest {
     void 결합_종류를_말하지_않았으면_모델이_넣은_종류를_빼고_회선_수로만_찾는다() {
         var bundleTools = new BundleTools(catalog, nameIndex);
         var context = new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, new ProductDataRecorder("3인 결합 상품 알려줘")));
-        when(catalog.searchBundles(any(), any(), any())).thenReturn(new Found<BundleProduct>(List.of(), 0));
+        when(catalog.searchBundles(any(), any(), any(), anyInt())).thenReturn(new Found<BundleProduct>(List.of(), 0));
 
         bundleTools.searchBundles("3인", "FAMILY", 3, true, context);
 
-        verify(catalog).searchBundles("3인", null, 3);
+        verify(catalog).searchBundles("3인", null, 3, ProductCatalogQuery.LIMIT);
     }
 }

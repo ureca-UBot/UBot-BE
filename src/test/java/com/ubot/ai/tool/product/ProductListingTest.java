@@ -92,17 +92,19 @@ class ProductListingTest {
     void 조회가_한_번이고_그_조회가_목록일_때만_목록_답변을_쓴다() {
         var listing = new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(PREMIUM_89, PREMIUM_99));
 
+        var search = ProductSearch.of(ProductType.PLAN, "프리미엄");
+
         var once = new ProductDataRecorder();
-        once.searched(listing);
+        once.searched(new ProductDataRecorder.SearchRecord(search, 2, listing));
         assertThat(once.listing()).contains(listing);
 
         var twice = new ProductDataRecorder();
-        twice.searched(listing);
-        twice.searched(null);
+        twice.searched(new ProductDataRecorder.SearchRecord(search, 2, listing));
+        twice.searched(new ProductDataRecorder.SearchRecord(search, 0, null));
         assertThat(twice.listing()).isEmpty();
 
         var notList = new ProductDataRecorder();
-        notList.searched(null);
+        notList.searched(new ProductDataRecorder.SearchRecord(search, 1, null));
         assertThat(notList.listing()).isEmpty();
     }
 }

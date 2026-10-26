@@ -1,6 +1,7 @@
 package com.ubot.ai.tool.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -26,8 +27,8 @@ class AddonToolsTest {
         AddonService coloring = mock(AddonService.class);
         when(coloring.getName()).thenReturn("Ubot 컬러링");
         when(coloring.getMonthlyFee()).thenReturn(990);
-        when(catalog.searchAddons(eq("V컬러링"), isNull())).thenReturn(new Found<>(List.of(), 0));
-        when(catalog.searchAddons(eq("Ubot 컬러링"), isNull())).thenReturn(new Found<>(List.of(coloring), 1));
+        when(catalog.searchAddons(eq("V컬러링"), isNull(), anyInt())).thenReturn(new Found<>(List.of(), 0));
+        when(catalog.searchAddons(eq("Ubot 컬러링"), isNull(), anyInt())).thenReturn(new Found<>(List.of(coloring), 1));
         when(nameIndex.namesMentionedIn("V컬러링", ProductType.ADDON)).thenReturn(List.of("Ubot 컬러링"));
 
         String result = addonTools.searchAddons("V컬러링", null, null, context);

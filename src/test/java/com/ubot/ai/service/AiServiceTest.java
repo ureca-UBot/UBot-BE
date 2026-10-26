@@ -26,6 +26,7 @@ import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.product.PlanSeriesOverview;
 import com.ubot.ai.tool.product.ProductDataRecorder;
 import com.ubot.ai.tool.product.ProductListing;
+import com.ubot.ai.tool.product.ProductSearch;
 import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -59,6 +60,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -479,7 +481,8 @@ class AiServiceTest {
             recorder.record(new ProductCard(ProductType.PLAN, "Ubot 실속 LTE 500MB/60분", 3300, List.of(), List.of()),
                     "- Ubot 실속 LTE 500MB/60분 | LTE | 대상 일반 | 월정액 3,300원");
             recorder.note(overview.answer());
-            recorder.searched(overview);
+            recorder.searched(new ProductDataRecorder.SearchRecord(
+                    new ProductSearch(ProductType.PLAN, null, Map.of(), List.of()), 107, overview));
             return new LlmResponseDto("{\"answer\":\"요금제 정보가 부족합니다.\",\"evidence_ids\":[],\"status\":\"PARTIAL\"}");
         });
 
@@ -487,7 +490,10 @@ class AiServiceTest {
 
         assertThat(answer.answer()).isEqualTo(overview.answer());
         assertThat(answer.status()).isEqualTo("ANSWER");
-        assertThat(answer.productData()).isNull();
+        // 개요는 특정 상품을 고르지 않아 카드가 없고, 결과가 다 보이지 않으니 조건 선택지만 붙습니다.
+        assertThat(answer.productData().products()).isEmpty();
+        assertThat(answer.productData().refine().type()).isEqualTo(ProductType.PLAN);
+        assertThat(answer.productData().refine().total()).isEqualTo(107);
     }
 
     @Test
@@ -534,7 +540,9 @@ class AiServiceTest {
         var premium99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, List.of(), List.of());
         recorder.record(premium89, "- Ubot 프리미엄 89 | 5G | 대상 일반 | 월정액 89,000원");
         recorder.record(premium99, "- Ubot 프리미엄 99 | 5G | 대상 일반 | 월정액 99,000원");
-        recorder.searched(new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99)));
+        recorder.searched(new ProductDataRecorder.SearchRecord(
+                new ProductSearch(ProductType.PLAN, "프리미엄", Map.of(), List.of()), 2,
+                new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99))));
     }
 
     @Test

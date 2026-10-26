@@ -21,12 +21,31 @@ public class ProductDataRecorder {
     // 도구 실행과 결과 확인이 다른 스레드에서 일어나도 기록이 빠지지 않게 합니다.
     private final List<ProductCard> cards = new CopyOnWriteArrayList<>();
     private final List<String> lines = new CopyOnWriteArrayList<>();
-    private final List<Optional<ProductListAnswer>> searches = new CopyOnWriteArrayList<>();
+    private final List<SearchRecord> searches = new CopyOnWriteArrayList<>();
     private final String question;
     private final String conditionText;
+    private final int limit;
+    private final boolean refineSearch;
+
+    /**
+     * 도구가 조회를 한 번 마친 기록입니다.
+     *
+     * @param total   조건에 맞는 전체 상품 수
+     * @param listing 목록 답변입니다. 목록 요청이 아니었거나 상품 수가 모자라면 null입니다.
+     */
+    public record SearchRecord(ProductSearch search, long total, ProductListAnswer listing) {
+    }
 
     public ProductDataRecorder() {
         this(null);
+    }
+
+    /**
+     * 버튼으로 조건을 고른 조회(LLM 없이 도구를 바로 부름)의 보관소입니다. 결과를 LLM에 넣지 않으므로 limit개까지 돌려주고,
+     * 상품이 하나여도 목록 답변을 만듭니다. 질문이 없어 조건의 근거 확인·이름 보정은 하지 않습니다.
+     */
+    public static ProductDataRecorder forRefine(int limit) {
+        return new ProductDataRecorder(null, null, limit, true);
     }
 
     /** question은 사용자 질문 원문입니다. 요금제 도구가 모델이 빠뜨린 시리즈 이름을 찾는 데 씁니다. */
@@ -39,9 +58,26 @@ public class ProductDataRecorder {
      * 앞 질문에 있을 수 있어, 도구가 모델이 넣은 조건의 근거를 찾을 때 이번 질문과 함께 봅니다(ConditionGrounding).
      */
     public ProductDataRecorder(String question, List<String> previousQuestions) {
+        this(question, question == null ? null
+                : String.join("\n", Stream.concat(Stream.of(question), previousQuestions.stream()).toList()),
+                ProductCatalogQuery.LIMIT, false);
+    }
+
+    private ProductDataRecorder(String question, String conditionText, int limit, boolean refineSearch) {
         this.question = question;
-        this.conditionText = question == null ? null
-                : String.join("\n", Stream.concat(Stream.of(question), previousQuestions.stream()).toList());
+        this.conditionText = conditionText;
+        this.limit = limit;
+        this.refineSearch = refineSearch;
+    }
+
+    /** 도구가 조회할 최대 상품 수입니다. LLM 경로와 버튼 경로 모두 ProductCatalogQuery.LIMIT입니다. */
+    public int limit() {
+        return limit;
+    }
+
+    /** 버튼 조건 조회면 true입니다. 상품이 하나뿐이어도 목록 답변을 만듭니다. */
+    public boolean refineSearch() {
+        return refineSearch;
     }
 
     public String question() {
@@ -64,9 +100,14 @@ public class ProductDataRecorder {
         lines.add(line);
     }
 
-    /** 도구가 조회를 한 번 마쳤습니다. 목록 요청이 아니었거나 상품이 2개 미만이면 listing은 null입니다. */
-    public void searched(ProductListAnswer listing) {
-        searches.add(Optional.ofNullable(listing));
+    /** 도구가 조회를 한 번 마쳤습니다. 0건이어도 남깁니다. */
+    public void searched(SearchRecord record) {
+        searches.add(record);
+    }
+
+    /** 조회가 한 번뿐이었을 때 그 기록입니다. 여러 번 조회했으면 질문이 여러 상품을 묻는 것이라 비어 있습니다. */
+    public Optional<SearchRecord> search() {
+        return searches.size() == 1 ? Optional.of(searches.getFirst()) : Optional.empty();
     }
 
     /**
@@ -74,7 +115,16 @@ public class ProductDataRecorder {
      * 여러 번 조회했으면 질문이 여러 상품을 묻는 것이라 목록 답변 하나로 대신하지 않습니다.
      */
     public Optional<ProductListAnswer> listing() {
-        return searches.size() == 1 ? searches.getFirst() : Optional.empty();
+        return search().map(SearchRecord::listing);
+    }
+
+    /**
+     * 버튼으로 조건을 골라 다시 조회하게 할 선택지입니다. 조회가 한 번뿐이고, 결과가 limit개를 넘거나 0건일 때만 있습니다.
+     * 결과가 다 보이면 더 좁힐 이유가 없기 때문입니다.
+     */
+    public Optional<ProductRefine> refine() {
+        return search().filter(record -> record.total() == 0 || record.total() > limit)
+                .map(record -> ProductRefine.of(record.search(), record.total()));
     }
 
     public List<ProductCard> cards() {

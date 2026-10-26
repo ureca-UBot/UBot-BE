@@ -51,7 +51,7 @@ class ProductToolsIntegrationTest {
     }
 
     @Test
-    @DisplayName("요금제는 기본으로 월정액 낮은 순 5건만 돌려주고, 더 있으면 조건을 좁혀 달라고 안내한다")
+    @DisplayName("LLM에는 월정액 낮은 순 5행만 돌려주고 더 있으면 조건을 좁혀 달라고 안내하며, 기록에는 조회한 행을 모두 남긴다")
     void plansAreLimitedToFiveByMonthlyFee() {
         for (int index = 1; index <= 7; index++) {
             insertPlan(mark + " " + index, "FIVE_G", "GENERAL", 80000 - index * 5000, 10000L * index, false, 1000);
@@ -63,7 +63,9 @@ class ProductToolsIntegrationTest {
         assertThat(result.indexOf(mark + " 7")).isLessThan(result.indexOf(mark + " 6"));
         assertThat(result).doesNotContain(mark + " 2 |").doesNotContain(mark + " 1 |")
                 .contains(String.format(ProductToolResults.MORE_RESULTS_MESSAGE, "요금제"));
-        assertThat(recorder.cards()).hasSize(5).allSatisfy(card -> assertThat(card.type()).isEqualTo(ProductType.PLAN));
+        // LLM에는 5행만 돌려주지만, 목록 답변·카드·검사 근거에는 조회한 7건을 모두 남깁니다.
+        assertThat(recorder.cards()).hasSize(7).allSatisfy(card -> assertThat(card.type()).isEqualTo(ProductType.PLAN));
+        assertThat(recorder.describe()).contains(mark + " 1 |");
     }
 
     @Test
@@ -254,8 +256,11 @@ class ProductToolsIntegrationTest {
 
         var byCategory = new ProductDataRecorder();
         addonTools.searchAddons(null, "CALL", true, new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, byCategory)));
-        assertThat(byCategory.listing()).hasValueSatisfying(found ->
-                assertThat(((ProductListing) found).subject()).isEqualTo("통화 부가서비스"));
+        // 시드의 통화 부가서비스와 합쳐도 10개 이하라 목록으로 답합니다.
+        assertThat(byCategory.listing()).hasValueSatisfying(found -> {
+            assertThat(((ProductListing) found).subject()).isEqualTo("통화 부가서비스");
+            assertThat(found.products()).extracting(ProductCard::name).contains("Ubot " + mark + " 착신");
+        });
     }
 
     @Test

@@ -44,7 +44,7 @@ public class AddonTools {
         }
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
         try {
-            ProductCatalogQuery.Found<AddonService> found = productCatalogQuery.searchAddons(name, addonCategory);
+            ProductCatalogQuery.Found<AddonService> found = productCatalogQuery.searchAddons(name, addonCategory, recorder.limit());
             log.info("부가서비스 조회 도구: name={}, category={}, listRequested={}, 결과={}건 중 {}건", name, category,
                     listRequested, found.total(), found.items().size());
             // "V컬러링"처럼 상품 이름("Ubot 컬러링") 앞뒤에 다른 말이 붙으면 부분 일치로 찾지 못하므로,
@@ -54,13 +54,14 @@ public class AddonTools {
                 if (within.size() == 1) {
                     log.info("부가서비스 조회 도구: 이름 '{}'로 찾지 못해 그 안의 상품 이름 '{}'로 다시 찾습니다", name, within.getFirst());
                     name = within.getFirst();
-                    found = productCatalogQuery.searchAddons(name, addonCategory);
+                    found = productCatalogQuery.searchAddons(name, addonCategory, recorder.limit());
                 }
             }
             String displayName = ProductCatalogQuery.displayName(name, ProductCatalogQuery.ADDON_WORDS);
             // 이름이 있으면 분류 말을 빼서 "데이터 충전 데이터 부가서비스"처럼 겹치지 않게 합니다.
             return ProductToolResults.format(PRODUCT_LABEL, "월 요금 낮은 순", found, AddonTools::line,
                     ProductDescriptions::of, this::card, recorder,
+                    ProductSearch.of(ProductType.ADDON, name, ProductRefine.CATEGORY, addonCategory),
                     ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false,
                             displayName == null && addonCategory != null ? categoryLabel(addonCategory) : null,
                             displayName));
@@ -82,7 +83,7 @@ public class AddonTools {
                 ProductDescriptions.highlights(ProductDescriptions.of(addon), productNameIndex.commonSentences(ProductType.ADDON)));
     }
 
-    private static String categoryLabel(AddonCategory category) {
+    static String categoryLabel(AddonCategory category) {
         return switch (category) {
             case DATA_CHARGE -> "데이터 충전";
             case VOICE_CHARGE -> "음성 충전";

@@ -114,7 +114,11 @@ public class PlanTools {
                 log.info("요금제 조회 도구: 질문에 근거가 없는 조건을 뺐습니다: {}", dropped);
             }
             ProductCatalogQuery.Found<Plan> found = productCatalogQuery.searchPlans(
-                    new PlanCondition(name, network, target, feeLimit, dataFloor, unlimitedOnly, sort));
+                    new PlanCondition(name, network, target, feeLimit, dataFloor, unlimitedOnly, sort), recorder.limit());
+            ProductSearch search = ProductSearch.of(ProductType.PLAN, name, ProductRefine.NETWORK, network,
+                    ProductRefine.TARGET, target, ProductRefine.MAX_FEE, feeLimit,
+                    ProductRefine.DATA, unlimitedOnly != null ? ProductRefine.DATA_UNLIMITED : dataFloor,
+                    ProductRefine.SORT, sort);
             String order = sort == PlanSort.DATA_DESC ? "데이터 많은 순" : "월정액 낮은 순";
             log.info("요금제 조회 도구: name={}, networkType={}, targetGroup={}, maxMonthlyFee={}, minDataGb={}, "
                     + "dataUnlimited={}, sortBy={}, listRequested={}, 결과={}건 중 {}건", name, networkType, targetGroup,
@@ -122,28 +126,30 @@ public class PlanTools {
             // 작은 모델은 "프리미엄 89 요금제"에도 말하지 않은 조건(월정액 상한 등)을 채워 넣어 0건이 되기도 합니다.
             // 이름만으로 요금제 하나가 정해지면 그 요금제를 묻는 것이므로 다른 조건을 빼고 돌려줍니다.
             // 이름으로 여러 개가 나오면 "프리미엄 요금제 중 5만원 이하"처럼 사용자가 건 조건일 수 있어 그대로 둡니다.
-            if (found.total() == 0 && StringUtils.hasText(name)) {
+            // 버튼으로 고른 조건은 사용자가 직접 건 것이라 빼지 않습니다.
+            if (found.total() == 0 && StringUtils.hasText(name) && !recorder.refineSearch()) {
                 ProductCatalogQuery.Found<Plan> named = productCatalogQuery.searchPlans(
-                        new PlanCondition(name, null, null, null, null, null, sort));
+                        new PlanCondition(name, null, null, null, null, null, sort), recorder.limit());
                 if (named.total() == 1) {
                     log.info("요금제 조회 도구: 조건에 맞는 요금제가 없지만 이름 '{}'에 맞는 요금제가 하나라 다른 조건을 빼고 돌려줍니다",
                             name);
                     return ProductToolResults.format(PRODUCT_LABEL, order, named, this::line, ProductDescriptions::of,
-                            this::card, recorder, (String) null);
+                            this::card, recorder, ProductSearch.of(ProductType.PLAN, name, ProductRefine.SORT, sort),
+                            (String) null);
                 }
             }
             boolean unfiltered = !StringUtils.hasText(name) && network == null && target == null
                     && feeLimit == null && dataFloor == null && unlimitedOnly == null;
             // 조건 없이 요금제 종류를 물었는데 결과가 다 들어가지 않으면, 월정액 낮은 순 5개는 종류에 대한 답이 아니므로
             // 시리즈별 개요로 답합니다. 질문에 시리즈 이름이 둘 이상 있어 하나로 정하지 못한 경우도 개요에 그 시리즈들이 보입니다.
-            if (Boolean.TRUE.equals(listRequested) && unfiltered && found.total() > ProductCatalogQuery.LIMIT) {
+            if (Boolean.TRUE.equals(listRequested) && unfiltered && found.total() > recorder.limit()) {
                 Optional<PlanSeriesOverview> overview = productNameIndex.planOverview();
                 if (overview.isPresent()) {
                     log.info("요금제 조회 도구: 조건 없는 목록 요청이라 시리즈 개요로 답합니다: 시리즈수={}", overview.get().groups().size());
                     // 개요의 개수·월정액 범위는 조회한 5개 행에 없으므로 출력 검사 근거로 남깁니다.
                     recorder.note(overview.get().answer());
                     return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
-                            this::card, recorder, overview.get());
+                            this::card, recorder, search, overview.get());
                 }
             }
             // 아무 조건 없이 전체를 조회했는데 질문에 시리즈 이름이 있으면(둘 이상이라 하나로 정하지 못한 경우) 걸렀어야 할 조회라
@@ -158,7 +164,7 @@ public class PlanTools {
                     unlimitedOnly != null ? "데이터 무제한" : null,
                     ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
             return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
-                    this::card, recorder, listSubject);
+                    this::card, recorder, search, listSubject);
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
             log.warn("요금제 조회 도구 실패: name={}, networkType={}, targetGroup={}", name, networkType, targetGroup, exception);
@@ -273,7 +279,7 @@ public class PlanTools {
         return mb == null || mb == 0 ? "제공 안 함" : ProductToolResults.data(mb);
     }
 
-    private static String networkLabel(NetworkType type) {
+    static String networkLabel(NetworkType type) {
         if (type == null) return "정보 없음";
         return switch (type) {
             case FIVE_G -> "5G";
@@ -281,7 +287,7 @@ public class PlanTools {
         };
     }
 
-    private static String targetLabel(PlanTargetGroup group) {
+    static String targetLabel(PlanTargetGroup group) {
         if (group == null) return "정보 없음";
         return switch (group) {
             case GENERAL -> "일반";
@@ -293,7 +299,7 @@ public class PlanTools {
         };
     }
 
-    private static NetworkType parseNetwork(String value) {
+    static NetworkType parseNetwork(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
         }

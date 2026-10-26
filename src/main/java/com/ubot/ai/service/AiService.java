@@ -15,6 +15,7 @@ import com.ubot.ai.tool.AiToolRegistry;
 import com.ubot.ai.tool.MonthlyRecordsAnswer;
 import com.ubot.ai.tool.product.ProductDataCardSelector;
 import com.ubot.ai.tool.product.ProductDataRecorder;
+import com.ubot.ai.tool.product.ProductRefine;
 import com.ubot.ai.tool.product.ProductListAnswer;
 import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
@@ -177,6 +178,12 @@ public class AiService {
                 ? (listing.get().products().isEmpty() ? null : new ProductDataCards(listing.get().products()))
                 : "ABSTAIN".equals(status) ? null
                 : ProductDataCardSelector.select(answer, productDataRecorder.cards());
+        // 목록 결과가 다 보이지 않거나 0건이면 버튼으로 조건을 골라 다시 조회할 선택지를 붙입니다.
+        // 0건이라 답을 보류한 답변에도 붙여, 다시 입력하지 않고 조건을 바꿀 수 있게 합니다.
+        Optional<ProductRefine> refine = listingAnswerable(materials) ? productDataRecorder.refine() : Optional.empty();
+        if (refine.isPresent()) {
+            productData = new ProductDataCards(productData == null ? List.of() : productData.products(), refine.get());
+        }
         // 상품 카드가 나가는 "요금제 종류 알려줘" 같은 답변에는 질문의 "요금제"만으로 내 요금제 카드를 붙이지 않습니다.
         // 상품 도구가 붙은 질문도 같습니다. "밸런스 요금제 알려줘"가 0건이면 상품 카드는 없지만 묻는 것은 내 요금제가 아닙니다.
         // 답변에 내 요금제 이름이 나오면 지금처럼 붙입니다.

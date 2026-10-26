@@ -51,11 +51,13 @@ public class RoamingTools {
                 log.info("로밍 상품 조회 도구: country={}, name={}, 판매 국가 아님", country, name);
                 return String.format(COUNTRY_NOT_FOUND_MESSAGE, country.strip(), countriesLine);
             }
-            ProductCatalogQuery.Found<RoamingProduct> found = productCatalogQuery.searchRoaming(countries, name);
+            ProductCatalogQuery.Found<RoamingProduct> found = productCatalogQuery.searchRoaming(countries, name, recorder.limit());
             log.info("로밍 상품 조회 도구: country={}, name={}, listRequested={}, 결과={}건 중 {}건", country, name,
                     listRequested, found.total(), found.items().size());
             String result = ProductToolResults.format(PRODUCT_LABEL, "일 요금 낮은 순", found, RoamingTools::line,
                     ProductDescriptions::of, this::card, recorder,
+                    ProductSearch.withCountries(ProductType.ROAMING, name, sold, ProductRefine.COUNTRY,
+                            countries.isEmpty() ? null : String.join(", ", countries)),
                     ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false, String.join(", ", countries),
                             ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)));
             return result + "\n" + countriesLine;

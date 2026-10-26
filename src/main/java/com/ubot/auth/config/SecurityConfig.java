@@ -98,6 +98,8 @@ public class SecurityConfig {
 								"/notices", "/notices/**")
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
+						// 상품 목록의 조건 선택지로 다시 조회함. 공개 상품 정보라 비회원도 씀
+						.requestMatchers(HttpMethod.POST, "/chat/product-search", "/chat/product-search/options").permitAll()
 						// 게스트도 자기 작업을 조회함. 소유권은 ChatJobQueryService가 확인함
 						.requestMatchers(HttpMethod.GET, "/chat/jobs/*").permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/jobs/*/cancel").permitAll()

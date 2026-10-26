@@ -31,7 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * 상품 조회 도구가 쓰는 판매 중(ACTIVE·미삭제) 상품 조회입니다. 모든 조회는 최대 LIMIT개만 돌려주고 전체 건수를 함께 알려 줍니다.
+ * 상품 조회 도구가 쓰는 판매 중(ACTIVE·미삭제) 상품 조회입니다. 모든 조회는 최대 LIMIT개(버튼 조건 조회는 그보다 많이)만 돌려주고 전체 건수를 함께 알려 줍니다.
  * 이름 조건은 공백을 무시한 부분 일치이고, 동률은 ID 순입니다.
  */
 @Component
@@ -39,7 +39,8 @@ import org.springframework.util.StringUtils;
 @Transactional(readOnly = true)
 public class ProductCatalogQuery {
 
-    public static final int LIMIT = 5;
+    // 조회해서 목록 답변·카드에 쓰는 최대 개수입니다. LLM에 돌려주는 행은 그중 앞의 ProductToolResults.LLM_ROWS개입니다.
+    public static final int LIMIT = 10;
     // DB는 데이터량을 1GB = 1000MB로 저장합니다.
     static final long MB_PER_GB = 1000L;
     private static final String BRAND = "ubot";
@@ -68,6 +69,24 @@ public class ProductCatalogQuery {
     }
 
     public Found<Plan> searchPlans(PlanCondition condition) {
+        return searchPlans(condition, LIMIT);
+    }
+
+    /** limit은 돌려줄 최대 개수입니다. 버튼으로 조건을 고른 조회는 LLM에 넣지 않아 LIMIT보다 많이 돌려줍니다. */
+    public Found<Plan> searchPlans(PlanCondition condition, int limit) {
+        Sort sort = condition.sortBy() == PlanSort.DATA_DESC
+                ? Sort.by(Order.desc("dataUnlimited"), Order.desc("dataAmountMb"), Order.asc("monthlyFee"),
+                        Order.asc("planId"))
+                : Sort.by(Order.asc("monthlyFee"), Order.asc("planId"));
+        return Found.of(planRepository.findAll(planSpecification(condition), PageRequest.of(0, limit, sort)));
+    }
+
+    /** searchPlans와 같은 조건에 맞는 요금제 수입니다. 버튼 조건 선택에서 고를 수 있는 선택지인지 판단하는 데 씁니다. */
+    public long countPlans(PlanCondition condition) {
+        return planRepository.count(planSpecification(condition));
+    }
+
+    private static Specification<Plan> planSpecification(PlanCondition condition) {
         Specification<Plan> specification = active(condition.name(), PLAN_WORDS);
         if (condition.networkType() != null) {
             specification = specification.and((root, query, builder) ->
@@ -92,21 +111,29 @@ public class ProductCatalogQuery {
             specification = specification.and((root, query, builder) ->
                     builder.equal(root.get("dataUnlimited"), condition.dataUnlimited()));
         }
-        Sort sort = condition.sortBy() == PlanSort.DATA_DESC
-                ? Sort.by(Order.desc("dataUnlimited"), Order.desc("dataAmountMb"), Order.asc("monthlyFee"),
-                        Order.asc("planId"))
-                : Sort.by(Order.asc("monthlyFee"), Order.asc("planId"));
-        return Found.of(planRepository.findAll(specification, PageRequest.of(0, LIMIT, sort)));
+        return specification;
     }
 
     /** category가 null이면 분류를 가리지 않습니다. */
     public Found<AddonService> searchAddons(String name, AddonCategory category) {
+        return searchAddons(name, category, LIMIT);
+    }
+
+    public Found<AddonService> searchAddons(String name, AddonCategory category, int limit) {
+        return Found.of(addonServiceRepository.findAll(addonSpecification(name, category),
+                PageRequest.of(0, limit, Sort.by(Order.asc("monthlyFee"), Order.asc("addonServiceId")))));
+    }
+
+    public long countAddons(String name, AddonCategory category) {
+        return addonServiceRepository.count(addonSpecification(name, category));
+    }
+
+    private static Specification<AddonService> addonSpecification(String name, AddonCategory category) {
         Specification<AddonService> specification = active(name, ADDON_WORDS);
         if (category != null) {
             specification = specification.and((root, query, builder) -> builder.equal(root.get("category"), category));
         }
-        return Found.of(addonServiceRepository.findAll(specification,
-                PageRequest.of(0, LIMIT, Sort.by(Order.asc("monthlyFee"), Order.asc("addonServiceId")))));
+        return specification;
     }
 
     /**
@@ -116,6 +143,26 @@ public class ProductCatalogQuery {
      * 도구는 이 트랜잭션이 끝난 뒤 행을 만들므로, 지연 로딩인 홈 결합의 인터넷 상품을 함께 가져옵니다.
      */
     public Found<BundleProduct> searchBundles(String name, BundleType bundleType, Integer lineCount) {
+        return searchBundles(name, bundleType, lineCount, LIMIT);
+    }
+
+    public Found<BundleProduct> searchBundles(String name, BundleType bundleType, Integer lineCount, int limit) {
+        Specification<BundleProduct> specification = bundleSpecification(name, bundleType, lineCount).and((root, query, builder) -> {
+            // 페이지 조회의 전체 건수 쿼리에는 fetch join을 걸 수 없어 상품 조회에만 겁니다.
+            if (!Long.class.equals(query.getResultType()) && !long.class.equals(query.getResultType())) {
+                root.fetch("homeProduct", JoinType.LEFT);
+            }
+            return builder.conjunction();
+        });
+        return Found.of(bundleProductRepository.findAll(specification,
+                PageRequest.of(0, limit, Sort.by(Order.desc("discountAmount"), Order.asc("bundleProductId")))));
+    }
+
+    public long countBundles(String name, BundleType bundleType, Integer lineCount) {
+        return bundleProductRepository.count(bundleSpecification(name, bundleType, lineCount));
+    }
+
+    private static Specification<BundleProduct> bundleSpecification(String name, BundleType bundleType, Integer lineCount) {
         Specification<BundleProduct> specification = active(name, BUNDLE_WORDS);
         if (bundleType != null) {
             specification = specification.and((root, query, builder) -> builder.equal(root.get("bundleType"), bundleType));
@@ -124,25 +171,29 @@ public class ProductCatalogQuery {
             specification = specification.and((root, query, builder) -> builder.or(
                     builder.isNull(root.get("lineCount")), builder.equal(root.get("lineCount"), lineCount)));
         }
-        specification = specification.and((root, query, builder) -> {
-            // 페이지 조회의 전체 건수 쿼리에는 fetch join을 걸 수 없어 상품 조회에만 겁니다.
-            if (!Long.class.equals(query.getResultType()) && !long.class.equals(query.getResultType())) {
-                root.fetch("homeProduct", JoinType.LEFT);
-            }
-            return builder.conjunction();
-        });
-        return Found.of(bundleProductRepository.findAll(specification,
-                PageRequest.of(0, LIMIT, Sort.by(Order.desc("discountAmount"), Order.asc("bundleProductId")))));
+        return specification;
     }
 
     /** countries가 비어 있으면 나라를 가리지 않습니다. 나라 이름은 roamingCountries()의 값 그대로여야 합니다. */
     public Found<RoamingProduct> searchRoaming(Collection<String> countries, String name) {
+        return searchRoaming(countries, name, LIMIT);
+    }
+
+    public Found<RoamingProduct> searchRoaming(Collection<String> countries, String name, int limit) {
+        return Found.of(roamingProductRepository.findAll(roamingSpecification(countries, name),
+                PageRequest.of(0, limit, Sort.by(Order.asc("dailyFee"), Order.asc("roamingProductId")))));
+    }
+
+    public long countRoaming(Collection<String> countries, String name) {
+        return roamingProductRepository.count(roamingSpecification(countries, name));
+    }
+
+    private static Specification<RoamingProduct> roamingSpecification(Collection<String> countries, String name) {
         Specification<RoamingProduct> specification = active(name, ROAMING_WORDS);
         if (countries != null && !countries.isEmpty()) {
             specification = specification.and((root, query, builder) -> root.get("country").in(countries));
         }
-        return Found.of(roamingProductRepository.findAll(specification,
-                PageRequest.of(0, LIMIT, Sort.by(Order.asc("dailyFee"), Order.asc("roamingProductId")))));
+        return specification;
     }
 
     /** 판매 중인 로밍 상품이 있는 나라입니다. 이름순이고 중복이 없습니다. */

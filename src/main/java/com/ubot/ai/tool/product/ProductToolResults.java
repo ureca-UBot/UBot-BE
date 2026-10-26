@@ -25,6 +25,9 @@ final class ProductToolResults {
             + "조건을 바꿔 다시 물어봐 달라고 안내하세요.";
     static final String MORE_RESULTS_MESSAGE = "조건에 맞는 %s이(가) 더 있습니다. 나머지를 원하면 조건을 좁혀 물어봐 달라고 안내하세요.";
     static final String COMMON_LINE = "아래 %s 모두 공통: %s";
+    // LLM에 돌려주는 최대 행 수입니다. 요금제 행은 설명까지 붙어 길어서, 많이 넣으면 4096 문맥을 넘어 답변 전체가 실패합니다.
+    // 조회는 ProductCatalogQuery.LIMIT개까지 하고, 목록 답변·카드·출력 검사 근거에는 조회한 행을 모두 씁니다.
+    static final int LLM_ROWS = 5;
     static final String INVALID_VALUE_MESSAGE = "'%s'은(는) %s에 쓸 수 없는 값입니다. %s 중 하나를 넣거나 비워서 다시 호출하세요.";
     // 네 도구가 같은 뜻으로 받는 목록 요청 표시입니다. 표시가 있고 상품이 2개 이상이면 답변을 코드가 목록으로 만듭니다.
     static final String LIST_REQUESTED_DESCRIPTION = "사용자가 상품 목록이나 종류를 물으면 true. "
@@ -48,14 +51,15 @@ final class ProductToolResults {
      * "조건에 맞는 요금제 12건 중 5건(월정액 낮은 순)" 머리말과 상품 행을 만들고, 돌려준 상품을 기록합니다.
      * 행 끝에는 다듬은 설명 문장(description, ProductDescriptions.of)을 붙입니다. 상품 설명에는 "표시 월정액은 부가세 포함"처럼
      * 같은 종류 상품에 똑같이 들어간 문장이 많아, 돌려준 상품 모두에 있는 문장은 행마다 쓰지 않고 "공통" 줄에 한 번만 씁니다.
-     * 조건에 맞는 상품이 LIMIT개보다 많으면 조건을 좁혀 달라고 안내하게 합니다.
+     * 조건에 맞는 상품이 LLM에 돌려준 행보다 많으면 조건을 좁혀 달라고 안내하게 합니다.
      * listSubject는 LLM이 목록 요청이라고 표시했을 때의 답변 주어이고(listSubject 참고), 아니면 null입니다.
      * 목록 요청이고 상품이 2개 이상이면 AiService가 목록 답변을 만들 수 있게 기록합니다.
+     * search는 도구가 실제로 적용한 조건으로, 0건이어도 함께 기록해 버튼 조건 선택(ProductRefine)에 씁니다.
      */
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
-            String listSubject) {
-        return format(productLabel, order, found, line, description, card, recorder, listSubject, null);
+            ProductSearch search, String listSubject) {
+        return format(productLabel, order, found, line, description, card, recorder, search, listSubject, null);
     }
 
     /**
@@ -64,21 +68,23 @@ final class ProductToolResults {
      */
     static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
-            ProductListAnswer listAnswer) {
-        return format(productLabel, order, found, line, description, card, recorder, null, listAnswer);
+            ProductSearch search, ProductListAnswer listAnswer) {
+        return format(productLabel, order, found, line, description, card, recorder, search, null, listAnswer);
     }
 
     private static <T> String format(String productLabel, String order, Found<T> found, Function<T, String> line,
             Function<T, List<String>> description, Function<T, ProductCard> card, ProductDataRecorder recorder,
-            String listSubject, ProductListAnswer listAnswer) {
+            ProductSearch search, String listSubject, ProductListAnswer listAnswer) {
         if (found.items().isEmpty()) {
-            recorder.searched(null);
+            recorder.searched(new ProductDataRecorder.SearchRecord(search, 0, null));
             return String.format(NOT_FOUND_MESSAGE, productLabel);
         }
+        List<T> items = found.items();
+        // LLM에는 앞의 LLM_ROWS행만 돌려줍니다. 나머지 행도 출력 검사 근거와 목록 답변·카드에는 씁니다.
+        int shown = Math.min(items.size(), LLM_ROWS);
         StringBuilder text = new StringBuilder();
         text.append("조건에 맞는 ").append(productLabel).append(' ').append(found.total()).append("건 중 ")
-                .append(found.items().size()).append("건(").append(order).append(")\n");
-        List<T> items = found.items();
+                .append(shown).append("건(").append(order).append(")\n");
         List<List<String>> sentences = items.stream().map(description).toList();
         List<String> common = items.size() < 2 ? List.of() : sentences.getFirst().stream()
                 .filter(sentence -> sentences.stream().allMatch(each -> each.contains(sentence))).toList();
@@ -92,15 +98,26 @@ final class ProductToolResults {
             List<String> own = sentences.get(index).stream().filter(sentence -> !common.contains(sentence)).toList();
             String row = "- " + line.apply(item) + (own.isEmpty() ? "" : " | " + String.join(" ", own));
             recorder.record(card.apply(item), row);
-            text.append(row).append('\n');
+            if (index < shown) {
+                text.append(row).append('\n');
+            }
         }
-        if (found.total() > items.size()) {
+        if (found.total() > shown) {
             text.append(String.format(MORE_RESULTS_MESSAGE, productLabel));
         }
         // "하나만 알려줘"처럼 개수를 말했으면 목록 답변과 카드만 그 개수로 줄입니다. LLM에 돌려준 행과 검사 근거는 그대로입니다.
-        long listed = requestedCount(recorder.question()).orElse(items.size());
-        recorder.searched(listAnswer != null ? listAnswer : listSubject == null || items.size() < 2 ? null
-                : new ProductListing(listSubject, order, found.total(), items.stream().limit(listed).map(card).toList()));
+        OptionalInt requested = requestedCount(recorder.question());
+        long listed = requested.orElse(items.size());
+        // 버튼 조건 조회는 LLM 답변이 없어 상품이 하나여도 목록 답변으로 답합니다.
+        int listMinimum = recorder.refineSearch() ? 1 : 2;
+        ProductListAnswer listing = listAnswer != null ? listAnswer : listSubject == null || items.size() < listMinimum ? null
+                : new ProductListing(listSubject, order, found.total(), items.stream().limit(listed).map(card).toList());
+        // 목록 요청인데 결과가 다 들어가지 않으면 첫 답변은 목록 대신 조건을 고르라고 안내합니다. 선택지는 AiService가 붙입니다.
+        // "하나만"처럼 개수를 말했으면 그 개수로 답할 수 있어 목록을 씁니다. 버튼 조건 조회는 목록과 선택지를 함께 보여 줍니다.
+        if (listing != null && !recorder.refineSearch() && found.total() > recorder.limit() && requested.isEmpty()) {
+            listing = ProductRefinePrompt.of(listing, found.total());
+        }
+        recorder.searched(new ProductDataRecorder.SearchRecord(search, found.total(), listing));
         return text.toString().stripTrailing();
     }
 

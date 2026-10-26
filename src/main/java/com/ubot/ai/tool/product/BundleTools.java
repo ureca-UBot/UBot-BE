@@ -66,13 +66,14 @@ public class BundleTools {
             if (!dropped.isEmpty()) {
                 log.info("결합 상품 조회 도구: 질문에 근거가 없는 조건을 뺐습니다: {}", dropped);
             }
-            ProductCatalogQuery.Found<BundleProduct> found = productCatalogQuery.searchBundles(name, type, lines);
+            ProductCatalogQuery.Found<BundleProduct> found = productCatalogQuery.searchBundles(name, type, lines, recorder.limit());
             log.info("결합 상품 조회 도구: name={}, bundleType={}, lineCount={}, listRequested={}, 결과={}건 중 {}건",
                     name, bundleType, lineCount, listRequested, found.total(), found.items().size());
             String displayName = ProductCatalogQuery.displayName(name, ProductCatalogQuery.BUNDLE_WORDS);
             // 회선 수는 목록 주어에 드러나지 않아 "조건에 맞는"을 붙이고, 이름이 있으면 종류 말은 빼서 겹치지 않게 합니다.
             return ProductToolResults.format(PRODUCT_LABEL, "할인액 큰 순", found, BundleTools::line,
                     ProductDescriptions::of, this::card, recorder,
+                    ProductSearch.of(ProductType.BUNDLE, name, ProductRefine.BUNDLE_TYPE, type, ProductRefine.LINE_COUNT, lines),
                     ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, lines != null,
                             displayName == null && type != null ? typeLabel(type) : null, displayName));
         } catch (RuntimeException exception) {
@@ -102,7 +103,7 @@ public class BundleTools {
         return bundle.getHomeProduct() == null ? null : HOME_PRODUCT_PREFIX + bundle.getHomeProduct().getName();
     }
 
-    private static String typeLabel(BundleType type) {
+    static String typeLabel(BundleType type) {
         return switch (type) {
             case FAMILY -> "가족";
             case HOME -> "홈";
