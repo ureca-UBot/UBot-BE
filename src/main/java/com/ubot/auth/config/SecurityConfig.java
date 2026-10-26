@@ -96,7 +96,8 @@ public class SecurityConfig {
 								"/addon-services", "/addon-services/**",
 								"/roaming-products", "/roaming-products/**",
 								"/home-products", "/home-products/**",
-								"/notices", "/notices/**")
+								"/notices", "/notices/**",
+								"/public/faqs", "/public/faqs/**")
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
 						// 게스트도 자기 작업을 조회함. 소유권은 ChatJobQueryService가 확인함
