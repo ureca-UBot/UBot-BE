@@ -101,7 +101,7 @@ class AiServiceTest {
                 new AiOutputGuardService(wordFilter),
                 SubQuestionLabels.withoutMorphology(),
                 org.mockito.Mockito.mock(com.ubot.ai.service.AiLlmOutputGuardService.class),
-                new com.ubot.ai.config.AiOutputGuardProperties());
+                new com.ubot.ai.config.AiOutputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCaptureService.class), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     }
 
     @Test

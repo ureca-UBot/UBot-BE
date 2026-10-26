@@ -96,7 +96,7 @@ final class ChatJobTestHarness {
 		queryService = new ChatJobQueryService(
 				jobRepository, attemptRepository, questionLogRepository, attemptsService, resultStore, conversationRepository);
 		var runner = new ChatJobRunner(stream, resultStore, queueRepository, jobRepository, completionService,
-				new ChatJobProcessor(processor), attemptRepository, WORKER_PROPERTIES);
+				new ChatJobProcessor(processor, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class)), attemptRepository, WORKER_PROPERTIES);
 		var recovery = new ChatJobRecoveryService(stream, queueRepository, jobRepository, completionService, WORKER_PROPERTIES, runner);
 		driver = new ChatJobTestDriver(stream, runner, recovery, WORKER_PROPERTIES);
 	}

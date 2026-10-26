@@ -58,7 +58,7 @@ final class ChatTestFixtures {
 		var properties = new AiInputGuardProperties();
 		properties.setLlmEnabled(false);
 		return new com.ubot.ai.service.AiInputGuardService(mock(com.ubot.ai.service.AiGuardModelService.class),
-				mock(com.ubot.prompt.service.AiGuardPromptService.class), passthroughInputGuard(), properties, prompts, llm);
+				mock(com.ubot.prompt.service.AiGuardPromptService.class), passthroughInputGuard(), properties, prompts, llm, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 	}
 
 	private ChatTestFixtures() {
@@ -69,7 +69,7 @@ final class ChatTestFixtures {
 	}
 
 	static ChatInputGuardService inputGuard(ForbiddenWordFilterService filter) {
-		return new ChatInputGuardService(filter, new ChatPromptInjectionService(), new AiInputGuardProperties());
+		return new ChatInputGuardService(filter, new ChatPromptInjectionService(), new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
 	}
 
 	/** 입력 가드와 무관한 질문 분리 단위 검사에서는 입력을 그대로 전달합니다. */

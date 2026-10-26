@@ -30,7 +30,7 @@ public final class GuardPipelineFixtures {
         return filter;
     }
     public static ChatInputGuardService input() {
-        return new ChatInputGuardService(words(), new ChatPromptInjectionService(), new AiInputGuardProperties());
+        return new ChatInputGuardService(words(), new ChatPromptInjectionService(), new AiInputGuardProperties(), org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     }
     public static AiOutputGuardService output() { return new AiOutputGuardService(words()); }
     public static FaqSearchResponseDto unrelatedFaq() {

@@ -133,7 +133,7 @@ public class ChatAnswerProcessor {
 				log.info("CHAT route: attemptId={}, source=OFFICIAL_FAQ, faqIds={}, preparationMs={}",
 						attempt.getId(), List.of(officialFaq.faqId()), elapsedMillis(startedAt));
 				AnswerMaterials cachedMaterials = AnswerMaterials.builder(preparedQuestion)
-						.addFaqs(List.of(officialFaq)).build().withHistory(plan.historyForAnswer());
+						.addFaqs(List.of(officialFaq)).build().withHistory(plan.historyForAnswer()).withReviewAttempt(attempt.getId());
 				return ChatAnswerResult.answered(aiService.validateCachedAnswer(cachedMaterials, officialFaq.answer(),
 								String.valueOf(officialFaq.faqId())),
 						List.of(new SubQuestionFaqs(question, List.of(officialFaq), question)));
@@ -224,7 +224,8 @@ public class ChatAnswerProcessor {
 		AnswerMaterials materials = chatContextCollector.collectBySubQuestion(
 				new ChatContext(attempt.getUserId(), preparedQuestion, location), promptSearched,
 				CommonFaqMerger.merge(searched, promptSearched))
-				.withHistory(plan.historyForAnswer());
+				.withHistory(plan.historyForAnswer())
+				.withReviewAttempt(attempt.getId());
 		AiAnswer answer = aiService.generateAnswer(materials);
 		checkCancellation.run();
 		if (answer == null || !StringUtils.hasText(answer.answer())) {

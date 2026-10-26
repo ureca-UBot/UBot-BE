@@ -89,7 +89,7 @@ public class SubQuestionPlanner {
 	private SubQuestionPlan judge(AnswerAttemptsHistory attempt, String question, List<ConversationTurn> history, QuestionRouter.Route route) {
 		long startedAt = System.nanoTime();
 		// 활성 안전 판정의 BLOCK·REVIEW·실패는 전파합니다. 안전 판정 OFF의 분류기 실패만 기존대로 복구합니다.
-		var inspection = aiInputGuardService.inspectForPlanning(attempt.getQuestion(), question, history);
+		var inspection = aiInputGuardService.inspectForPlanning(attempt.getId(), attempt.getQuestion(), question, history);
 		if (inspection.planningFailed()) {
 			boolean multiTurn = multiTurnDetector.isMultiTurn(question, history, List.of(question), route);
 			return new SubQuestionPlan(List.of(new SubQuestionPlan.SubQuestion(question, question)),

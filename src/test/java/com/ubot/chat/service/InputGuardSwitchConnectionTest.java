@@ -56,13 +56,13 @@ class InputGuardSwitchConnectionTest {
     private final AiInputGuardProperties properties = new AiInputGuardProperties();
     private final ForbiddenWordFilterService words = mock(ForbiddenWordFilterService.class);
     private final ChatPromptInjectionService injection = mock(ChatPromptInjectionService.class);
-    private final ChatInputGuardService code = new ChatInputGuardService(words, injection, properties);
+    private final ChatInputGuardService code = new ChatInputGuardService(words, injection, properties, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final AiGuardModelService safetyModel = mock(AiGuardModelService.class);
     private final AiGuardPromptService safetyPrompts = mock(AiGuardPromptService.class);
     private final SubQuestionPromptService planningPrompts = mock(SubQuestionPromptService.class);
     private final LlmService planningLlm = mock(LlmService.class);
     private final AiInputGuardService input = new AiInputGuardService(safetyModel, safetyPrompts, code,
-            properties, planningPrompts, planningLlm);
+            properties, planningPrompts, planningLlm, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
     private final LlmRequestDto request = new LlmRequestDto(List.of());
     private final ConversationTurnRepository turns = mock(ConversationTurnRepository.class);
     private final QuestionRouter router = mock(QuestionRouter.class);
@@ -199,7 +199,7 @@ class InputGuardSwitchConnectionTest {
         properties.setLlmEnabled(false);
         var originalPrompts = new SubQuestionPromptService(new ClassPathResource("prompts/sub-question-system.txt"),
                 new ClassPathResource("prompts/sub-question-user.txt"));
-        var service = new AiInputGuardService(safetyModel, safetyPrompts, code, properties, originalPrompts, planningLlm);
+        var service = new AiInputGuardService(safetyModel, safetyPrompts, code, properties, originalPrompts, planningLlm, org.mockito.Mockito.mock(com.ubot.guardreview.service.ReviewCheckService.class));
         when(planningLlm.generateJudgment(any())).thenReturn(new LlmResponseDto(PLANNED));
 
         assertThat(service.inspect(QUESTION, QUESTION, HISTORY)).containsExactlyElementsOf(QUERIES);

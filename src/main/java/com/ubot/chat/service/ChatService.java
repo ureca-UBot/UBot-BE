@@ -116,7 +116,7 @@ public class ChatService {
 			throw new ChatException(ChatErrorCode.INVALID_CHAT_REQUEST);
 		}
 		// 원문은 기록에 보존하고, 처리할 요청이 남는지는 접수 전에 확인합니다.
-		chatInputGuardService.prepareQuestion(question);
+		chatInputGuardService.prepareSubmittedQuestion(question);
 	}
 
 	private void validateIdempotencyKey(String idempotencyKey, ChatErrorCode invalidCode) {
