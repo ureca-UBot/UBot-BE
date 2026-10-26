@@ -1,0 +1,17 @@
+[Unit]
+Description=UBot On-Demand GPU mode switcher (chat/embedding <-> administrator 14B)
+Requires=docker.service ubot-admin-risk-controller.service
+After=ubot-admin-risk-controller.service ubot-vllm.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/ubot-admin-risk/runtime.env
+
+[Service]
+EnvironmentFile=/etc/ubot-admin-risk/runtime.env
+EnvironmentFile=/etc/ubot-admin-risk/switcher.env
+WorkingDirectory=/opt/ubot-admin-risk
+ExecStart=/usr/bin/python3 /opt/ubot-admin-risk/switcher.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

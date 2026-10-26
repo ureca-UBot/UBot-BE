@@ -3,11 +3,17 @@
 **UBot**은 통신사 고객이 요금제, 가입, 로밍, 매장 같은 궁금증을 대화하듯 물어보면, 등록된 FAQ를 근거로 답해 주는 상담 챗봇입니다. 이 저장소는 그 백엔드 서버입니다.
 
 - 프론트엔드: [UBot-FE](https://github.com/ureca-UBot/UBot-FE)
+- 제품 전체 문서: [UBot Product Documentation](https://github.com/ureca-UBot/.github/blob/main/docs/README.md)
 - 대상 독자: 이 저장소를 개발하는 팀원
 
 ## UBot이 답하는 방식
 
-![UBot 질문 처리 흐름](docs/images/ubot-overview.svg)
+<p align="center">
+  <picture>
+    <source media="(max-width: 767px)" srcset="docs/images/current/service-flow-mobile.svg">
+    <img src="docs/images/current/service-flow.svg" alt="고객 질문에서 근거 기반 AI 답변과 조건별 후속 처리로 이어지는 UBot 흐름" width="90%">
+  </picture>
+</p>
 
 - **FAQ와 맞는 질문에만 답합니다.** 질문과 가장 비슷한 FAQ 3건을 찾고, 유사도가 기준(0.75) 이상인 것만 씁니다. 기준을 넘는 FAQ가 없으면 LLM을 부르지 않고 "정확한 답변을 찾지 못했습니다"라고 답합니다.
 - **FAQ의 종류에 맞는 자료로 답합니다.** FAQ에는 처리 의도(intent)가 붙어 있습니다. 일반 FAQ는 원문을 근거로 넘기고, 매장 FAQ가 걸리면 근처 매장을 조회해 답하며, 사용자 정보 FAQ가 걸리면 로그인한 사용자의 정보를 참고 자료로 넘깁니다.
@@ -55,7 +61,7 @@ API 경로와 인증 방식은 [architecture.md](docs/architecture.md)에, 오�
 | 외부 API | 카카오 로컬(주소·장소 검색), 카카오맵 길찾기(도보·대중교통), 카카오모빌리티 길찾기(자동차) |
 | 지역 판별 | MaxMind GeoLite2 — 접속 IP로 시도 판별 |
 | 모니터링 | Micrometer, Prometheus (`/actuator/prometheus`). 로컬 Compose에 Prometheus가 들어 있고, Nginx는 이 경로를 외부에 열지 않습니다. |
-| 배포 | Docker Compose, Nginx(`/api` 접두사 처리, 게스트 채팅 속도 제한), GitHub Actions(CI, 수동 CD) |
+| 배포 | Docker Compose, Nginx(`/api` 접두사 처리, 게스트 채팅 속도 제한), GitHub Actions(CI, ECR 이미지 발행·SSM 자동 배포, 수동 CD) |
 | 테스트 인프라 | Terraform(AWS 네트워크, GPU 테스트 서버), vLLM·SGLang LLM 서빙 런타임, vLLM 임베딩 서버 |
 
 환경변수 전체 목록은 [.env.example](.env.example)에, 주요 설정의 설명은 [configuration.md](docs/reference/configuration.md)에 있습니다.
@@ -89,6 +95,7 @@ Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 �
 
 | 궁금한 것 | 문서 |
 |---|---|
+| 현재 설계 그림 모음 | [docs/images/README.md](docs/images/README.md) |
 | 처음부터 단계별로 실행하기 | [quickstart.md](docs/quickstart.md) |
 | 코드 구조, API, 요청 흐름 | [architecture.md](docs/architecture.md) |
 | 환경변수와 설정값 | [configuration.md](docs/reference/configuration.md) |

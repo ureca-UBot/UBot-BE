@@ -1,10 +1,31 @@
 # 배포
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
->
-> GitHub PR·이슈 상태: 2026-09-30 09:23 KST 조회 기준
+![GitHub Actions, ECR, SSM과 Backend·GPU 실행 인프라의 관계](images/current/aws-gpu-topology.svg)
 
-배포는 **수동 실행 CD 워크플로우**(`Backend Manual CD`)로 EC2 스테이징 서버에 올립니다. 같은 구성 파일로 로컬에서 배포 형태를 재현할 수도 있습니다.
+![Backend CI에서 ECR 이미지 발행, SSM 배포와 배포 후 검증으로 이어지는 절차](images/current/development-operations.svg)
+
+> 현재 코드 기준: UBot-BE `develop` `4a7a546f` · 확인일: 2026-10-26
+
+## AWS CI/CD 흐름
+
+현행 AWS 경로는 `Backend CI`가 배포 브랜치의 push에서 성공하면 `AWS PoC BE CD`가 그 정확한 커밋을 ECR에 발행하고, 이미지 digest를 고정해 SSM으로 BE EC2를 교체합니다. PR의 CI 성공만으로는 배포하지 않으며 `AWS_BE_DEPLOY_ENABLED=true`여야 합니다. 수동 실행은 새 이미지를 빌드하지 않고 이미 ECR에 발행된 digest를 재배포합니다.
+
+```text
+Backend CI 성공(push)
+  → OIDC 역할 획득
+  → 동일 commit 이미지 ECR 발행·digest 확정
+  → aws-poc environment
+  → SSM AWS-RunShellScript
+  → API/Flyway → Nginx → Worker → 상담 색인 → 관측 확인
+```
+
+이 경로가 배포하는 것은 BE EC2의 API·Worker·Nginx·관측 도구입니다. PostgreSQL·Redis는 별도 State EC2, 답변·임베딩 모델은 NLB 뒤 GPU 서버를 사용하며 `AI_RUNTIME_MANAGED=false`입니다. FE·State·NLB·GPU ASG의 생성이나 용량 변경은 이 CD의 범위가 아닙니다.
+
+자동 배포는 대상 브랜치가 여전히 같은 commit인지 다시 확인해 오래된 실행의 역전 배포를 막습니다. API health·공지 조회·Worker 기동·scrape 대상은 확인하지만 로그인 질문부터 최종 LLM 답변까지의 smoke test와 자동 이미지 롤백은 수행하지 않습니다. 실행 조건과 명령의 기준은 [AWS 배포 workflow](../.github/workflows/aws-be-deploy.yml)와 `tools/deploy/aws-be-deploy.sh`입니다.
+
+## 기존 SSH/SCP 수동 CD
+
+아래 절은 `Backend Manual CD`와 로컬 배포 형태를 위한 기존 절차입니다. AWS ECR·SSM 경로와 섞어 해석하지 않습니다. 같은 구성 파일로 로컬에서 배포 형태를 재현할 수도 있습니다.
 
 ## 배포 범위
 
@@ -88,6 +109,7 @@ AI_MODE=vllm
 AI_RUNTIME_MANAGED=true
 LLM_BASE_URL=http://vllm:8000/v1
 LLM_MODEL=ubot-chat
+LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
 LLM_SERVED_MODEL_NAME=ubot-chat
 EMBEDDING_BASE_URL=http://vllm-embedding:8000/v1
 EMBEDDING_MODEL=ubot-embedding

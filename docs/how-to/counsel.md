@@ -2,6 +2,8 @@
 
 로그인한 회원이 AI 대화 중에 상담사를 호출하고, 상담사가 그 대화의 이전 문답을 보며 상담을 이어가는 기능입니다. 코드는 `com.ubot.counsel`에 있고 기존 Spring Boot 프로세스(API·ai-worker)에서 동작합니다. 고객 FE는 `/ai`, 상담사 화면은 `/counselor`이며, FE의 `/api/counsel/**` 요청은 기존 `/api` 프록시를 거쳐 BE `/counsel/**`로 갑니다.
 
+![상담 메시지 접수, 저장, 금지어·임베딩 검사와 최종 확정 순서](../images/current/counsel-message-lifecycle.svg)
+
 ## 처리 흐름
 
 1. 기존 `JwtAuthenticationFilter`가 토큰과 현재 DB 사용자를 확인합니다. 역할은 토큰이 아니라 DB 값을 따르므로, 관리자가 상담사 권한을 회수하면 다음 요청부터 바로 적용됩니다.

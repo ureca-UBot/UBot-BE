@@ -190,7 +190,7 @@ powershell -ExecutionPolicy Bypass -File .\load-faqs.ps1 -CsvPath .\faqs.csv -Em
 
 ## 3. 채팅 모델
 
-채팅 답변까지 확인하려면 Ollama에 채팅 모델을 받고 `.env`의 `OLLAMA_CHAT_MODEL`에 지정합니다([quickstart 4단계](../quickstart.md#4-embedding-모델-준비-확인)). UBot-FE의 채팅 연동 확인에는 `qwen3:14b`를 사용했습니다. 큰 모델이라 GPU가 없으면 응답이 `LLM_READ_TIMEOUT`(기본 120초)을 넘길 수 있습니다.
+채팅 답변까지 확인하려면 Ollama에 채팅 모델을 받고 `.env`의 `OLLAMA_CHAT_MODEL`에 지정합니다([quickstart 4단계](../quickstart.md#4-embedding-모델-준비-확인)). 현재 로컬 기본값은 `qwen3:4b-instruct-2507-q4_K_M`이며, 운영 vLLM의 GPTQ W4A16 체크포인트와 같은 Qwen3-4B-Instruct-2507 계열입니다. GPU가 없거나 모델을 처음 로드하면 응답이 `LLM_READ_TIMEOUT`(기본 120초)을 넘길 수 있습니다.
 
 ## 4. 확인
 

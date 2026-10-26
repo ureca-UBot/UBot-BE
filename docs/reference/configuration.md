@@ -33,6 +33,16 @@ src/main/resources/
 | `docker-compose.ollama.gpu.yml` | `ollama`에 NVIDIA GPU 연결 | `AI_MODE=ollama`이고 `.env`의 `OLLAMA_GPU=true`일 때 `ubot.ps1 up`이 덧붙임. 배포 워크플로는 쓰지 않음 |
 | `docker-compose.vllm.yml` | `vllm`(답변 생성), `vllm-embedding`(임베딩) | `AI_MODE=vllm`. NVIDIA GPU 필요 |
 
+AWS BE EC2는 위 로컬 조합 대신 다음 세 파일을 사용합니다.
+
+| 파일 | 서비스·강제 설정 | 쓰는 경우 |
+|---|---|---|
+| `docker-compose.api.yml` | `backend`, Nginx, `APP_ROLE=api`, `AI_MODE=vllm`, `AI_RUNTIME_MANAGED=false`, `COUNSEL_SEED_ON_START=false` | AWS API 교체 |
+| `docker-compose.worker.yml` | `ai-worker`, `APP_ROLE=worker`, `AI_MODE=vllm`, `AI_RUNTIME_MANAGED=false`, `CHAT_WORKER_CONCURRENCY` 기본 2, `FAQ_CACHE_ENABLED=true` | AWS Worker 교체 |
+| `docker-compose.monitoring.yml` | Prometheus, PostgreSQL/Redis exporter, cAdvisor | 별도 State EC2와 API·Worker 계측 |
+
+AWS 조합은 DB·Redis·GPU 모델을 BE EC2에 띄우지 않습니다. `NLB_DNS`로 답변 `8000/v1`과 임베딩 `8001/v1` 주소를 만들고, 서버 `.env`의 State DB·Redis 주소를 사용합니다. 로컬 기본값과 AWS Compose의 명시적 덮어쓰기를 구분해야 합니다.
+
 | 명령 | 하는 일 |
 |---|---|
 | `.\tools\ubot.ps1 up` | 다른 쪽 모델 서버 컨테이너를 내린 뒤, 공통 서비스와 `AI_MODE`에 맞는 모델 서버를 띄웁니다. `vllm`이면 두 서버의 `/v1/models`에 `LLM_MODEL`, `EMBEDDING_MODEL`이 보일 때까지 서버마다 최대 300초 기다립니다 |

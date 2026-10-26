@@ -160,9 +160,13 @@ AI_EMBEDDING_ENGINE=ollama
 AI_MODE=vllm
 LLM_BASE_URL=http://<GPU_HOST>:8000/v1
 LLM_MODEL=ubot-chat
+LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
+LLM_SERVED_MODEL_NAME=ubot-chat
 ```
 
-- `LLM_BASE_URL`은 `/v1`까지 적고, `LLM_MODEL`은 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에 있습니다.
+- 현재 vLLM 답변 체크포인트는 `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16`(GPTQ W4A16)입니다. 이는 과거 로컬 검증에 쓴 `Qwen/Qwen3-4B-AWQ`와 다릅니다.
+- `LLM_HF_MODEL`은 vLLM이 실제로 불러올 체크포인트입니다. `LLM_MODEL`은 백엔드가 API 요청에 넣는 이름이며 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같은 `ubot-chat`이어야 합니다.
+- `LLM_BASE_URL`은 `/v1`까지 적습니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에서 확인합니다.
 - 제한 시간은 두 구현체 모두 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다. 자동 재시도는 하지 않습니다.
 - 도구가 붙은 요청은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회, 도구 실행 라운드 최대 8회)는 `OllamaClient`와 같습니다. 최종 형식 오류에 한해 도구 없이 스키마 재호출 1회를 적용합니다. vLLM은 `--enable-auto-tool-choice`와 `--tool-call-parser`로 실행되어 있어야 하며(`infra/llm`에 반영), 그렇지 않으면 도구가 붙은 요청을 거절합니다.
 - 생성 옵션(temperature, Thinking Mode 등)은 요청에 넣지 않고 서버 기본 설정을 따릅니다. Qwen3의 Thinking Mode는 모델 서버 설정 `VLLM_ENABLE_THINKING`(기본 `false`)으로 정합니다. Thinking을 켠 서버에서 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다.
