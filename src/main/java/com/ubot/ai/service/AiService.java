@@ -165,11 +165,14 @@ public class AiService {
                 : "ABSTAIN".equals(status) ? null
                 : ProductDataCardSelector.select(answer, productDataRecorder.cards());
         // 상품 카드가 나가는 "요금제 종류 알려줘" 같은 답변에는 질문의 "요금제"만으로 내 요금제 카드를 붙이지 않습니다.
+        // 상품 도구가 붙은 질문도 같습니다. "밸런스 요금제 알려줘"가 0건이면 상품 카드는 없지만 묻는 것은 내 요금제가 아닙니다.
+        // 답변에 내 요금제 이름이 나오면 지금처럼 붙입니다.
+        boolean productQuestion = materials.tools().stream().anyMatch(ProductType::isProductTool);
         UserDataCards userData = "ABSTAIN".equals(status) ? null
                 : UserDataCards.merge(
                         UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
                         UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary(),
-                                productData == null));
+                                productData == null && !productQuestion));
         return new AiAnswer(answer, storeMap, storeRecorder.isLocationRequired(), status, inspection, userData,
                 productData, slotOutcomes);
     }

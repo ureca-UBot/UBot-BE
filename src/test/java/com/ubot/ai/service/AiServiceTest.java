@@ -291,6 +291,22 @@ class AiServiceTest {
     }
 
     @Test
+    void 상품_도구가_붙은_질문은_질문의_요금제만으로_내_요금제_카드를_붙이지_않는다() {
+        // "밸런스 요금제 알려줘"에 사용자 정보 FAQ가 섞여 사용자 정보도 붙었고, 조회 결과가 0건이라 상품 카드도 없는 상황입니다.
+        var materials = AnswerMaterials.builder("밸런스 요금제 알려줘").enableTool(AiTool.PLAN_SEARCH)
+                .enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createSlotPrompt("밸런스 요금제 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"밸런스 요금제가 없습니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.productData()).isNull();
+        assertThat(answer.userData() == null ? List.of() : answer.userData().plans()).isEmpty();
+    }
+
+    @Test
     void 도구로_조회했지만_답변에_쓰지_않은_달은_카드로_붙이지_않는다() {
         var materials = AnswerMaterials.builder("8월이랑 9월 요금 비교해줘").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
                 .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
