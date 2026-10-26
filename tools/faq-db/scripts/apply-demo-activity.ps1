@@ -4,15 +4,20 @@ param(
     [switch] $Force
 )
 
-# DB를 초기화하지 않고 이 브랜치의 시연용 활동 기록 두 가지를 순서대로 넣는다.
-#   1. seed-demo-faqranking.sql  (인기 FAQ 시연)
-#   2. seed-demo-telemap.sql     (FAQ 대시보드·통신 지도 시연)
-# 사용자·FAQ 기본 시드가 먼저 들어가 있어야 한다.
+# DB를 초기화하지 않고 이 브랜치의 시연 데이터 세 가지를 한 트랜잭션으로 순서대로 넣는다.
+#   1. seed-demo-product-faqs.sql (상품 의도 FAQ. 이미 있으면 건너뜀. 인기 FAQ 시연이 이 FAQ를 씀)
+#   2. seed-demo-faqranking.sql   (인기 FAQ 시연)
+#   3. seed-demo-telemap.sql      (FAQ 대시보드·통신 지도 시연)
+# 사용자·FAQ 기본 시드가 먼저 들어가 있어야 한다. 상품 FAQ를 새로 넣었으면 적용 뒤 임베딩을 백필한다.
 $ErrorActionPreference = 'Stop'
 $toolsPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $seedSqlPaths = @(
+    @{ Path = (Join-Path $toolsPath 'seed\demo\seed-demo-product-faqs.sql'); Name = 'product FAQ demo' },
     @{ Path = (Join-Path $toolsPath 'seed\demo\seed-demo-faqranking.sql'); Name = 'FAQ ranking demo' },
-    @{ Path = (Join-Path $toolsPath 'seed\demo\seed-demo-telemap.sql'); Name = 'telemap demo' }
+    @{ Path = (Join-Path $toolsPath 'seed\demo\seed-demo-telemap.sql'); Name = 'telemap demo' },
+    # 상품 FAQ SQL이 새 FAQ·질문 표현을 기본 CSV에서 읽는다.
+    @{ Path = (Join-Path $toolsPath 'seed\baseline\baseline-faqs.csv'); Name = 'baseline FAQ CSV' },
+    @{ Path = (Join-Path $toolsPath 'seed\baseline\baseline-faq-variants.csv'); Name = 'baseline variant CSV' }
 )
 
 function Invoke-Checked {
@@ -28,6 +33,7 @@ foreach ($seed in $seedSqlPaths) {
 $transactionScript = [IO.Path]::GetTempFileName()
 [IO.File]::WriteAllText($transactionScript, @'
 BEGIN;
+\i /tmp/seed-demo-product-faqs.sql
 \i /tmp/seed-demo-faqranking.sql
 \i /tmp/seed-demo-telemap.sql
 COMMIT;
@@ -52,7 +58,7 @@ if (-not $Force) {
 try {
     foreach ($seed in $seedSqlPaths) {
         $fileName = Split-Path -Leaf $seed.Path
-        Invoke-Checked { docker cp $seed.Path "${containerId}:/tmp/$fileName" } "Could not copy $($seed.Name) seed SQL."
+        Invoke-Checked { docker cp $seed.Path "${containerId}:/tmp/$fileName" } "Could not copy $($seed.Name)."
     }
     Invoke-Checked { docker cp $transactionScript "${containerId}:/tmp/apply-demo-activity.sql" } 'Could not copy demo activity transaction script.'
     Invoke-Checked {
@@ -68,7 +74,8 @@ try {
 
 $counts = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
     -U $databaseUser -d $databaseName -At -F '|' -c @'
-SELECT (SELECT count(*) FROM question_log), (SELECT count(*) FROM faq_log), (SELECT count(*) FROM surging_alerts);
+SELECT (SELECT count(*) FROM question_log), (SELECT count(*) FROM faq_log), (SELECT count(*) FROM surging_alerts),
+       (SELECT count(*) FROM faq WHERE intent = 'PRODUCT_DATA' AND deleted_at IS NULL);
 '@).Trim()
 $parts = $counts.Split('|')
-Write-Host "Demo seeds applied: $($parts[0]) question logs, $($parts[1]) FAQ logs, $($parts[2]) surging alerts."
+Write-Host "Demo seeds applied: $($parts[0]) question logs, $($parts[1]) FAQ logs, $($parts[2]) surging alerts, $($parts[3]) product FAQs."

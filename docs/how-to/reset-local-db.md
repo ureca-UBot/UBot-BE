@@ -21,6 +21,14 @@ Docker Desktop이 실행 중이고 `.env` 파일이 준비되어 있어야 합�
 
 기본 DB에 이 브랜치의 시연 활동 데이터를 추가하려면 다음을 실행합니다. 이미 질문 로그가 있으면 중복 적재를 막기 위해 실패하므로, 필요하면 먼저 시연 활동 초기화를 실행한 뒤 시드를 적용하세요.
 
+시연 적용은 상품 의도(`PRODUCT_DATA`) FAQ도 함께 넣습니다. 새 FAQ 1905~2168과 #275에서 바뀐 기존 FAQ 76개입니다. 기본 CSV로 초기화한 DB에는 이미 있으므로 건너뛰고, 그보다 오래된 DB에만 넣습니다. 바꿀 FAQ를 관리자가 고쳤거나 FAQ·질문 표현 ID가 이미 쓰이고 있으면 아무것도 넣지 않고 실패합니다. 상품 FAQ를 새로 넣었다면 적용 뒤 임베딩을 [백필](llm-module.md#백필)해야 검색됩니다. 시연 활동 초기화는 시연 적용이 넣은 상품 FAQ만 되돌립니다.
+
+AWS 운영 DB에는 BE EC2에서 같은 SQL을 넣습니다. 배포 이미지가 스크립트와 시드 파일을 release 폴더(`<배포 경로>/releases/<이미지 digest>`)에 함께 풀어 두므로, 그 폴더에서 다음을 실행합니다. 접속 정보는 release 폴더의 `.env`에서 읽고, psql은 `postgres:18-alpine` 컨테이너로 실행합니다. 운영 DB에는 실제 질문 로그가 있으므로 시연 활동까지 넣으려면 `--force`가 필요하며, 시연 질문 로그가 실제 기록과 섞입니다. 시연 활동 초기화는 실제 질문 로그까지 모두 지우므로 운영 DB에서 실행하지 않습니다.
+
+```bash
+bash tools/faq-db/scripts/apply-demo-activity.sh --force
+```
+
 ```powershell
 .\tools\faq-db\scripts\clear-demo-activity.ps1
 .\tools\faq-db\scripts\apply-demo-activity.ps1

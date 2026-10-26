@@ -7,7 +7,8 @@
 | 시드 검증 | `python -X utf8 .\tools\faq-db\validate_baseline_seed.py` |
 | 로컬 DB 전체 초기화 | `.\tools\faq-db\scripts\reset-local-db.ps1` |
 | FAQ 데이터 초기화 | `.\tools\faq-db\scripts\reset-faq-data.ps1` |
-| 시연 활동 데이터 적용 | `.\tools\faq-db\scripts\apply-demo-activity.ps1` |
+| 시연 활동 데이터 적용 (상품 의도 FAQ 포함) | `.\tools\faq-db\scripts\apply-demo-activity.ps1` |
+| 시연 활동 데이터 적용 (BE EC2, 운영 DB) | release 폴더에서 `bash tools/faq-db/scripts/apply-demo-activity.sh [--force]` |
 | 시연 활동 데이터 초기화 | `.\tools\faq-db\scripts\clear-demo-activity.ps1` |
 | 임베딩 백필 | `.\tools\faq-db\backfill-embeddings.ps1 -Email <관리자 이메일>` |
 | 답변 문장 검사 | `python -X utf8 .\tools\faq-db\check_sentence_gate.py --ids <FAQ ID>` |

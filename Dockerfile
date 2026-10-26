@@ -30,6 +30,10 @@ COPY docker-compose.api.yml docker-compose.worker.yml docker-compose.monitoring.
 COPY infra/nginx/nginx.api.conf.template /opt/ubot-deploy/infra/nginx/
 COPY infra/prometheus/prometheus.aws.yml /opt/ubot-deploy/infra/prometheus/
 COPY tools/deploy/aws-be-deploy.sh /opt/ubot-deploy/tools/deploy/
+# 시연 데이터를 BE EC2에서 넣는 스크립트와 그 시드입니다(tools/faq-db/scripts/apply-demo-activity.sh).
+COPY tools/faq-db/scripts/apply-demo-activity.sh /opt/ubot-deploy/tools/faq-db/scripts/
+COPY tools/faq-db/seed/demo/ /opt/ubot-deploy/tools/faq-db/seed/demo/
+COPY tools/faq-db/seed/baseline/baseline-faqs.csv tools/faq-db/seed/baseline/baseline-faq-variants.csv /opt/ubot-deploy/tools/faq-db/seed/baseline/
 
 EXPOSE 8080
 

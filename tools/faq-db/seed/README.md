@@ -5,7 +5,7 @@
 ```text
 baseline/  FAQ·카테고리·질문 표현의 기준 CSV와 soft-delete 목록
 users/     로컬 사용자·가입 상품·이용/청구 기록
-demo/      인기 FAQ·FAQ 대시보드·통신 지도 시연 활동 SQL
+demo/      상품 의도 FAQ, 인기 FAQ·FAQ 대시보드·통신 지도 시연 활동 SQL
 ```
 
 `baseline/baseline-faqs.csv`와 `baseline/baseline-faq-variants.csv`가 FAQ 기준 데이터입니다. FAQ마다 원본 질문을 첫 variant로 저장하고, 유사표현은 필요한 만큼 추가할 수 있습니다.
