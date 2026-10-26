@@ -67,7 +67,7 @@ class ReviewControllerTest {
 	}
 	@Test
 	void 검사기록과_원문근거는_관리자만_볼수있다() {
-		assertThatThrownBy(() -> controller.getChecks(user("USER"), null, null, 0, 20))
+		assertThatThrownBy(() -> controller.getFilteredChecks(user("USER"), null, null, null, null, 0, 20))
 				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
 		assertThatThrownBy(() -> controller.getCheck(user("USER"), 1))
 				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
@@ -77,7 +77,7 @@ class ReviewControllerTest {
 	void 출처와_판정필터를_검사기록과_후보에_같이_전달한다() {
 		var origin = com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM;
 		var outcome = com.ubot.guardreview.model.ReviewCheckModels.Outcome.REJECTED;
-		controller.getChecks(user("ADMIN"), origin, outcome, 0, 20);
+		controller.getFilteredChecks(user("ADMIN"), origin, outcome, null, null, 0, 20);
 		controller.getFindings(user("ADMIN"), 5, origin, outcome);
 		verify(checks).page(origin, outcome, 0, 20);
 		verify(repository).findings(5, origin, outcome);

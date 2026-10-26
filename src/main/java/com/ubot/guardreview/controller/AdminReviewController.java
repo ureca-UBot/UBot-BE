@@ -79,7 +79,7 @@ public class AdminReviewController {
 		if (outcome != null) results.add(outcome);
 		return ApiResponse.success(checks.pageFiltered(sources, results, page, size));
 	}
-	public ApiResponse<PageResponseDto<ReviewCheckResponseDto>> getChecks(
+	private ApiResponse<PageResponseDto<ReviewCheckResponseDto>> getChecks(
 			@AuthenticationPrincipal CustomUserDetails user,
 			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome,
 			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
