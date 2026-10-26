@@ -6,7 +6,10 @@
 -- 선행 조건: seed-baseline.sql(FAQ)과 seed-demo-users.sql(ubot.demo.101~200 계정)이 먼저 적용되어 있어야 한다.
 -- 모든 시각은 실행 시각 기준이다. 알림은 서로 다른 시간대에 놓이고, 알림 하나의 질문 간격은 원본과 같다.
 -- 드라이런: psql -v dry_run=1 로 실행하면 마지막에 ROLLBACK 한다.
+\if :{?managed_transaction}
+\else
 BEGIN;
+\endif
 SET LOCAL client_encoding = 'UTF8';
 SET LOCAL TIME ZONE 'Asia/Seoul';
 
@@ -1069,6 +1072,22 @@ SELECT a.region, a.subject,
 FROM _demo_alert a
 ORDER BY a.alert_seq;
 
+-- clear-demo-activity.ps1가 시연 종료 후 FAQ 시각을 원래 값으로 되돌릴 수 있도록 보관한다.
+CREATE TABLE IF NOT EXISTS demo_activity_faq_timestamp_backup (
+    faq_id BIGINT PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+INSERT INTO demo_activity_faq_timestamp_backup (faq_id, created_at, updated_at)
+SELECT f.id, f.created_at, f.updated_at
+FROM faq f
+WHERE f.deleted_at IS NULL
+  AND (
+      f.id IN (SELECT DISTINCT faq_id FROM _demo_faq_log)
+      OR f.id IN (9, 45, 51, 67, 75, 84, 268, 301, 314, 328)
+  )
+ON CONFLICT (faq_id) DO NOTHING;
+
 -- 대시보드는 현재 FAQ 버전 이후(question_log.created_at >= faq.updated_at)의 로그만 센다.
 -- 로그가 걸리는 FAQ는 모든 시연 로그보다 앞으로 당긴다.
 UPDATE faq
@@ -1102,8 +1121,11 @@ BEGIN
     END IF;
 END $$;
 
+\if :{?managed_transaction}
+\else
 \if :{?dry_run}
 ROLLBACK;
 \else
 COMMIT;
+\endif
 \endif

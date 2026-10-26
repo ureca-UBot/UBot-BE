@@ -25,6 +25,14 @@ foreach ($seed in $seedSqlPaths) {
     if (-not (Test-Path -LiteralPath $seed.Path)) { throw "Seed SQL is missing: $($seed.Path)" }
 }
 
+$transactionScript = [IO.Path]::GetTempFileName()
+[IO.File]::WriteAllText($transactionScript, @'
+BEGIN;
+\i /tmp/seed-demo-faqranking.sql
+\i /tmp/seed-demo-telemap.sql
+COMMIT;
+'@, (New-Object System.Text.UTF8Encoding $false))
+
 Invoke-Checked { docker compose up -d postgres } 'Could not start PostgreSQL.'
 $containerId = (& docker compose ps --quiet postgres).Trim()
 if (-not $containerId) { throw 'Could not locate the PostgreSQL container.' }
@@ -45,14 +53,17 @@ try {
     foreach ($seed in $seedSqlPaths) {
         $fileName = Split-Path -Leaf $seed.Path
         Invoke-Checked { docker cp $seed.Path "${containerId}:/tmp/$fileName" } "Could not copy $($seed.Name) seed SQL."
-        Invoke-Checked {
-            docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
-                -U $databaseUser -d $databaseName -f "/tmp/$fileName"
-        } "$($seed.Name) seed import failed."
     }
+    Invoke-Checked { docker cp $transactionScript "${containerId}:/tmp/apply-demo-activity.sql" } 'Could not copy demo activity transaction script.'
+    Invoke-Checked {
+        docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 -v managed_transaction=1 `
+            -U $databaseUser -d $databaseName -f /tmp/apply-demo-activity.sql
+    } 'Demo activity seed import failed; all demo activity changes were rolled back.'
 } finally {
     $remove = $seedSqlPaths | ForEach-Object { '/tmp/' + (Split-Path -Leaf $_.Path) }
+    $remove += '/tmp/apply-demo-activity.sql'
     & docker compose exec -T postgres rm -f @remove | Out-Null
+    Remove-Item -LiteralPath $transactionScript -Force -ErrorAction SilentlyContinue
 }
 
 $counts = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `

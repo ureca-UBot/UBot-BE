@@ -30,7 +30,8 @@ SELECT (SELECT count(*) FROM question_log),
        (SELECT count(*) FROM unanswered_question_embeddings),
        (SELECT count(*) FROM unanswered_group_embeddings),
        (SELECT count(*) FROM unanswered_question_reverifications),
-       (SELECT count(*) FROM outbox_events WHERE event_type IN ('UNANSWERED_QUESTION', 'FAQ_REVERIFY', 'SURGING_QUESTION', 'SURGING_ALERT_LABEL'));
+       (SELECT count(*) FROM outbox_events WHERE event_type IN ('UNANSWERED_QUESTION', 'FAQ_REVERIFY', 'SURGING_QUESTION', 'SURGING_ALERT_LABEL')),
+       (SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'demo_activity_faq_timestamp_backup');
 '@).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not count existing question and FAQ logs.' }
 
@@ -38,6 +39,17 @@ Invoke-Checked {
     docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
         -U $databaseUser -d $databaseName -c @'
 BEGIN;
+CREATE TABLE IF NOT EXISTS demo_activity_faq_timestamp_backup (
+    faq_id BIGINT PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+UPDATE faq f
+SET created_at = b.created_at,
+    updated_at = b.updated_at
+FROM demo_activity_faq_timestamp_backup b
+WHERE f.id = b.faq_id;
+DROP TABLE demo_activity_faq_timestamp_backup;
 DELETE FROM outbox_events WHERE event_type IN ('UNANSWERED_QUESTION', 'FAQ_REVERIFY', 'SURGING_QUESTION', 'SURGING_ALERT_LABEL');
 DELETE FROM unanswered_question_reverifications;
 DELETE FROM unanswered_question_embeddings;
@@ -67,11 +79,12 @@ SELECT (SELECT count(*) FROM question_log),
        (SELECT count(*) FROM unanswered_question_embeddings),
        (SELECT count(*) FROM unanswered_group_embeddings),
        (SELECT count(*) FROM unanswered_question_reverifications),
-       (SELECT count(*) FROM outbox_events WHERE event_type IN ('UNANSWERED_QUESTION', 'FAQ_REVERIFY', 'SURGING_QUESTION', 'SURGING_ALERT_LABEL'));
+       (SELECT count(*) FROM outbox_events WHERE event_type IN ('UNANSWERED_QUESTION', 'FAQ_REVERIFY', 'SURGING_QUESTION', 'SURGING_ALERT_LABEL')),
+       (SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'demo_activity_faq_timestamp_backup');
 '@).Trim()
-if ($LASTEXITCODE -ne 0 -or $after -ne '0|0|0|0|0|0|0|0|0|0|0|0') {
+if ($LASTEXITCODE -ne 0 -or $after -ne '0|0|0|0|0|0|0|0|0|0|0|0|0') {
     throw "Question/FAQ log, surging alert, and unanswered-question clear verification failed: $after"
 }
 
 $beforeParts = $before -split '\|'
-Write-Host "Cleared $($beforeParts[0]) question_log rows, $($beforeParts[1]) faq_log rows, $($beforeParts[2]) surging alerts, $($beforeParts[3]) surging clusters, $($beforeParts[4]) surging questions, $($beforeParts[6]) unanswered questions, and $($beforeParts[7]) unanswered-question groups."
+Write-Host "Cleared $($beforeParts[0]) question_log rows, $($beforeParts[1]) faq_log rows, $($beforeParts[2]) surging alerts, $($beforeParts[3]) surging clusters, $($beforeParts[4]) surging questions, $($beforeParts[6]) unanswered questions, and $($beforeParts[7]) unanswered-question groups. Restored demo-adjusted FAQ timestamps when a backup existed."

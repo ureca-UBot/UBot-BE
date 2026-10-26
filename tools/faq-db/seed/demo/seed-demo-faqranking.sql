@@ -1,5 +1,8 @@
 -- Generated from live API-created question_log and faq_log rows. Do not hand-edit.
+\if :{?managed_transaction}
+\else
 BEGIN;
+\endif
 SET LOCAL client_encoding = 'UTF8';
 SET LOCAL TIME ZONE 'Asia/Seoul';
 CREATE TEMP TABLE seed_question (seed_key INTEGER PRIMARY KEY, email TEXT NOT NULL, user_question TEXT NOT NULL, sub_question TEXT, user_text TEXT, sub_question_index SMALLINT NOT NULL, normalized_question TEXT, llm_question TEXT NOT NULL, ranking_eligible BOOLEAN, region VARCHAR(20), offset_seconds INTEGER NOT NULL) ON COMMIT DROP;
@@ -880,4 +883,7 @@ INSERT INTO question_log (user_id, user_question, sub_question, user_text, sub_q
 CREATE TEMP TABLE inserted_question ON COMMIT DROP AS SELECT s.seed_key, q.id AS question_log_id, q.created_at FROM seed_question s JOIN users u ON u.email = s.email CROSS JOIN seed_anchor a JOIN question_log q ON q.user_id = u.user_id AND q.user_question = s.user_question AND q.sub_question_index = s.sub_question_index AND q.created_at = a.at - interval '2 hours' + make_interval(secs => s.offset_seconds);
 INSERT INTO faq_log (question_log_id, faq_id, rank, similarity, created_at) SELECT i.question_log_id, f.faq_id, f.rank, f.similarity, i.created_at FROM seed_faq_log f JOIN inserted_question i ON i.seed_key = f.question_seed_key;
 DO $$ BEGIN IF (SELECT count(*) FROM inserted_question) <> (SELECT count(*) FROM seed_question) THEN RAISE EXCEPTION 'question_log mapping count mismatch'; END IF; END $$;
+\if :{?managed_transaction}
+\else
 COMMIT;
+\endif
