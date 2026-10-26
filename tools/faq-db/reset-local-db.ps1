@@ -7,6 +7,8 @@ $migrationPath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\src\main\resource
 $sqlPath = Join-Path $PSScriptRoot 'seed-baseline.sql'
 $demoUsersSqlPath = Join-Path $PSScriptRoot 'seed-demo-users.sql'
 $usersSqlPath = Join-Path $PSScriptRoot 'seed-users.sql'
+$popularFaqDemoSqlPath = Join-Path $PSScriptRoot 'seed\faq_ranking_demo\seed-popular-faq-from-live-logs.sql'
+$demoActivitySqlPath = Join-Path $PSScriptRoot 'seed-demo-activity.sql'
 . (Join-Path $PSScriptRoot 'faq-seed-common.ps1')
 
 function Invoke-Checked {
@@ -68,10 +70,23 @@ try {
         docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
             -U $databaseUser -d $databaseName -f /tmp/seed-users.sql
     } 'User seed import failed.'
+    if (-not (Test-Path -LiteralPath $popularFaqDemoSqlPath)) {
+        throw "Popular FAQ demo seed SQL is missing: $popularFaqDemoSqlPath"
+    }
+    Invoke-Checked { docker cp $popularFaqDemoSqlPath "${containerId}:/tmp/seed-popular-faq-from-live-logs.sql" } 'Could not copy popular FAQ demo seed SQL.'
+    Invoke-Checked {
+        docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
+            -U $databaseUser -d $databaseName -f /tmp/seed-popular-faq-from-live-logs.sql
+    } 'Popular FAQ demo seed import failed.'
+    Invoke-Checked { docker cp $demoActivitySqlPath "${containerId}:/tmp/seed-demo-activity.sql" } 'Could not copy demo activity seed SQL.'
+    Invoke-Checked {
+        docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
+            -U $databaseUser -d $databaseName -f /tmp/seed-demo-activity.sql
+    } 'Demo activity seed import failed.'
 } finally {
     if ($containerId) {
         Remove-FaqSeedContainerFiles -ContainerId $containerId -SqlName 'seed-baseline.sql'
-        & docker compose exec -T postgres rm -f /tmp/seed-demo-users.sql /tmp/seed-users.sql | Out-Null
+        & docker compose exec -T postgres rm -f /tmp/seed-demo-users.sql /tmp/seed-users.sql /tmp/seed-popular-faq-from-live-logs.sql /tmp/seed-demo-activity.sql | Out-Null
     }
     Remove-Item -LiteralPath $renderedSql -Force -ErrorAction SilentlyContinue
 }
@@ -85,13 +100,15 @@ SELECT
   (SELECT count(*) FROM faq WHERE deleted_at IS NOT NULL),
   (SELECT count(*) FROM faq_question_variants),
   (SELECT count(*) FROM faq_embeddings),
+  (SELECT count(*) FROM question_log),
+  (SELECT count(*) FROM faq_log),
   (SELECT count(*) FROM plans),
   (SELECT count(*) FROM subscriptions),
   (SELECT count(*) FROM subscription_bundles),
   (SELECT count(*) FROM bundle_groups);
 '@).Trim()
-$expected = "311|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.deletedCount)|$($seedSummary.variantCount)|0|107|382|137|61"
+$expected = "311|$($seedSummary.categoryCount)|$($seedSummary.faqCount)|$($seedSummary.deletedCount)|$($seedSummary.variantCount)|0|517|1085|107|382|137|61"
 if ($LASTEXITCODE -ne 0 -or $verification -ne $expected) {
     throw "Baseline seed verification failed: $verification"
 }
-Write-Host "DB reset and baseline seed completed: $($seedSummary.faqCount) FAQs ($($seedSummary.deletedCount) soft-deleted) and $($seedSummary.variantCount) variants, 310 users with subscriptions. No vectors were inserted."
+Write-Host "DB reset and seed completed: $($seedSummary.faqCount) FAQs ($($seedSummary.deletedCount) soft-deleted), $($seedSummary.variantCount) variants, 517 question logs, and 1085 FAQ logs. No vectors were inserted."
