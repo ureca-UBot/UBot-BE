@@ -97,7 +97,7 @@ AWS 조합은 DB·Redis·GPU 모델을 BE EC2에 띄우지 않습니다. `NLB_DN
 | `LLM_PORT` | Docker Compose: vLLM 답변 생성 서버의 호스트 포트. `tools/ubot.ps1`의 준비 확인에도 사용 | `8000` | Spring에서 읽지 않음 |
 | `LLM_HF_MODEL` | Docker Compose: vLLM이 Hugging Face에서 불러올 답변 생성 모델 | `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16` (Qwen3-4B-Instruct-2507 GPTQ W4A16) | Spring에서 읽지 않음 |
 | `LLM_SERVED_MODEL_NAME` | Docker Compose: vLLM이 API에 내보이는 답변 생성 모델 이름 | `ubot-chat` | Spring에서 읽지 않음 |
-| `LLM_MAX_MODEL_LEN` | Docker Compose: vLLM 답변 생성 서버가 받는 최대 토큰 길이(`--max-model-len`) | `4096` | Spring에서 읽지 않음 |
+| `LLM_MAX_MODEL_LEN` | Docker Compose: vLLM 답변 생성 서버가 받는 최대 토큰 길이(`--max-model-len`). 입력과 출력 예약 토큰의 합계 한도 | `8192` | Spring에서 읽지 않음 |
 | `VLLM_GPU_MEMORY_UTILIZATION` | Docker Compose: vLLM 답변 생성 서버가 쓸 GPU 메모리 비율 | `0.6` | Spring에서 읽지 않음 |
 | `VLLM_TOOL_CALL_PARSER` | Docker Compose: vLLM 답변 생성 서버의 tool call parser | `hermes` | Spring에서 읽지 않음 |
 | `VLLM_ENABLE_THINKING` | Docker Compose: vLLM 답변 생성 서버의 thinking 모드 기본값 | `false` | Spring에서 읽지 않음 |

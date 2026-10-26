@@ -4,6 +4,15 @@
 set -euo pipefail
 exec > >(tee -a /var/log/ubot-cwagent.log) 2>&1
 
+# 기존 AMI의 채팅 컨텍스트도 8192로 맞춤. 출력 가드가 예약하는 1024토큰과 입력이 함께 들어갈 공간 확보함
+if [ -f /opt/ubot-gpu/.env ] && ! grep -qx 'LLM_MAX_MODEL_LEN=8192' /opt/ubot-gpu/.env; then
+  sed -i 's/^LLM_MAX_MODEL_LEN=.*/LLM_MAX_MODEL_LEN=8192/' /opt/ubot-gpu/.env
+  (
+    cd /opt/ubot-gpu
+    docker compose -p llm up -d --no-deps --no-build --pull never vllm
+  )
+fi
+
 ctl=/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
 if [ ! -x "$ctl" ]; then
   deb="$(mktemp --suffix=.deb)"
