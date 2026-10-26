@@ -29,7 +29,7 @@ ENV KIWI_MODEL_PATH=/app/kiwi-model
 COPY docker-compose.api.yml docker-compose.worker.yml docker-compose.monitoring.yml /opt/ubot-deploy/
 COPY infra/nginx/nginx.api.conf.template /opt/ubot-deploy/infra/nginx/
 COPY infra/prometheus/prometheus.aws.yml /opt/ubot-deploy/infra/prometheus/
-COPY tools/deploy/aws-be-deploy.sh /opt/ubot-deploy/tools/deploy/
+COPY tools/deploy/aws-be-deploy.sh tools/deploy/aws-be-worker-recovery.sh tools/deploy/install-aws-be-recovery.sh /opt/ubot-deploy/tools/deploy/
 
 EXPOSE 8080
 
