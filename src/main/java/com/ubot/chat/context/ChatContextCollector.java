@@ -12,9 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /** 검색된 FAQ의 intent 라벨별로 핸들러를 실행해 LLM 요청 한 번에 쓸 답변 자료를 모읍니다. */
+@Slf4j
 @Component
 public class ChatContextCollector {
 	private final Map<Intent, IntentHandler> handlers;
@@ -63,9 +65,16 @@ public class ChatContextCollector {
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
 		// "내 데이터 사용량 알려줘"에 확인 방법 같은 일반 FAQ만 걸려도 본인 정보를 묻는 질문이면 사용자 정보를 붙입니다.
 		// 사용자 정보 핸들러는 FAQ를 쓰지 않으므로 빈 목록으로 실행합니다.
-		if (!resultsByIntent.containsKey(Intent.USER_DATA) && UserIntentHandler.asksOwnData(context.question())) {
+		boolean ownDataAdded = !resultsByIntent.containsKey(Intent.USER_DATA) && UserIntentHandler.asksOwnData(context.question());
+		if (ownDataAdded) {
 			resultsByIntent.put(Intent.USER_DATA, List.of());
 		}
+		// 어떤 의도의 자료가 붙었는지와 그 근거 FAQ를 남깁니다. FAQ 의도 때문인지, 본인 정보 질문이라 붙였는지 구분하려는 것입니다.
+		log.info("답변 자료 의도: 의도별FAQ={}, 본인정보질문으로USER_DATA추가={}",
+				resultsByIntent.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,
+						entry -> entry.getValue().stream().map(FaqSearchResponseDto::faqId).toList(),
+						(left, right) -> left, LinkedHashMap::new)),
+				ownDataAdded);
 
 		// 사용자 ID는 핸들러가 아니라 수집기가 서버 문맥에서 넣습니다.
 		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question()).userId(context.userId());
