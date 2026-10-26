@@ -239,6 +239,8 @@ CREATE UNIQUE INDEX uq_faq_category_name_active ON faq_category (name) WHERE del
 |---|---|---|---|
 | `Backend CI` | `ci.yml` | `develop`, `main` 대상 push와 PR | 테스트와 빌드 |
 | `Validate PR Title` | `commit-message.yml` | PR 생성·수정·동기화 | PR 제목이 `[Type] 한글 설명` 형식인지 검사 |
+| `Alert Config` | `alert-config.yml` | 관련 설정·스크립트 변경의 push와 PR | Alertmanager·Prometheus 생성 설정과 테스트 검사 |
+| `AWS PoC BE CD` | `aws-be-deploy.yml` | 배포 브랜치 push의 Backend CI 성공 또는 기존 digest 수동 입력 | OIDC로 ECR 이미지를 발행하고 SSM으로 BE EC2 교체. [AWS CD](docs/deploy.md#aws-cicd-흐름) 참고 |
 | `Backend Manual CD` | `cd-manual.yml` | Actions 화면에서 수동 실행 (`develop`만) | EC2 스테이징 배포. [deploy.md](docs/deploy.md#수동-cd-backend-manual-cd) 참고 |
 
 ### Backend CI

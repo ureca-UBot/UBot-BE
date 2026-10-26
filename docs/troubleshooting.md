@@ -1,6 +1,16 @@
 # Troubleshooting
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
+
+오류 메시지와 애플리케이션 오류 코드를 먼저 보존하고, 상태를 바꾸지 않는 확인부터 시작합니다. 운영 장애는 증상별 [Runbook](runbooks/README.md)을 먼저 사용하세요.
+
+```powershell
+docker compose ps
+docker compose logs --tail=100 postgres redis
+curl.exe http://localhost:8080/actuator/health
+```
+
+재현 시각, 마지막 정상 시각, 처음 실패한 시각, 기대 결과와 실제 결과를 함께 기록합니다. 배포 commit과 환경변수 변경 여부도 확인하되 비밀값은 남기지 않습니다. 볼륨 삭제·DB 초기화·강제 재처리는 진단 명령이 아니며, 영향과 복구 방법을 확인한 뒤 해당 절차에서만 실행합니다.
 
 해결 후에는 항상 [quickstart 6단계](quickstart.md#6-동작-확인)의 health check를 다시 통과하는지 확인하세요.
 
@@ -47,7 +57,7 @@ docker compose down -v
 
 두 번째 명령은 `-f`가 없어서 공통 파일(`docker-compose.yml`)의 볼륨만 지웁니다. DB가 비었으므로 애플리케이션을 다시 시작한 뒤 [관리자 계정과 FAQ](how-to/local-data.md)를 다시 준비합니다.
 
-PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
+PostgreSQL 볼륨만 지우고 기본 계정과 FAQ까지 한 번에 넣으려면 위 명령 대신 `.\tools\faq-db\scripts\reset-local-db.ps1`을 씁니다([안내](how-to/reset-local-db.md)).
 
 ## DecodingException: Illegal base64 character
 

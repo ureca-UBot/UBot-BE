@@ -1,6 +1,6 @@
 # LLM 모듈 연결 안내
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 ## 구현 범위
 
@@ -160,9 +160,13 @@ AI_EMBEDDING_ENGINE=ollama
 AI_MODE=vllm
 LLM_BASE_URL=http://<GPU_HOST>:8000/v1
 LLM_MODEL=ubot-chat
+LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
+LLM_SERVED_MODEL_NAME=ubot-chat
 ```
 
-- `LLM_BASE_URL`은 `/v1`까지 적고, `LLM_MODEL`은 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같아야 합니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에 있습니다.
+- 현재 vLLM 답변 체크포인트는 `RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16`(GPTQ W4A16)입니다. 이는 과거 로컬 검증에 쓴 `Qwen/Qwen3-4B-AWQ`와 다릅니다.
+- `LLM_HF_MODEL`은 vLLM이 실제로 불러올 체크포인트입니다. `LLM_MODEL`은 백엔드가 API 요청에 넣는 이름이며 서버의 served model name(`LLM_SERVED_MODEL_NAME`)과 같은 `ubot-chat`이어야 합니다.
+- `LLM_BASE_URL`은 `/v1`까지 적습니다. 서버 실행 방법은 [LLM Serving Runtime 안내](../../infra/llm/README.md)에서 확인합니다.
 - 제한 시간은 두 구현체 모두 `LLM_CONNECT_TIMEOUT`, `LLM_READ_TIMEOUT`을 씁니다. 자동 재시도는 하지 않습니다.
 - 도구가 붙은 요청은 도구 정의를 `tools`로 보내고, LLM이 요청한 도구를 실행한 뒤 그 결과를 대화에 붙여 다시 호출합니다. 도구 실행기와 호출 한도(도구당 3회, 도구 실행 라운드 최대 8회)는 `OllamaClient`와 같습니다. 최종 형식 오류에 한해 도구 없이 스키마 재호출 1회를 적용합니다. vLLM은 `--enable-auto-tool-choice`와 `--tool-call-parser`로 실행되어 있어야 하며(`infra/llm`에 반영), 그렇지 않으면 도구가 붙은 요청을 거절합니다.
 - 생성 옵션(temperature, Thinking Mode 등)은 요청에 넣지 않고 서버 기본 설정을 따릅니다. Qwen3의 Thinking Mode는 모델 서버 설정 `VLLM_ENABLE_THINKING`(기본 `false`)으로 정합니다. Thinking을 켠 서버에서 답변 앞에 `<think>…</think>`가 붙어 오면 떼어 내고 최종 답변만 반환합니다.
@@ -280,7 +284,7 @@ WHERE f.deleted_at IS NULL;
 
 배포에서는 `tools/deploy/deploy.sh`가 대신 실행합니다. 벡터가 모자라면 백엔드를 교체하기 전에 새 이미지를 `--app.embedding-backfill.run=true` 인자로 띄우는데, 이렇게 뜬 백엔드는 아래 두 백필을 차례로 실행하고 종료합니다. 종료 코드는 `0`(완료), `3`(적용되지 않은 마이그레이션이 있어 건너뜀), 그 밖(실패)입니다. 이 실행에서는 DB 마이그레이션을 적용하지 않습니다([배포 단계](../deploy.md#워크플로우-단계)).
 
-현재 시드 스크립트(`tools/faq-db/reset-local-db.ps1`, `tools/faq-db/reset-faq-data.ps1`)는 FAQ와 질문 표현만 적재합니다. 시드 적재 뒤에는 백필로 검색에 필요한 `QUESTION` 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
+현재 시드 스크립트(`tools/faq-db/scripts/reset-local-db.ps1`, `tools/faq-db/scripts/reset-faq-data.ps1`)는 FAQ와 질문 표현만 적재합니다. 시드 적재 뒤에는 백필로 검색에 필요한 `QUESTION` 벡터를 채워야 합니다([기본 데이터로 한 번에 채우기](local-data.md#기본-데이터로-한-번에-채우기)).
 
 | API (JWT + `ADMIN`) | 채우는 것 | 응답의 `data` |
 |---|---|---|

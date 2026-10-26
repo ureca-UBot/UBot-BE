@@ -1,0 +1,16 @@
+[Unit]
+Description=UBot administrator 14B model controller (PR #282)
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/etc/ubot-admin-risk/runtime.env
+
+[Service]
+EnvironmentFile=/etc/ubot-admin-risk/runtime.env
+WorkingDirectory=/opt/ubot-admin-risk
+ExecStart=/usr/bin/python3 /opt/ubot-admin-risk/controller.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

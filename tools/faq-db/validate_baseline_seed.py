@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 
-SEED = Path(__file__).resolve().parent / "seed"
+SEED = Path(__file__).resolve().parent / "seed" / "baseline"
 FAQ_FIELDS = ["faqId", "category", "question", "answer", "intent"]
 VARIANT_FIELDS = ["originFaqId", "variantId", "question"]
 # FAQ categories that ProductIntentHandler maps to a product search tool (ProductType).

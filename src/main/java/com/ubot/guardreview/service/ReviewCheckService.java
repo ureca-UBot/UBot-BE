@@ -125,6 +125,16 @@ public class ReviewCheckService {
 		if (page < 0 || !Set.of(10, 20, 50).contains(size)) throw new ReviewException(ReviewErrorCode.INVALID);
 		return repository.page(origin, outcome, page, size);
 	}
+	@Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
+	public PageResponseDto<ReviewCheckResponseDto> pageFiltered(List<Origin> origins, List<Outcome> outcomes,
+			int page, int size) {
+		if (page < 0 || !Set.of(10, 20, 50).contains(size) || origins == null || outcomes == null
+				|| origins.size() > Origin.values().length || outcomes.size() > Outcome.values().length
+				|| origins.stream().anyMatch(java.util.Objects::isNull)
+				|| outcomes.stream().anyMatch(java.util.Objects::isNull)) throw new ReviewException(ReviewErrorCode.INVALID);
+		return repository.pageFiltered(origins.stream().distinct().sorted().toList(),
+				outcomes.stream().distinct().sorted().toList(), page, size);
+	}
 
 	@Transactional(readOnly = true)
 	public ReviewCheckDetailResponseDto detail(long id) {

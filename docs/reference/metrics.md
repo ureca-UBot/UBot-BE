@@ -99,7 +99,9 @@ NO_FAQ·FAQ 부족은 따로 세지 않고 작업 결과 코드로 봅니다. `c
 
 ## Redis
 
-redis-exporter가 `--check-single-streams=chat:jobs`로 답변 작업 스트림을 조회합니다. 다른 Compose 파일로 redis-exporter를 띄운다면 같은 옵션을 넣어야 합니다.
+공통 로컬 Compose의 redis-exporter는 `--check-single-streams=chat:jobs`로 답변 작업 스트림을 조회합니다. 다른 Compose 파일로 redis-exporter를 띄운다면 같은 옵션을 넣어야 합니다.
+
+AWS `docker-compose.monitoring.yml`은 현재 Redis 주소만 전달하고 이 옵션을 지정하지 않습니다. 따라서 AWS에서 `redis_up=1`이어도 아래 Stream length·PEL·lag 시계열이 존재한다고 가정할 수 없습니다. 관리자 운영 API의 값이 `null`이면 0으로 바꾸지 말고 실제 exporter 인자와 Prometheus series를 확인합니다.
 
 | 지표 | 의미 |
 |---|---|

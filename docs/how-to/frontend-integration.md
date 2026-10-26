@@ -1,6 +1,6 @@
 # 프론트엔드 연동 가이드
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 >
 > 프론트 기준: UBot-FE `develop` [`900af60`](https://github.com/ureca-UBot/UBot-FE/commit/900af60fce5bbdc0c935309953774741f44563c5) (2026-09-29 14:44 KST 커밋)
 

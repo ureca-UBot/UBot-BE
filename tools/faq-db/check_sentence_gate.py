@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 
 
-SEED = Path(__file__).resolve().parent / "seed"
+SEED = Path(__file__).resolve().parent / "seed" / "baseline"
 LIST_ITEM = re.compile(r"^\s*((?:[-*•]|\d+[.)]))(?:\s+(.*))?$")
 # Approximates java.text.BreakIterator.getSentenceInstance(Locale.KOREAN) for Korean answers.
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
@@ -176,8 +176,7 @@ def print_result(result: dict[str, object], verbose: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--date", help="Check FAQ IDs in seed/days/updated-faq-DATE.json and additional-faq-DATE.json")
-    parser.add_argument("--ids", help="Comma-separated FAQ IDs to check instead of (or in addition to) --date")
+    parser.add_argument("--ids", help="Comma-separated FAQ IDs to check")
     parser.add_argument("--seed-dir", type=Path, default=SEED)
     parser.add_argument("--threshold", type=float,
                         default=float(os.environ.get("FAQ_SENTENCE_SIMILARITY_THRESHOLD", "0.6")))
@@ -198,16 +197,10 @@ def main() -> None:
         model = args.model or os.environ.get("EMBEDDING_MODEL", "ubot-embedding")
 
     ids: list[str] = []
-    if args.date:
-        days = args.seed_dir / "days"
-        ids += manifest_ids(days / f"updated-faq-{args.date}.json")
-        ids += manifest_ids(days / f"additional-faq-{args.date}.json")
-        if not ids:
-            raise SystemExit(f"No manifest for {args.date} in {days}")
     if args.ids:
         ids += [faq_id.strip() for faq_id in args.ids.split(",") if faq_id.strip()]
     if not ids:
-        parser.error("Pass --date or --ids")
+        parser.error("Pass --ids")
     deleted_path = args.seed_dir / "deleted-faqs.json"
     deleted = set(manifest_ids(deleted_path))
     ids = [faq_id for faq_id in dict.fromkeys(ids) if faq_id not in deleted]

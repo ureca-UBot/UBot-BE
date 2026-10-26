@@ -40,6 +40,9 @@ public class SurgingAlert {
     @Column(name = "region")
     private RegionSido region;
 
+    @Column(name = "cluster_id")
+    private Long clusterId;
+
     @Column(name = "subject")
     private String subject;
 
@@ -73,8 +76,19 @@ public class SurgingAlert {
             int questionCount,
             int windowMinutes
     ) {
+        return create(region, null, questionSnapshots, questionCount, windowMinutes);
+    }
+
+    public static SurgingAlert create(
+            RegionSido region,
+            Long clusterId,
+            List<SurgingQuestionSnapshot> questionSnapshots,
+            int questionCount,
+            int windowMinutes
+    ) {
         SurgingAlert alert = new SurgingAlert();
         alert.region = region;
+        alert.clusterId = clusterId;
         alert.questionSnapshots = List.copyOf(questionSnapshots);
         alert.questionCount = questionCount;
         alert.windowMinutes = windowMinutes;

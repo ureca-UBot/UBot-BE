@@ -11,12 +11,12 @@
 
 ## 기본 데이터로 한 번에 채우기
 
-기본 FAQ는 `tools/faq-db/seed/baseline-faqs.csv`와 `baseline-faq-variants.csv`에 있습니다. 시드에는 FAQ별 질문 표현 5개가 포함되며 벡터는 없습니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../tools/faq-db/seed/README.md)에 있습니다.
+기본 FAQ는 `tools/faq-db/seed/baseline/baseline-faqs.csv`와 `baseline-faq-variants.csv`에 있습니다. 시드에는 FAQ별 질문 표현 5개가 포함되며 벡터는 없습니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../tools/faq-db/seed/README.md)에 있습니다.
 
 | 스크립트 | 하는 일 |
 |---|---|
-| `.\tools\faq-db\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 CSV의 카테고리·FAQ·질문 표현을 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
-| `.\tools\faq-db\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 기존 벡터를 지우고 CSV 기준으로 FAQ와 질문 표현을 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
+| `.\tools\faq-db\scripts\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 CSV의 카테고리·FAQ·질문 표현을 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
+| `.\tools\faq-db\scripts\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 기존 벡터를 지우고 CSV 기준으로 FAQ와 질문 표현을 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
 
 두 초기화 스크립트는 PostgreSQL만 다루므로 `AI_MODE`와 관계없이 실행할 수 있습니다.
 
@@ -190,7 +190,7 @@ powershell -ExecutionPolicy Bypass -File .\load-faqs.ps1 -CsvPath .\faqs.csv -Em
 
 ## 3. 채팅 모델
 
-채팅 답변까지 확인하려면 Ollama에 채팅 모델을 받고 `.env`의 `OLLAMA_CHAT_MODEL`에 지정합니다([quickstart 4단계](../quickstart.md#4-embedding-모델-준비-확인)). UBot-FE의 채팅 연동 확인에는 `qwen3:14b`를 사용했습니다. 큰 모델이라 GPU가 없으면 응답이 `LLM_READ_TIMEOUT`(기본 120초)을 넘길 수 있습니다.
+채팅 답변까지 확인하려면 Ollama에 채팅 모델을 받고 `.env`의 `OLLAMA_CHAT_MODEL`에 지정합니다([quickstart 4단계](../quickstart.md#4-embedding-모델-준비-확인)). 현재 로컬 기본값은 `qwen3:4b-instruct-2507-q4_K_M`이며, 운영 vLLM의 GPTQ W4A16 체크포인트와 같은 Qwen3-4B-Instruct-2507 계열입니다. GPU가 없거나 모델을 처음 로드하면 응답이 `LLM_READ_TIMEOUT`(기본 120초)을 넘길 수 있습니다.
 
 ## 4. 확인
 

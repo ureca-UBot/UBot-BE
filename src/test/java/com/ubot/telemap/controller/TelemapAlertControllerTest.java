@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,6 +61,18 @@ class TelemapAlertControllerTest {
         mvc.perform(get("/admin/telemap/alerts/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.questionSnapshots[0].question").value("질문"));
+    }
+
+    @Test
+    @DisplayName("대기 중 알림의 질문 수를 일괄 갱신하고 바뀐 알림 수를 응답한다")
+    void refreshesQuestionCounts() throws Exception {
+        when(service.refreshPendingQuestionCounts()).thenReturn(4);
+
+        mvc.perform(patch("/admin/telemap/alerts/refresh"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.refreshedCount").value(4));
+
+        verify(service).refreshPendingQuestionCounts();
     }
 
     @Test

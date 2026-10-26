@@ -3,6 +3,7 @@ package com.ubot.telemap.service;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -98,7 +99,10 @@ public class TelemapAlertLabelService {
         SurgingAlert alert = surgingAlertRepository.findById(alertId)
                 .orElseThrow(() -> new TelemapException(TelemapErrorCode.SURGING_ALERT_NOT_FOUND));
         if (!StringUtils.hasText(alert.getSubject())) {
-            alert.updateSubject(generatedSubject);
+            // 제목 Worker가 읽은 뒤 /refresh가 question_count를 바꿔도, 제목 필드만 갱신해 값을 덮어쓰지 않는다.
+            surgingAlertRepository.updateSubjectIfBlank(alertId, generatedSubject, LocalDateTime.now());
+            alert = surgingAlertRepository.findById(alertId)
+                    .orElseThrow(() -> new TelemapException(TelemapErrorCode.SURGING_ALERT_NOT_FOUND));
         }
         notificationService.createSurgingAlertNotifications(
                 alert,

@@ -1,6 +1,6 @@
 # DB 직접 조회하기
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 로컬 PostgreSQL에 접속해 데이터나 pgvector·PostGIS 상태를 확인하는 방법입니다.
 애플리케이션 실행에는 필요하지 않은 선택 단계입니다.
@@ -98,7 +98,7 @@ LIMIT 20;
 
 ## 로컬에서 관리자 계정 만들기
 
-`tools/faq-db/reset-local-db.ps1`로 DB를 초기화했다면 기본 `ADMIN` 계정이 함께 만들어집니다([로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)). 아래는 직접 가입한 계정을 관리자로 바꾸는 방법입니다.
+`tools/faq-db/scripts/reset-local-db.ps1`로 DB를 초기화했다면 기본 `ADMIN` 계정이 함께 만들어집니다([로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)). 아래는 직접 가입한 계정을 관리자로 바꾸는 방법입니다.
 
 `/admin/**` API는 `ADMIN` 역할이 필요하지만, 회원가입 API는 항상 `USER`로 계정을 만들고 역할을 바꾸는 API도 없습니다. 로컬 개발 DB에서는 회원가입한 계정의 역할을 직접 바꿉니다.
 
