@@ -8,7 +8,6 @@ import org.springframework.stereotype.Repository;
 
 import com.pgvector.PGvector;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.enums.UnansweredSource;
 
 import lombok.RequiredArgsConstructor;
 
@@ -140,8 +139,7 @@ public class UnansweredQuestionVectorRepository {
             Long profileId,
             UnansweredReason reason,
             Long bestFaqId,
-            Double bestSimilarity,
-            UnansweredSource source
+            Double bestSimilarity
     ) {
         Long questionId = jdbcTemplate.queryForObject(
                 """
@@ -153,10 +151,9 @@ public class UnansweredQuestionVectorRepository {
                     user_text,
                     reason,
                     best_faq_id,
-                    best_similarity,
-                    source
+                    best_similarity
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
                 """,
                 Long.class,
@@ -167,8 +164,7 @@ public class UnansweredQuestionVectorRepository {
                 userText,
                 reason.name(),
                 bestFaqId,
-                bestSimilarity,
-                source.name()
+                bestSimilarity
         );
 
         jdbcTemplate.update(

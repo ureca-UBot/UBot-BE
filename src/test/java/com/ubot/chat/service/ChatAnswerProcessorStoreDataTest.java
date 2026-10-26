@@ -36,7 +36,6 @@ import com.ubot.faq.retrieval.RetrievalOutcome;
 import com.ubot.store.dto.NearbyStoreResponseDto;
 import com.ubot.unanswered.enums.UnansweredReason;
 import com.ubot.unanswered.dto.UnansweredCandidate;
-import com.ubot.unanswered.enums.UnansweredSource;
 
 @DisplayName("매장 조회 FAQ의 문장 필터 분리")
 class ChatAnswerProcessorStoreDataTest {
@@ -151,7 +150,7 @@ class ChatAnswerProcessorStoreDataTest {
         assertThat(result.errorCode()).isEqualTo(ChatErrorCode.INSUFFICIENT_FAQ);
         verifyNoInteractions(stores, sentenceFilter, ai);
         assertThat(unanswered).contains(new UnansweredCandidate(
-                1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74, UnansweredSource.RETRIEVAL));
+                1, QUESTION, QUESTION, UnansweredReason.INSUFFICIENT_FAQ, 10L, 0.74));
     }
 
     @Test

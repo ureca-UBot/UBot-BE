@@ -26,7 +26,6 @@ import com.ubot.llm.exception.LlmErrorCode;
 import com.ubot.llm.exception.LlmException;
 import com.ubot.unanswered.dto.UnansweredCandidate;
 import com.ubot.unanswered.enums.UnansweredReason;
-import com.ubot.unanswered.enums.UnansweredSource;
 import com.ubot.unanswered.service.RejectedQuestionDuplicateChecker.QuestionEmbedding;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -206,7 +205,7 @@ public class ChatAnswerProcessor {
 		}
 
 		unanswered.forEach(subQuestion -> collectUnanswered(attempt, subQuestion,
-				UnansweredSource.RETRIEVAL, queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates));
+				queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates));
 		if (searched.stream().noneMatch(SubQuestionFaqs::isAnswered)) {
 			// 모든 하위 질문이 검색 결과조차 없을 때만 NO_FAQ이고, 하나라도 후보가 있었으면 기준 미달입니다.
 			boolean noResultsAtAll = unanswered.stream().allMatch(subQuestion -> subQuestion.reason() == UnansweredReason.NO_FAQ);
@@ -360,12 +359,12 @@ public class ChatAnswerProcessor {
 			}
 			collectUnanswered(attempt, new UnansweredSubQuestion(index + 1, subQuestion.searchQuery(),
 					subQuestion.userText(), reason, subQuestion.faqs().getFirst()),
-					UnansweredSource.LLM_MODEL, queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates);
+					queryEmbeddings.get(subQuestion.searchQuery()), unansweredCandidates);
 		}
 	}
 
 	private void collectUnanswered(AnswerAttemptsHistory attempt, UnansweredSubQuestion subQuestion,
-			UnansweredSource source, QuestionEmbedding reusableEmbedding, List<UnansweredCandidate> unansweredCandidates) {
+			QuestionEmbedding reusableEmbedding, List<UnansweredCandidate> unansweredCandidates) {
 		if (attempt.isResearch()) return;
 		FaqSearchResponseDto bestResult = subQuestion.bestResult();
 		List<Float> queryEmbedding = null;
@@ -378,7 +377,7 @@ public class ChatAnswerProcessor {
 				// 안전한 원문 조각이 없으면 제거한 공격을 포함한 원문 전체를 복원하지 않습니다.
 				subQuestion.userText() == null ? "" : subQuestion.userText(), subQuestion.reason(),
 				bestResult == null ? null : bestResult.faqId(), bestResult == null ? null : bestResult.similarityScore(),
-				source, reusableEmbedding == null ? null : reusableEmbedding.profileId(), queryEmbedding, null));
+				reusableEmbedding == null ? null : reusableEmbedding.profileId(), queryEmbedding));
 	}
 
 	private Double highestSimilarity(List<FaqSearchResponseDto> results) {
