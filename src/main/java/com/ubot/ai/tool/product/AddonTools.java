@@ -62,7 +62,7 @@ public class AddonTools {
 
     private static String line(AddonService addon) {
         return ToolFormats.valueOrUnknown(addon.getName())
-                + " | 월 " + ToolFormats.won(addon.getMonthlyFee());
+                + " | 월 요금 " + ToolFormats.won(addon.getMonthlyFee());
     }
 
     /** 부가서비스는 요금 말고 수치 컬럼이 없어 카드에 설명의 고유 문장만 담습니다. */

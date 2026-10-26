@@ -179,8 +179,8 @@ class ProductToolsIntegrationTest {
         String result = addonTools.searchAddons(mark, null, null, toolContext);
 
         assertThat(result).contains(String.format(ProductToolResults.COMMON_LINE, "부가서비스", "부가세 포함. 해지 전까지 월 단위 유지."))
-                .contains("Ubot " + mark + " 표시 | 월 0원 | 발신번호 표시.\n")
-                .contains("Ubot " + mark + " 컬러링 | 월 990원 | 통화연결음 변경.");
+                .contains("Ubot " + mark + " 표시 | 월 요금 0원 | 발신번호 표시.\n")
+                .contains("Ubot " + mark + " 컬러링 | 월 요금 990원 | 통화연결음 변경.");
         assertThat(result.split("해지 전까지", -1)).hasSize(2);
         assertThat(recorder.describe()).contains("모두 공통");
         assertThat(recorder.cards()).hasSize(2);
@@ -222,7 +222,7 @@ class ProductToolsIntegrationTest {
         String result = addonTools.searchAddons(mark, null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 부가서비스 2건 중 2건(월 요금 낮은 순)")
-                .contains("Ubot " + mark + " 무료 | 월 0원 | 발신번호 표시.");
+                .contains("Ubot " + mark + " 무료 | 월 요금 0원 | 발신번호 표시.");
         assertThat(result.indexOf("무료")).isLessThan(result.indexOf("비싼"));
         assertThat(recorder.cards()).first()
                 .isEqualTo(new ProductCard(ProductType.ADDON, "Ubot " + mark + " 무료", 0, List.of(), List.of("발신번호 표시")));
@@ -326,7 +326,7 @@ class ProductToolsIntegrationTest {
         String result = roamingTools.searchRoaming(mark + "국", null, null, toolContext);
 
         assertThat(result).startsWith("조건에 맞는 로밍 상품 2건 중 2건(일 요금 낮은 순)")
-                .contains("일 11,000원 | 데이터 1GB").doesNotContain("다른나라");
+                .contains("1일 요금 11,000원 | 데이터 1GB").doesNotContain("다른나라");
         assertThat(result.indexOf("베이직")).isLessThan(result.indexOf("맥스"));
     }
 

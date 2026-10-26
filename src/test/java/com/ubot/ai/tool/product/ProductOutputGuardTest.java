@@ -20,7 +20,7 @@ class ProductOutputGuardTest {
 
     private static final String PLAN_ROW = "- Ubot 밸런스 59 | 5G | 대상 일반 | 월정액 59,000원 | 선택약정 25% 할인 시 월 44,250원"
             + " | 데이터 24GB(소진 후 최대 1Mbps) | 음성 기본 제공 | 문자 기본 제공 | 테더링 24GB";
-    private static final String ADDON_ROW = "- Ubot 컬러링 | 월 990원 | 통화연결음 변경. 기본 제공 음원만 이용";
+    private static final String ADDON_ROW = "- Ubot 컬러링 | 월 요금 990원 | 통화연결음 변경. 기본 제공 음원만 이용";
 
     private final AiOutputGuardService guard =
             new AiOutputGuardService(new ForbiddenWordFilterService(mock(ForbiddenWordRepository.class)));
@@ -34,6 +34,19 @@ class ProductOutputGuardTest {
             "Ubot 컬러링은 월 990원입니다."})
     void 도구가_조회한_상품_수치로_답한_문장은_그대로_둔다(String answer) {
         assertThat(guard.filterAnswer(answer, withProductRecords(), null)).isEqualTo(answer);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"컬러링 요금은 월 990원입니다.", "일본 로밍 요금은 1일 11,000원입니다."})
+    void 사용자_정보의_월정액이_함께_있어도_도구_결과의_요금으로_답한_문장은_그대로_둔다(String answer) {
+        // 행에 "월 요금"·"1일 요금"이 없으면 가드가 이 금액을 요금으로 보지 못해 사용자 요금제의 월정액과 비교해 지웠습니다.
+        String roamingRow = "- Ubot 로밍 일본 베이직 | 일본 | 1일 요금 11,000원 | 데이터 1GB";
+        AnswerMaterials materials = productMaterials()
+                .addSection(new ContextSection("사용자 정보", "- 요금제: Ubot 프리미엄 Max | 5G | 월정액 129,000원 | 데이터 무제한"))
+                .build()
+                .withSection(new ContextSection(ProductDataRecorder.SECTION_TITLE, ADDON_ROW + "\n" + roamingRow));
+
+        assertThat(guard.filterAnswer(answer, materials, null)).isEqualTo(answer);
     }
 
     @Test

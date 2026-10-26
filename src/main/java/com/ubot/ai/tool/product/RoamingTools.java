@@ -75,7 +75,7 @@ public class RoamingTools {
     private static String line(RoamingProduct roaming) {
         return ToolFormats.valueOrUnknown(roaming.getName())
                 + " | " + ToolFormats.valueOrUnknown(roaming.getCountry())
-                + " | 일 " + ToolFormats.won(roaming.getDailyFee())
+                + " | 1일 요금 " + ToolFormats.won(roaming.getDailyFee())
                 + " | 데이터 " + ProductToolResults.data(roaming.getDataAmountMb());
     }
 

@@ -504,7 +504,7 @@ class AiServiceTest {
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             ((ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY)).record(
-                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of()), "- Ubot 컬러링 | 월 990원");
+                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of()), "- Ubot 컬러링 | 월 요금 990원");
             return new LlmResponseDto("{\"answer\":\"Ubot 컬러링 요금은 확인할 수 없습니다.\","
                     + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
         });
