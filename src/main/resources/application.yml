@@ -127,7 +127,7 @@ app:
     revocation-lookup-timeout: ${JWT_REVOCATION_LOOKUP_TIMEOUT:200ms}
 
 ranking:
-  window-minutes: ${RANKING_WINDOW_MINUTES:20}
+  window-minutes: ${RANKING_WINDOW_MINUTES:60}
   size: ${RANKING_SIZE:5}
   refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:1}
   min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:10}
@@ -137,7 +137,7 @@ ranking:
 
 telemap:
   window-minutes: ${TELEMAP_WINDOW_MINUTES:10}
-  count-threshold: ${TELEMAP_COUNT_THRESHOLD:20}
+  count-threshold: ${TELEMAP_COUNT_THRESHOLD:10}
   cluster-threshold: ${TELEMAP_CLUSTER_THRESHOLD:0.7}
   cluster-minimum-age-minutes: ${TELEMAP_CLUSTER_MINIMUM_AGE_MINUTES:1440}
   max-questions-for-subject: ${TELEMAP_MAX_QUESTIONS_FOR_SUBJECT:20}
