@@ -53,6 +53,28 @@ public class ReviewCheckRepository {
 			parameters.add(JSON.writeValueAsString(List.of(origin.name())));
 		}
 		if (outcome != null) { where += " AND outcome=?"; parameters.add(outcome.name()); }
+		return readPage(where, parameters, page, size);
+	}
+
+	/** 한 조건 안의 선택은 OR, 출처와 결과 사이는 AND로 조회합니다. 요약 행은 한 번만 셉니다. */
+	public PageResponseDto<ReviewCheckResponseDto> pageFiltered(List<Origin> origins, List<Outcome> outcomes,
+			int page, int size) {
+		List<Object> parameters = new ArrayList<>();
+		String where = " WHERE created_at>=LOCALTIMESTAMP-make_interval(days => " + RETENTION.summaryDays() + ")";
+		if (!origins.isEmpty()) {
+			String slots = String.join(",", java.util.Collections.nCopies(origins.size(), "?"));
+			where += " AND (origin IN (" + slots + ") OR (outcome='SKIPPED' AND jsonb_exists_any(skipped_origins,ARRAY["
+					+ slots + "]::text[])))";
+			origins.forEach(origin -> parameters.add(origin.name()));
+			origins.forEach(origin -> parameters.add(origin.name()));
+		}
+		if (!outcomes.isEmpty()) {
+			where += " AND outcome IN (" + String.join(",", java.util.Collections.nCopies(outcomes.size(), "?")) + ")";
+			outcomes.forEach(outcome -> parameters.add(outcome.name()));
+		}
+		return readPage(where, parameters, page, size);
+	}
+	private PageResponseDto<ReviewCheckResponseDto> readPage(String where, List<Object> parameters, int page, int size) {
 		Long total = jdbc.queryForObject("SELECT count(*) FROM guard_review_checks" + where, Long.class,
 				parameters.toArray());
 		parameters.add(size);

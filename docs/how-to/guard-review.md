@@ -171,6 +171,11 @@ DB 변경은 팀 규칙에 따라 DB 담당 리뷰가 필요합니다.
 
 ### 검사 기록과 저장 비용
 
+- 검사 목록은 `origins`와 `outcomes`를 반복 쿼리 파라미터로 받아 여러 출처·결과를 함께 조회할 수 있습니다. 같은 조건 안에서는 OR, 출처와 결과 사이는 AND이며 기존 단일 `origin`/`outcome` 요청도 유지합니다. 생략 요약은 `skippedOrigins`에 포함된 출처로 검색해도 한 행으로만 집계합니다.
+- `POST /admin/guard-review/checks/analysis`에 `checkIds`를 보내면 선택한 기록의 원문·근거·기존 판정을 동결해 기존 Worker로 분석합니다. 선택 건수에 50건 상한을 두지 않으며, ID 목록은 하나의 JSON 파라미터로 전달해 SQL 바인드 개수에 따라 잘리지 않게 합니다. 빈 선택·중복 ID·만료된 원문·검사 생략·미확인 출처가 섞이면 전체 요청을 롤백합니다.
+- 선택한 LLM 보류 기록은 기존 재검토를 사용하고, 통과·정리·차단·오류 기록은 위험 표현을 분석합니다. 원래 검사 판정이나 사용자 답변, 활성 금칙어는 자동 변경하지 않습니다. 이전 `/reassessment` API의 단일 출처·최대 50건 계약은 호환성을 위해 그대로 유지합니다.
+- 수동 선택 건수와 별개로 주기 분석·전체 재분석에는 50건 제한이 없습니다. Worker는 실행에 동결된 모든 항목을 순차 처리합니다. 화면의 `검사 생략 요약`은 `UNKNOWN/SKIPPED` 행의 `skippedOrigins`를 펼쳐 보여주며, 통과나 차단 판정이 아닙니다.
+
 - FILTERED는 본문 문자열 차이가 아니라 `contentRemoved`/`SlotOutcome.changedByGuard`로 기록합니다. ABSTAIN 칸 제외, 고지문 추가, 코드의 상품 목록 생성으로 본문이 달라져도 가드가 제거한 것이 아니면 PASS입니다.
 - HTTP 질문 접수에서 정상 PASS/검사 OFF를 중복 INSERT하지 않습니다. 접수 단계의 차단·오류, 실제 LLM 검사 PASS, 가드 전 생성 답변 수집은 유지합니다.
 - 요청마다 최대 3개씩 만들던 NOT_CALLED 기록은 `origin=UNKNOWN`, `outcome=SKIPPED`, `skippedOrigins` 배열을 가진 한 요약으로 저장합니다. 출처 필터는 이 배열도 조회하며 과거의 개별 SKIPPED 행도 읽을 수 있습니다. 실제 실행했으나 기록 저장에 실패한 검사를 SKIPPED로 바꾸지 않습니다.

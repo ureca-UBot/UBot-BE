@@ -30,10 +30,10 @@ class ReviewRepositoryTest {
 	void 보류선택_스냅샷은_출처_판정_ID_기간을_AND로_고정하고_정리와_경합하지않는다() {
 		repository.snapshotReviewSources(7, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
 				java.util.List.of(1L, 2L));
-		assertThat(sql()).contains("g.origin=? AND g.outcome='REVIEW'", "g.id IN (?,?)", "g.details_retained",
+		assertThat(sql()).contains("g.origin=? AND g.outcome='REVIEW'", "g.id IN (SELECT value::bigint FROM jsonb_array_elements_text(?::jsonb))", "g.details_retained",
 				"g.created_at<=", "g.created_at>=LOCALTIMESTAMP", "days => 30", "FOR SHARE OF g",
 				"original_guard_reasons", "original_guard_explanation");
-		verify(jdbc).update(contains("g.id IN"), eq(7L), eq("INPUT_LLM"), eq(1L), eq(2L), eq(7L));
+		verify(jdbc).update(contains("g.id IN"), eq(7L), eq("INPUT_LLM"), eq("[1,2]"), eq(7L));
 		assertThat(sql()).doesNotContain("UPDATE guard_review_checks", "FROM answer_attempts_history");
 	}
 	@Test

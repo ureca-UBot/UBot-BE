@@ -25,6 +25,23 @@ class ReviewControllerTest {
 		return user;
 	}
 	@Test
+	void 다중필터와_선택분석은_관리자만_사용한다() {
+		var origins = List.of(com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM);
+		var outcomes = List.of(com.ubot.guardreview.model.ReviewCheckModels.Outcome.REVIEW,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.REJECTED);
+		var body = new com.ubot.guardreview.dto.request.ReviewCheckAnalysisRequestDto(List.of(1L, 2L));
+		assertThatThrownBy(() -> controller.getFilteredChecks(user("USER"), null, null, origins, outcomes, 0, 20))
+				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+		assertThatThrownBy(() -> controller.startCheckAnalysis(user("USER"), body))
+				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+		verifyNoInteractions(checks, service);
+		controller.getFilteredChecks(user("ADMIN"), null, null, origins, outcomes, 0, 20);
+		verify(checks).pageFiltered(origins, outcomes, 0, 20);
+		when(service.startCheckAnalysis(body.checkIds(), 99L)).thenReturn(7L);
+		assertThat(controller.startCheckAnalysis(user("ADMIN"), body).data()).isEqualTo(7);
+	}
+	@Test
 	void 일반사용자는_분석_검사_승인_기록조회에_접근할수없다() {
 		var user = user("USER");
 		assertThatThrownBy(() -> controller.getOverview(user))
@@ -50,7 +67,7 @@ class ReviewControllerTest {
 	}
 	@Test
 	void 검사기록과_원문근거는_관리자만_볼수있다() {
-		assertThatThrownBy(() -> controller.getChecks(user("USER"), null, null, 0, 20))
+		assertThatThrownBy(() -> controller.getFilteredChecks(user("USER"), null, null, null, null, 0, 20))
 				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
 		assertThatThrownBy(() -> controller.getCheck(user("USER"), 1))
 				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
@@ -60,7 +77,7 @@ class ReviewControllerTest {
 	void 출처와_판정필터를_검사기록과_후보에_같이_전달한다() {
 		var origin = com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM;
 		var outcome = com.ubot.guardreview.model.ReviewCheckModels.Outcome.REJECTED;
-		controller.getChecks(user("ADMIN"), origin, outcome, 0, 20);
+		controller.getFilteredChecks(user("ADMIN"), origin, outcome, null, null, 0, 20);
 		controller.getFindings(user("ADMIN"), 5, origin, outcome);
 		verify(checks).page(origin, outcome, 0, 20);
 		verify(repository).findings(5, origin, outcome);
