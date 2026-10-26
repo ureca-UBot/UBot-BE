@@ -15,7 +15,7 @@
   </picture>
 </p>
 
-- **FAQ와 맞는 질문에만 답합니다.** 질문과 가장 비슷한 FAQ 3건을 찾고, 유사도가 기준(0.75) 이상인 것만 씁니다. 기준을 넘는 FAQ가 없으면 LLM을 부르지 않고 "정확한 답변을 찾지 못했습니다"라고 답합니다.
+- **FAQ와 맞는 질문에만 답합니다.** 질문과 가장 비슷한 FAQ 3건을 찾고, 유사도가 기준(기본 0.79) 이상인 것만 씁니다. 기준을 넘는 FAQ가 없으면 근거 부족으로 처리합니다.
 - **FAQ의 종류에 맞는 자료로 답합니다.** FAQ에는 처리 의도(intent)가 붙어 있습니다. 일반 FAQ는 원문을 근거로 넘기고, 매장 FAQ가 걸리면 근처 매장을 조회해 답하며, 사용자 정보 FAQ가 걸리면 로그인한 사용자의 정보를 참고 자료로 넘깁니다.
 - **근거를 밝힙니다.** 답변에는 어떤 FAQ를 썼는지(`evidence_ids`)와 답변 상태가 함께 들어 있습니다. 자료에 값이 없으면 그 부분은 답할 수 없다고 밝히고, 자료에 없는 내용을 추측해 채우지 않습니다.
 - **못 답한 질문이 FAQ를 키웁니다.** 답하지 못한 질문은 비슷한 것끼리 묶여 관리자에게 보이고, 관리자는 묶음에서 바로 FAQ를 등록할 수 있습니다.
@@ -66,6 +66,29 @@ API 경로와 인증 방식은 [architecture.md](docs/architecture.md)에, 오�
 
 환경변수 전체 목록은 [.env.example](.env.example)에, 주요 설정의 설명은 [configuration.md](docs/reference/configuration.md)에 있습니다.
 
+## 설계 판단과 한계
+
+- **근거가 없으면 답변을 보류합니다.** 검색 기준과 문장 근거 검사를 통과하지 못한 질문은 모델의 일반 지식으로 채우지 않고 미응답 개선 흐름으로 보냅니다. 답변 범위가 줄어드는 대신 근거 없는 안내를 줄입니다.
+- **DB를 작업 상태의 원본으로 둡니다.** Redis는 Worker를 깨우는 신호로 사용하고 작업·최종 결과는 PostgreSQL에 저장합니다. 장애 뒤 복구할 수 있지만 DB 쓰기와 폴링 부하는 함께 관리해야 합니다.
+- **접수와 완료를 분리합니다.** 채팅 POST는 `202 + jobId`를 반환하고 화면은 상태를 조회합니다. 요청 스레드는 모델을 기다리지 않지만 클라이언트가 진행 상태·백오프·종료 조건을 처리해야 합니다.
+- **모델과 외부 API는 권한을 갖지 않습니다.** LLM의 도구 선택은 조회 자료를 만들며, 가입·예약·정보 변경은 인증과 소유권을 검사하는 서버 API가 수행합니다.
+
+현재 구성은 다중 리전 재해 복구, 상시 GPU 자동 확장, 통신사 과금·개통 원장과의 실시간 연동을 보장하지 않습니다. 장애와 과부하 동작은 [신뢰성 모델](docs/reliability-model.md), 확인한 실행 환경과 제외 범위는 [지원·검증 범위](docs/support-policy.md)에서 확인합니다.
+
+## 임베딩 실험과 BE 반영
+
+[UBot-EmbeddingTest](https://github.com/ureca-UBot/UBot-EmbeddingTest)는 모델 5종, 리랭커, 의도별 유사도 기준, 질문 묶기와 서빙 엔진을 비교한 기록입니다. 아래는 실험 결과와 현재 BE 구현의 대응입니다.
+
+| 실험에서 확인한 내용 | BE에 반영한 구성 |
+|---|---|
+| 정답 라벨을 보정한 235문항에서 BGE-M3의 Top-1 94.5%, MRR 0.963 | BGE-M3 1,024차원 벡터 사용. Ollama는 `bge-m3:567m`, vLLM은 `BAAI/bge-m3`로 설정 ([설정](.env.example), [임베딩 클라이언트](src/main/java/com/ubot/embedding/client/EmbeddingClient.java)) |
+| 같은 235문항에서 BGE 리랭커 추가 시 Top-1 91.9%, MRR 0.954 | FAQ 질문 표현의 `QUESTION` 벡터로 검색하고 별도 리랭커 없이 후보 순서 유지 ([검색 서비스](src/main/java/com/ubot/faq/retrieval/FaqRetrievalService.java)) |
+| 의도별 실험에서 기준 후보 0.605·0.730의 재현율·무관 질문 배제율이 달랐음 | Top-K 기본값 3, 질문 유사도 기준 기본값 0.79 사용. 과거 실험 후보와 현재 설정을 구분 ([설정](src/main/resources/application.yml), [답변 처리](src/main/java/com/ubot/chat/service/ChatAnswerProcessor.java)) |
+| 단기 HTTP 부하 2,560건에서 vLLM 처리량이 높았지만 모델 형식·정밀도는 달랐음 | `AI_MODE=vllm`과 OpenAI 호환 임베딩 API 연결 지원. 기본 모드는 Ollama이며 엔진별 벡터는 프로필로 분리 ([연결 설정](src/main/java/com/ubot/embedding/config/EmbeddingConfig.java), [프로필 관리](src/main/java/com/ubot/embedding/service/EmbeddingProfileService.java)) |
+| HDBSCAN은 질문 38개로 동작만 확인했고 운영 파라미터 확정은 보류 | HDBSCAN은 미적용. 미응답 질문을 현재 프로필의 가까운 묶음에 넣고 중심 벡터를 평균으로 갱신 ([미응답 처리](src/main/java/com/ubot/unanswered/service/UnansweredQuestionService.java)) |
+
+FAQ의 HNSW 검색 설정은 후속 [BE 검색 실험](docs/FAQ_HNSW_검색_테스트_보고서.md)을 거쳐 `ef_search=200`, `iterative_scan=strict_order`로 적용했습니다. 이전 [Q·Q+A와 전체 비교 실험](docs/FAQ_검색_테스트_보고서.md)의 결과도 함께 보존합니다. 엔진을 바꿀 때는 [현재 프로필의 벡터 백필](docs/how-to/llm-module.md#백필)이 필요합니다.
+
 ## 바로 실행해 보기
 
 JDK 17 이상, 실행 중인 Docker Desktop, Git이 필요합니다.
@@ -95,9 +118,13 @@ Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 �
 
 | 궁금한 것 | 문서 |
 |---|---|
+| 전체 문서 지도 | [docs/README.md](docs/README.md) |
 | 현재 설계 그림 모음 | [docs/images/README.md](docs/images/README.md) |
 | 처음부터 단계별로 실행하기 | [quickstart.md](docs/quickstart.md) |
 | 코드 구조, API, 요청 흐름 | [architecture.md](docs/architecture.md) |
+| 장애·과부하·복구 계약 | [reliability-model.md](docs/reliability-model.md) |
+| 운영 지표와 진단 흐름 | [observability.md](docs/operations/observability.md) |
+| 검증한 환경과 지원 한계 | [support-policy.md](docs/support-policy.md) |
 | 환경변수와 설정값 | [configuration.md](docs/reference/configuration.md) |
 | 오류 코드 | [error-codes.md](docs/reference/error-codes.md) |
 | 실행이 안 될 때 | [troubleshooting.md](docs/troubleshooting.md) |
@@ -112,5 +139,5 @@ Copy-Item .env.example .env     # POSTGRES_PASSWORD와 JWT_SECRET을 반드시 �
 | LLM 서빙 런타임(vLLM·SGLang) | [infra/llm/README.md](infra/llm/README.md) |
 | AWS 테스트 인프라(Terraform) | [infra/terraform/README.md](infra/terraform/README.md) |
 | 브랜치·PR·커밋 규칙 | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| 유사도 기준 실험 결과 (보고서는 0.73을 1차 채택, 코드 기본값은 0.75) | [FAQ_Threshold_테스트_보고서.md](docs/FAQ_Threshold_테스트_보고서.md) |
+| 유사도 기준 실험 결과 (보고서는 0.73을 1차 채택, 코드 기본값은 0.79) | [FAQ_Threshold_테스트_보고서.md](docs/FAQ_Threshold_테스트_보고서.md) |
 | FAQ 검색 방식(HNSW·전체 비교), Q와 Q+A 벡터 비교, 답변 테스트 결과 | [FAQ_검색_테스트_보고서.md](docs/FAQ_검색_테스트_보고서.md) |

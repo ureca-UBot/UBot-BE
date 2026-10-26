@@ -1,6 +1,6 @@
 # 설정 Reference
 
-> 문서 기준: UBot-BE `develop` [`2fdb6ec`](https://github.com/ureca-UBot/UBot-BE/commit/2fdb6ec145d6092696651d83e4b6ff01ffb821c0) (2026-09-29 19:55 KST 커밋, #105 병합 시점) · 작성일 2026-09-30
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
 
 ## 설정 파일
 
@@ -19,6 +19,17 @@ src/main/resources/
 | `test` | 로컬·GitHub Actions의 자동 테스트 | `gradlew test`는 `build.gradle`에서 `spring.profiles.active=test`를 강제. IDE에서 JUnit을 직접 실행하면 테스트 클래스의 `@ActiveProfiles("test")`가 적용 | Testcontainers + `@ServiceConnection` |
 
 자동 테스트는 별도 DB 컨테이너의 임의 호스트 포트와 접속 정보를 사용합니다. 개발 `.env`, 고정 포트, 개발 DB·볼륨을 공유하지 않습니다. `test` 프로필만 지정해 `bootRun`을 실행하는 것은 Testcontainers 기반 테스트 실행과 다릅니다.
+
+### 설정을 바꾸기 전에 확인할 것
+
+| 확인 항목 | 확인 방법 |
+|---|---|
+| 이름과 기본값 | `.env.example`, `application*.yml`, 해당 `@ConfigurationProperties`를 함께 확인합니다. |
+| 적용 프로세스 | API·Worker·일회성 작업 중 어느 프로세스가 읽는지 Compose의 `environment`·`env_file`을 확인합니다. |
+| 단위 | `Duration` 값은 `ms`, `s`, `m`처럼 단위를 명시하고, 숫자 설정은 동시 실행 수·건수·바이트 중 무엇인지 확인합니다. |
+| 적용 시점 | 대부분 기동 시 바인딩되므로 변경 후 해당 프로세스를 다시 시작해야 합니다. |
+| 함께 바뀌는 저장 상태 | 임베딩 엔진·모델·버전은 Embedding Profile과 백필에, DB 스키마는 Flyway 이력에, 캐시 설정은 Redis·로컬 캐시 동작에 영향을 줍니다. |
+| 실패 동작 | 필수값·검증 위반은 기동 실패로, 외부 의존성 장애는 기능별 오류나 제한된 재시도로 나타납니다. 복구 경계는 [신뢰성 모델](../reliability-model.md)을 확인합니다. |
 
 `prod`는 `local`과 달리 접속 정보에 기본값이 없고(`POSTGRES_HOST`, `POSTGRES_DB`, `POSTGRES_USER`, `REDIS_HOST` 필수), health 상세를 숨기고, Swagger UI와 API 문서를 끄고, 종료할 때 처리 중인 요청을 최대 30초 기다립니다. 배포된 백엔드가 이 프로필로 실행됩니다. 배포 스크립트는 서버 `.env`의 `SPRING_PROFILES_ACTIVE`가 `prod`가 아니면 배포하지 않습니다([deploy.md](../deploy.md#서버의-env)).
 
@@ -92,10 +103,10 @@ AWS 조합은 DB·Redis·GPU 모델을 BE EC2에 띄우지 않습니다. `NLB_DN
 | `VLLM_ENABLE_THINKING` | Docker Compose: vLLM 답변 생성 서버의 thinking 모드 기본값 | `false` | Spring에서 읽지 않음 |
 | `CHAT_MAX_ATTEMPTS` | `ChatAttemptsService`: 최초 요청을 포함한 최대 답변 생성 시도 횟수 | `3` | `3` |
 | `CHAT_TOP_K` | `ChatAnswerProcessor`: FAQ 검색 시 요청하는 최대 결과 개수 | `3` | `3` |
-| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 캐시 실패 후 하위 질문마다 FAQ 질문 벡터 검색 후보의 코사인 유사도 기준. 통과한 후보만 답변 문장 검사에 사용하고, 남은 FAQ가 없으면 그 하위 질문은 근거 없음으로 처리 | `0.75` | `0.75` |
-| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | `FaqSentenceFilterService`: 질문 유사도 기준을 통과한 FAQ에서 하위 질문의 검색어와 각 답변 문장의 코사인 유사도 기준. 통과한 문장만 답변 LLM에 전달 | `0.7` | `0.7` |
+| `CHAT_CONFIDENCE_THRESHOLD` | `ChatAnswerProcessor`: 캐시 실패 후 하위 질문마다 FAQ 질문 벡터 검색 후보의 코사인 유사도 기준. 통과한 후보만 답변 문장 검사에 사용하고, 남은 FAQ가 없으면 그 하위 질문은 근거 없음으로 처리 | `0.79` | `0.79` |
+| `FAQ_SENTENCE_SIMILARITY_THRESHOLD` | `FaqSentenceFilterService`: 질문 유사도 기준을 통과한 FAQ에서 하위 질문의 검색어와 각 답변 문장의 코사인 유사도 기준. 통과한 문장만 답변 LLM에 전달 | `0.49` | `0.49` |
 | `CHAT_SUB_QUESTION_ENABLED` | `SubQuestionPlanner`: 판정 LLM으로 질문을 정리할지 여부. 켜면 질문 분리·멀티턴 표지가 있는 질문, 또는 원문 검색이 기준에 못 미친 질문만 판정 LLM이 이전 대화(최대 3턴)를 참고해 하위 질문(최대 3개)별 검색어를 만듦(LLM 호출이 한 번 늘어남). 검색어는 검색에만 쓰고, 답변 LLM에는 원문과 원문 조각, 멀티턴이면 이전 대화를 넘김. 끄면 원문 하나로 검색하고 이전 대화도 넘기지 않음 | `true` | 키가 없으면 `true` |
-| `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 판정할 표지가 없는 질문을 원문으로 먼저 검색할 때, 이전 대화가 있으면 이 값 이상이어야 판정 없이 끝냄(이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`). 기본값은 유사도 기준과 같고 튜닝용으로 따로 둠. `CHAT_CONFIDENCE_THRESHOLD`보다 낮으면 그 값을 씀 | `0.75` | 키가 없으면 `0.75` |
+| `CHAT_SEARCH_FIRST_HISTORY_THRESHOLD` | `ChatAnswerProcessor`: 이전 대화가 있는 질문을 원문으로 먼저 검색할 때, 이 값과 `CHAT_CONFIDENCE_THRESHOLD` 중 큰 값을 기준으로 사용. 기본 설정에서 유효 기준은 0.79이며 이전 대화가 없으면 `CHAT_CONFIDENCE_THRESHOLD`를 사용 | 없음 | 키가 없으면 `0.75` |
 | `APP_ROLE` | `AppRole`(`app.role`): 프로세스 역할. `api`는 접수·상태 조회와 나머지 API·스케줄러, `worker`는 답변 Worker만(랭킹·보관 기간 삭제 스케줄러 없음, HTTP는 `/actuator`만 받고 나머지는 `404 G-004`), `all`은 둘 다. 배포 Compose는 `backend=api`, `ai-worker=worker`로 정함 | `all` | `all`. 다른 값이면 기동되지 않음 |
 | `CHAT_WORKER_CONCURRENCY` | `ChatJobRunner`: Worker 하나가 동시에 만드는 답변 수. 빈 슬롯이 있을 때만 스트림을 읽음 | `4` | `4` |
 | `COUNSEL_EMBEDDING_WORKER_ENABLED` | `CounselEmbeddingWorker`: 상담 전용 Redis 큐의 임베딩만 처리. `worker/all` 역할에서 기본 실행하며 `api`에서는 실행하지 않음. 별도 스레드 1개이며 기존 채팅 큐·실행 풀·DB를 사용하지 않음. 필요하면 `false`로 비활성화 | `true` | `true` (`test` 프로필은 `false`) |
@@ -228,7 +239,7 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 
 | 설정 | 값 | 위치 |
 |---|---|---|
-| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V33`) | — |
+| 마이그레이션 위치 | `src/main/resources/db/migration/` (`V1`~`V57`, 일부 번호는 없음) | — |
 | `baseline-on-migrate` | `true` | `application.yml` |
 | `baseline-version` | `0` | `application.yml` |
 | JPA `ddl-auto` | `none` | `application-local.yml`, `application-test.yml` |
@@ -256,6 +267,10 @@ Docker Compose는 dotenv 문법을, Spring은 Java properties 문법을 사용�
 | `V31` | `chat_jobs`(답변 작업: 답변 시도와 1:1, 상태 `QUEUED`/`RUNNING`/`SUCCEEDED`/`FAILED`, 시작·종료 시각). 시도를 지우면 함께 지워짐 |
 | `V32` | `faq`, `old_faq`에 `cacheable` 추가, `faq_question_variants` 생성 및 기존 질문 이관, `faq_embeddings`의 연결 키를 FAQ ID에서 variant ID로 변경 |
 | `V33` | `chat_jobs`에 요청 정보(`request_context`)·성공 결과(`result_payload`) JSONB, `heartbeat_at`, `updated_at`, 복구용 인덱스와 처리 단계(`phase`)·단계 갱신 시각(`phase_updated_at`)·마감(`deadline_at`) 추가. 기존 작업의 단계·마감은 NULL 유지. 요청 좌표·지역은 작업 종료와 같은 트랜잭션에서 삭제 |
+| `V34`~`V38` | LLM 답변 보류 사유, 하위 질문·검색어, 미응답 저장 Outbox, 고객 문의 추가 |
+| `V39`~`V42` | 상담 도메인 통합, 대화 soft delete, 미응답 묶음 이름·추천 카테고리, FAQ 개선 제외 항목 추가 |
+| `V45`~`V51` | 미응답 재검증, 상품·가입 데이터 확장과 시드, Guard Review·출처 키 해시, 모델 판정 출처와 상품 데이터 의도 추가 |
+| `V52`~`V57` | 통신 지도, 출력 가드 전후 응답·판정·검토 출처·재평가 이력 추가, 이전 미응답 출처 컬럼 제거 |
 
 표에 없는 버전은 각 SQL 파일을 참고하세요. `V32`는 기존 FAQ 질문을 variant로 이관하지만, 기본 FAQ와 관리자 계정을 새로 생성하지는 않습니다. 로컬에서는 `tools/faq-db/reset-local-db.ps1`이 기본 계정과 시드 CSV의 FAQ·질문 표현을 넣습니다. 벡터는 별도로 백필합니다([안내](../how-to/reset-local-db.md)).
 
