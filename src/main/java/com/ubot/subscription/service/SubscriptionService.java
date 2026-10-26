@@ -6,6 +6,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ubot.plan.dto.response.PlanDetailResponseDto;
+import com.ubot.common.GlobalException;
+import com.ubot.common.exception.CommonErrorCode;
+import com.ubot.subscription.dto.response.PhoneNumberAvailabilityResponseDto;
+import com.ubot.subscription.enums.SubscriptionStatus;
 import com.ubot.subscription.dto.response.SubscriptionAddonResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionBundleResponseDto;
 import com.ubot.subscription.dto.response.SubscriptionResponseDto;
@@ -27,6 +31,17 @@ public class SubscriptionService {
 	private final SubscriptionAddonRepository subscriptionAddonRepository;
 	private final SubscriptionRoamingRepository subscriptionRoamingRepository;
 	private final BundleGroupService bundleGroupService;
+
+	/** 개통과 같은 기준으로 해지되지 않은 전체 회선의 번호 중복을 확인합니다. */
+	public PhoneNumberAvailabilityResponseDto checkPhoneNumber(String phoneNumber) {
+		String digits = phoneNumber == null ? "" : phoneNumber.replace("-", "");
+		if (!digits.matches("010[0-9]{8}")) {
+			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
+		}
+		String normalized = digits.substring(0, 3) + "-" + digits.substring(3, 7) + "-" + digits.substring(7);
+		boolean available = !subscriptionRepository.existsByPhoneNumberAndStatusNot(normalized, SubscriptionStatus.TERMINATED);
+		return new PhoneNumberAvailabilityResponseDto(normalized, available);
+	}
 
 	public List<SubscriptionResponseDto> getMySubscriptionList(Long userId) {
 		return subscriptionRepository.findAllByUserId(userId).stream()
