@@ -1,59 +1,65 @@
-# UBot-BE 문서
+# UBot 기능별 문서
 
-이 저장소의 문서는 제품 소개를 반복하지 않고, 백엔드를 실행·연동·검증·운영할 때 필요한 근거로 이어집니다. UBot 전체 사용자 흐름은 [조직 제품 문서](https://github.com/ureca-UBot/.github/blob/main/docs/README.md), 백엔드의 실제 계약은 이 저장소의 코드·설정·마이그레이션과 아래 문서에서 확인합니다.
+고객이 질문하고 서비스를 이용하는 과정, 관리자가 지식을 개선하는 과정, 배포 후 운영하는 과정을 기능별로 설명합니다. 각 기능에서 화면의 요청, 서버 처리, 저장·반환 결과, 실패 처리와 관련 코드로 이어집니다.
 
-## 목적별로 읽기
+[백엔드 소개](../README.md) · [제품 전체 소개](https://github.com/ureca-UBot/.github/blob/main/profile/README.md) · [로컬 실행](quickstart.md)
 
-| 하려는 일 | 먼저 볼 문서 | 확인할 결과 |
-|---|---|---|
-| 로컬에서 서버를 처음 실행 | [Quickstart](quickstart.md) | 애플리케이션과 DB health가 `UP` |
-| 프론트엔드에서 API 연동 | [프론트엔드 연동](how-to/frontend-integration.md) · [오류 코드](reference/error-codes.md) | 인증·비동기 작업·재시도·폴링 계약 |
-| 질문이 답변으로 바뀌는 과정 이해 | [아키텍처](architecture.md#챗봇-질문-처리-흐름) · [LLM 모듈](how-to/llm-module.md) | 입력 검사부터 검색·도구·가드·저장까지의 흐름 |
-| 상담사 인계 연동 | [상담사 연결](how-to/counsel.md) | AI 대화 이력 인계, 메시지 보호, 종료·재상담 |
-| FAQ와 임베딩 데이터 준비 | [로컬 데이터](how-to/local-data.md) · [DB 초기화](how-to/reset-local-db.md) | FAQ 원문·variant·현재 Profile 벡터 준비 |
-| 설정값 변경 | [설정 Reference](reference/configuration.md) | 기본값, 적용 시점, 재시작·부작용 확인 |
-| 장애와 과부하 동작 확인 | [신뢰성 모델](reliability-model.md) | 감지 신호, 시스템 동작, 복구·중단 조건 |
-| 운영 상태 진단 | [관측과 진단](operations/observability.md) · [지표 Reference](reference/metrics.md) | 질문별 지표·로그·조회 경로 |
-| 장애 대응 | [런북 안내](runbooks/README.md) | 읽기 전용 진단, 조치, 복구 확인, 금지 작업 |
-| 배포와 롤백 | [배포](deploy.md) · [Terraform](../infra/terraform/README.md) | 이미지·Compose·SSM 배포와 AWS 리소스 경계 |
-| 현재 검증 범위 판단 | [지원·검증 범위](support-policy.md) | 확인한 환경과 아직 보장하지 않는 범위 |
+## 기능으로 찾아보기
 
-## 기능 흐름
+| 기능 | 이 문서에서 확인할 내용 |
+|---|---|
+| [근거 기반 AI 상담](features/ai-chat.md) | 질문 접수 → 정리·검색 → 자료·도구 조회 → 답변 검사 → 결과 저장·조회 |
+| [질문과 답변 보호](features/ai-safety.md) | 입력·출력 코드 검사와 AI 판정, 관리자 후보 검증·승인 |
+| [미응답에서 FAQ 개선까지](features/unanswered-improvement.md) | 수집·중복 방지·그룹화·관리자 처리·FAQ 전환·재검증 |
+| [FAQ 관리와 검색 반영](features/faq-management.md) | 등록·수정 이력·질문 표현·벡터·Profile·공식 답변 직접 반환 |
+| [상담사 인계와 메시지 보호](features/counselor-handoff.md) | 서버 이력 인계·대기·배정·검사·전달·종료·재상담 |
+| [상품 안내와 내 이용 정보](features/products-and-subscriptions.md) | 상품 탐색·가입 변경·약정·청구·사용량·채팅 조회 도구 |
+| [매장 찾기에서 방문 예약까지](features/stores-and-reservations.md) | 위치·지도 검색·길찾기·예약·취소·리마인더 |
+| [회원·비회원 이용과 대화 기록](features/accounts-and-conversations.md) | JWT·게스트 세션·대화 승계·FAQ 선택 저장·이력·삭제 조건 |
+| [공지·문의·알림](features/customer-support.md) | 지역 배너·공지 이력·일대일 문의·관리자 답변·읽음 처리 |
+| [인기 FAQ와 지역 문의 급증 감지](features/trends-and-telemap.md) | 순위 집계·지역별 유사 문의 묶기·급증 알림·관리자 처리 |
+| [배포에서 관측·장애 복구까지](features/service-operations.md) | CI/CD·운영 화면·지표·알림·복구·용량 조절 |
 
-| 기능 | 동작 설명 | 세부 문서 |
-|---|---|---|
-| FAQ 기반 AI 답변 | 질문을 접수해 비동기 작업으로 저장하고, FAQ 검색·문장 근거·도구 호출·출력 검사를 거쳐 결과를 DB에 남김 | [아키텍처](architecture.md) · [Worker 복구](how-to/worker-reliability.md) |
-| 입력·출력 보호 | 금지어·프롬프트 공격·개인정보를 입력에서 검사하고, 모델 출력은 규칙·AI 가드로 재검사 | [AI 가드](how-to/ai-guard-integration.md) · [Guard Review](how-to/guard-review.md) |
-| 미응답 지식 개선 | 근거가 없거나 답하지 못한 질문을 Outbox로 저장해 묶고, FAQ 등록·재검증으로 연결 | [Outbox ADR](미응답_저장_Outbox_ADR.md) |
-| 상담사 인계 | 로그인 회원의 서버 저장 대화와 FAQ 선택을 상담사에게 넘기고 상담 메시지를 보호 | [상담](how-to/counsel.md) |
-| 상품·고객·매장 도구 | 인증 사용자 자료와 상품·매장·경로 데이터를 서버가 조회해 LLM 참고 자료와 화면 데이터로 제공 | [아키텍처](architecture.md) |
-| 운영 복구 | DB를 작업 원본으로 두고 Redis·Worker·모델 장애 뒤 재발행·회수·재시도를 제한 시간 안에서 수행 | [신뢰성 모델](reliability-model.md) · [장애 검증 기록](evidence/fault-recovery-20261023.md) |
+## 시나리오를 따라 읽기
 
-## Reference
+- 고객 상담: [회원과 대화](features/accounts-and-conversations.md) → [AI 답변](features/ai-chat.md) → [상품·이용 정보](features/products-and-subscriptions.md) 또는 [매장 방문](features/stores-and-reservations.md) → [상담사 연결](features/counselor-handoff.md)
+- 지식 개선: [미응답 수집](features/unanswered-improvement.md) → [FAQ 수정과 검색 반영](features/faq-management.md) → [입력·출력 보호](features/ai-safety.md) → [문의 추이 확인](features/trends-and-telemap.md)
+- 서비스 운영: [배포·관측·복구](features/service-operations.md) → [장애별 런북](runbooks/README.md) → [장애 검증 기록](evidence/fault-recovery-20261023.md)
 
-- [환경변수와 실행 설정](reference/configuration.md)
-- [오류 코드와 클라이언트 처리](reference/error-codes.md)
-- [Prometheus 지표와 운영 API](reference/metrics.md)
-- 실행 중인 서버의 요청·응답 스키마: `/swagger-ui.html`, `/v3/api-docs`
-- DB 스키마 원본: `src/main/resources/db/migration/`
-- 프롬프트 원본: `src/main/resources/prompts/`
+## 실행·연동·운영 안내
 
-## 실험과 검증 기록
+| 하려는 일 | 안내 |
+|---|---|
+| 서버와 데이터를 처음 준비 | [Quickstart](quickstart.md), [로컬 데이터](how-to/local-data.md), [DB 초기화](how-to/reset-local-db.md) |
+| 프론트엔드에서 API 호출 | [연동 가이드](how-to/frontend-integration.md), [오류 코드](reference/error-codes.md) |
+| 모델·임베딩 엔진 연결 | [LLM 모듈](how-to/llm-module.md), [모델 서빙](../infra/llm/README.md), [가드 연결](how-to/ai-guard-integration.md) |
+| 상담 기능 실행·관리 | [상담 API와 초기 색인](how-to/counsel.md) |
+| 관리자 위험 표현 분석 실행 | [검토 절차](how-to/guard-review.md), [분석 모델 실행](how-to/admin-risk-runtime.md) |
+| 배포와 인프라 확인 | [배포](deploy.md), [Terraform](../infra/terraform/README.md) |
+| 운영 상태 확인·장애 대응 | [관측](operations/observability.md), [지표](reference/metrics.md), [알림](how-to/alerting.md), [런북](runbooks/README.md) |
+| 실패·과부하의 처리 경계 확인 | [신뢰성 모델](reliability-model.md), [Worker 복구](how-to/worker-reliability.md) |
+| 설정·실행 오류 해결 | [설정 Reference](reference/configuration.md), [Troubleshooting](troubleshooting.md), [검증 범위](support-policy.md) |
 
-실험 결과는 측정 당시 코드·모델·환경에만 적용합니다. 현재 기본값이나 운영 성능을 자동으로 보장하지 않습니다.
+## 실험과 설계 근거
 
-- [FAQ 유사도 임계값](FAQ_Threshold_테스트_보고서.md)
-- [FAQ 검색·Q+A 벡터 비교](FAQ_검색_테스트_보고서.md)
-- [HNSW 검색 비교](FAQ_HNSW_검색_테스트_보고서.md)
-- [Reranker 비교](FAQ_Reranker_테스트_보고서.md)
-- [질문 분리·멀티턴 검증](질문분리_멀티턴_테스트_보고서.md)
-- [출력 가드 분석](output-guard-analysis.md)
-- [장애 복구 검증](evidence/fault-recovery-20261023.md)
+| 확인할 판단 | 기록 |
+|---|---|
+| 임베딩 모델과 검색 구성을 왜 골랐는가 | [실험과 BE 구현 대응](features/faq-management.md#임베딩-실험과-be-반영) |
+| 검색 임계값을 어떻게 비교했는가 | [FAQ 유사도 임계값](FAQ_Threshold_테스트_보고서.md) |
+| 질문·답변 벡터와 검색 방식을 어떻게 비교했는가 | [FAQ 검색·Q+A](FAQ_검색_테스트_보고서.md), [HNSW](FAQ_HNSW_검색_테스트_보고서.md), [Reranker](FAQ_Reranker_테스트_보고서.md) |
+| 질문 분리·멀티턴 처리를 어떻게 확인했는가 | [질문 분리·멀티턴 검증](질문분리_멀티턴_테스트_보고서.md) |
+| 입력·출력 파이프라인과 가드를 어떻게 평가했는가 | [파이프라인 검증](pipeline-test-feat277-20261023.md), [출력 가드 분석](output-guard-analysis.md), [출력 LLM 가드 비교](pr291-output-llm-guard-comparison.md), [검증 질문](pr291-output-llm-guard-test-questions.md) |
+| 미응답 후속 처리를 왜 분리했는가 | [Outbox ADR](미응답_저장_Outbox_ADR.md) |
+| 의존 서비스가 멈췄을 때 무엇을 확인했는가 | [실제 LLM 장애 복구 실험](evidence/fault-recovery-20261023.md) |
 
-## 문서를 읽을 때의 기준
+실험 결과는 측정 당시 코드·모델·데이터·환경의 기록입니다. 현재 기본값과 다른 값도 원본 결과로 보존합니다.
 
-- API 필드·기본값·스키마가 문서와 다르면 현재 코드, `.env.example`, `application.yml`, Flyway 마이그레이션을 기준으로 확인합니다.
-- 실행 명령에는 성공 여부를 판정할 관찰 결과가 함께 있어야 합니다.
-- 성능·호환성·복구 주장은 측정 환경과 테스트 경로가 연결된 범위에서만 해석합니다.
-- 장애 설명은 재시도 가능 여부, 중단 조건과 호출자가 해야 할 일을 함께 확인합니다.
-- 삭제·초기화·마이그레이션 명령은 영향 범위와 되돌리기 가능성을 먼저 확인합니다.
+## 내부 구조와 명세
+
+- [코드 구조와 요청 흐름](architecture.md)
+- [DB 직접 조회와 ERD](how-to/db-access.md)
+- [설계 그림 모음](images/README.md)
+- [프롬프트](../src/main/resources/prompts/README.md)
+- [예외 작성 규칙](../src/main/java/com/ubot/common/manual/exception.md)
+- [개발·PR 규칙](../CONTRIBUTING.md)
+- 로컬 실행 중 API 명세: `/swagger-ui.html`, `/v3/api-docs`. 운영 프로필에서는 비활성화합니다.
