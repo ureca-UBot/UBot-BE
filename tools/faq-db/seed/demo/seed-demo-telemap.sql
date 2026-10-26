@@ -1075,11 +1075,14 @@ ORDER BY a.alert_seq;
 -- clear-demo-activity.ps1가 시연 종료 후 FAQ 시각을 원래 값으로 되돌릴 수 있도록 보관한다.
 CREATE TABLE IF NOT EXISTS demo_activity_faq_timestamp_backup (
     faq_id BIGINT PRIMARY KEY,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    original_created_at TIMESTAMP NOT NULL,
+    original_updated_at TIMESTAMP NOT NULL,
+    original_version INTEGER NOT NULL,
+    demo_created_at TIMESTAMP,
+    demo_updated_at TIMESTAMP
 );
-INSERT INTO demo_activity_faq_timestamp_backup (faq_id, created_at, updated_at)
-SELECT f.id, f.created_at, f.updated_at
+INSERT INTO demo_activity_faq_timestamp_backup (faq_id, original_created_at, original_updated_at, original_version)
+SELECT f.id, f.created_at, f.updated_at, f.version
 FROM faq f
 WHERE f.deleted_at IS NULL
   AND (
@@ -1120,6 +1123,13 @@ BEGIN
         RAISE EXCEPTION 'Expected to age 10 unused FAQs but updated %.', updated;
     END IF;
 END $$;
+
+-- 시연 적용 후의 정확한 시각도 기록한다. 관리자 수정으로 값이나 버전이 바뀐 FAQ는 초기화에서 복원하지 않는다.
+UPDATE demo_activity_faq_timestamp_backup b
+SET demo_created_at = f.created_at,
+    demo_updated_at = f.updated_at
+FROM faq f
+WHERE f.id = b.faq_id;
 
 \if :{?managed_transaction}
 \else

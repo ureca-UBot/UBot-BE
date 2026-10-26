@@ -41,14 +41,20 @@ Invoke-Checked {
 BEGIN;
 CREATE TABLE IF NOT EXISTS demo_activity_faq_timestamp_backup (
     faq_id BIGINT PRIMARY KEY,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    original_created_at TIMESTAMP NOT NULL,
+    original_updated_at TIMESTAMP NOT NULL,
+    original_version INTEGER NOT NULL,
+    demo_created_at TIMESTAMP,
+    demo_updated_at TIMESTAMP
 );
 UPDATE faq f
-SET created_at = b.created_at,
-    updated_at = b.updated_at
+SET created_at = b.original_created_at,
+    updated_at = b.original_updated_at
 FROM demo_activity_faq_timestamp_backup b
-WHERE f.id = b.faq_id;
+WHERE f.id = b.faq_id
+  AND f.version = b.original_version
+  AND f.created_at = b.demo_created_at
+  AND f.updated_at = b.demo_updated_at;
 DROP TABLE demo_activity_faq_timestamp_backup;
 DELETE FROM outbox_events WHERE event_type IN ('UNANSWERED_QUESTION', 'FAQ_REVERIFY', 'SURGING_QUESTION', 'SURGING_ALERT_LABEL');
 DELETE FROM unanswered_question_reverifications;
