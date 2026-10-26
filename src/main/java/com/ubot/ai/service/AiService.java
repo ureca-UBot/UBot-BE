@@ -84,7 +84,8 @@ public class AiService {
         // 가입 정보 도구가 조회한 사용량·청구서도 같은 이유로 요청마다 따로 보관합니다.
         UserDataRecorder userDataRecorder = new UserDataRecorder();
         // 상품 조회 도구가 돌려준 상품도 출력 검사 근거와 화면용 카드로 쓰려고 요청마다 따로 보관합니다.
-        ProductDataRecorder productDataRecorder = new ProductDataRecorder(materials.question());
+        ProductDataRecorder productDataRecorder = new ProductDataRecorder(materials.question(),
+                materials.history().stream().map(ConversationTurn::question).filter(StringUtils::hasText).toList());
         if (toolPath) {
             request = request.withTools(callbacks,
                     toToolContext(materials, storeRecorder, userDataRecorder, productDataRecorder));

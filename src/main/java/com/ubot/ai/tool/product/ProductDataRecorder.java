@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 요청 하나에서 상품 조회 도구가 돌려준 상품을 보관합니다.
@@ -22,6 +23,7 @@ public class ProductDataRecorder {
     private final List<String> lines = new CopyOnWriteArrayList<>();
     private final List<Optional<ProductListAnswer>> searches = new CopyOnWriteArrayList<>();
     private final String question;
+    private final String conditionText;
 
     public ProductDataRecorder() {
         this(null);
@@ -29,11 +31,26 @@ public class ProductDataRecorder {
 
     /** question은 사용자 질문 원문입니다. 요금제 도구가 모델이 빠뜨린 시리즈 이름을 찾는 데 씁니다. */
     public ProductDataRecorder(String question) {
+        this(question, List.of());
+    }
+
+    /**
+     * previousQuestions는 이전 대화의 사용자 질문입니다(답변 제외). "그중 5G만"처럼 이어 묻는 질문의 조건이
+     * 앞 질문에 있을 수 있어, 도구가 모델이 넣은 조건의 근거를 찾을 때 이번 질문과 함께 봅니다(ConditionGrounding).
+     */
+    public ProductDataRecorder(String question, List<String> previousQuestions) {
         this.question = question;
+        this.conditionText = question == null ? null
+                : String.join("\n", Stream.concat(Stream.of(question), previousQuestions.stream()).toList());
     }
 
     public String question() {
         return question;
+    }
+
+    /** 조건의 근거를 찾을 문장입니다. 질문 없이 만든 보관소(평가 등)면 null이고, 도구는 조건을 그대로 씁니다. */
+    public String conditionText() {
+        return conditionText;
     }
 
     /** line은 도구가 LLM에 돌려준 그 상품의 행입니다. */

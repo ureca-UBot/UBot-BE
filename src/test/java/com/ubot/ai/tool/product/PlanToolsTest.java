@@ -157,6 +157,32 @@ class PlanToolsTest {
         assertThat(recorder.cards()).isEmpty();
     }
 
+    @Test
+    void 질문에_근거가_없는_조건은_빼고_조회한다() {
+        // 모델이 프롬프트의 사용자 요금제 값(5G, 일반, 129,000원, 무제한)을 조건으로 채운 상황입니다.
+        var balance = new ProductDataRecorder("밸런스 요금제 알려줘");
+        var context = new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, balance));
+        when(catalog.searchPlans(any())).thenReturn(new Found<>(List.of(), 0));
+
+        planTools.searchPlans("밸런스", "5G", "GENERAL", 129000, 0, true, null, true, context);
+
+        assertThat(searchedCondition()).isEqualTo(new PlanCondition("밸런스", null, null, null, null, null, null));
+    }
+
+    @Test
+    void 이전_사용자_질문에_있는_조건은_근거로_본다() {
+        var followUp = new ProductDataRecorder("그중에 제일 싼 거", List.of("5G 데이터 무제한 요금제 알려줘"));
+        var context = new ToolContext(Map.of(ProductDataRecorder.CONTEXT_KEY, followUp));
+        when(catalog.searchPlans(any())).thenReturn(new Found<>(List.of(), 0));
+
+        planTools.searchPlans(null, "5G", "GENERAL", null, null, true, null, null, context);
+
+        PlanCondition condition = searchedCondition();
+        assertThat(condition.networkType()).isEqualTo(com.ubot.plan.enums.NetworkType.FIVE_G);
+        assertThat(condition.dataUnlimited()).isTrue();
+        assertThat(condition.targetGroup()).isNull();
+    }
+
     private PlanCondition searchedCondition() {
         ArgumentCaptor<PlanCondition> condition = ArgumentCaptor.forClass(PlanCondition.class);
         // 0건이면 이름만으로 한 번 더 조회하므로 첫 조회의 조건을 봅니다.

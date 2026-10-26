@@ -5,6 +5,7 @@ import com.ubot.ai.tool.ToolFormats;
 import com.ubot.ai.tool.product.ProductToolResults.InvalidValueException;
 import com.ubot.bundle.entity.BundleProduct;
 import com.ubot.bundle.enums.BundleType;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,14 +49,31 @@ public class BundleTools {
         }
         ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
         try {
-            ProductCatalogQuery.Found<BundleProduct> found = productCatalogQuery.searchBundles(name, type, lineCount);
+            // "3인 결합 상품"에 모델이 FAMILY를 채우면 친구 3인 결합이 빠지므로, 질문에 근거 말이 없는 조건은 뺍니다(ConditionGrounding).
+            String said = recorder.conditionText();
+            Integer lines = lineCount;
+            List<String> dropped = new ArrayList<>();
+            if (said != null) {
+                if (type != null && !ConditionGrounding.mentionsBundleType(said, type)) {
+                    dropped.add("bundleType");
+                    type = null;
+                }
+                if (lines != null && !ConditionGrounding.mentionsLineCount(said)) {
+                    dropped.add("lineCount");
+                    lines = null;
+                }
+            }
+            if (!dropped.isEmpty()) {
+                log.info("결합 상품 조회 도구: 질문에 근거가 없는 조건을 뺐습니다: {}", dropped);
+            }
+            ProductCatalogQuery.Found<BundleProduct> found = productCatalogQuery.searchBundles(name, type, lines);
             log.info("결합 상품 조회 도구: name={}, bundleType={}, lineCount={}, listRequested={}, 결과={}건 중 {}건",
                     name, bundleType, lineCount, listRequested, found.total(), found.items().size());
             String displayName = ProductCatalogQuery.displayName(name, ProductCatalogQuery.BUNDLE_WORDS);
             // 회선 수는 목록 주어에 드러나지 않아 "조건에 맞는"을 붙이고, 이름이 있으면 종류 말은 빼서 겹치지 않게 합니다.
             return ProductToolResults.format(PRODUCT_LABEL, "할인액 큰 순", found, BundleTools::line,
                     ProductDescriptions::of, this::card, recorder,
-                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, lineCount != null,
+                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, lines != null,
                             displayName == null && type != null ? typeLabel(type) : null, displayName));
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.

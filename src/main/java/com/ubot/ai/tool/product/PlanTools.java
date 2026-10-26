@@ -7,6 +7,7 @@ import com.ubot.ai.tool.product.ProductToolResults.InvalidValueException;
 import com.ubot.plan.entity.Plan;
 import com.ubot.plan.enums.NetworkType;
 import com.ubot.plan.enums.PlanTargetGroup;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -81,8 +82,39 @@ public class PlanTools {
             }
             // "무제한이 아닌 요금제만" 찾는 질문은 거의 없는데, 작은 모델은 이 값을 습관처럼 false로 채워 무제한 요금제를 빠뜨립니다.
             Boolean unlimitedOnly = Boolean.TRUE.equals(dataUnlimited) ? Boolean.TRUE : null;
+            Integer feeLimit = maxMonthlyFee;
+            Integer dataFloor = minDataGb;
+            // 작은 모델은 질문에 없는 조건을 프롬프트의 다른 값(사용자 요금제 등)으로 채워 0건을 만드므로,
+            // 질문에 근거 말이 없는 조건은 뺍니다(ConditionGrounding). 질문 없이 부른 경우(평가 등)는 그대로 씁니다.
+            String said = recorder.conditionText();
+            List<String> dropped = new ArrayList<>();
+            if (said != null) {
+                if (network != null && !ConditionGrounding.mentionsNetwork(said, network)) {
+                    dropped.add("networkType");
+                    network = null;
+                }
+                if (target != null && !ConditionGrounding.mentionsTargetGroup(said, target)) {
+                    dropped.add("targetGroup");
+                    target = null;
+                }
+                if (feeLimit != null && !ConditionGrounding.mentionsMoney(said)) {
+                    dropped.add("maxMonthlyFee");
+                    feeLimit = null;
+                }
+                if (dataFloor != null && !ConditionGrounding.mentionsDataAmount(said)) {
+                    dropped.add("minDataGb");
+                    dataFloor = null;
+                }
+                if (unlimitedOnly != null && !ConditionGrounding.mentionsUnlimited(said)) {
+                    dropped.add("dataUnlimited");
+                    unlimitedOnly = null;
+                }
+            }
+            if (!dropped.isEmpty()) {
+                log.info("요금제 조회 도구: 질문에 근거가 없는 조건을 뺐습니다: {}", dropped);
+            }
             ProductCatalogQuery.Found<Plan> found = productCatalogQuery.searchPlans(
-                    new PlanCondition(name, network, target, maxMonthlyFee, minDataGb, unlimitedOnly, sort));
+                    new PlanCondition(name, network, target, feeLimit, dataFloor, unlimitedOnly, sort));
             String order = sort == PlanSort.DATA_DESC ? "데이터 많은 순" : "월정액 낮은 순";
             log.info("요금제 조회 도구: name={}, networkType={}, targetGroup={}, maxMonthlyFee={}, minDataGb={}, "
                     + "dataUnlimited={}, sortBy={}, listRequested={}, 결과={}건 중 {}건", name, networkType, targetGroup,
@@ -101,7 +133,7 @@ public class PlanTools {
                 }
             }
             boolean unfiltered = !StringUtils.hasText(name) && network == null && target == null
-                    && maxMonthlyFee == null && minDataGb == null && unlimitedOnly == null;
+                    && feeLimit == null && dataFloor == null && unlimitedOnly == null;
             // 조건 없이 요금제 종류를 물었는데 결과가 다 들어가지 않으면, 월정액 낮은 순 5개는 종류에 대한 답이 아니므로
             // 시리즈별 개요로 답합니다. 질문에 시리즈 이름이 둘 이상 있어 하나로 정하지 못한 경우도 개요에 그 시리즈들이 보입니다.
             if (Boolean.TRUE.equals(listRequested) && unfiltered && found.total() > ProductCatalogQuery.LIMIT) {
@@ -121,7 +153,7 @@ public class PlanTools {
                 log.info("요금제 조회 도구: 질문에 시리즈 이름이 있는데 조건 없이 조회해 목록 답변을 만들지 않습니다");
             }
             String listSubject = unfilteredSeriesQuestion ? null : ProductToolResults.listSubject(listRequested, PRODUCT_LABEL,
-                    maxMonthlyFee != null || minDataGb != null,
+                    feeLimit != null || dataFloor != null,
                     network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
                     unlimitedOnly != null ? "데이터 무제한" : null,
                     ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
