@@ -62,7 +62,7 @@ public class ReviewService {
 	public java.util.Map<String, Object> getOverview() {
 		return java.util.Map.of("settings", repository.settings(false), "runs",
 				repository.runs().stream().map(ReviewRunResponseDto::from).toList(), "history", repository.history(),
-				"retention", RETENTION);
+				"retention", RETENTION, "capabilities", java.util.Map.of("checkMultiSelect", true, "checkSelectionAnalysis", true));
 	}
 	@Transactional(readOnly = true)
 	public ReviewRunResponseDto getRun(long id) {
@@ -127,6 +127,20 @@ public class ReviewService {
 				"analysisMode", AnalysisMode.FULL, "scope", java.util.Map.of(
 				"origin", origin, "outcome", Outcome.REVIEW, "checkIds", ids))), admin);
 		if (repository.snapshotReviewSources(run, origin, ids) != ids.size()) throw new ReviewException(INVALID);
+		return run;
+	}
+	/** 선택한 실제 검사만 동결합니다. 보류는 재검토하고 다른 판정은 기존 위험 표현 분석을 사용합니다. */
+	@Transactional
+	public long startCheckAnalysis(List<Long> checkIds, Long admin) {
+		if (checkIds == null || checkIds.isEmpty()
+				|| checkIds.stream().anyMatch(id -> id == null || id < 1)
+				|| checkIds.stream().distinct().count() != checkIds.size()) throw new ReviewException(INVALID);
+		var ids = checkIds.stream().sorted().toList();
+		repository.analysisEnqueueLock();
+		if (repository.analysisExists()) throw new ReviewException(CONFLICT);
+		long run = repository.createRun("ANALYSIS", JSON.writeValueAsString(java.util.Map.of(
+				"analysisMode", AnalysisMode.FULL, "scope", java.util.Map.of("checkIds", ids, "selection", true))), admin);
+		if (repository.snapshotSelectedChecks(run, ids) != ids.size()) throw new ReviewException(INVALID);
 		return run;
 	}
 	private long enqueueAnalysis(Long admin, AnalysisMode mode, AnalysisSource source) {

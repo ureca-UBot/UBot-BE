@@ -180,11 +180,22 @@ public class ReviewRepository {
 	}
 	/** 선택한 출처의 실제 보류 기록만 복사합니다. 만료·오류·생략·다른 출처는 접수하지 않습니다. */
 	public int snapshotReviewSources(long runId, Origin origin, List<Long> ids) {
-		String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+		int inserted = snapshotCheckSelection(runId, ids, "g.origin=? AND g.outcome='REVIEW'", List.of(origin.name()));
+		jdbc.update("UPDATE guard_review_runs SET result=result||jsonb_build_object('reviewOrigin',?::text,'reviewOutcome','REVIEW') WHERE id=?",
+				origin.name(), runId);
+		return inserted;
+	}
+	public int snapshotSelectedChecks(long runId, List<Long> ids) {
+		return snapshotCheckSelection(runId, ids,
+				"g.origin IN ('INPUT_CODE','INPUT_LLM','OUTPUT_CODE','OUTPUT_LLM')"
+				+ " AND g.outcome IN ('PASS','FILTERED','REJECTED','REVIEW','ERROR')"
+				+ " AND NULLIF(btrim(g.question_snapshot),'') IS NOT NULL", List.of());
+	}
+	private int snapshotCheckSelection(long runId, List<Long> ids, String scope, List<Object> scopeParameters) {
 		var args = new java.util.ArrayList<Object>();
 		args.add(runId);
-		args.add(origin.name());
-		args.addAll(ids);
+		args.addAll(scopeParameters);
+		args.add(JSON.writeValueAsString(ids));
 		args.add(runId);
 		int inserted = jdbc.update("""
 				INSERT INTO guard_review_items(run_id,source_id,source_key,source_fingerprint,question_snapshot,
@@ -194,14 +205,13 @@ public class ReviewRepository {
 				 g.question_snapshot,g.answer_snapshot,g.id,g.origin,
 				 COALESCE(g.context_snapshot,'{}'::jsonb)||jsonb_build_object(
 				 'original_guard_reasons',g.reason_codes,'original_guard_explanation',g.explanation),g.outcome,g.reason_codes
-				FROM guard_review_checks g WHERE g.origin=? AND g.outcome='REVIEW' AND g.details_retained
-				 AND g.id IN (%s) AND g.created_at<=(SELECT cutoff FROM guard_review_runs WHERE id=?)
+				FROM guard_review_checks g WHERE %s AND g.details_retained
+				 AND g.id IN (SELECT value::bigint FROM jsonb_array_elements_text(?::jsonb))
+				 AND g.created_at<=(SELECT cutoff FROM guard_review_runs WHERE id=?)
 				 AND g.created_at>=LOCALTIMESTAMP-make_interval(days => %d)
 				FOR SHARE OF g ON CONFLICT(run_id,source_key) DO NOTHING
-				""".formatted(placeholders, RETENTION.detailDays()), args.toArray());
+				""".formatted(scope, RETENTION.detailDays()), args.toArray());
 		total(runId, inserted);
-		jdbc.update("UPDATE guard_review_runs SET result=result||jsonb_build_object('reviewOrigin',?::text,'reviewOutcome','REVIEW') WHERE id=?",
-				origin.name(), runId);
 		return inserted;
 	}
 	public void saveReassessment(long itemId, com.ubot.guardreview.model.ReviewReassessment assessment) {

@@ -22,6 +22,36 @@ class ReviewReassessmentTest {
 	ForbiddenWordService words = mock(ForbiddenWordService.class);
 	ReviewService service = new ReviewService(repository, mock(ReviewValidationService.class), words,
 			mock(ForbiddenWordRepository.class), mock(ReviewCatalogService.class));
+	@Test
+	void 선택분석은_선택한_ID만_기존_Worker에_접수한다() {
+		when(repository.createRun(eq("ANALYSIS"), anyString(), eq(99L))).thenReturn(7L);
+		when(repository.snapshotSelectedChecks(7, List.of(1L, 2L))).thenReturn(2);
+		assertThat(service.startCheckAnalysis(List.of(2L, 1L), 99L)).isEqualTo(7);
+		verify(repository).snapshotSelectedChecks(7, List.of(1L, 2L));
+		verify(repository, never()).snapshotSources(anyLong(), any());
+		verifyNoInteractions(words);
+	}
+	@Test
+	void 선택분석도_빈목록과_중복ID와_잘못된ID를_거절한다() {
+		for (List<Long> ids : List.of(List.<Long>of(), List.of(1L, 1L), List.of(-1L)))
+			assertThatThrownBy(() -> service.startCheckAnalysis(ids, 99L)).isInstanceOf(ReviewException.class);
+		verifyNoInteractions(repository);
+	}
+	@Test
+	void 수동_선택분석은_50건을_넘어도_전체를_접수한다() {
+		var ids = java.util.stream.LongStream.rangeClosed(1, 61).boxed().toList();
+		when(repository.createRun(eq("ANALYSIS"), anyString(), eq(99L))).thenReturn(7L);
+		when(repository.snapshotSelectedChecks(7, ids)).thenReturn(61);
+		assertThat(service.startCheckAnalysis(ids, 99L)).isEqualTo(7);
+		verify(repository).snapshotSelectedChecks(7, ids);
+	}
+	@Test
+	void 선택분석에_만료나_생략기록이_섞이면_접수를_롤백한다() {
+		when(repository.createRun(eq("ANALYSIS"), anyString(), eq(99L))).thenReturn(7L);
+		when(repository.snapshotSelectedChecks(7, List.of(1L, 2L))).thenReturn(1);
+		assertThatThrownBy(() -> service.startCheckAnalysis(List.of(1L, 2L), 99L)).isInstanceOf(ReviewException.class);
+		verifyNoInteractions(words);
+	}
 	@ParameterizedTest
 	@EnumSource(value = Origin.class, names = {"INPUT_LLM", "OUTPUT_LLM"})
 	void 선택한_출처와_보류ID만_동결하고_기존전체분석을_접수하지않는다(Origin origin) {

@@ -25,6 +25,23 @@ class ReviewControllerTest {
 		return user;
 	}
 	@Test
+	void 다중필터와_선택분석은_관리자만_사용한다() {
+		var origins = List.of(com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM);
+		var outcomes = List.of(com.ubot.guardreview.model.ReviewCheckModels.Outcome.REVIEW,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.REJECTED);
+		var body = new com.ubot.guardreview.dto.request.ReviewCheckAnalysisRequestDto(List.of(1L, 2L));
+		assertThatThrownBy(() -> controller.getFilteredChecks(user("USER"), null, null, origins, outcomes, 0, 20))
+				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+		assertThatThrownBy(() -> controller.startCheckAnalysis(user("USER"), body))
+				.isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+		verifyNoInteractions(checks, service);
+		controller.getFilteredChecks(user("ADMIN"), null, null, origins, outcomes, 0, 20);
+		verify(checks).pageFiltered(origins, outcomes, 0, 20);
+		when(service.startCheckAnalysis(body.checkIds(), 99L)).thenReturn(7L);
+		assertThat(controller.startCheckAnalysis(user("ADMIN"), body).data()).isEqualTo(7);
+	}
+	@Test
 	void 일반사용자는_분석_검사_승인_기록조회에_접근할수없다() {
 		var user = user("USER");
 		assertThatThrownBy(() -> controller.getOverview(user))

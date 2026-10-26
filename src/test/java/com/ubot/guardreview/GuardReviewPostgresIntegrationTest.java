@@ -208,6 +208,9 @@ class GuardReviewPostgresIntegrationTest {
 					list.add(new Suggestion(Kind.WARNING, "THREAT", "위험출력문장", "출력 검토 시험", Stage.OUTPUT,
 							"HARMFUL_OUTPUT"));
 			}
+			if (JSON.valueToTree(request.responseSchema()).path("properties").has("verdict"))
+				return new LlmResponseDto(JSON.writeValueAsString(Map.of("suggestions", list,
+						"verdict", list.isEmpty() ? "NORMAL_POSSIBLE" : "ISSUE_SUSPECTED", "reason", "가짜 재검토 근거")));
 			return new LlmResponseDto(JSON.writeValueAsString(Map.of("suggestions", list)));
 		}
 		void reset() {
@@ -1188,6 +1191,73 @@ class GuardReviewPostgresIntegrationTest {
 		assertThat(db.queryForObject("SELECT outcome FROM guard_review_checks WHERE id=?", String.class, check))
 				.isEqualTo("REVIEW");
 		assertThat(MODEL.calls.get()).isZero();
+	}
+	@Test
+	void multipleCheckFiltersCombineOriginsAndOutcomesWithoutDuplicatingSkippedSummaries() throws Exception {
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		for (String origin : List.of("INPUT_LLM", "OUTPUT_LLM", "INPUT_CODE"))
+			for (String outcome : List.of("PASS", "REJECTED", "REVIEW"))
+				checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.valueOf(origin),
+						com.ubot.guardreview.model.ReviewCheckModels.Outcome.valueOf(outcome), List.of(), "질문",
+						origin.startsWith("INPUT_") ? null : "답변", null, null, "{}");
+		var page = request(get("/admin/guard-review/checks").param("origins", "INPUT_LLM", "OUTPUT_LLM")
+				.param("outcomes", "REJECTED", "REVIEW").param("size", "10"), null, 200).path("data");
+		assertThat(page.path("totalElements").asInt()).isEqualTo(4);
+		for (JsonNode check : page.path("content")) {
+			assertThat(check.path("origin").asString()).isIn("INPUT_LLM", "OUTPUT_LLM");
+			assertThat(check.path("outcome").asString()).isIn("REJECTED", "REVIEW");
+		}
+		long attempt = uncapturedAttempt("검사 생략 질문", "multi-summary", 1);
+		checks.saveSkippedSummary(attempt, "검사 생략 질문", List.of(
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM));
+		var summary = request(get("/admin/guard-review/checks").param("origins", "INPUT_LLM", "OUTPUT_LLM")
+				.param("outcomes", "SKIPPED"), null, 200).path("data");
+		assertThat(summary.path("totalElements").asInt()).isEqualTo(1);
+		assertThat(summary.path("content").get(0).path("skippedOrigins").size()).isEqualTo(2);
+	}
+	@Test
+	void selectedMixedChecksUseExistingWorkerAndKeepOriginalVerdicts() throws Exception {
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.REVIEW, List.of("UNCERTAIN"), "위험문장A", null, null, null, "{}");
+		checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.PASS, List.of(), "출력 질문", "위험출력문장", "위험출력문장", null, "{}");
+		var ids = db.queryForList("SELECT id FROM guard_review_checks ORDER BY id", Long.class);
+		checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.INPUT_CODE,
+				com.ubot.guardreview.model.ReviewCheckModels.Outcome.REJECTED, List.of(), "선택하지 않은 위험문장B", null, null, null, "{}");
+		var original = db.queryForList("SELECT id,origin,outcome FROM guard_review_checks ORDER BY id");
+		long run = request(post("/admin/guard-review/checks/analysis"), Map.of("checkIds", ids), 200).path("data").asLong();
+		request(post("/admin/guard-review/checks/analysis"), Map.of("checkIds", ids), 409);
+		drain(run);
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+		assertThat(repo.run(run).total()).isEqualTo(2);
+		assertThat(db.queryForList("SELECT check_id FROM guard_review_items WHERE run_id=? ORDER BY check_id", Long.class, run))
+				.containsExactlyElementsOf(ids);
+		assertThat(db.queryForList("SELECT id,origin,outcome FROM guard_review_checks ORDER BY id")).isEqualTo(original);
+		assertThat(count("guard_review_items WHERE run_id=" + run + " AND reassessment IS NOT NULL")).isEqualTo(1);
+		assertThat(count("guard_review_findings")).isEqualTo(2);
+		assertThat(count("forbidden_words")).isZero();
+		long attempt = uncapturedAttempt("생략", "selection-skipped", 1);
+		checks.saveSkippedSummary(attempt, "생략", List.of(com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM));
+		long skipped = db.queryForObject("SELECT id FROM guard_review_checks WHERE outcome='SKIPPED'", Long.class);
+		request(post("/admin/guard-review/checks/analysis"), Map.of("checkIds", List.of(ids.getFirst(), skipped)), 400);
+		assertThat(count("guard_review_runs")).isEqualTo(1);
+	}
+	@Test
+	void selectedAnalysisProcessesEveryRecordBeyondFifty() throws Exception {
+		var checks = api.getBean(com.ubot.guardreview.repository.ReviewCheckRepository.class);
+		for (int index = 0; index < 61; index++)
+			checks.save(UUID.randomUUID(), null, com.ubot.guardreview.model.ReviewCheckModels.Origin.OUTPUT_LLM,
+					com.ubot.guardreview.model.ReviewCheckModels.Outcome.PASS, List.of(), "정상 질문 " + index,
+					"정상 답변", "정상 답변", null, "{}");
+		var ids = db.queryForList("SELECT id FROM guard_review_checks ORDER BY id", Long.class);
+		long run = request(post("/admin/guard-review/checks/analysis"), Map.of("checkIds", ids), 200).path("data").asLong();
+		assertThat(repo.run(run).total()).isEqualTo(61);
+		for (int index = 0; index < 65 && !"COMPLETED".equals(repo.run(run).status()); index++) worker.poll();
+		assertThat(repo.run(run).status()).isEqualTo("COMPLETED");
+		assertThat(repo.run(run).processed()).isEqualTo(61);
+		assertThat(count("guard_review_items WHERE run_id=" + run + " AND status='COMPLETED'")).isEqualTo(61);
 	}
 
 	@Test

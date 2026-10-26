@@ -66,12 +66,30 @@ public class AdminReviewController {
 		return ApiResponse.success(service.getCandidatePage(kind, page, size, origin, outcome));
 	}
 	@GetMapping("/checks")
+	public ApiResponse<PageResponseDto<ReviewCheckResponseDto>> getFilteredChecks(
+			@AuthenticationPrincipal CustomUserDetails user,
+			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome,
+			@RequestParam(required = false) List<Origin> origins, @RequestParam(required = false) List<Outcome> outcomes,
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+		if (origins == null && outcomes == null) return getChecks(user, origin, outcome, page, size);
+		admin(user);
+		var sources = new java.util.ArrayList<Origin>(origins == null ? List.of() : origins);
+		var results = new java.util.ArrayList<Outcome>(outcomes == null ? List.of() : outcomes);
+		if (origin != null) sources.add(origin);
+		if (outcome != null) results.add(outcome);
+		return ApiResponse.success(checks.pageFiltered(sources, results, page, size));
+	}
 	public ApiResponse<PageResponseDto<ReviewCheckResponseDto>> getChecks(
 			@AuthenticationPrincipal CustomUserDetails user,
 			@RequestParam(required = false) Origin origin, @RequestParam(required = false) Outcome outcome,
 			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
 		admin(user);
 		return ApiResponse.success(checks.page(origin, outcome, page, size));
+	}
+	@PostMapping("/checks/analysis")
+	public ApiResponse<Long> startCheckAnalysis(@AuthenticationPrincipal CustomUserDetails user,
+			@Valid @RequestBody com.ubot.guardreview.dto.request.ReviewCheckAnalysisRequestDto body) {
+		return ApiResponse.success(service.startCheckAnalysis(body.checkIds(), admin(user)));
 	}
 	@GetMapping("/checks/{id}")
 	public ApiResponse<ReviewCheckDetailResponseDto> getCheck(
