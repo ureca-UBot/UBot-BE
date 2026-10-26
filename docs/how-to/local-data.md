@@ -15,8 +15,8 @@
 
 | 스크립트 | 하는 일 |
 |---|---|
-| `.\tools\faq-db\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 CSV의 카테고리·FAQ·질문 표현을 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
-| `.\tools\faq-db\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 기존 벡터를 지우고 CSV 기준으로 FAQ와 질문 표현을 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
+| `.\tools\faq-db\scripts\reset-local-db.ps1` | PostgreSQL 볼륨을 지우고 새로 만든 뒤 마이그레이션을 적용하고, 기본 계정(`USER` 1개, `ADMIN` 1개)과 CSV의 카테고리·FAQ·질문 표현을 넣습니다. **기존 DB 데이터는 모두 사라집니다** |
+| `.\tools\faq-db\scripts\reset-faq-data.ps1` | FAQ, 카테고리, FAQ 이력·로그, 질문 표현과 기존 벡터를 지우고 CSV 기준으로 FAQ와 질문 표현을 다시 넣습니다. 계정·매장·채팅 데이터는 그대로 둡니다. 기본 `ADMIN` 계정이 있어야 합니다 |
 
 두 초기화 스크립트는 PostgreSQL만 다루므로 `AI_MODE`와 관계없이 실행할 수 있습니다.
 

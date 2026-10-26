@@ -4,14 +4,15 @@ param(
     [switch] $Force
 )
 
-# DB를 초기화하지 않고 시연용 질문 기록 두 가지를 순서대로 넣는다.
+# DB를 초기화하지 않고 이 브랜치의 시연용 활동 기록 두 가지를 순서대로 넣는다.
 #   1. seed-demo-faqranking.sql  (인기 FAQ 시연)
 #   2. seed-demo-telemap.sql     (FAQ 대시보드·통신 지도 시연)
-# reset-local-db.ps1이 마지막에 실행하는 두 단계와 같다. 사용자·FAQ 시드가 먼저 들어가 있어야 한다.
+# 사용자·FAQ 기본 시드가 먼저 들어가 있어야 한다.
 $ErrorActionPreference = 'Stop'
+$toolsPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $seedSqlPaths = @(
-    @{ Path = (Join-Path $PSScriptRoot 'seed-demo-faqranking.sql'); Name = 'FAQ ranking demo' },
-    @{ Path = (Join-Path $PSScriptRoot 'seed-demo-telemap.sql'); Name = 'telemap demo' }
+    @{ Path = (Join-Path $toolsPath 'seed\demo\seed-demo-faqranking.sql'); Name = 'FAQ ranking demo' },
+    @{ Path = (Join-Path $toolsPath 'seed\demo\seed-demo-telemap.sql'); Name = 'telemap demo' }
 )
 
 function Invoke-Checked {
