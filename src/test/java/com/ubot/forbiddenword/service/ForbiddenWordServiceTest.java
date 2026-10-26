@@ -123,7 +123,7 @@ class ForbiddenWordServiceTest {
 	@Test
 	@DisplayName("금지어 목록은 id 내림차순으로 페이지 조회한다")
 	void getForbiddenWordList_returnsPage() {
-		Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.desc("id")));
+		Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.asc("id")));
 		when(repository.findAll(pageable)).thenReturn(new PageImpl<>(
 				List.of(word(2L, "욕설", ForbiddenWordStatus.INACTIVE), word(1L, "바보", ForbiddenWordStatus.ACTIVE)),
 				pageable, 2));
@@ -140,7 +140,7 @@ class ForbiddenWordServiceTest {
 	@ValueSource(ints = {10, 20, 50})
 	@DisplayName("허용된 페이지 크기로 조회할 수 있다")
 	void getForbiddenWordList_allowsSizes(int size) {
-		Pageable pageable = PageRequest.of(0, size, Sort.by(Sort.Order.desc("id")));
+		Pageable pageable = PageRequest.of(0, size, Sort.by(Sort.Order.asc("id")));
 		when(repository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
 		assertThat(service.getForbiddenWordList(0, size).size()).isEqualTo(size);

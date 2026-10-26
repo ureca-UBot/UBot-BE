@@ -64,7 +64,7 @@ public class AdminHomeProductService {
     ) {
         return PageResponseDto.from(productRepository.findAll(
                 ProductSpecification.filter(keyword, status, deleted),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "homeProductId"))
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "homeProductId"))
         ).map(AdminHomeProductResponseDto::from));
     }
 

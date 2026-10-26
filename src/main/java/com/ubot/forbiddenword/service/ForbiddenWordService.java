@@ -67,7 +67,7 @@ public class ForbiddenWordService {
 			throw new GlobalException(CommonErrorCode.INVALID_PARAMETER);
 		}
 		Page<ForbiddenWordResponseDto> forbiddenWordPage = forbiddenWordRepository
-				.findAll(PageRequest.of(page, size, Sort.by(Sort.Order.desc("id"))))
+				.findAll(PageRequest.of(page, size, Sort.by(Sort.Order.asc("id"))))
 				.map(ForbiddenWordResponseDto::from);
 		return PageResponseDto.from(forbiddenWordPage);
 	}

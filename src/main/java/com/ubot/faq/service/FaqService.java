@@ -92,8 +92,7 @@ public class FaqService {
 
 		Page<Faq> faqPage = faqRepository.
 				findAllActives(PageRequest.of(page, size, Sort.by(
-						Sort.Order.desc("createdAt"),
-						Sort.Order.desc("id")
+						Sort.Order.asc("id")
 				)), normalizedKeyword, categoryId);
 
 
@@ -113,8 +112,7 @@ public class FaqService {
 	public PageResponseDto<FaqResponseDto> getActiveFaqListByFaqCategoryId(int page, int size, Long faqCategoryId){
 		Page<Faq> faqPage = faqRepository.
 				findAllByFaqCategoryIdAndDeletedAtIsNull(faqCategoryId, PageRequest.of(page, size, Sort.by(
-						Sort.Order.desc("createdAt"),
-						Sort.Order.desc("id")
+						Sort.Order.asc("id")
 				)));
 
 		return toPageResponse(faqPage);

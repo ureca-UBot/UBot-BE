@@ -62,7 +62,7 @@ public class AdminRoamingProductService {
     ) {
         return PageResponseDto.from(productRepository.findAll(
                 ProductSpecification.filter(keyword, status, deleted),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "roamingProductId"))
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "roamingProductId"))
         ).map(AdminRoamingProductResponseDto::from));
     }
 

@@ -59,7 +59,7 @@ public class StoreTools {
             + "'내 근처', '가까운 곳'처럼 장소 없이 물었다면 place를 비워 둔다. "
             + "사용자가 말하지 않은 장소를 추측해서 넣지 않는다.")
     public String findNearbyStores(
-            @ToolParam(description = "사용자가 직접 말한 기준 장소명 그대로. 예: 강남역. 장소를 말하지 않았으면 비운다.", required = false) String place,
+            @ToolParam(description = "사용자가 직접 말한 기준 장소명 그대로. 장소를 말하지 않았으면 비운다.", required = false) String place,
             ToolContext toolContext) {
     	
         Map<String, Object> context = toolContext.getContext();

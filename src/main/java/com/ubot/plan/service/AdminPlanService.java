@@ -81,7 +81,7 @@ public class AdminPlanService {
     ) {
         return PageResponseDto.from(productRepository.findAll(
                 ProductSpecification.filter(keyword, status, deleted),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "planId"))
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "planId"))
         ).map(AdminPlanResponseDto::from));
     }
 

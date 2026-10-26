@@ -300,7 +300,7 @@ class ForbiddenWordIntegrationTest {
 		assertThat(first.content()).hasSize(10);
 		assertThat(second.content()).hasSize(2);
 		List<Long> ids = first.content().stream().map(ForbiddenWordResponseDto::id).toList();
-		assertThat(ids).isSortedAccordingTo(java.util.Comparator.reverseOrder());
+		assertThat(ids).isSorted();
 		assertThat(first.content()).extracting(ForbiddenWordResponseDto::status)
 				.contains(ForbiddenWordStatus.ACTIVE, ForbiddenWordStatus.INACTIVE);
 		assertThatThrownBy(() -> service.getForbiddenWordList(0, 30)).isInstanceOf(GlobalException.class);

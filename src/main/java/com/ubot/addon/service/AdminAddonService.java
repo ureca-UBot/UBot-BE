@@ -62,7 +62,7 @@ public class AdminAddonService {
     ) {
         return PageResponseDto.from(productRepository.findAll(
                 ProductSpecification.filter(keyword, status, deleted),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "addonServiceId"))
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "addonServiceId"))
         ).map(AdminAddonServiceResponseDto::from));
     }
 

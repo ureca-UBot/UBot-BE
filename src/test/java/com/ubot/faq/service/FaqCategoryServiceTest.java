@@ -53,7 +53,7 @@ class FaqCategoryServiceTest {
     @Test
     @DisplayName("공백 검색어는 빈 문자열로 정규화하여 활성 카테고리 목록을 조회한다")
     void getCategories_normalizesBlankKeyword() {
-        var pageable = PageRequest.of(0, 10, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        var pageable = PageRequest.of(0, 10, Sort.by(Sort.Order.asc("id")));
         when(categoryRepository.findByDeletedAtIsNull(pageable, ""))
                 .thenReturn(new PageImpl<>(List.of(category(1L, "가입")), pageable, 1));
 

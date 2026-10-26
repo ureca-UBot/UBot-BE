@@ -144,7 +144,7 @@ public class ChatAttemptsService {
 		return createRetryAttempt(null, conversationId, idempotencyKey);
 	}
 
-	/** 성공한 답변(idempotencyKey)에 대해, 로그인 사용자가 고른 intent로 재검색하는 새 attempt를 만듭니다. */
+	/** 성공한 답변 또는 검색 근거가 부족한 원본 질문(idempotencyKey)에 대해, 로그인 사용자가 고른 intent로 재검색하는 새 attempt를 만듭니다. */
 	public AnswerAttemptsHistory createResearchAttempt(Long userId, String idempotencyKey, Intent intent) {
 		return transactionTemplate.execute(transactionStatus -> {
 			AnswerAttemptsHistory latest = answerAttemptsHistoryRepository
@@ -161,7 +161,10 @@ public class ChatAttemptsService {
 					.findAttemptForLock(latest.getId())
 					.orElseThrow(() -> new ChatException(ChatErrorCode.ATTEMPT_NOT_FOUND));
 
-			if (!"SUCCESS".equals(source.getStatus()) || source.isResearch()) {
+			boolean recoverableSearchFailure = "FAIL".equals(source.getStatus())
+					&& (source.getErrorCode() == ChatErrorCode.NO_FAQ
+							|| source.getErrorCode() == ChatErrorCode.INSUFFICIENT_FAQ);
+			if ((!"SUCCESS".equals(source.getStatus()) && !recoverableSearchFailure) || source.isResearch()) {
 				throw new ChatException(ChatErrorCode.RESEARCH_NOT_ALLOWED);
 			}
 			if (answerAttemptsHistoryRepository.existsBySourceAttemptIdAndIntent(source.getId(), intent)) {

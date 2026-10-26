@@ -61,7 +61,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			return false;
 		}
 		String path = path(request);
-		return path.equals(TOKEN_FREE_GET_PATH) || path.startsWith(TOKEN_FREE_GET_PATH + "/");
+		return path.equals(TOKEN_FREE_GET_PATH) || path.startsWith(TOKEN_FREE_GET_PATH + "/")
+				|| path.equals("/public/faqs") || path.startsWith("/public/faqs/");
 	}
 
 	// 답변 작업 조회는 DB가 멈춰도 오래 붙잡히지 않게 사용자 조회를 조회 예산 안에서 실행함

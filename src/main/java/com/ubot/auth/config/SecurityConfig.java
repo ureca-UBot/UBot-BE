@@ -96,7 +96,8 @@ public class SecurityConfig {
 								"/addon-services", "/addon-services/**",
 								"/roaming-products", "/roaming-products/**",
 								"/home-products", "/home-products/**",
-								"/notices", "/notices/**")
+								"/notices", "/notices/**",
+								"/public/faqs", "/public/faqs/**")
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/chat/questions", "/chat/questions/retries").permitAll()
 						// 상품 목록의 조건 선택지로 다시 조회함. 공개 상품 정보라 비회원도 씀
