@@ -51,13 +51,15 @@ public class RoamingTools {
                 log.info("로밍 상품 조회 도구: country={}, name={}, 판매 국가 아님", country, name);
                 return String.format(COUNTRY_NOT_FOUND_MESSAGE, country.strip(), countriesLine);
             }
-            ProductCatalogQuery.Found<RoamingProduct> found = productCatalogQuery.searchRoaming(countries, name);
+            ProductCatalogQuery.Found<RoamingProduct> found = productCatalogQuery.searchRoaming(countries, name, recorder.limit());
             log.info("로밍 상품 조회 도구: country={}, name={}, listRequested={}, 결과={}건 중 {}건", country, name,
                     listRequested, found.total(), found.items().size());
             String result = ProductToolResults.format(PRODUCT_LABEL, "일 요금 낮은 순", found, RoamingTools::line,
                     ProductDescriptions::of, this::card, recorder,
-                    ProductToolResults.listSubject(listRequested, PRODUCT_LABEL, false, String.join(", ", countries),
-                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)));
+                    ProductSearch.withCountries(ProductType.ROAMING, name, sold, ProductRefine.COUNTRY,
+                            countries.isEmpty() ? null : String.join(", ", countries)),
+                    ProductToolResults.listSubject(true, PRODUCT_LABEL, false, String.join(", ", countries),
+                            ProductCatalogQuery.displayName(name, ProductCatalogQuery.ROAMING_WORDS)), listRequested);
             return result + "\n" + countriesLine;
         } catch (RuntimeException exception) {
             // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
@@ -75,7 +77,7 @@ public class RoamingTools {
     private static String line(RoamingProduct roaming) {
         return ToolFormats.valueOrUnknown(roaming.getName())
                 + " | " + ToolFormats.valueOrUnknown(roaming.getCountry())
-                + " | 일 " + ToolFormats.won(roaming.getDailyFee())
+                + " | 1일 요금 " + ToolFormats.won(roaming.getDailyFee())
                 + " | 데이터 " + ProductToolResults.data(roaming.getDataAmountMb());
     }
 

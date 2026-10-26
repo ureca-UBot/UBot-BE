@@ -28,6 +28,7 @@ import com.ubot.ai.tool.NearbyStoreSearcher;
 import com.ubot.ai.tool.product.PlanSeriesOverview;
 import com.ubot.ai.tool.product.ProductDataRecorder;
 import com.ubot.ai.tool.product.ProductListing;
+import com.ubot.ai.tool.product.ProductSearch;
 import com.ubot.ai.tool.product.ProductType;
 import com.ubot.ai.tool.StoreSearchRecorder;
 import com.ubot.ai.tool.StoreTools;
@@ -61,6 +62,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -171,7 +173,8 @@ class AiServiceTest {
                         recorder -> assertThat(recorder).isInstanceOf(UserDataRecorder.class))
                 .hasEntrySatisfying(ProductDataRecorder.CONTEXT_KEY,
                         recorder -> assertThat(recorder).isInstanceOf(ProductDataRecorder.class))
-                .hasSize(4);
+                .containsEntry(UserDataTools.CURRENT_QUESTION, "근처 매장 알려줘")
+                .hasSize(5);
     }
 
     @Test
@@ -295,6 +298,45 @@ class AiServiceTest {
                 .extracting(card -> card.billing().billingMonth(), UserDataCards.BillingCard::usageMonth)
                 .containsExactly(tuple(YearMonth.of(2026, 9), 8), tuple(YearMonth.of(2026, 10), 9));
         assertThat(answer.userData().plans()).isEmpty();
+    }
+
+    @Test
+    void 상품_도구가_붙은_질문은_질문의_요금제만으로_내_요금제_카드를_붙이지_않는다() {
+        // "밸런스 요금제 알려줘"에 사용자 정보 FAQ가 섞여 사용자 정보도 붙었고, 조회 결과가 0건이라 상품 카드도 없는 상황입니다.
+        var materials = AnswerMaterials.builder("밸런스 요금제 알려줘").enableTool(AiTool.PLAN_SEARCH)
+                .enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createSlotPrompt("밸런스 요금제 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenReturn(new LlmResponseDto(
+                "{\"answer\":\"밸런스 요금제가 없습니다.\",\"evidence_ids\":[],\"status\":\"ANSWER\"}"));
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.productData()).isNull();
+        assertThat(answer.userData() == null ? List.of() : answer.userData().plans()).isEmpty();
+    }
+
+    @Test
+    void 여러_달을_물으면_모델이_한_달만_답해도_조회한_달마다_한_줄씩_답하고_카드도_모두_붙인다() {
+        var materials = AnswerMaterials.builder("8월 9월 요금 알려줘").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createSlotPrompt("8월 9월 요금 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 8)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            return new LlmResponseDto("{\"answer\":\"2026년 8월 청구서(7월 사용분) 기준으로 안내드립니다. 총 78,000원입니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).startsWith("요청하신 달의 청구서입니다.")
+                .contains("2026년 8월 청구서(7월 사용분)", "2026년 9월 청구서(8월 사용분)");
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.userData().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactly(YearMonth.of(2026, 8), YearMonth.of(2026, 9));
     }
 
     @Test
@@ -446,7 +488,8 @@ class AiServiceTest {
             recorder.record(new ProductCard(ProductType.PLAN, "Ubot 실속 LTE 500MB/60분", 3300, List.of(), List.of()),
                     "- Ubot 실속 LTE 500MB/60분 | LTE | 대상 일반 | 월정액 3,300원");
             recorder.note(overview.answer());
-            recorder.searched(overview);
+            recorder.searched(new ProductDataRecorder.SearchRecord(
+                    new ProductSearch(ProductType.PLAN, null, Map.of(), List.of()), 107, overview));
             return new LlmResponseDto("{\"answer\":\"요금제 정보가 부족합니다.\",\"evidence_ids\":[],\"status\":\"PARTIAL\"}");
         });
 
@@ -454,7 +497,48 @@ class AiServiceTest {
 
         assertThat(answer.answer()).isEqualTo(overview.answer());
         assertThat(answer.status()).isEqualTo("ANSWER");
-        assertThat(answer.productData()).isNull();
+        // 개요는 특정 상품을 고르지 않아 카드가 없고, 결과가 다 보이지 않으니 조건 선택지만 붙습니다.
+        assertThat(answer.productData().products()).isEmpty();
+        assertThat(answer.productData().refine().type()).isEqualTo(ProductType.PLAN);
+        assertThat(answer.productData().refine().total()).isEqualTo(107);
+    }
+
+    @Test
+    void 목록_요청을_조회한_뒤_LLM_응답이_깨져도_목록_답변으로_답한다() {
+        var materials = AnswerMaterials.builder("프리미엄 요금제 하나만 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("프리미엄 요금제 하나만 알려줘", List.of(), List.of(), List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            recordPremiumListing(invocation.getArgument(0));
+            throw new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID);
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).startsWith("프리미엄 요금제는 다음 2가지가 있습니다.");
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.productData().products()).extracting(ProductCard::name)
+                .containsExactly("Ubot 프리미엄 89", "Ubot 프리미엄 99");
+    }
+
+    @Test
+    void 목록이_없거나_응답_형식_오류가_아니면_LLM_오류를_그대로_던진다() {
+        var materials = AnswerMaterials.builder("프리미엄 요금제 알려줘").enableTool(AiTool.PLAN_SEARCH).build();
+        when(promptService.createSlotPrompt("프리미엄 요금제 알려줘", List.of(), List.of(), List.of(), List.of()))
+                .thenReturn(prompt);
+        when(llmService.generateAnswer(any()))
+                .thenThrow(new LlmException(LlmErrorCode.LLM_RESPONSE_INVALID))
+                .thenAnswer(invocation -> {
+                    recordPremiumListing(invocation.getArgument(0));
+                    throw new LlmException(LlmErrorCode.LLM_TIMEOUT);
+                });
+
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_RESPONSE_INVALID));
+        assertThatThrownBy(() -> aiService.generateAnswer(materials))
+                .isInstanceOfSatisfying(LlmException.class, exception -> assertThat(exception.getErrorCode())
+                        .isEqualTo(LlmErrorCode.LLM_TIMEOUT));
     }
 
     private static void recordPremiumListing(LlmRequestDto request) {
@@ -463,7 +547,9 @@ class AiServiceTest {
         var premium99 = new ProductCard(ProductType.PLAN, "Ubot 프리미엄 99", 99000, List.of(), List.of());
         recorder.record(premium89, "- Ubot 프리미엄 89 | 5G | 대상 일반 | 월정액 89,000원");
         recorder.record(premium99, "- Ubot 프리미엄 99 | 5G | 대상 일반 | 월정액 99,000원");
-        recorder.searched(new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99)));
+        recorder.searched(new ProductDataRecorder.SearchRecord(
+                new ProductSearch(ProductType.PLAN, "프리미엄", Map.of(), List.of()), 2,
+                new ProductListing("프리미엄 요금제", "월정액 낮은 순", 2, List.of(premium89, premium99))));
     }
 
     @Test
@@ -473,7 +559,7 @@ class AiServiceTest {
         when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
             LlmRequestDto request = invocation.getArgument(0);
             ((ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY)).record(
-                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of()), "- Ubot 컬러링 | 월 990원");
+                    new ProductCard(ProductType.ADDON, "Ubot 컬러링", 990, List.of(), List.of()), "- Ubot 컬러링 | 월 요금 990원");
             return new LlmResponseDto("{\"answer\":\"Ubot 컬러링 요금은 확인할 수 없습니다.\","
                     + "\"evidence_ids\":[],\"status\":\"ABSTAIN\"}");
         });

@@ -180,6 +180,6 @@ class AiProductGuardMergeConnectionTest {
         var recorder = (ProductDataRecorder) request.toolContext().get(ProductDataRecorder.CONTEXT_KEY);
         recorder.record(PREMIUM_89, "- Ubot 프리미엄 89 | 월정액 89,000원");
         recorder.record(PREMIUM_99, "- Ubot 프리미엄 99 | 월정액 99,000원");
-        recorder.searched(LISTING);
+        recorder.searched(new ProductDataRecorder.SearchRecord(new com.ubot.ai.tool.product.ProductSearch(ProductType.PLAN, "프리미엄", java.util.Map.of(), List.of()), 2, LISTING));
     }
 }

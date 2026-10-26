@@ -9,6 +9,7 @@ import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
 import com.ubot.user.exception.UserException;
 import java.util.List;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -30,11 +31,24 @@ public class UserIntentHandler implements IntentHandler {
 	public static final String LOOKUP_FAILED_CONTENT = "사용자 정보를 불러오지 못했습니다. "
 			+ "프로필, 요금제, 최근 사용량·청구, 미납, 약정, 부가서비스·결합·로밍 정보는 지금 확인할 수 없습니다.";
 
+	// "내 데이터 사용량"처럼 자기를 가리키는 말과 회원 기록 항목이 함께 있으면 본인 정보를 묻는 질문으로 봅니다.
+	// "제일", "제공"의 "제"가 걸리지 않게 앞뒤가 단어 경계인 자기 지칭만 봅니다.
+	private static final Pattern SELF_REFERENCE = Pattern.compile("(?<![가-힣])(?:내|제|나의|저의|내가|제가)(?=\\s)");
+	private static final Pattern OWN_RECORD = Pattern.compile("사용량|남은\\s*데이터|잔여|요금|청구|납부|미납|약정|할부");
+
 	private final UserDataSummarizer userDataSummarizer;
 
 	@Override
 	public Intent intent() {
 		return Intent.USER_DATA;
+	}
+
+	/**
+	 * 검색된 FAQ의 intent와 상관없이 본인 정보를 묻는 질문인지입니다. "내 데이터 사용량 알려줘"에 "사용량 확인 방법" 같은
+	 * 일반 FAQ만 걸리면 사용자 정보가 붙지 않아 방법 안내로 답하므로, ChatContextCollector가 이 판정으로 이 핸들러를 더 실행합니다.
+	 */
+	public static boolean asksOwnData(String question) {
+		return question != null && SELF_REFERENCE.matcher(question).find() && OWN_RECORD.matcher(question).find();
 	}
 
 	@Override

@@ -59,6 +59,18 @@ public class ProductNameIndex {
     }
 
     /**
+     * text 안에 이름이 들어 있는 type 상품의 이름입니다(긴 이름 우선, 접두어·공백 무시).
+     * "V컬러링"처럼 상품 이름 앞뒤에 다른 말이 붙은 검색어를 상품 이름으로 되돌릴 때 씁니다.
+     */
+    public List<String> namesMentionedIn(String text, ProductType type) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        List<Named> sameType = current().names().stream().filter(named -> named.type() == type).toList();
+        return ProductNames.findMentioned(text, sameType, Named::name).stream().map(Named::name).distinct().toList();
+    }
+
+    /**
      * 질문에 "프리미엄 요금제"처럼 요금제 시리즈 이름이 하나만 있으면 그 이름입니다. 없거나 둘 이상이면 비어 있습니다.
      * 작은 모델은 "프리미엄 요금제 종류"의 "프리미엄"을 이름이 아니라 분류로 보고 이름 조건을 비우기도 해서,
      * 요금제 도구가 이 값으로 이름 조건을 채웁니다(planSeriesIn 참고).

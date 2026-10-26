@@ -42,8 +42,12 @@ public class UserDataTools {
     public static final String RECORDER = "userDataRecorder";
     // 미리 조회한 요약이 프롬프트에 들어갔을 때만 true로 넣습니다. 요약이 실패했으면 가장 최근 달도 도구가 돌려줍니다.
     public static final String SUMMARY_PROVIDED = "userDataSummaryProvided";
+    // 이번 질문 원문입니다. "8월 9월 요금"처럼 여러 달을 물었는데 모델이 한 달만 조회하는 일이 있어, 질문에 나온 다른 달도 함께 돌려줍니다.
+    public static final String CURRENT_QUESTION = "userDataCurrentQuestion";
 
     static final int LOOKUP_MONTHS = 12;
+    // 질문에서 함께 조회할 달의 최대 수입니다(모델이 조회한 달 포함). 결과가 길어져 컨텍스트를 넘지 않게 제한합니다.
+    static final int MAX_QUESTION_MONTHS = 3;
 
     // 조회하지 못한 사유별 안내(로그인, 다시 시도, 회선 선택)는 코드가 붙이므로(AiService) 모델에게 쓰게 하지 않습니다.
     static final String LOGIN_REQUIRED_MESSAGE = "로그인한 사용자만 가입 정보를 조회할 수 있습니다.";
@@ -75,12 +79,13 @@ public class UserDataTools {
             @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
             ToolContext toolContext) {
         UserDataRecorder recorder = recorder(toolContext);
-        return lookupByMonth(month, phoneLast4, toolContext, "사용량",
+        return withQuestionMonths(month, toolContext, false, requested -> lookupByMonth(requested, phoneLast4, toolContext,
+                "사용량",
                 (userId, subscription) -> usageService.getMyUsageRecordList(
                         userId, subscription.subscriptionId(), null, 0, LOOKUP_MONTHS).content(),
                 UsageRecordResponseDto::billingMonth, UserDataSummarizer::formatUsage,
                 (subscription, usage) -> recorder.recordUsage(
-                        UserDataSummarizer.maskPhone(subscription.phoneNumber()), usage));
+                        UserDataSummarizer.maskPhone(subscription.phoneNumber()), usage)));
     }
 
     @Tool(description = "사용자 회선의 지난 청구서(청구 금액, 항목별 요금, 납부 기한, 납부 상태)를 조회한다. "
@@ -91,13 +96,52 @@ public class UserDataTools {
             @ToolParam(description = "조회할 회선 전화번호 끝 4자리. 회선이 하나면 비운다.", required = false) String phoneLast4,
             ToolContext toolContext) {
         UserDataRecorder recorder = recorder(toolContext);
-        return lookupByMonth(month, phoneLast4, toolContext, "청구서",
+        return withQuestionMonths(month, toolContext, true, requested -> lookupByMonth(requested, phoneLast4, toolContext,
+                "청구서",
                 (userId, subscription) -> billingService.getMyBillingRecordList(
                         userId, subscription.subscriptionId(), null, 0, LOOKUP_MONTHS).content(),
                 BillingRecordResponseDto::billingMonth, billing -> UserDataSummarizer.formatBilling(billing) + "\n"
                         + String.format(BILLING_BASIS_MESSAGE, UserDataSummarizer.billingBasis(billing)),
                 (subscription, billing) -> recorder.recordBilling(
-                        UserDataSummarizer.maskPhone(subscription.phoneNumber()), billing));
+                        UserDataSummarizer.maskPhone(subscription.phoneNumber()), billing)));
+    }
+
+    /**
+     * 모델이 넣은 달을 조회하고, 질문에 둘 이상의 달이 나왔으면 아직 조회하지 않은 달도 같은 방식으로 조회해 이어 붙입니다.
+     * 질문에 달이 하나뿐이면 모델이 고른 달("9월 사용분" → 10월 청구서)을 그대로 따릅니다.
+     * 청구서는 "9월 사용분"처럼 사용 월로 말한 달이 있으면 청구 월로 바꾸는 판단이 모델 몫이라 더 붙이지 않습니다.
+     */
+    private String withQuestionMonths(String month, ToolContext toolContext, boolean billing,
+            Function<String, String> lookupMonth) {
+        String result = lookupMonth.apply(month);
+        List<YearMonth> others = otherQuestionMonths(month, toolContext, billing);
+        if (others.isEmpty()) {
+            return result;
+        }
+        log.debug("가입 정보 조회 도구: 질문에 나온 다른 달도 함께 조회합니다: {}", others);
+        StringBuilder text = new StringBuilder(result);
+        others.forEach(other -> text.append("\n\n").append(lookupMonth.apply(other.toString())));
+        return text.toString();
+    }
+
+    /** 질문 속 달은 QuestionMonths로 찾습니다("8월 9월", "8~10월", "최근 3개월"). */
+    private List<YearMonth> otherQuestionMonths(String month, ToolContext toolContext, boolean billing) {
+        String question = toolContext == null ? null
+                : toolContext.getContext().get(CURRENT_QUESTION) instanceof String value ? value : null;
+        if (!StringUtils.hasText(question)) {
+            return List.of();
+        }
+        YearMonth asked;
+        try {
+            asked = YearMonth.parse(month == null ? "" : month.strip(), MONTH_FORMAT);
+        } catch (DateTimeParseException exception) {
+            return List.of();
+        }
+        QuestionMonths.Found found = QuestionMonths.find(question, YearMonth.from(LocalDate.now(clock)), MAX_QUESTION_MONTHS);
+        if (found.months().size() < 2 || billing && found.usageMonthMentioned()) {
+            return List.of();
+        }
+        return found.months().stream().filter(other -> !other.equals(asked)).toList();
     }
 
     /** AiService가 넣은 기록 보관소입니다. 평가처럼 넣지 않은 호출에서는 버려지는 보관소를 씁니다. */
@@ -116,30 +160,40 @@ public class UserDataTools {
             BiFunction<Long, SubscriptionResponseDto, List<T>> recentRecords,
             Function<T, YearMonth> monthOf, Function<T, String> formatter,
             BiConsumer<SubscriptionResponseDto, T> onFound) {
+        // 호출 내역은 원인 분석용이라 DEBUG로만 남깁니다. 전화번호와 금액은 남기지 않고 회선 지정 여부만 남깁니다.
+        boolean lineSpecified = StringUtils.hasText(phoneLast4);
         YearMonth current = YearMonth.from(LocalDate.now(clock));
         YearMonth requested;
         try {
             requested = YearMonth.parse(month == null ? "" : month.strip(), MONTH_FORMAT);
         } catch (DateTimeParseException exception) {
+            log.debug("가입 정보 조회 도구: 종류={}, 회선지정={}, 결과=달 형식 오류", recordName, lineSpecified);
             return String.format(INVALID_MONTH_MESSAGE, month);
         }
         if (requested.isAfter(current)) {
+            log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과=미래 달", recordName, requested, lineSpecified);
             return String.format(FUTURE_MONTH_MESSAGE, requested, LocalDate.now(clock));
         }
         YearMonth oldest = current.minusMonths(LOOKUP_MONTHS - 1);
         if (requested.isBefore(oldest)) {
+            log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과=조회 기간 밖", recordName, requested,
+                    lineSpecified);
             return String.format(TOO_OLD_MONTH_MESSAGE, oldest, current);
         }
         boolean summaryProvided = Boolean.TRUE.equals(toolContext.getContext().get(SUMMARY_PROVIDED));
         return lookup(phoneLast4, toolContext, (userId, subscription) -> {
             List<T> records = recentRecords.apply(userId, subscription);
             if (summaryProvided && !records.isEmpty() && monthOf.apply(records.getFirst()).equals(requested)) {
+                log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과=미리 제공된 달", recordName, requested,
+                        lineSpecified);
                 onFound.accept(subscription, records.getFirst());
                 return String.format(ALREADY_PROVIDED_MESSAGE, requested, recordName);
             }
             Optional<T> found = records.stream()
                     .filter(record -> monthOf.apply(record).equals(requested))
                     .findFirst();
+            log.debug("가입 정보 조회 도구: 종류={}, month={}, 회선지정={}, 결과={}", recordName, requested, lineSpecified,
+                    found.isPresent() ? "조회됨" : "기록 없음");
             found.ifPresent(record -> onFound.accept(subscription, record));
             return found.map(formatter).orElse(requested + " " + recordName + " 기록이 없습니다.");
         });
