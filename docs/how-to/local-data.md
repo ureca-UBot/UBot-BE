@@ -11,7 +11,7 @@
 
 ## 기본 데이터로 한 번에 채우기
 
-기본 FAQ는 `tools/faq-db/seed/baseline-faqs.csv`와 `baseline-faq-variants.csv`에 있습니다. 시드에는 FAQ별 질문 표현 5개가 포함되며 벡터는 없습니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../tools/faq-db/seed/README.md)에 있습니다.
+기본 FAQ는 `tools/faq-db/seed/baseline/baseline-faqs.csv`와 `baseline-faq-variants.csv`에 있습니다. 시드에는 FAQ별 질문 표현 5개가 포함되며 벡터는 없습니다. 실행 조건과 만들어지는 계정은 [로컬 DB 초기화와 기본 데이터 시드](reset-local-db.md)에, CSV를 고치는 방법은 [시드 데이터 안내](../../tools/faq-db/seed/README.md)에 있습니다.
 
 | 스크립트 | 하는 일 |
 |---|---|
