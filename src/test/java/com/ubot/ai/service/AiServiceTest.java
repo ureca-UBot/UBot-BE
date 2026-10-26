@@ -164,7 +164,8 @@ class AiServiceTest {
                         recorder -> assertThat(recorder).isInstanceOf(UserDataRecorder.class))
                 .hasEntrySatisfying(ProductDataRecorder.CONTEXT_KEY,
                         recorder -> assertThat(recorder).isInstanceOf(ProductDataRecorder.class))
-                .hasSize(4);
+                .containsEntry(UserDataTools.CURRENT_QUESTION, "근처 매장 알려줘")
+                .hasSize(5);
     }
 
     @Test
@@ -304,6 +305,29 @@ class AiServiceTest {
 
         assertThat(answer.productData()).isNull();
         assertThat(answer.userData() == null ? List.of() : answer.userData().plans()).isEmpty();
+    }
+
+    @Test
+    void 여러_달을_물으면_모델이_한_달만_답해도_조회한_달마다_한_줄씩_답하고_카드도_모두_붙인다() {
+        var materials = AnswerMaterials.builder("8월 9월 요금 알려줘").enableTool(AiTool.USER_DATA_LOOKUP).userId(7L)
+                .userDataSummary(summaryWithLatestBilling(YearMonth.of(2026, 10))).build();
+        when(promptService.createSlotPrompt("8월 9월 요금 알려줘", List.of(), List.of(), List.of(), List.of())).thenReturn(prompt);
+        when(llmService.generateAnswer(any())).thenAnswer(invocation -> {
+            LlmRequestDto request = invocation.getArgument(0);
+            var recorder = (UserDataRecorder) request.toolContext().get(UserDataTools.RECORDER);
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 8)));
+            recorder.recordBilling("010-****-5678", billing(YearMonth.of(2026, 9)));
+            return new LlmResponseDto("{\"answer\":\"2026년 8월 청구서(7월 사용분) 기준으로 안내드립니다. 총 78,000원입니다.\","
+                    + "\"evidence_ids\":[],\"status\":\"ANSWER\"}");
+        });
+
+        AiAnswer answer = aiService.generateAnswer(materials);
+
+        assertThat(answer.answer()).startsWith("요청하신 달의 청구서입니다.")
+                .contains("2026년 8월 청구서(7월 사용분)", "2026년 9월 청구서(8월 사용분)");
+        assertThat(answer.status()).isEqualTo("ANSWER");
+        assertThat(answer.userData().billings()).extracting(card -> card.billing().billingMonth())
+                .containsExactly(YearMonth.of(2026, 8), YearMonth.of(2026, 9));
     }
 
     @Test

@@ -10,7 +10,9 @@ import com.ubot.ai.dto.ProductDataCards;
 import com.ubot.ai.dto.StoreMapResult;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.ai.dto.UserDataCards;
+import com.ubot.ai.tool.AiTool;
 import com.ubot.ai.tool.AiToolRegistry;
+import com.ubot.ai.tool.MonthlyRecordsAnswer;
 import com.ubot.ai.tool.product.ProductDataCardSelector;
 import com.ubot.ai.tool.product.ProductDataRecorder;
 import com.ubot.ai.tool.product.ProductListAnswer;
@@ -115,6 +117,9 @@ public class AiService {
         // 목록 요청이면 LLM 답변(칸 형식 포함) 대신 코드가 만든 목록 답변을 씁니다(ProductListAnswer 참고).
         // LLM 답변은 읽지 않으므로 LLM 응답이 비었거나 깨졌어도 목록으로 답합니다.
         Optional<ProductListAnswer> listing = listingAnswerable(materials) ? productDataRecorder.listing() : Optional.empty();
+        // 여러 달을 물었으면 가입 정보 도구가 조회한 기록으로 달마다 한 줄씩 답합니다(MonthlyRecordsAnswer 참고).
+        Optional<MonthlyRecordsAnswer> monthly = responded && monthlyAnswerable(materials)
+                ? MonthlyRecordsAnswer.of(materials.question(), userDataRecorder.cards()) : Optional.empty();
         if (responded || listing.isPresent()) {
             // 도구로 조회한 지난 달 기록은 프롬프트 자료에 없으므로, 출력 검사가 그 값도 근거로 보도록 사용자 정보로 덧붙입니다.
             String toolRecords = userDataRecorder.describe();
@@ -131,6 +136,14 @@ public class AiService {
                         responded ? "있음" : "없음", listing.get().getClass().getSimpleName(),
                         listing.get().products().size());
                 inspection = aiOutputGuardService.inspectAnswer(listing.get().answer(), List.of(), inspected, storeMap);
+                // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
+                if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
+                answer = inspection.answer();
+                status = SubQuestionStatuses.ANSWER;
+            } else if (monthly.isPresent()) {
+                log.info("여러 달을 묻는 질문이라 조회한 기록으로 답변을 바꿨습니다: 청구서수={}, 사용량수={}",
+                        monthly.get().cards().billings().size(), monthly.get().cards().usages().size());
+                inspection = aiOutputGuardService.inspectAnswer(monthly.get().answer(), List.of(), inspected, storeMap);
                 // 내부 결과를 사용해도 기존 전체 차단 오류와 자동 재시도 금지 정책은 유지합니다.
                 if (inspection.rejected()) throw new LlmException(LlmErrorCode.LLM_OUTPUT_REJECTED);
                 answer = inspection.answer();
@@ -168,7 +181,9 @@ public class AiService {
         // 상품 도구가 붙은 질문도 같습니다. "밸런스 요금제 알려줘"가 0건이면 상품 카드는 없지만 묻는 것은 내 요금제가 아닙니다.
         // 답변에 내 요금제 이름이 나오면 지금처럼 붙입니다.
         boolean productQuestion = materials.tools().stream().anyMatch(ProductType::isProductTool);
+        // 여러 달 답변이면 답변에 쓴 기록 전부입니다.
         UserDataCards userData = "ABSTAIN".equals(status) ? null
+                : monthly.isPresent() ? monthly.get().cards()
                 : UserDataCards.merge(
                         UserDataCardSelector.selectRecorded(materials.question(), answer, userDataRecorder.cards()),
                         UserDataCardSelector.select(materials.question(), answer, materials.userDataSummary(),
@@ -183,6 +198,12 @@ public class AiService {
      */
     private static boolean listingAnswerable(AnswerMaterials materials) {
         return materials.subQuestions().size() <= 1 && materials.tools().stream().allMatch(ProductType::isProductTool);
+    }
+
+    /** 여러 달 답변으로 대신할 수 있는 질문인지입니다. 하위 질문이 하나이고 가입 정보 도구만 붙었을 때만입니다. */
+    private static boolean monthlyAnswerable(AnswerMaterials materials) {
+        return materials.subQuestions().size() <= 1 && !materials.tools().isEmpty()
+                && materials.tools().stream().allMatch(tool -> tool == AiTool.USER_DATA_LOOKUP);
     }
 
     /**
@@ -373,6 +394,8 @@ public class AiService {
         if (materials.userDataSummary() != null) {
             context.put(UserDataTools.SUMMARY_PROVIDED, true);
         }
+        // 가입 정보 도구가 질문에 나온 다른 달을 찾을 때 씁니다. 위 QUESTION은 이전 답변의 달까지 섞여 있어 따로 넣습니다.
+        context.put(UserDataTools.CURRENT_QUESTION, materials.question());
         return context;
     }
 }
