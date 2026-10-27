@@ -211,6 +211,7 @@ public class UserDataTools {
             List<SubscriptionResponseDto> subscriptions =
                     UserDataSummarizer.getInUseSubscriptionList(subscriptionService, userId);
             if (subscriptions.isEmpty()) {
+                recorder.fail(LookupFailure.of(LookupFailure.Kind.NO_ACTIVE_SUBSCRIPTION));
                 return NO_SUBSCRIPTION_MESSAGE;
             }
 

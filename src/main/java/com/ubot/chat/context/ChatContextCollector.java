@@ -1,6 +1,7 @@
 package com.ubot.chat.context;
 
 import com.ubot.ai.dto.AnswerMaterials;
+import com.ubot.ai.dto.LookupFailure;
 import com.ubot.ai.dto.SubQuestionFaqs;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
 import com.ubot.faq.enums.Intent;
@@ -85,9 +86,15 @@ public class ChatContextCollector {
 				.map(FaqSearchResponseDto::faqId)
 				.collect(Collectors.toSet());
 		materials.subQuestions(subQuestions.stream()
-				.map(subQuestion -> new SubQuestionFaqs(subQuestion.searchQuery(), subQuestion.faqs().stream()
+				.map(subQuestion -> {
+					SubQuestionFaqs scoped = subQuestion.withFaqs(subQuestion.faqs().stream()
 						.filter(faq -> includedFaqIds.contains(faq.faqId()))
-						.toList(), subQuestion.userText()))
+						.toList());
+					String question = subQuestion.userText() == null ? subQuestion.searchQuery() : subQuestion.userText();
+					// FAQ 없이 본인 정보 핸들러를 추가한 경우도 해당 하위 질문에만 조회 대상을 붙입니다.
+					return resultsByIntent.containsKey(Intent.USER_DATA) && UserIntentHandler.asksOwnData(question)
+							? scoped.withLookupTarget(LookupFailure.Target.USER_DATA) : scoped;
+				})
 				.toList());
 		return materials.build();
 	}

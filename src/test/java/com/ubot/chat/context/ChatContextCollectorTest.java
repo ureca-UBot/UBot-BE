@@ -78,7 +78,7 @@ class ChatContextCollectorTest {
 		// 매장 FAQ는 핸들러가 참고 자료로 넣지 않으므로 하위 질문 묶음에서도 빠집니다. 근거 없는 하위 질문은 빈 묶음으로 남습니다.
 		assertThat(materials.faqs()).containsExactly(general1, general2);
 		assertThat(materials.subQuestions()).containsExactly(
-				new SubQuestionFaqs("유심 재발급 방법", List.of(general1), "유심 재발급 방법"),
+				new SubQuestionFaqs("유심 재발급 방법", List.of(general1, store), "유심 재발급 방법").withFaqs(List.of(general1)),
 				new SubQuestionFaqs("유심 재발급 비용", List.of(general1, general2), "유심 재발급 비용"),
 				new SubQuestionFaqs("해외 로밍 요금", List.of(), "해외 로밍 요금"));
 	}

@@ -37,6 +37,9 @@ public record LookupFailure(Kind kind, List<String> args) {
         USER_LOOKUP_FAILED(Target.USER_DATA,
                 "가입 정보를 지금 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.",
                 "에 대해서는 가입 정보를 지금 조회하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+        NO_ACTIVE_SUBSCRIPTION(Target.SUBSCRIPTION_DATA,
+                "현재 이용 중인 회선이 없어 회선별 요금제·사용량·청구 정보를 조회할 수 없습니다.",
+                "에 대해서는 현재 이용 중인 회선이 없어 회선별 요금제·사용량·청구 정보를 조회할 수 없습니다."),
         /** args: 후보 회선 목록 */
         SUBSCRIPTION_UNSELECTED(Target.USER_DATA,
                 "어느 회선인지 정할 수 없습니다. 다음 중 어느 번호인지 알려 주세요: %s",
@@ -71,8 +74,8 @@ public record LookupFailure(Kind kind, List<String> args) {
         }
     }
 
-    /** 이 사유로 답하지 못하는 하위 질문입니다. 하위 질문의 근거 FAQ intent로 가립니다. */
+    /** 이 사유로 답하지 못하는 하위 질문입니다. 근거 FAQ를 제외해도 조회 대상은 별도로 보존합니다. */
     public enum Target {
-        USER_DATA, STORE_DATA
+        USER_DATA, STORE_DATA, SUBSCRIPTION_DATA
     }
 }

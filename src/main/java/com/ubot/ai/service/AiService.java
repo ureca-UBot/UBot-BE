@@ -32,7 +32,6 @@ import com.ubot.ai.tool.UserDataTools;
 import com.ubot.chat.context.StoreIntentHandler;
 import com.ubot.chat.context.UserIntentHandler;
 import com.ubot.faq.dto.response.FaqSearchResponseDto;
-import com.ubot.faq.enums.Intent;
 import com.ubot.llm.dto.request.LlmRequestDto;
 import com.ubot.llm.dto.response.LlmResponseDto;
 import com.ubot.llm.exception.LlmErrorCode;
@@ -354,6 +353,11 @@ public class AiService {
         String body = String.join("\n\n", kept);
         List<SubQuestionStatuses.NoticeKey> keys = SubQuestionStatuses.noticeKeys(statuses,
                 lookupTargets(materials, expected), failures);
+        for (int index = 0; index < keys.size(); index++) {
+            if (keys.get(index).failure() != null) {
+                log.info("조회 실패 사유별 안내를 적용했습니다: 칸={}, 사유={}", index + 1, keys.get(index).failure().kind());
+            }
+        }
         String notice = SubQuestionStatuses.notice(keys, noticeLabels(keys, materials.subQuestions()));
         String answer = SubQuestionStatuses.compose(body, notice);
         // 원문 질문·근거·대화 문맥은 유지하고, 사용자에게 전달할 답변 전체를 한 번만 판정합니다.
@@ -393,7 +397,7 @@ public class AiService {
     private static Map<LookupFailure.Target, LookupFailure> lookupFailures(AnswerMaterials materials,
             StoreSearchRecorder storeRecorder, UserDataRecorder userDataRecorder) {
         Map<LookupFailure.Target, LookupFailure> failures = new EnumMap<>(LookupFailure.Target.class);
-        userDataRecorder.failure().ifPresent(failure -> failures.put(LookupFailure.Target.USER_DATA, failure));
+        userDataRecorder.failure().ifPresent(failure -> failures.put(failure.kind().target(), failure));
         storeRecorder.failure().ifPresent(failure -> failures.put(LookupFailure.Target.STORE_DATA, failure));
         for (ContextSection section : materials.sections()) {
             LookupFailure.Kind kind = null;
@@ -409,27 +413,26 @@ public class AiService {
                 failures.putIfAbsent(kind.target(), LookupFailure.of(kind));
             }
         }
+        if (materials.userDataSummary() != null && materials.userDataSummary().subscriptions().isEmpty()) {
+            failures.putIfAbsent(LookupFailure.Target.SUBSCRIPTION_DATA,
+                    LookupFailure.of(LookupFailure.Kind.NO_ACTIVE_SUBSCRIPTION));
+        }
         return failures;
     }
 
     /**
-     * 칸마다 어떤 조회가 필요한 하위 질문인지입니다(근거 FAQ의 USER_DATA·STORE_DATA).
+     * 칸마다 어떤 조회가 필요한 하위 질문인지입니다. 프롬프트에서 제외한 FAQ의 조회 종류도 보존합니다.
      * 칸이 하나면 하위 질문 전체에서 하나라도 해당하는지입니다.
      */
     private static List<List<LookupFailure.Target>> lookupTargets(AnswerMaterials materials, int slots) {
         if (slots == 1) {
-            List<FaqSearchResponseDto> all = new ArrayList<>(materials.faqs());
-            materials.subQuestions().forEach(subQuestion -> all.addAll(subQuestion.faqs()));
-            return List.of(targetsOf(all));
+            Set<LookupFailure.Target> targets = EnumSet.noneOf(LookupFailure.Target.class);
+            targets.addAll(new SubQuestionFaqs(materials.question(), materials.faqs(), materials.question()).lookupTargets());
+            materials.subQuestions().forEach(subQuestion -> targets.addAll(subQuestion.lookupTargets()));
+            return List.of(List.copyOf(targets));
         }
-        return materials.subQuestions().stream().map(subQuestion -> targetsOf(subQuestion.faqs())).toList();
-    }
-
-    private static List<LookupFailure.Target> targetsOf(List<FaqSearchResponseDto> faqs) {
-        List<LookupFailure.Target> targets = new ArrayList<>();
-        if (faqs.stream().anyMatch(faq -> faq.intent() == Intent.USER_DATA)) targets.add(LookupFailure.Target.USER_DATA);
-        if (faqs.stream().anyMatch(faq -> faq.intent() == Intent.STORE_DATA)) targets.add(LookupFailure.Target.STORE_DATA);
-        return targets;
+        return materials.subQuestions().stream()
+                .map(subQuestion -> subQuestion.lookupTargets().stream().sorted().toList()).toList();
     }
 
     /**
