@@ -207,8 +207,12 @@ class UserDataToolsTest {
     @Test
     void 해지_회선만_있으면_이용_중인_회선이_없다고_알린다() {
         givenSubscriptions(subscription(1L, "010-1234-5678", SubscriptionStatus.TERMINATED));
+        var recorder = new UserDataRecorder();
+        var context = new ToolContext(Map.of(UserDataTools.USER_ID, USER_ID, UserDataTools.RECORDER, recorder));
 
-        assertThat(tools.getUsageByMonth("2026-09", null, LOGGED_IN)).isEqualTo(UserDataTools.NO_SUBSCRIPTION_MESSAGE);
+        assertThat(tools.getUsageByMonth("2026-09", null, context)).isEqualTo(UserDataTools.NO_SUBSCRIPTION_MESSAGE);
+        assertThat(recorder.failure()).contains(com.ubot.ai.dto.LookupFailure.of(
+                com.ubot.ai.dto.LookupFailure.Kind.NO_ACTIVE_SUBSCRIPTION));
     }
 
     @ParameterizedTest
