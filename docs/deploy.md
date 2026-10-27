@@ -23,6 +23,19 @@ Backend CI 성공(push)
 
 자동 배포는 대상 브랜치가 여전히 같은 commit인지 다시 확인해 오래된 실행의 역전 배포를 막습니다. API health·공지 조회·Worker 기동·scrape 대상은 확인하지만 로그인 질문부터 최종 LLM 답변까지의 smoke test와 자동 이미지 롤백은 수행하지 않습니다. 실행 조건과 명령의 기준은 [AWS 배포 workflow](../.github/workflows/aws-be-deploy.yml)와 `tools/deploy/aws-be-deploy.sh`입니다.
 
+### 배포 중단 후 Worker 복구
+
+배포는 Worker를 멈추기 전에 EC2에 `ubot-be-worker-recovery.timer`를 설치합니다. SSM·배포 셸이 종료돼도 systemd가 30초 간격으로 Worker를 확인하며, API가 정상 응답할 때 API와 같은 digest의 릴리스 파일로 멈췄거나 사라진 Worker를 다시 올립니다. 실행 중인 구버전 Worker도 API 버전에 맞춥니다. API가 꺼졌거나 마이그레이션에 실패했다면 Worker를 시작하지 않습니다.
+
+배포와 복구는 `.deploy/deploy.lock`을 공유하므로 배포 중에는 복구가 개입하지 않습니다. 배포 프로세스가 강제 종료되면 잠금이 풀리고 다음 확인에서 복구합니다. SSM 배포 명령은 최대 20분 후 종료 신호를 보내고 30초 뒤 강제 종료해 잠금이 계속 남는 것을 막습니다. 복구가 성공해도 실패한 CD 실행의 결과는 실패로 유지됩니다.
+
+```bash
+sudo systemctl status ubot-be-worker-recovery.timer
+sudo journalctl -u ubot-be-worker-recovery.service --since '10 minutes ago'
+```
+
+Worker를 수동으로 멈춰 점검할 때는 먼저 배포 루트(기본 `/home/ssm-user/ubot-api`)에서 `touch .deploy/worker-recovery.paused`로 자동 복구를 멈춥니다. 점검 후 `rm .deploy/worker-recovery.paused`로 다시 켭니다. 정상 실행 중이거나 재시작 중인 같은 버전의 Worker와 `docker pause`로 정지한 Worker는 변경하지 않습니다. 기존 작업 회수·재처리는 다시 기동한 Worker 안의 복구 루프가 담당합니다.
+
 ## 기존 SSH/SCP 수동 CD
 
 아래 절은 `Backend Manual CD`와 로컬 배포 형태를 위한 기존 절차입니다. AWS ECR·SSM 경로와 섞어 해석하지 않습니다. 같은 구성 파일로 로컬에서 배포 형태를 재현할 수도 있습니다.

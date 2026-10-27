@@ -52,8 +52,9 @@ commands=(
   "trap 'sudo docker rm -f \"\$container_id\" >/dev/null 2>&1 || true' EXIT"
   'sudo docker cp "$container_id:/opt/ubot-deploy/." "$release_dir/"'
   'ln -sfn "$root/.env" "$release_dir/.env"'
-  'UBOT_BE_STATE_DIR="$root/.deploy" bash "$release_dir/tools/deploy/aws-be-deploy.sh" "$repository" "$digest"'
+  # 배포가 멎어도 잠금이 무한히 남지 않도록 실행 시간을 제한함
+  'UBOT_BE_STATE_DIR="$root/.deploy" timeout --signal=TERM --kill-after=30s 1200s bash "$release_dir/tools/deploy/aws-be-deploy.sh" "$repository" "$digest"'
   'UBOT_DEPLOY'
 )
 
-jq -n '{commands: $ARGS.positional, executionTimeout: ["1200"]}' --args "${commands[@]}"
+jq -n '{commands: $ARGS.positional, executionTimeout: ["1260"]}' --args "${commands[@]}"

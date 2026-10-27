@@ -126,7 +126,7 @@ Copy-Item `
 LLM_HF_MODEL=RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16
 LLM_SERVED_MODEL_NAME=ubot-chat
 LLM_PORT=8000
-LLM_MAX_MODEL_LEN=4096
+LLM_MAX_MODEL_LEN=8192
 
 HF_TOKEN=
 
@@ -201,7 +201,7 @@ http://<LLM_HOST>:8000/v1
 최대 Context Length입니다.
 
 ```dotenv
-LLM_MAX_MODEL_LEN=4096
+LLM_MAX_MODEL_LEN=8192
 ```
 
 로컬 개발에서는 GPU 메모리 사용량을 줄이기 위해 비교적 작은 값으로 사용합니다.

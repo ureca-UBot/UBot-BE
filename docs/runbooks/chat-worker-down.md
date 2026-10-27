@@ -18,6 +18,7 @@ Worker 프로세스가 Prometheus 수집에 응답하지 않거나(`up == 0`), �
 
 ## 조치
 
+- AWS 배포 경로에서는 `ubot-be-worker-recovery.timer`가 배포 종료 뒤 30초 간격으로 멈춘 Worker를 확인합니다. `sudo journalctl -u ubot-be-worker-recovery.service`로 복구 시도를 확인합니다. API가 정상이어야 같은 이미지의 Worker를 올리며, 배포 잠금이나 `.deploy/worker-recovery.paused`가 있으면 기다립니다([배포 중단 후 Worker 복구](../deploy.md#배포-중단-후-worker-복구)).
 - 원인을 확인한 뒤 `ai-worker`를 다시 시작합니다. 정상 종료면 실행 중인 답변은 20초 안에 끝내거나 대기열로 돌려놓고, 강제 종료여도 1분 뒤 다른 Worker가 넘겨받습니다([Worker 장애 복구와 검증](../how-to/worker-reliability.md)).
 - 같은 질문으로 3번 죽으면 그 작업은 CHAT-015로 끝납니다. 반복해서 죽으면 메모리·모델 응답을 먼저 확인합니다.
 

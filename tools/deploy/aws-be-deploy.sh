@@ -25,7 +25,7 @@ if [ ! -f .env ]; then
   echo 'BE .env is missing' >&2
   exit 1
 fi
-for command in curl sudo; do
+for command in curl sudo flock; do
   command -v "$command" >/dev/null || { echo "Missing command: $command" >&2; exit 1; }
 done
 sudo docker compose version >/dev/null
@@ -62,6 +62,9 @@ sudo docker image inspect "$BACKEND_IMAGE" >/dev/null
 
 state_dir="${UBOT_BE_STATE_DIR:-$repo_dir/.deploy}"
 mkdir -p "$state_dir"
+# 배포와 외부 복구가 동시에 컨테이너를 바꾸지 못하게 잠금 유지함
+exec 9>"$state_dir/deploy.lock"
+flock -w 120 9 || { echo 'Another BE deployment or recovery is running' >&2; exit 1; }
 
 # The first transition must provision the BE Nginx Compose service before enabling CD.
 nginx_id="$("${compose[@]}" ps -q nginx)"
@@ -74,6 +77,9 @@ backend_id="$("${compose[@]}" ps -q backend)"
 if [ -n "$backend_id" ]; then
   sudo docker inspect -f '{{.Config.Image}}' "$backend_id" > "$state_dir/previous-image"
 fi
+
+# SSM과 배포 셸이 죽어도 남는 복구 타이머를 워커 정지 전에 설치함
+bash "$repo_dir/tools/deploy/install-aws-be-recovery.sh" "$(dirname "$state_dir")" "$(id -un)"
 
 # Stop the old Worker before Flyway can apply a new schema in the API process.
 # A migration may make an image-only rollback unsafe, so failure needs review.
