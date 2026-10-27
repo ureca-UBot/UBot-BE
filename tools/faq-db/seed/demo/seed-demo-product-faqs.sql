@@ -6,6 +6,7 @@
 -- 새 FAQ가 이미 있으면(기본 CSV로 초기화한 DB 등) 아무것도 바꾸지 않는다.
 -- 그 밖에는 FAQ·질문 표현 ID가 비어 있고 바꿀 FAQ가 변경 전 값 그대로일 때만 적용하며, 아니면 전체를 실패시켜 관리자 수정을 덮어쓰지 않는다.
 -- 바꾼 내용은 demo_product_faq_backup에 남겨 clear-demo-activity.ps1이 되돌린다. 벡터는 넣지 않으므로 적용 뒤 백필한다.
+-- 일반 표현 상품 FAQ 2169~2170은 파일 끝에서 따로 넣는다. 위 FAQ를 이미 적용한 DB에도 넣는다.
 \if :{?managed_transaction}
 \else
 BEGIN;
@@ -251,6 +252,79 @@ WHERE e.faq_question_variant_id = v.id
 \echo 'Product FAQs applied: 264 inserted, 76 updated.'
 \else
 \echo 'Product FAQs are already present; skipped.'
+\endif
+
+-- 일반 표현 상품 FAQ 2169~2170("요금제 뭐 있어요?", "요금제 추천해줘" 등)은 위 단계와 따로 넣는다.
+-- 위 단계를 이미 적용했거나 이 FAQ가 없던 기본 CSV로 초기화한 DB에도 들어가야 하기 때문이다.
+-- 두 FAQ가 같은 질문으로 모두 있으면 건너뛰고, ID가 다른 FAQ·질문 표현에 쓰이고 있으면 전체를 실패시킨다.
+CREATE TEMP TABLE product_general_faq ON COMMIT DROP AS
+SELECT * FROM seed_product_faq WHERE faq_id BETWEEN 2169 AND 2170;
+CREATE TEMP TABLE product_general_variant ON COMMIT DROP AS
+SELECT * FROM seed_product_variant WHERE origin_faq_id BETWEEN 2169 AND 2170;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM product_general_faq) <> 2
+     OR EXISTS (SELECT 1 FROM product_general_faq WHERE intent <> 'PRODUCT_DATA')
+     OR (SELECT count(*) FROM product_general_variant) <> 17 THEN
+    RAISE EXCEPTION 'General product FAQ seed does not match the baseline CSV (expected 2 FAQs, 17 variants)';
+  END IF;
+END $$;
+
+SELECT (SELECT count(*) FROM faq f JOIN product_general_faq n ON n.faq_id = f.id AND n.question = f.question) <> 2
+       AS demo_general_apply,
+       EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'demo_product_faq_backup')
+       AS demo_general_backup
+\gset
+
+\if :demo_general_apply
+DO $$
+DECLARE
+  differing TEXT;
+BEGIN
+  IF (SELECT count(*) FROM users WHERE email = 'admin@admin.com' AND role = 'ADMIN' AND deleted_at IS NULL) <> 1 THEN
+    RAISE EXCEPTION 'Exactly one active admin@admin.com ADMIN is required';
+  END IF;
+  SELECT string_agg(f.id::text, ', ' ORDER BY f.id) INTO differing FROM faq f JOIN product_general_faq n ON n.faq_id = f.id;
+  IF differing IS NOT NULL THEN
+    RAISE EXCEPTION 'FAQ IDs for the general product FAQs are already used: %', differing;
+  END IF;
+  SELECT string_agg(v.id::text, ', ' ORDER BY v.id) INTO differing
+  FROM faq_question_variants v JOIN product_general_variant n ON n.variant_id = v.id;
+  IF differing IS NOT NULL THEN
+    RAISE EXCEPTION 'Variant IDs for the general product FAQs are already used: %', differing;
+  END IF;
+END $$;
+
+CREATE TEMP TABLE product_general_category (id BIGINT PRIMARY KEY) ON COMMIT DROP;
+WITH created AS (
+    INSERT INTO faq_category (name)
+    SELECT DISTINCT category FROM product_general_faq
+    ON CONFLICT (name) WHERE deleted_at IS NULL DO NOTHING
+    RETURNING id
+)
+INSERT INTO product_general_category (id) SELECT id FROM created;
+
+INSERT INTO faq (id, category_id, question, answer, intent, admin_id)
+SELECT n.faq_id, c.id, n.question, n.answer, n.intent, u.user_id
+FROM product_general_faq n
+JOIN faq_category c ON c.name = n.category AND c.deleted_at IS NULL
+CROSS JOIN users u
+WHERE u.email = 'admin@admin.com' AND u.role = 'ADMIN' AND u.deleted_at IS NULL;
+INSERT INTO faq_question_variants (id, origin_faq_id, question)
+SELECT variant_id, origin_faq_id, question FROM product_general_variant ORDER BY variant_id;
+SELECT setval(pg_get_serial_sequence('faq', 'id'), (SELECT max(id) FROM faq), true) \g /dev/null
+SELECT setval(pg_get_serial_sequence('faq_question_variants', 'id'), (SELECT max(id) FROM faq_question_variants), true) \g /dev/null
+
+-- 시연 적용으로 상품 FAQ를 넣은 DB만 clear-demo-activity.ps1이 함께 되돌리게 백업에 남긴다.
+-- 기본 CSV로 초기화한 DB는 백업이 없으므로 기본 CSV의 상품 FAQ처럼 그대로 둔다.
+\if :demo_general_backup
+INSERT INTO demo_product_faq_backup (kind, id) SELECT 'CATEGORY_CREATED', id FROM product_general_category;
+INSERT INTO demo_product_faq_backup (kind, id) SELECT 'FAQ_INSERTED', faq_id FROM product_general_faq;
+\endif
+\echo 'General product FAQs applied: 2 inserted.'
+\else
+\echo 'General product FAQs are already present; skipped.'
 \endif
 
 \if :{?managed_transaction}

@@ -2,22 +2,27 @@
 set -euo pipefail
 
 # BE EC2에서 시연 데이터 세 가지를 운영 DB에 한 트랜잭션으로 순서대로 넣는다. apply-demo-activity.ps1과 같은 SQL을 쓴다.
-#   1. seed-demo-product-faqs.sql (상품 의도 FAQ. 이미 있으면 건너뜀. 인기 FAQ 시연이 이 FAQ를 씀)
+#   1. seed-demo-product-faqs.sql (상품 의도 FAQ. 이미 있으면 건너뜀. 인기 FAQ 시연이 이 FAQ를 씀.
+#                                  일반 표현 상품 FAQ 2169~2170은 상품 FAQ가 이미 있어도 없으면 넣음)
 #   2. seed-demo-faqranking.sql   (인기 FAQ 시연)
 #   3. seed-demo-telemap.sql      (FAQ 대시보드·통신 지도 시연)
 # 배포 이미지가 이 스크립트와 시드 파일을 release 폴더에 함께 풀어 두므로, release 폴더에서 다음처럼 실행한다.
-#   bash tools/faq-db/scripts/apply-demo-activity.sh [--force]
+#   bash tools/faq-db/scripts/apply-demo-activity.sh [--force | --product-faqs-only]
+# --product-faqs-only는 상품 의도 FAQ만 적용한다. 시연 활동을 이미 넣은 운영 DB에 새 상품 FAQ만 더할 때 쓴다.
 # DB 접속 정보는 release 폴더의 .env(POSTGRES_HOST·POSTGRES_PORT·POSTGRES_DB·POSTGRES_USER·POSTGRES_PASSWORD)에서 읽는다.
 # 벡터는 넣지 않으므로 상품 FAQ를 새로 넣었으면 적용 뒤 임베딩을 백필한다.
 # 시연 활동 초기화(clear-demo-activity.ps1)는 실제 질문 로그까지 모두 지우므로 운영 DB용으로 두지 않는다.
 
 force=false
+product_faqs_only=false
 case "${1:-}" in
   '') ;;
   # question_log에 이미 행이 있어도 적용한다. 같은 시연 데이터가 중복으로 들어갈 수 있다.
   --force) force=true ;;
+  # 상품 FAQ SQL은 이미 있는 FAQ를 건너뛰므로 질문 로그가 있어도 중복되지 않는다.
+  --product-faqs-only) product_faqs_only=true ;;
   *)
-    echo 'usage: apply-demo-activity.sh [--force]' >&2
+    echo 'usage: apply-demo-activity.sh [--force | --product-faqs-only]' >&2
     exit 2
     ;;
 esac
@@ -62,13 +67,21 @@ staging="$(mktemp -d)"
 password_file="$(mktemp)"
 trap 'rm -rf "$staging" "$password_file"' EXIT
 cp "${seed_files[@]}" "$staging/"
-cat > "$staging/apply-demo-activity.sql" <<'SQL'
+if [ "$product_faqs_only" = true ]; then
+  cat > "$staging/apply-demo-activity.sql" <<'SQL'
+BEGIN;
+\i /tmp/seed-demo-product-faqs.sql
+COMMIT;
+SQL
+else
+  cat > "$staging/apply-demo-activity.sql" <<'SQL'
 BEGIN;
 \i /tmp/seed-demo-product-faqs.sql
 \i /tmp/seed-demo-faqranking.sql
 \i /tmp/seed-demo-telemap.sql
 COMMIT;
 SQL
+fi
 chmod -R a+rX "$staging"
 printf 'PGPASSWORD=%s\n' "$db_password" > "$password_file"
 
@@ -77,7 +90,7 @@ run_psql() {
     psql --no-psqlrc -v ON_ERROR_STOP=1 -h "$db_host" -p "$db_port" -U "$db_user" -d "$db_name" "$@"
 }
 
-if [ "$force" != true ]; then
+if [ "$force" != true ] && [ "$product_faqs_only" != true ]; then
   existing="$(run_psql -At -c 'SELECT count(*) FROM question_log')"
   if [ "$existing" != 0 ]; then
     echo "question_log already has $existing rows, so the demo data would be added twice. Pass --force to apply anyway." >&2
@@ -93,5 +106,9 @@ fi
 counts="$(run_psql -At -F '|' -c "SELECT (SELECT count(*) FROM question_log), (SELECT count(*) FROM faq_log),
   (SELECT count(*) FROM surging_alerts), (SELECT count(*) FROM faq WHERE intent = 'PRODUCT_DATA' AND deleted_at IS NULL)")"
 IFS='|' read -r question_logs faq_logs alerts product_faqs <<< "$counts"
-echo "Demo seeds applied: $question_logs question logs, $faq_logs FAQ logs, $alerts surging alerts, $product_faqs product FAQs."
+if [ "$product_faqs_only" = true ]; then
+  echo "Product FAQ seed applied: $product_faqs product FAQs."
+else
+  echo "Demo seeds applied: $question_logs question logs, $faq_logs FAQ logs, $alerts surging alerts, $product_faqs product FAQs."
+fi
 echo 'Backfill FAQ embeddings if product FAQs were newly inserted.'

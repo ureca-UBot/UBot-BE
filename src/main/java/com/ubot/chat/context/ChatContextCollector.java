@@ -63,6 +63,13 @@ public class ChatContextCollector {
 		// 유사도 순서를 유지한 채 intent별로 묶습니다. 같은 intent가 여러 번 걸려도 핸들러는 한 번만 실행됩니다.
 		Map<Intent, List<FaqSearchResponseDto>> resultsByIntent = commonFaqs.stream()
 				.collect(Collectors.groupingBy(FaqSearchResponseDto::intent, LinkedHashMap::new, Collectors.toList()));
+		// "요금제 정보 알려줘"는 상품 FAQ가 1위여도 "제 회선에 적용된 요금제" 같은 사용자 정보 FAQ가 상위에 함께 걸립니다.
+		// 그러면 본인 가입 정보가 붙어 모델이 본인 요금제를 상품 검색 조건으로 씁니다. 본인을 가리키는 말이 없으면 사용자 정보를 붙이지 않습니다.
+		boolean ownDataDropped = !commonFaqs.isEmpty() && commonFaqs.getFirst().intent() == Intent.PRODUCT_DATA
+				&& resultsByIntent.containsKey(Intent.USER_DATA) && !UserIntentHandler.mentionsSelf(context.question());
+		if (ownDataDropped) {
+			resultsByIntent.remove(Intent.USER_DATA);
+		}
 		// "내 데이터 사용량 알려줘"에 확인 방법 같은 일반 FAQ만 걸려도 본인 정보를 묻는 질문이면 사용자 정보를 붙입니다.
 		// 사용자 정보 핸들러는 FAQ를 쓰지 않으므로 빈 목록으로 실행합니다.
 		boolean ownDataAdded = !resultsByIntent.containsKey(Intent.USER_DATA) && UserIntentHandler.asksOwnData(context.question());
@@ -70,11 +77,11 @@ public class ChatContextCollector {
 			resultsByIntent.put(Intent.USER_DATA, List.of());
 		}
 		// 어떤 의도의 자료가 붙었는지와 그 근거 FAQ를 남깁니다. FAQ 의도 때문인지, 본인 정보 질문이라 붙였는지 구분하려는 것입니다.
-		log.info("답변 자료 의도: 의도별FAQ={}, 본인정보질문으로USER_DATA추가={}",
+		log.info("답변 자료 의도: 의도별FAQ={}, 본인정보질문으로USER_DATA추가={}, 상품질문이라USER_DATA제외={}",
 				resultsByIntent.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey,
 						entry -> entry.getValue().stream().map(FaqSearchResponseDto::faqId).toList(),
 						(left, right) -> left, LinkedHashMap::new)),
-				ownDataAdded);
+				ownDataAdded, ownDataDropped);
 
 		// 사용자 ID는 핸들러가 아니라 수집기가 서버 문맥에서 넣습니다.
 		AnswerMaterials.Builder materials = AnswerMaterials.builder(context.question()).userId(context.userId());

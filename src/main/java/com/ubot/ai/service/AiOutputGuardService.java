@@ -64,7 +64,9 @@ public class AiOutputGuardService {
     private static final Pattern METRIC = Pattern.compile(
             "할인(?:율|금액)?|환불(?:율|금액)?|월정액|(?:월\\s*)?요금|수수료|위약금|배송비"
                     + "|(?:약정|처리|개통)\\s*기간|납부\\s*기한|유효\\s*기간|데이터(?:\\s*(?:제공량|용량))?"
-                    + "|건당(?:\\s*요금)?|반경|거리");
+                    + "|건당(?:\\s*요금)?|반경|거리"
+                    // "데이터 무제한, 테더링 40GB"의 40GB를 앞의 데이터 제공량으로 읽지 않게 테더링 한도를 별도 항목으로 봅니다.
+                    + "|테더링");
     private static final Pattern MONEY_SELECTOR = Pattern.compile(
             "(?<![0-9.])([0-9]+(?:\\.[0-9]+)?)\\s*(회선|GB|MB|Mbps|Gbps)(?![a-zA-Z])", Pattern.CASE_INSENSITIVE);
     private static final Pattern RECORDED_DATE = Pattern.compile(
@@ -1959,7 +1961,11 @@ public class AiOutputGuardService {
         // 속성의 서비스 이름을 상품 가격의 대상으로 가져오지 않습니다.
         int column = prefix.indexOf('|');
         if (column >= 0) prefix = prefix.substring(0, column).strip();
-        prefix = prefix.replaceFirst("^[-*•]\\s+", "");
+        // "- 요금제: Ubot 프리미엄 89 | 월정액 …"(사용자 정보)와 "3. Ubot 통화 전용: 월정액 …"(답변 목록)도 상품명을 대상으로 읽습니다.
+        // 읽지 못하면 대상이 "*"가 되어, 다른 상품의 금액이 사용자 요금제 금액과 비교됩니다.
+        prefix = prefix.replaceFirst("^(?:[-*•]|[0-9]{1,2}[.)])\\s+", "")
+                .replaceFirst("^요금제\\s*[:：]\\s*", "")
+                .replaceFirst("\\s*[:：(（]\\s*$", "");
         List<String> services = SERVICE_SCOPE.matcher(prefix.isEmpty() ? text : prefix).results()
                 .map(match -> serviceName(match.group())).distinct().toList();
         if (services.size() == 1) return services.getFirst().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
@@ -2924,7 +2930,7 @@ public class AiOutputGuardService {
         if (after.matches("^\\s*에서.*")) return "요금";
         if (normalized.contains("후") || normalized.contains("최종")) return "할인후요금";
         if (normalized.startsWith("할인")) return "할인";
-        if (before.matches("(?s).*(?:[0-9.,]+\\s*%\\s*)?할인(?:이|을)?\\s*(?:적용되어|적용된|적용하면|받으면|적용한\\s*후)\\s*$")) return "할인후요금";
+        if (before.matches("(?s).*(?:[0-9.,]+\\s*%\\s*)?할인(?:이|을)?\\s*(?:적용되어|적용된|적용하면|받으면|적용한\\s*후|시)\\s*$")) return "할인후요금";
         return "요금";
     }
 

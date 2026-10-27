@@ -34,7 +34,10 @@ public class UserIntentHandler implements IntentHandler {
 	// "내 데이터 사용량"처럼 자기를 가리키는 말과 회원 기록 항목이 함께 있으면 본인 정보를 묻는 질문으로 봅니다.
 	// "제일", "제공"의 "제"가 걸리지 않게 앞뒤가 단어 경계인 자기 지칭만 봅니다.
 	private static final Pattern SELF_REFERENCE = Pattern.compile("(?<![가-힣])(?:내|제|나의|저의|내가|제가)(?=\\s)");
-	private static final Pattern OWN_RECORD = Pattern.compile("사용량|남은\\s*데이터|잔여|요금|청구|납부|미납|약정|할부");
+	// 회원 기록 항목 없이도 본인을 가리키는 말입니다. "나 무슨 요금제 써?", "나한테 맞는 요금제"처럼 쓰입니다.
+	private static final Pattern SELF_MENTION = Pattern.compile(
+			"(?<![가-힣])(?:내|제|나|저|나의|저의|내가|제가|나한테|저한테|나에게|저에게|우리)(?![가-힣])");
+	private static final Pattern OWN_RECORD =Pattern.compile("사용량|남은\\s*데이터|잔여|요금|청구|납부|미납|약정|할부");
 
 	private final UserDataSummarizer userDataSummarizer;
 
@@ -49,6 +52,11 @@ public class UserIntentHandler implements IntentHandler {
 	 */
 	public static boolean asksOwnData(String question) {
 		return question != null && SELF_REFERENCE.matcher(question).find() && OWN_RECORD.matcher(question).find();
+	}
+
+	/** 질문에 본인을 가리키는 말이 있는지입니다. 회원 기록 항목은 보지 않습니다. */
+	public static boolean mentionsSelf(String question) {
+		return question != null && SELF_MENTION.matcher(question).find();
 	}
 
 	@Override

@@ -27,6 +27,8 @@ FAQ를 없앨 때는 CSV 행을 지우지 않고 `baseline/deleted-faqs.json`(`{
 
 `PRODUCT_DATA` FAQ는 의도 판정과 상품 조회 도구 선택에만 쓰이고, 답변은 채팅 프롬프트에 근거로 들어가지 않습니다(`USER_DATA`·`STORE_DATA`와 같습니다). 상품 가격·제공량·목록과 가입 대상·포함 혜택·약정 여부 같은 상품별 규칙은 채팅에서 상품 조회 도구가 DB의 상품 컬럼과 설명(`description`)에서 읽습니다. 그래서 상품별 규칙을 고칠 때는 FAQ가 아니라 상품 설명을 고칩니다. 답변에는 상품 가격·제공량·목록을 쓰지 않고, 관리자 화면에서 읽을 서술형 문장을 둡니다. 카테고리는 상품 조회 도구와 연결되는 `요금제`, `요금제/변경`, `부가서비스`, `결합상품`, `해외 로밍`, `로밍/통신망 선택` 중 하나여야 합니다.
 
+FAQ 2169(요금제 목록·정보)와 2170(요금제 추천)은 "요금제 뭐 있어요?", "요금제 추천해줘"처럼 시리즈·망을 말하지 않은 일반 표현을 받습니다. 이 FAQ가 없으면 이런 질문이 "요금제 뜻"(GENERAL)이나 "내 요금제"(USER_DATA) FAQ에 걸려 상품 조회 도구가 붙지 않습니다. 이미 상품 FAQ를 적용한 DB에는 `scripts/apply-demo-activity.ps1 -ProductFaqsOnly`(운영은 `.sh --product-faqs-only`)로 이 두 FAQ만 따로 넣고 임베딩을 백필합니다.
+
 ## 검증
 
 프로젝트 루트에서 `python -X utf8 .\tools\faq-db\validate_baseline_seed.py`로 두 CSV의 형식과 FAQ별 variant, `PRODUCT_DATA` 카테고리, `deleted-faqs.json`의 ID를 검사할 수 있습니다. 답변 문장은 `python -X utf8 .\tools\faq-db\check_sentence_gate.py --ids <FAQ ID>`로 검사합니다. `scripts/reset-local-db.ps1`과 `scripts/reset-faq-data.ps1`은 FAQ와 variant를 다시 적재하며, 어느 스크립트도 벡터를 생성하거나 적재하지 않습니다.

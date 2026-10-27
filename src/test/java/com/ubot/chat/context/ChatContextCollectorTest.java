@@ -116,6 +116,52 @@ class ChatContextCollectorTest {
 		assertThat(general.calls).hasSize(2);
 	}
 
+	@Test
+	void 상품_FAQ가_1위이고_본인을_가리키지_않으면_함께_걸린_사용자_정보_FAQ를_쓰지_않는다() {
+		var user = new RecordingHandler(Intent.USER_DATA);
+		var product = new RecordingHandler(Intent.PRODUCT_DATA);
+		var collector = new ChatContextCollector(List.of(user, product, new RecordingHandler(Intent.GENERAL),
+				new RecordingHandler(Intent.STORE_DATA)));
+		var productFaq = faq(4L, Intent.PRODUCT_DATA);
+		var userFaq = faq(5L, Intent.USER_DATA);
+
+		collector.collect(new ChatContext(1L, "요금제 정보 알려줘", null), List.of(productFaq, userFaq));
+
+		assertThat(product.calls).containsExactly(List.of(productFaq));
+		assertThat(user.calls).isEmpty();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"내 요금제 정보 알려줘", "나 무슨 요금제 써?", "나한테 맞는 요금제 추천해줘"})
+	void 본인을_가리키면_상품_FAQ가_1위여도_사용자_정보_FAQ를_쓴다(String question) {
+		var user = new RecordingHandler(Intent.USER_DATA);
+		var collector = new ChatContextCollector(List.of(user, new RecordingHandler(Intent.PRODUCT_DATA),
+				new RecordingHandler(Intent.GENERAL), new RecordingHandler(Intent.STORE_DATA)));
+		var userFaq = faq(5L, Intent.USER_DATA);
+
+		collector.collect(new ChatContext(1L, question, null), List.of(faq(4L, Intent.PRODUCT_DATA), userFaq));
+
+		assertThat(user.calls).containsExactly(List.of(userFaq));
+	}
+
+	@Test
+	void 사용자_정보_FAQ가_1위면_본인을_가리키지_않아도_사용자_정보_FAQ를_쓴다() {
+		var user = new RecordingHandler(Intent.USER_DATA);
+		var collector = new ChatContextCollector(List.of(user, new RecordingHandler(Intent.PRODUCT_DATA),
+				new RecordingHandler(Intent.GENERAL), new RecordingHandler(Intent.STORE_DATA)));
+		var userFaq = faq(5L, Intent.USER_DATA);
+
+		collector.collect(new ChatContext(1L, "요금제 이름 알려줘", null), List.of(userFaq, faq(4L, Intent.PRODUCT_DATA)));
+
+		assertThat(user.calls).containsExactly(List.of(userFaq));
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"요금제 추천해줘", "저렴한 요금제 뭐 있어?", "제일 싼 요금제", "나라별 로밍 요금"})
+	void 단어_안의_글자는_본인_지칭으로_보지_않는다(String question) {
+		assertThat(UserIntentHandler.mentionsSelf(question)).isFalse();
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = {"내 데이터 사용량 알려줘", "제 요금제 뭐예요", "내가 이번 달 요금 얼마 냈어?", "나의 약정 언제 끝나?"})
 	void 자기_지칭과_회원_기록_항목이_함께_있으면_본인_정보_질문으로_본다(String question) {

@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param(
     # question_log에 이미 행이 있어도 적용한다. 같은 시연 데이터가 중복으로 들어갈 수 있다.
-    [switch] $Force
+    [switch] $Force,
+    # 상품 의도 FAQ(seed-demo-product-faqs.sql)만 적용한다. 시연 활동을 이미 넣은 DB에 새 상품 FAQ만 더할 때 쓴다.
+    [switch] $ProductFaqsOnly
 )
 
 # DB를 초기화하지 않고 이 브랜치의 시연 데이터 세 가지를 한 트랜잭션으로 순서대로 넣는다.
-#   1. seed-demo-product-faqs.sql (상품 의도 FAQ. 이미 있으면 건너뜀. 인기 FAQ 시연이 이 FAQ를 씀)
+#   1. seed-demo-product-faqs.sql (상품 의도 FAQ. 이미 있으면 건너뜀. 인기 FAQ 시연이 이 FAQ를 씀.
+#                                  일반 표현 상품 FAQ 2169~2170은 상품 FAQ가 이미 있어도 없으면 넣음)
 #   2. seed-demo-faqranking.sql   (인기 FAQ 시연)
 #   3. seed-demo-telemap.sql      (FAQ 대시보드·통신 지도 시연)
 # 사용자·FAQ 기본 시드가 먼저 들어가 있어야 한다. 상품 FAQ를 새로 넣었으면 적용 뒤 임베딩을 백필한다.
@@ -30,14 +33,13 @@ foreach ($seed in $seedSqlPaths) {
     if (-not (Test-Path -LiteralPath $seed.Path)) { throw "Seed SQL is missing: $($seed.Path)" }
 }
 
+$includes = if ($ProductFaqsOnly) {
+    '\i /tmp/seed-demo-product-faqs.sql'
+} else {
+    "\i /tmp/seed-demo-product-faqs.sql`n\i /tmp/seed-demo-faqranking.sql`n\i /tmp/seed-demo-telemap.sql"
+}
 $transactionScript = [IO.Path]::GetTempFileName()
-[IO.File]::WriteAllText($transactionScript, @'
-BEGIN;
-\i /tmp/seed-demo-product-faqs.sql
-\i /tmp/seed-demo-faqranking.sql
-\i /tmp/seed-demo-telemap.sql
-COMMIT;
-'@, (New-Object System.Text.UTF8Encoding $false))
+[IO.File]::WriteAllText($transactionScript, "BEGIN;`n$includes`nCOMMIT;`n", (New-Object System.Text.UTF8Encoding $false))
 
 Invoke-Checked { docker compose up -d postgres } 'Could not start PostgreSQL.'
 $containerId = (& docker compose ps --quiet postgres).Trim()
@@ -46,7 +48,8 @@ $databaseName = (& docker compose exec -T postgres printenv POSTGRES_DB).Trim()
 $databaseUser = (& docker compose exec -T postgres printenv POSTGRES_USER).Trim()
 if (-not $databaseName -or -not $databaseUser) { throw 'Could not read PostgreSQL connection settings.' }
 
-if (-not $Force) {
+# 상품 FAQ SQL은 이미 있는 FAQ를 건너뛰므로 질문 로그가 있어도 중복되지 않는다.
+if (-not $Force -and -not $ProductFaqsOnly) {
     $existing = (& docker compose exec -T postgres psql --no-psqlrc -v ON_ERROR_STOP=1 `
         -U $databaseUser -d $databaseName -At -c 'SELECT count(*) FROM question_log').Trim()
     if ($LASTEXITCODE -ne 0) { throw 'Could not count question_log rows.' }
@@ -78,4 +81,8 @@ SELECT (SELECT count(*) FROM question_log), (SELECT count(*) FROM faq_log), (SEL
        (SELECT count(*) FROM faq WHERE intent = 'PRODUCT_DATA' AND deleted_at IS NULL);
 '@).Trim()
 $parts = $counts.Split('|')
-Write-Host "Demo seeds applied: $($parts[0]) question logs, $($parts[1]) FAQ logs, $($parts[2]) surging alerts, $($parts[3]) product FAQs."
+if ($ProductFaqsOnly) {
+    Write-Host "Product FAQ seed applied: $($parts[3]) product FAQs. Backfill FAQ embeddings if product FAQs were newly inserted."
+} else {
+    Write-Host "Demo seeds applied: $($parts[0]) question logs, $($parts[1]) FAQ logs, $($parts[2]) surging alerts, $($parts[3]) product FAQs."
+}

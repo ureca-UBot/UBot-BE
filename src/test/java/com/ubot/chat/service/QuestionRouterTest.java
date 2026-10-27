@@ -124,6 +124,12 @@ class QuestionRouterTest {
 	}
 
 	@ParameterizedTest
+	@ValueSource(strings = {"요금제 뭐 있어?", "요금제 뭐있냐?", "요금제 어떤 게 있어?", "무슨 요금제 있어요?", "요금제는 어떤게 있어"})
+	void existenceQuestionsDoNotNeedHistoryOnlyBecauseTheyAreShort(String question) {
+		assertThat(router.route(question, true).multiTurnMarks()).doesNotContain("짧음");
+	}
+
+	@ParameterizedTest
 	@CsvSource(delimiter = '|', value = {"내 정보도 알려줘|도", "그럼 내 정보 알려줘|이어 묻기", "내 그거 알려줘|지시어"})
 	void explicitSelfOwnerDoesNotRemoveOtherContextMarkers(String question, String mark) {
 		assertThat(router.route(question, true).multiTurnMarks()).contains(mark);

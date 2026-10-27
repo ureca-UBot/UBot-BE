@@ -37,6 +37,8 @@ class QuestionRouter {
 	private static final Pattern LIST_WORDS = Pattern.compile("그리고|둘\\s*다|각각|,");
 	private static final Set<String> JOINERS = Set.of("랑", "이랑", "하고", "와", "과", "및");
 	private static final Set<String> CONTENT_TAGS = Set.of("NNG", "NNP", "SL", "SN", "XR");
+	/** 무엇이 있는지 묻는 의문사입니다("뭐 있어?", "어떤 게 있어?"). */
+	private static final Set<String> EXISTENCE_INTERROGATIVES = Set.of("뭐", "무엇", "무슨", "어떤", "어느");
 
 	private final QuestionMorphology morphology;
 
@@ -114,7 +116,12 @@ class QuestionRouter {
 				&& word.morphs().stream().anyMatch(m -> m.tag().equals("JKG")));
 		boolean completeSelfQuery = content == 1 && explicitSelfOwner
 				&& morphs.stream().anyMatch(QuestionRouter::isPredicateLike);
-		if (content <= 1 && !completeSelfQuery) {
+		// "요금제 뭐 있어?", "어떤 부가서비스 있나요?"처럼 대상 명사 하나에 무엇이 있는지 묻는 말은 대상이 이미 명시된 질문입니다.
+		// 짧다는 이유로 이전 대화를 넘기면 모델이 상품 조회 도구 대신 이전 답변을 옮겨 씁니다.
+		boolean existenceQuery = content == 1
+				&& morphs.stream().anyMatch(m -> EXISTENCE_INTERROGATIVES.contains(m.form()))
+				&& morphs.stream().anyMatch(m -> m.form().equals("있") && isPredicateLike(m));
+		if (content <= 1 && !completeSelfQuery && !existenceQuery) {
 			marks.add("짧음");
 		}
 		return marks;
