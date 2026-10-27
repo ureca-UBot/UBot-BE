@@ -1,0 +1,9 @@
+# finalize.sh가 .env의 COMPOSE_FILE로 켬. 받아 둔 모델만 쓰고 Hugging Face에 다시 묻지 않음
+services:
+  vllm:
+    environment:
+      HF_HUB_OFFLINE: "1"
+
+  vllm-embedding:
+    environment:
+      HF_HUB_OFFLINE: "1"

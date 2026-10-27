@@ -1,0 +1,291 @@
+package com.ubot.prompt.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
+
+import com.ubot.ai.dto.ContextSection;
+import com.ubot.ai.dto.ConversationTurn;
+import com.ubot.ai.dto.SubQuestionFaqs;
+import com.ubot.faq.dto.response.FaqSearchResponseDto;
+import com.ubot.faq.enums.Intent;
+import com.ubot.llm.enums.LlmMessageRole;
+import com.ubot.prompt.exception.PromptErrorCode;
+import com.ubot.prompt.exception.PromptException;
+import com.ubot.prompt.format.FaqAnswerFormat;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import org.assertj.core.api.ThrowingConsumer;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.ClassPathResource;
+
+class PromptServiceTest {
+
+    // 연결 검증용 문구입니다. 실제 서비스의 최종 프롬프트가 아닙니다.
+    private static final String TEST_SYSTEM = "연결 테스트용 시스템 메시지";
+    private static final String TEST_TEMPLATE = "질문:\n{{question}}\n참고자료:\n{{faqs}}";
+    private static final String CONTEXT_TEMPLATE = TEST_TEMPLATE + "\n추가자료:\n{{context}}";
+    private final List<FaqSearchResponseDto> results = List.of(
+            new FaqSearchResponseDto(12L, "유심 재발급", "매장에서 재발급 가능합니다.", 0.9, Intent.GENERAL),
+            new FaqSearchResponseDto(13L, "유심 재발급 준비물", "준비물 안내 원문", 0.6, Intent.GENERAL));
+
+    @Test
+    void 원래_질문과_FAQ_전체_원문을_사용자_메시지에_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+
+        var request = service.createPrompt("유심 재발급 방법과 준비물을 알려주세요.", results, List.of());
+
+        assertThat(request.messages()).hasSize(2);
+        assertThat(request.messages().getFirst().role()).isEqualTo(LlmMessageRole.SYSTEM);
+        assertThat(request.messages().getFirst().content()).isEqualTo(TEST_SYSTEM);
+        assertThat(request.messages().getLast().role()).isEqualTo(LlmMessageRole.USER);
+        assertThat(request.messages().getLast().content())
+                .contains("유심 재발급 방법과 준비물을 알려주세요.", "[FAQ ID: 12]", "[FAQ ID: 13]",
+                        "유심 재발급 준비물", "매장에서 재발급 가능합니다.", "준비물 안내 원문")
+                .doesNotContain("0.9", "0.6");
+        // 시스템 지침이 요구하는 출력 형식을 스키마로도 함께 넘깁니다.
+        assertThat(request.responseSchema()).isEqualTo(FaqAnswerFormat.schema());
+    }
+
+    @Test
+    void CRLF_줄바꿈은_LF로_바꾸고_사용자_메시지_끝의_줄바꿈은_지운다() {
+        // Windows 체크아웃처럼 CRLF로 끝나는 파일입니다. 시스템 지침 끝의 줄바꿈은 그대로 둡니다.
+        var service = service("시스템\r\n두 번째 줄\r\n", "참고자료:\r\n{{faqs}}\r\n\r\n질문:\r\n{{question}}\r\n");
+
+        var request = service.createPrompt("유심 재발급 방법", results, List.of());
+
+        assertThat(request.messages().getFirst().content()).isEqualTo("시스템\n두 번째 줄\n");
+        assertThat(request.messages().getLast().content())
+                .doesNotContain("\r")
+                .endsWith("\n\n질문:\n유심 재발급 방법");
+    }
+
+    @Test
+    void 원문을_하위_질문_하나로_쓰면_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "유심 재발급 방법과 준비물을 알려주세요.";
+
+        var grouped = service.createPrompt(question, results, List.of(new SubQuestionFaqs(question, results, question)), List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(grouped.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("하위 질문");
+    }
+
+    @Test
+    void 다시_쓴_하위_질문이_하나면_검색어를_보여_주지_않고_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "그거 준비물은요?";
+
+        var rewritten = service.createPrompt(question, results,
+                List.of(new SubQuestionFaqs("유심 재발급 준비물은 무엇인가요?", results, question)), List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(rewritten.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("유심 재발급 준비물은 무엇인가요?");
+    }
+
+    @Test
+    void 나눈_하위_질문은_원문_조각을_제목으로_FAQ를_묶고_근거_없는_질문은_없음으로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        // 검색어(판정 LLM이 다시 쓴 문장)는 답변 LLM에 보여 주지 않고 원문 조각만 제목으로 씁니다.
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법은 무엇인가요?", results, "유심 재발급이랑"),
+                new SubQuestionFaqs("해외 로밍 요금은 얼마인가요?", List.of(), "로밍 요금"));
+
+        var request = service.createPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of());
+
+        assertThat(request.messages().getLast().content()).doesNotContain("무엇인가요", "얼마인가요").isEqualTo("""
+                질문:
+                유심 재발급이랑 로밍 요금
+                참고자료:
+                ## 하위 질문 1: 유심 재발급이랑
+
+                [FAQ ID: 12]
+                질문: 유심 재발급
+                답변: 매장에서 재발급 가능합니다.
+
+                [FAQ ID: 13]
+                질문: 유심 재발급 준비물
+                답변: 준비물 안내 원문
+
+                ## 하위 질문 2: 로밍 요금
+
+                (없음)""");
+    }
+
+    @Test
+    void 나눴지만_원문_조각이_없으면_하위_질문_제목_없이_기존_형식_그대로_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "둘 다 데이터 몇 기가야?";
+        // 판정 LLM이 이전 대화로 나눴지만 원문에는 자를 근거가 없는 경우입니다. 검색어는 보여 주지 않습니다.
+        var subQuestions = List.of(
+                new SubQuestionFaqs("5G 프리미엄 데이터 제공량", results, null),
+                new SubQuestionFaqs("5G 스탠다드 데이터 제공량", List.of(), null));
+
+        var request = service.createPrompt(question, results, subQuestions, List.of());
+        var plain = service.createPrompt(question, results, List.of());
+
+        assertThat(request.messages().getLast().content()).isEqualTo(plain.messages().getLast().content())
+                .doesNotContain("하위 질문", "프리미엄", "스탠다드");
+    }
+
+    @Test
+    void 이전_대화는_사용자_원문과_답변을_메시지로_시스템_지침과_이번_질문_사이에_넣는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        var history = List.of(
+                new ConversationTurn("유심 재발급 어떻게 해요?", "매장에서 가능합니다."),
+                new ConversationTurn("로밍 요금은?", null));
+
+        var request = service.createPrompt("그거 준비물은요?", results, List.of(), List.of(), history);
+
+        assertThat(request.messages()).extracting(message -> message.role(), message -> message.content())
+                .startsWith(
+                        tuple(LlmMessageRole.SYSTEM, TEST_SYSTEM),
+                        tuple(LlmMessageRole.USER, "유심 재발급 어떻게 해요?"),
+                        tuple(LlmMessageRole.ASSISTANT, "매장에서 가능합니다."),
+                        tuple(LlmMessageRole.USER, "로밍 요금은?"),
+                        tuple(LlmMessageRole.ASSISTANT, "(답변 실패)"));
+        assertThat(request.messages()).hasSize(6);
+        assertThat(request.messages().getLast().role()).isEqualTo(LlmMessageRole.USER);
+        assertThat(request.messages().getLast().content()).contains("그거 준비물은요?");
+    }
+
+    @Test
+    void 질문과_FAQ의_자리표시자나_특수문자는_다시_치환하지_않는다() {
+        var service = service(TEST_SYSTEM, TEST_TEMPLATE);
+        String question = "질문 안의 {{faqs}}와 $1, \\ 는 원문 그대로";
+        String faqAnswer = "FAQ 안의 {{question}}, {{faqs}}와 $2, \\ 를 보존";
+
+        var request = service.createPrompt(question,
+                List.of(new FaqSearchResponseDto(1L, "FAQ 질문", faqAnswer, 0.9, Intent.GENERAL)), List.of());
+
+        assertThat(request.messages().getLast().content()).contains(question, faqAnswer);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " \n ", "{{question}}만 존재", "{{faqs}}만 존재"})
+    void 미완성_사용자_템플릿은_호출_전에_거부한다(String template) {
+        assertThatThrownBy(() -> service(TEST_SYSTEM, template).createPrompt("질문", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
+    }
+
+    @Test
+    void 시스템_지침이_비어_있으면_거부한다() {
+        assertThatThrownBy(() -> service(" \n ", TEST_TEMPLATE).createPrompt("질문", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
+    }
+
+    @Test
+    void 프롬프트_파일이_없으면_준비중_오류를_반환한다() {
+        var service = new PromptService(new ClassPathResource("missing-faq-prompt.txt"), resource(TEST_TEMPLATE));
+
+        assertThatThrownBy(() -> service.createPrompt("질문", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
+    }
+
+    @Test
+    void 질문이_없으면_요청을_구성하지_않는다() {
+        assertThatThrownBy(() -> service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt(" ", results, List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_INPUT_MISSING));
+    }
+
+    @Test
+    void FAQ_답변이_누락되면_거부한다() {
+        assertThatThrownBy(() -> service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt("질문",
+                List.of(new FaqSearchResponseDto(1L, "FAQ 질문", null, 0.9, Intent.GENERAL)), List.of()))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_FAQ_INVALID));
+    }
+
+    @Test
+    void 추가_자료는_context_자리에_섹션으로_넣는다() {
+        var service = service(TEST_SYSTEM, CONTEXT_TEMPLATE);
+
+        var request = service.createPrompt("내 정보", results,
+                List.of(new ContextSection("사용자 정보", "이름: 홍길동\n거주 지역: 서울")));
+
+        assertThat(request.messages().getLast().content())
+                .contains("[FAQ ID: 12]")
+                // 템플릿 끝에 놓인 자료는 사용자 메시지 끝 공백 제거로 뒤 빈 줄이 빠집니다.
+                .endsWith("추가자료:\n### 사용자 정보\n이름: 홍길동\n거주 지역: 서울");
+    }
+
+    @Test
+    void FAQ나_추가_자료가_없으면_없음으로_표시한다() {
+        var service = service(TEST_SYSTEM, CONTEXT_TEMPLATE);
+
+        var request = service.createPrompt("근처 매장 알려줘", List.of(), List.of());
+
+        assertThat(request.messages().getLast().content())
+                .isEqualTo("질문:\n근처 매장 알려줘\n참고자료:\n(없음)\n추가자료:\n(없음)");
+    }
+
+    @Test
+    void 추가_자료가_없으면_context_자리가_없는_템플릿도_쓸_수_있다() {
+        var request = service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt("질문", results, List.of());
+
+        assertThat(request.messages().getLast().content()).contains("[FAQ ID: 12]");
+    }
+
+    @Test
+    void 추가_자료가_있는데_context_자리가_없으면_거부한다() {
+        assertThatThrownBy(() -> service(TEST_SYSTEM, TEST_TEMPLATE).createPrompt("질문", results,
+                List.of(new ContextSection("사용자 정보", "이름: 홍길동"))))
+                .satisfies(hasErrorCode(PromptErrorCode.PROMPT_NOT_READY));
+    }
+
+    @Test
+    void 추가_자료_안의_자리표시자나_특수문자는_다시_치환하지_않는다() {
+        var service = service(TEST_SYSTEM, CONTEXT_TEMPLATE);
+        String content = "자료 안의 {{faqs}}, {{question}}, {{context}}와 $1, \\ 를 보존";
+
+        var request = service.createPrompt("질문 {{context}} $2", List.of(),
+                List.of(new ContextSection("API 결과", content)));
+
+        assertThat(request.messages().getLast().content())
+                .contains("질문 {{context}} $2", content)
+                .contains("참고자료:\n(없음)");
+    }
+
+    @Test
+    void 칸_형식_요청은_칸_지침과_하위_질문_수만큼의_칸_스키마를_쓰고_사용자_메시지는_같다() {
+        var service = new PromptService(resource(TEST_SYSTEM), resource("칸 지침"), resource(TEST_TEMPLATE));
+        var subQuestions = List.of(
+                new SubQuestionFaqs("유심 재발급 방법은 무엇인가요?", results, "유심 재발급이랑"),
+                new SubQuestionFaqs("해외 로밍 요금은 얼마인가요?", List.of(), "로밍 요금"));
+
+        var slot = service.createSlotPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of(), List.of());
+        var single = service.createPrompt("유심 재발급이랑 로밍 요금", results, subQuestions, List.of(), List.of());
+
+        assertThat(slot.messages().getFirst().content()).isEqualTo("칸 지침");
+        assertThat(slot.messages().getLast().content()).isEqualTo(single.messages().getLast().content());
+        assertThat(slot.responseSchema()).isEqualTo(FaqAnswerFormat.slotSchema(2));
+    }
+
+    @Test
+    void 칸_수는_원문_조각으로_나눠_넣은_경우만_하위_질문_수이고_나머지는_하나다() {
+        var grouped = List.of(new SubQuestionFaqs("a", results, "가"), new SubQuestionFaqs("b", results, "나"));
+        var withoutPiece = List.of(new SubQuestionFaqs("a", results, "가"), new SubQuestionFaqs("b", results, null));
+
+        assertThat(PromptService.slotCount(grouped)).isEqualTo(2);
+        assertThat(PromptService.slotCount(withoutPiece)).isEqualTo(1);
+        assertThat(PromptService.slotCount(List.of(new SubQuestionFaqs("a", results, "가")))).isEqualTo(1);
+        assertThat(PromptService.slotCount(List.of())).isEqualTo(1);
+    }
+
+    private static ThrowingConsumer<Throwable> hasErrorCode(PromptErrorCode expected) {
+        return exception -> assertThat(exception).isInstanceOfSatisfying(PromptException.class,
+                promptException -> assertThat(promptException.getErrorCode()).isEqualTo(expected));
+    }
+
+    private PromptService service(String system, String user) {
+        return new PromptService(resource(system), resource(user));
+    }
+
+    private ByteArrayResource resource(String content) {
+        return new ByteArrayResource(content.getBytes(StandardCharsets.UTF_8));
+    }
+}

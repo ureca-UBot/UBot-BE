@@ -1,0 +1,213 @@
+spring:
+  application:
+    name: UBot-BE
+
+  profiles:
+    default: local
+
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  datasource:
+    hikari:
+      # 프로세스별 DB 연결 수. API·Worker 합이 max_connections보다 작아야 함
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULER_POOL_SIZE:4}
+
+logging:
+  pattern:
+    # Worker 계산 스레드가 MDC에 넣은 작업ID·시도ID를 로그 앞에 붙임. 값이 없는 로그에는 아무것도 붙이지 않음
+    correlation: "%replace([작업ID=%X{jobId} 시도ID=%X{attemptId}] ){'\\[작업ID= 시도ID=\\] ', ''}"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+          - prometheus
+  metrics:
+    # 모든 지표에 프로세스 역할(api·worker·all)을 붙임. 같은 이름의 지표를 역할별로 나눠 볼 때 씀
+    tags:
+      role: ${app.role}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      # 직접 정한 구간만 histogram 버킷으로 내보내 p95를 계산함. 태그 조합마다 버킷 수만큼 시계열이 생기므로 구간을 늘릴 때 주의
+      slo:
+        "[chat.worker.execution]": 1s,2s,3s,5s,8s,10s,15s,20s,30s,45s,60s,90s,120s,180s
+        "[chat.jobs.queue.wait]": 100ms,500ms,1s,2s,5s,10s,30s,60s,120s,300s,600s
+        "[llm.requests]": 250ms,500ms,1s,2s,3s,5s,8s,10s,15s,20s,30s,45s,60s,90s,120s
+        "[llm.permit.wait]": 10ms,100ms,500ms,1s,2s,5s,10s,30s,60s
+        "[embedding.requests]": 10ms,25ms,50ms,100ms,200ms,300ms,500ms,1s,2s,5s,10s,30s
+        "[faq.vector.search]": 1ms,2ms,5ms,10ms,20ms,50ms,100ms,200ms,500ms,1s
+        "[faq.retrieval.top.similarity]": 0.3,0.4,0.5,0.55,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0
+        # 커넥션을 빌려 쓴 시간. 느린 쿼리·긴 트랜잭션의 대리 지표
+        "[hikaricp.connections.usage]": 5ms,10ms,50ms,100ms,250ms,500ms,1s,2s,5s,10s,30s
+
+operation-monitoring:
+  prometheus:
+    base-url: ${PROMETHEUS_BASE_URL:http://localhost:19090}
+    connect-timeout: ${PROMETHEUS_CONNECT_TIMEOUT:2s}
+    read-timeout: ${PROMETHEUS_READ_TIMEOUT:10s}
+
+app:
+  # api: 접수·조회·나머지 API, worker: 답변 Worker만, all: 둘 다(로컬)
+  role: ${APP_ROLE:all}
+  metrics:
+    # FAQ 벡터·outbox 적체를 DB에서 다시 세는 주기(api 역할)
+    backlog-refresh: ${METRICS_BACKLOG_REFRESH:5m}
+  counsel:
+    embedding-worker:
+      # worker/all 역할에서 기본 실행하며 api 역할에서는 실행하지 않습니다.
+      enabled: ${COUNSEL_EMBEDDING_WORKER_ENABLED:true}
+  chat:
+    worker:
+      concurrency: ${CHAT_WORKER_CONCURRENCY:4}
+      polling-enabled: true
+      read-block: ${CHAT_WORKER_READ_BLOCK:2s}
+      # 그룹 안 Worker 이름. 컨테이너에서는 호스트 이름 사용
+      consumer-name: ${CHAT_WORKER_CONSUMER_NAME:${HOSTNAME:local}}
+      max-queue-wait: ${CHAT_WORKER_MAX_QUEUE_WAIT:10m}
+      republish-after: ${CHAT_WORKER_REPUBLISH_AFTER:30s}
+      reclaim-idle: ${CHAT_WORKER_RECLAIM_IDLE:5m}
+      # heartbeat가 이 시간 넘게 없으면 죽은 실행으로 보고 넘겨받음. reclaim-idle 이하
+      heartbeat-timeout: ${CHAT_WORKER_HEARTBEAT_TIMEOUT:1m}
+      max-deliveries: ${CHAT_WORKER_MAX_DELIVERIES:3}
+      recovery-interval: ${CHAT_WORKER_RECOVERY_INTERVAL:15s}
+      result-ttl: ${CHAT_WORKER_RESULT_TTL:24h}
+      execution-timeout: ${CHAT_WORKER_EXECUTION_TIMEOUT:180s}
+      # 일시적인 모델 연결 실패만 같은 작업 안에서 재시도하고 실행 마감은 연장하지 않음
+      model-retry-backoff: ${CHAT_WORKER_MODEL_RETRY_BACKOFF:5s}
+      # 종료 때 실행 중 작업 대기 시간. 컨테이너 종료 유예 시간보다 짧아야 함
+      shutdown-wait: ${CHAT_WORKER_SHUTDOWN_WAIT:20s}
+    # 회원 질문·재시도·의도 재검색 접수를 사용자 ID별로 window마다 max-requests회까지 받음(Redis)
+    member-rate-limit:
+      enabled: ${CHAT_USER_RATE_LIMIT_ENABLED:true}
+      max-requests: ${CHAT_USER_RATE_LIMIT_MAX:30}
+      window: ${CHAT_USER_RATE_LIMIT_WINDOW:60s}
+    job-read:
+      # 답변 작업 조회(GET /chat/jobs/{id})의 인증·비회원 승계·상태 조회가 함께 쓰는 요청별 한도. 넘기면 CHAT-025
+      budget: ${CHAT_JOB_READ_BUDGET:1500ms}
+      # 동시에 실행하는 조회 수 상한. 넘치면 기다리지 않고 CHAT-025
+      max-concurrency: ${CHAT_JOB_READ_MAX_CONCURRENCY:8}
+  ai:
+    mode: ${AI_MODE:ollama}
+    chat-engine: ${AI_CHAT_ENGINE:}
+    embedding-engine: ${AI_EMBEDDING_ENGINE:}
+    embedding-profile-version: ${EMBEDDING_PROFILE_VERSION:1}
+    input-guard:
+      # 기본 ON. false이면 기존 금칙어·프롬프트 주입 코드 검사와 통합 AI 안전 판정을 모두 끕니다.
+      # 코드 검사를 유지하고 AI 안전 판정만 끄려면 enabled=true, llm-enabled=false로 지정합니다.
+      # 공통 정리·기존 질문 분류는 유지합니다.
+      # 실행 환경에서 값을 변경한 뒤 애플리케이션을 재시작하면 적용됩니다.
+      enabled: ${AI_INPUT_GUARD_ENABLED:true}
+      # 기본 ON. false이면 코드 검사 뒤에 기존 질문 정리 전용 분류기를 사용합니다.
+      # 전체 enabled=false가 우선하며, 분류가 필요한 요청의 기존 LLM 호출은 유지됩니다.
+      llm-enabled: ${AI_INPUT_LLM_GUARD_ENABLED:true}
+    output-guard:
+      # 기본 ON. false이면 일반 답변·FAQ 캐시의 출력 코드 검사와 출력 LLM 호출을 모두 생략합니다.
+      # 입력 AI·답변 생성은 유지됩니다. 실행 환경에서 값을 변경한 뒤 애플리케이션을 재시작하면 적용됩니다.
+      enabled: ${AI_OUTPUT_GUARD_ENABLED:true}
+      # 기본 ON. 전체 출력 검사가 켜져 있을 때 false로 두면 코드 검사만 실행합니다.
+      # 전체 enabled=false가 우선하며, 이 값이 true여도 출력 LLM은 호출하지 않습니다.
+      llm-enabled: ${AI_OUTPUT_LLM_GUARD_ENABLED:true}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:}
+  jwt:
+    secret: ${JWT_SECRET}
+    access-token-expiration-millis: ${JWT_ACCESS_TOKEN_EXPIRATION_MILLIS:3600000}
+    refresh-token-expiration-days: ${JWT_REFRESH_TOKEN_EXPIRATION_DAYS:14}
+    # 로그아웃 기록(Redis) 조회 한도. 넘기면 Redis 장애와 같이 경고 로그만 남기고 차단 없이 진행함
+    revocation-lookup-timeout: ${JWT_REVOCATION_LOOKUP_TIMEOUT:200ms}
+
+ranking:
+  window-minutes: ${RANKING_WINDOW_MINUTES:60}
+  size: ${RANKING_SIZE:5}
+  refresh-scheduler-interval-minutes: ${REFRESH_SCHEDULER_INTERVAL_MINUTES:1}
+  min-current-search-count: ${MIN_CURRENT_SEARCH_COUNT:10}
+  baseline-period-days: ${BASELINE_PERIOD_DAYS:2}
+  baseline-min-sample-count: ${BASELINE_MIN_SAMPLE_COUNT:10}
+  trend-ratio-threshold: ${TREND_RATIO_THRESHOLD:5}
+
+telemap:
+  window-minutes: ${TELEMAP_WINDOW_MINUTES:10}
+  count-threshold: ${TELEMAP_COUNT_THRESHOLD:10}
+  cluster-threshold: ${TELEMAP_CLUSTER_THRESHOLD:0.7}
+  cluster-minimum-age-minutes: ${TELEMAP_CLUSTER_MINIMUM_AGE_MINUTES:1440}
+  max-questions-for-subject: ${TELEMAP_MAX_QUESTIONS_FOR_SUBJECT:20}
+
+faq-monitoring:
+  ai-review:
+    max-duplicate-candidates: ${FAQ_AI_REVIEW_MAX_DUPLICATE_CANDIDATES:5}
+    max-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_QUESTIONS_PER_DUPLICATE_CANDIDATE:20}
+    max-displayed-questions-per-duplicate-candidate: ${FAQ_AI_REVIEW_MAX_DISPLAYED_QUESTIONS_PER_DUPLICATE_CANDIDATE:5}
+    max-low-rag-quality-questions: ${FAQ_AI_REVIEW_MAX_LOW_RAG_QUALITY_QUESTIONS:20}
+    max-displayed-questions-for-low-rag-quality: ${FAQ_AI_REVIEW_MAX_DISPLAYED_QUESTIONS_FOR_LOW_RAG_QUALITY:5}
+    max-llm-queue-wait-millis: ${FAQ_AI_REVIEW_MAX_LLM_QUEUE_WAIT_MILLIS:5000}
+  improvement:
+    top-k: ${CHAT_TOP_K:3}
+    low-similarity-threshold: ${FAQ_IMPROVEMENT_LOW_SIMILARITY_THRESHOLD:0.82}
+    low-gap-rate-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_RATE_THRESHOLD:0.40}
+    low-gap-threshold: ${FAQ_IMPROVEMENT_LOW_GAP_THRESHOLD:0.07}
+    unused-minutes: ${FAQ_IMPROVEMENT_UNUSED_MINUTES:1440}
+    minimum-top-k-samples: ${FAQ_IMPROVEMENT_MIN_TOP_K_SAMPLES:10}
+    minimum-top1-samples: ${FAQ_IMPROVEMENT_MIN_TOP1_SAMPLES:10}
+
+faq:
+  confidence-threshold: ${CHAT_CONFIDENCE_THRESHOLD:0.79}
+  cache:
+    # 공식 FAQ 답변을 그대로 반환합니다. 운영 질문셋 검증 후 켭니다.
+    enabled: ${FAQ_CACHE_ENABLED:true}
+    min-similarity: ${FAQ_CACHE_MIN_SIMILARITY:0.95}
+    min-margin: ${FAQ_CACHE_MIN_MARGIN:0.15}
+  variant:
+    sentence-similarity-threshold: ${FAQ_SENTENCE_SIMILARITY_THRESHOLD:0.49}
+
+product:
+  # 요금제 조회 도구가 약정 할인가를 계산하는 선택약정 할인율(%). FAQ의 선택약정 할인율 문장과 같아야 합니다(ContractDiscountConsistencyTest).
+  contract-discount-percent: ${PRODUCT_CONTRACT_DISCOUNT_PERCENT:25}
+
+kiwi:
+  # 하위 질문 가드가 쓰는 형태소 분석기 모델 디렉터리. Gradle downloadKiwi 작업이 .kiwi/model에 받고, Docker 이미지는 KIWI_MODEL_PATH로 지정합니다.
+  model-path: ${KIWI_MODEL_PATH:.kiwi/model}
+
+notification:
+  # 방문 예약 리마인더(24시간·6시간·1시간 전) 확인 주기. Asia/Seoul 기준 Spring cron (기본: 매시 정각)
+  reservation-reminder-cron: ${NOTIFICATION_RESERVATION_REMINDER_CRON:0 0 * * * *}
+  # 요금 납부 리마인더(납부 기한 임박·연체) 생성 시각. Asia/Seoul 기준 Spring cron (기본: 매일 09:00)
+  billing-reminder-cron: ${NOTIFICATION_BILLING_REMINDER_CRON:0 0 9 * * *}
+  # 로밍 시작·종료, 약정·할부 만료 리마인더 생성 시각. Asia/Seoul 기준 Spring cron (기본: 매일 09:00)
+  subscription-reminder-cron: ${NOTIFICATION_SUBSCRIPTION_REMINDER_CRON:0 0 9 * * *}
+  # 데이터 사용량 리마인더(80%·100%) 확인 주기. Asia/Seoul 기준 Spring cron (기본: 매시 정각, 24시간)
+  usage-reminder-cron: ${NOTIFICATION_USAGE_REMINDER_CRON:0 0 * * * *}
+
+data-retention:
+  # 보관 기간이 지난 데이터 삭제(purge_expired_data) 실행 시각. Asia/Seoul 기준 Spring cron
+  purge-cron: ${DATA_RETENTION_PURGE_CRON:0 0 4 * * *}
+
+# 기존 BE의 인증·DataSource·Redis를 사용하는 상담 도메인
+counsel:
+  enabled: ${COUNSEL_ENABLED:true}
+  seed-on-start: ${COUNSEL_SEED_ON_START:false}
+  heartbeat-seconds: ${COUNSEL_HEARTBEAT_SECONDS:45}
+  reconnect-seconds: ${COUNSEL_RECONNECT_SECONDS:120}
+  pending-timeout-seconds: ${COUNSEL_PENDING_TIMEOUT_SECONDS:30}
+  maintenance-delay-ms: ${COUNSEL_MAINTENANCE_DELAY_MS:5000}
+  rate-window-seconds: ${COUNSEL_RATE_WINDOW_SECONDS:60}
+  rate-max-requests: ${COUNSEL_RATE_MAX_REQUESTS:30}
+  guard:
+    transport: ${COUNSEL_EMBEDDING_TRANSPORT:worker}
+    embedding-url: ${COUNSEL_EMBEDDING_URL:http://localhost:8001/v1/embeddings}
+    model: ${COUNSEL_GUARD_MODEL:ubot-embedding}
+    profile: ${COUNSEL_GUARD_PROFILE:insult-v1}
+    threshold: ${COUNSEL_BLOCK_THRESHOLD:0.95}
+    top-k: ${COUNSEL_GUARD_TOP_K:3}
+    concurrency: ${COUNSEL_GUARD_CONCURRENCY:2}
+    connect-timeout-ms: ${COUNSEL_GUARD_CONNECT_TIMEOUT_MS:2000}
+    response-timeout-ms: ${COUNSEL_GUARD_RESPONSE_TIMEOUT_MS:5000}

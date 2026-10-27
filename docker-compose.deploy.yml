@@ -1,0 +1,83 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ubot-be:local}
+
+    env_file:
+      - .env
+
+    environment:
+      # 질문 접수·상태 조회와 나머지 API. 답변은 ai-worker가 만듭니다.
+      APP_ROLE: api
+      # CD가 워커 준비 후 일회성 색인을 실행한다. API 기동 시 중복 실행하지 않는다.
+      COUNSEL_SEED_ON_START: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PROMETHEUS_BASE_URL: http://prometheus:9090
+
+
+    expose:
+      - "8080"
+
+    restart: unless-stopped
+
+    stop_grace_period: 35s
+
+    # 모델 서버는 여기에 넣지 않습니다. AI_MODE=vllm에는 ollama 서비스가 없고, 백엔드는 모델 서버 없이도 기동합니다.
+    # 모델 서버를 함께 띄울 때는 CD가 모델 서버를 먼저 띄우고 준비를 확인한 뒤 backend를 띄웁니다(docs/deploy.md).
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 답변 Worker. 백엔드와 같은 이미지를 APP_ROLE=worker로 띄우고, DB 대기열(chat_jobs)의 질문을 처리합니다.
+  # 요청을 받지 않으므로 포트를 열지 않습니다.
+  ai-worker:
+    image: ${BACKEND_IMAGE:-ubot-be:local}
+
+    env_file:
+      - .env
+
+    environment:
+      APP_ROLE: worker
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+    restart: unless-stopped
+
+    # 종료할 때 실행 중인 답변을 끝내거나 대기열에 돌려놓을 시간입니다. CHAT_WORKER_SHUTDOWN_WAIT(기본 20s)보다 길어야 합니다.
+    stop_grace_period: 35s
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+
+    ports:
+      - "80:80"
+
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      CHAT_GUEST_RATE_LIMIT_RATE: ${CHAT_GUEST_RATE_LIMIT_RATE:-30r/m}
+      CHAT_GUEST_RATE_LIMIT_BURST: ${CHAT_GUEST_RATE_LIMIT_BURST:-10}
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+
+    depends_on:
+      - backend
+
+    restart: unless-stopped
+
+  # 배포에서는 백엔드가 같은 Compose 네트워크에 있어 서비스 이름(backend:8080)으로 수집합니다.
+  # 공통 파일의 설정(host.docker.internal:8080)은 호스트에서 실행하는 백엔드용이라 여기서 바꿉니다.
+  prometheus:
+    volumes:
+      - ./infra/prometheus/prometheus.deploy.yml:/etc/prometheus/prometheus.yml:ro

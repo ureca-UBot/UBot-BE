@@ -1,0 +1,8 @@
+FAQ 원문:
+{{faqs}}
+
+사용자 정보/API 결과:
+{{context}}
+
+사용자 질문:
+{{question}}

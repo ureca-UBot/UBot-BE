@@ -1,0 +1,28 @@
+.gradle
+build
+**/build
+# Kiwi jar는 OS마다 달라 이미지 빌드 안에서 Linux용을 새로 받습니다.
+.kiwi
+
+.git
+.github
+
+.idea
+.vscode
+*.iml
+
+.env
+.env.*
+
+*.log
+logs/
+
+*.pem
+*.key
+
+.DS_Store
+Thumbs.db
+
+# Terraform
+terraform/
+infra/terraform/

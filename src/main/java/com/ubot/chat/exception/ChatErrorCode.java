@@ -1,0 +1,48 @@
+package com.ubot.chat.exception;
+
+import org.springframework.http.HttpStatus;
+
+import com.ubot.common.ErrorCode;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
+@Getter
+@RequiredArgsConstructor
+public enum ChatErrorCode implements ErrorCode {
+	INVALID_CHAT_REQUEST(HttpStatus.BAD_REQUEST, "CHAT-001", "요청 값이 올바르지 않습니다."),
+	LOGIN_REQUIRED(HttpStatus.UNAUTHORIZED, "CHAT-002", "로그인이 필요합니다."),
+	ATTEMPT_NOT_FOUND(HttpStatus.NOT_FOUND, "CHAT-003", "본인의 답변 시도 기록을 찾을 수 없습니다."),
+	PROCESSING(HttpStatus.CONFLICT, "CHAT-004", "이미 답변을 생성하고 있습니다."),
+	ALREADY_SUCCEEDED(HttpStatus.CONFLICT, "CHAT-005", "이미 답변이 생성된 질문입니다."),
+	LIMIT_REACHED(HttpStatus.CONFLICT, "CHAT-006", "최초 시도를 포함하여 최대 3회까지만 시도할 수 있습니다."),
+	RETRY_NOT_ALLOWED(HttpStatus.CONFLICT, "CHAT-007", "재시도할 수 없는 답변 상태입니다."),
+	STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-008", "채팅 기록을 저장할 수 없습니다."),
+	TASK_START_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-009", "답변 생성 작업을 시작하지 못했습니다."),
+	VECTOR_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-010", "벡터 검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."),
+	INVALID_CHAT_RETRY_REQUEST(HttpStatus.BAD_REQUEST, "CHAT-011", "요청 값이 올바르지 않습니다."),
+	NO_FAQ(HttpStatus.NOT_FOUND, "CHAT-012", "검색 결과가 없습니다."),
+	INSUFFICIENT_FAQ(HttpStatus.NOT_FOUND, "CHAT-013", "정확한 답변을 찾지 못했습니다."),
+	// 새 실패는 PromptErrorCode(PROMPT-001)로 저장합니다. 이전에 저장된 실패 기록을 읽기 위해 남겨 둡니다.
+	PROMPT_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-014", "답변 프롬프트가 준비되지 않았습니다."),
+	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CHAT-015", "답변 생성 중 오류가 발생했습니다."),
+	RESPONSE_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "CHAT-016", "답변 생성 시간이 초과되었습니다."),
+	GUEST_QUESTION_LIMIT_REACHED(HttpStatus.TOO_MANY_REQUESTS, "CHAT-017",
+			"비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요."),
+	RESEARCH_NOT_ALLOWED(HttpStatus.CONFLICT, "CHAT-018", "다른 의도로 다시 검색할 수 없는 질문입니다."),
+	ALREADY_RESEARCHED(HttpStatus.CONFLICT, "CHAT-019", "이미 해당 의도로 재검색한 질문입니다."),
+	// 남의 작업도 같은 응답이라 작업 존재 여부를 알 수 없음
+	JOB_NOT_FOUND(HttpStatus.NOT_FOUND, "CHAT-020", "답변 작업을 찾을 수 없습니다."),
+	TOO_MANY_SUB_QUESTIONS(HttpStatus.BAD_REQUEST, "CHAT-021", "너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요."),
+	PROMPT_INJECTION_DETECTED(HttpStatus.BAD_REQUEST, "CHAT-022", "처리할 수 없는 요청이 포함되어 있습니다. 내용을 수정해서 다시 질문해 주세요."),
+	NO_USABLE_QUESTION(HttpStatus.BAD_REQUEST, "CHAT-023", "처리할 질문이 남아 있지 않습니다. 질문할 내용을 입력하거나 내용을 수정해서 다시 질문해 주세요."),
+	USER_CANCELLED(HttpStatus.CONFLICT, "CHAT-024", "답변 생성을 중단했습니다."),
+	JOB_QUERY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-025", "답변 작업을 조회할 수 없습니다. 잠시 후 다시 조회해주세요."),
+	MEMBER_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "CHAT-026", "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."),
+	INVALID_PRODUCT_SEARCH(HttpStatus.BAD_REQUEST, "CHAT-027", "상품 조건 값이 올바르지 않습니다."),
+	PRODUCT_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "CHAT-028", "상품 정보를 조회하지 못했습니다. 잠시 후 다시 시도해주세요.");
+
+	private final HttpStatus status;
+	private final String code;
+	private final String message;
+}

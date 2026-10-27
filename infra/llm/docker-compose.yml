@@ -1,0 +1,121 @@
+services:
+  vllm:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+    restart: unless-stopped
+
+    ports:
+      - "${LLM_PORT:-8000}:8000"
+
+    ipc: host
+
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      - --model
+      - ${LLM_HF_MODEL:-RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16}
+      - --served-model-name
+      - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
+      - --max-model-len
+      - ${LLM_MAX_MODEL_LEN:-8192}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - ${VLLM_TOOL_CALL_PARSER:-hermes}
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": ${VLLM_ENABLE_THINKING:-false}}'
+
+  vllm-embedding:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0}
+    restart: unless-stopped
+
+    ports:
+      - "${EMBEDDING_PORT:-8001}:8000"
+
+    ipc: host
+
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      - --model
+      - ${EMBEDDING_HF_MODEL:-BAAI/bge-m3}
+      - --served-model-name
+      - ${EMBEDDING_SERVED_MODEL_NAME:-ubot-embedding}
+      - --runner
+      - pooling
+      - --hf-overrides
+      - '{"architectures":["BgeM3EmbeddingModel"]}'
+      - --pooler-config.task
+      - embed
+      - --dtype
+      - ${EMBEDDING_DTYPE:-float16}
+      - --max-model-len
+      - ${EMBEDDING_MAX_MODEL_LEN:-8192}
+      - --gpu-memory-utilization
+      - ${VLLM_EMBEDDING_GPU_MEMORY_UTILIZATION:-0.2}
+
+  sglang:
+    image: ${SGLANG_IMAGE:-lmsysorg/sglang:latest-runtime}
+
+    ports:
+      - "${LLM_PORT:-8000}:8000"
+
+    ipc: host
+
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - ${LLM_HF_MODEL:-RedHatAI/Qwen3-4B-Instruct-2507-quantized.w4a16}
+      - --served-model-name
+      - ${LLM_SERVED_MODEL_NAME:-ubot-chat}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --context-length
+      - ${LLM_MAX_MODEL_LEN:-8192}
+      - --mem-fraction-static
+      - ${SGLANG_MEM_FRACTION_STATIC:-0.6}
+
+volumes:
+  hf-cache:

@@ -1,0 +1,318 @@
+package com.ubot.ai.tool.product;
+
+import com.ubot.ai.dto.ProductDataCards.ProductCard;
+import com.ubot.ai.tool.ToolFormats;
+import com.ubot.ai.tool.product.ProductCatalogQuery.PlanCondition;
+import com.ubot.ai.tool.product.ProductToolResults.InvalidValueException;
+import com.ubot.plan.entity.Plan;
+import com.ubot.plan.enums.NetworkType;
+import com.ubot.plan.enums.PlanTargetGroup;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+/**
+ * LLM이 요금제 정보가 필요할 때 호출하는 요금제 조회 도구입니다.
+ * 선택약정 할인가는 LLM이 계산하지 않도록 코드가 계산해 할인율과 함께 행에 넣습니다. 할인율은 설정값이 원본입니다.
+ * 설명에 "약정 없음"이 있는 무약정 요금제는 선택약정 할인을 받을 수 없어 할인가 대신 미적용이라고 씁니다.
+ * 열거형 조건은 작은 모델이 "5G"처럼 값 이름과 다르게 넣기도 해서 문자열로 받아 너그럽게 해석합니다.
+ */
+@Slf4j
+@Component
+public class PlanTools {
+
+    static final String PRODUCT_LABEL = "요금제";
+    static final String NO_CONTRACT_DISCOUNT = "선택약정 할인 미적용(무약정 요금제)";
+
+    private final ProductCatalogQuery productCatalogQuery;
+    private final ProductNameIndex productNameIndex;
+    private final int contractDiscountPercent;
+
+    public PlanTools(ProductCatalogQuery productCatalogQuery, ProductNameIndex productNameIndex,
+            @Value("${product.contract-discount-percent:25}") int contractDiscountPercent) {
+        this.productCatalogQuery = productCatalogQuery;
+        this.productNameIndex = productNameIndex;
+        this.contractDiscountPercent = contractDiscountPercent;
+    }
+
+    @Tool(description = "Ubot 요금제의 월정액, 선택약정 할인가, 데이터·음성·문자·테더링 제공량, 가입 조건을 조회한다. "
+            + "사용자가 말한 조건만 넣고 나머지는 비운다. 결과는 최대 5개이며 기본은 월정액이 낮은 순이다. "
+            + "사용자가 데이터가 많은 순서를 원하면 sortBy에 DATA_DESC를 넣는다.")
+    public String searchPlans(
+            @ToolParam(description = "요금제 이름 일부. 예: 밸런스, 다이렉트 49. 사용자가 이름을 말하지 않았으면 비운다.", required = false)
+            String name,
+            @ToolParam(description = "네트워크. 5G 또는 LTE.", required = false) String networkType,
+            @ToolParam(description = "가입 대상. GENERAL(일반), YOUTH(청년), SENIOR(시니어), KIDS(키즈), WATCH(워치), TABLET(태블릿).",
+                    required = false) String targetGroup,
+            @ToolParam(description = "월정액 상한(원). 예: 10만원 이하면 100000.", required = false) Integer maxMonthlyFee,
+            @ToolParam(description = "최소 데이터 제공량(GB). 무제한 요금제도 포함된다.", required = false) Integer minDataGb,
+            @ToolParam(description = "데이터 무제한 요금제만 찾으면 true.", required = false) Boolean dataUnlimited,
+            @ToolParam(description = "정렬. MONTHLY_FEE_ASC(월정액 낮은 순, 기본) 또는 DATA_DESC(데이터 많은 순).", required = false)
+            String sortBy,
+            @ToolParam(description = ProductToolResults.LIST_REQUESTED_DESCRIPTION, required = false) Boolean listRequested,
+            ToolContext toolContext) {
+        NetworkType network;
+        PlanTargetGroup target;
+        PlanSort sort;
+        try {
+            network = parseNetwork(networkType);
+            target = ProductToolResults.parseEnum(PlanTargetGroup.class, targetGroup, "targetGroup");
+            sort = ProductToolResults.parseEnum(PlanSort.class, sortBy, "sortBy");
+        } catch (InvalidValueException exception) {
+            log.info("요금제 조회 도구 조건 오류: {}", exception.getMessage());
+            return exception.getMessage();
+        }
+        ProductDataRecorder recorder = ProductToolResults.recorder(toolContext);
+        try {
+            // 모델이 "프리미엄 요금제 종류"의 "프리미엄"을 분류로 보고 이름을 비우면 전체 요금제가 나오므로, 질문의 시리즈 이름으로 채웁니다.
+            if (!StringUtils.hasText(name)) {
+                Optional<String> series = productNameIndex.planSeriesMentionedIn(recorder.question());
+                if (series.isPresent()) {
+                    log.info("요금제 조회 도구: 이름 조건이 비었지만 질문에 '{} 요금제'가 있어 이름 조건으로 넣었습니다", series.get());
+                    name = series.get();
+                }
+            }
+            // "무제한이 아닌 요금제만" 찾는 질문은 거의 없는데, 작은 모델은 이 값을 습관처럼 false로 채워 무제한 요금제를 빠뜨립니다.
+            Boolean unlimitedOnly = Boolean.TRUE.equals(dataUnlimited) ? Boolean.TRUE : null;
+            Integer feeLimit = maxMonthlyFee;
+            Integer dataFloor = minDataGb;
+            // 작은 모델은 질문에 없는 조건을 프롬프트의 다른 값(사용자 요금제 등)으로 채워 0건을 만드므로,
+            // 질문에 근거 말이 없는 조건은 뺍니다(ConditionGrounding). 질문 없이 부른 경우(평가 등)는 그대로 씁니다.
+            String said = recorder.conditionText();
+            List<String> dropped = new ArrayList<>();
+            if (said != null) {
+                if (network != null && !ConditionGrounding.mentionsNetwork(said, network)) {
+                    dropped.add("networkType");
+                    network = null;
+                }
+                if (target != null && !ConditionGrounding.mentionsTargetGroup(said, target)) {
+                    dropped.add("targetGroup");
+                    target = null;
+                }
+                if (feeLimit != null && !ConditionGrounding.mentionsMoney(said)) {
+                    dropped.add("maxMonthlyFee");
+                    feeLimit = null;
+                }
+                if (dataFloor != null && !ConditionGrounding.mentionsDataAmount(said)) {
+                    dropped.add("minDataGb");
+                    dataFloor = null;
+                }
+                if (unlimitedOnly != null && !ConditionGrounding.mentionsUnlimited(said)) {
+                    dropped.add("dataUnlimited");
+                    unlimitedOnly = null;
+                }
+            }
+            if (!dropped.isEmpty()) {
+                log.info("요금제 조회 도구: 질문에 근거가 없는 조건을 뺐습니다: {}", dropped);
+            }
+            ProductCatalogQuery.Found<Plan> found = productCatalogQuery.searchPlans(
+                    new PlanCondition(name, network, target, feeLimit, dataFloor, unlimitedOnly, sort), recorder.limit());
+            ProductSearch search = ProductSearch.of(ProductType.PLAN, name, ProductRefine.NETWORK, network,
+                    ProductRefine.TARGET, target, ProductRefine.MAX_FEE, feeLimit,
+                    ProductRefine.DATA, unlimitedOnly != null ? ProductRefine.DATA_UNLIMITED : dataFloor,
+                    ProductRefine.SORT, sort);
+            String order = sort == PlanSort.DATA_DESC ? "데이터 많은 순" : "월정액 낮은 순";
+            log.info("요금제 조회 도구: name={}, networkType={}, targetGroup={}, maxMonthlyFee={}, minDataGb={}, "
+                    + "dataUnlimited={}, sortBy={}, listRequested={}, 결과={}건 중 {}건", name, networkType, targetGroup,
+                    maxMonthlyFee, minDataGb, dataUnlimited, sortBy, listRequested, found.total(), found.items().size());
+            // 작은 모델은 "프리미엄 89 요금제"에도 말하지 않은 조건(월정액 상한 등)을 채워 넣어 0건이 되기도 합니다.
+            // 이름만으로 요금제 하나가 정해지면 그 요금제를 묻는 것이므로 다른 조건을 빼고 돌려줍니다.
+            // 이름으로 여러 개가 나오면 "프리미엄 요금제 중 5만원 이하"처럼 사용자가 건 조건일 수 있어 그대로 둡니다.
+            // 버튼으로 고른 조건은 사용자가 직접 건 것이라 빼지 않습니다.
+            if (found.total() == 0 && StringUtils.hasText(name) && !recorder.refineSearch()) {
+                ProductCatalogQuery.Found<Plan> named = productCatalogQuery.searchPlans(
+                        new PlanCondition(name, null, null, null, null, null, sort), recorder.limit());
+                if (named.total() == 1) {
+                    log.info("요금제 조회 도구: 조건에 맞는 요금제가 없지만 이름 '{}'에 맞는 요금제가 하나라 다른 조건을 빼고 돌려줍니다",
+                            name);
+                    return ProductToolResults.format(PRODUCT_LABEL, order, named, this::line, ProductDescriptions::of,
+                            this::card, recorder, ProductSearch.of(ProductType.PLAN, name, ProductRefine.SORT, sort),
+                            null, false);
+                }
+            }
+            boolean unfiltered = !StringUtils.hasText(name) && network == null && target == null
+                    && feeLimit == null && dataFloor == null && unlimitedOnly == null;
+            // 조건 없이 요금제 종류를 물었는데 결과가 다 들어가지 않으면, 월정액 낮은 순 5개는 종류에 대한 답이 아니므로
+            // 시리즈별 개요로 답합니다. 질문에 시리즈 이름이 둘 이상 있어 하나로 정하지 못한 경우도 개요에 그 시리즈들이 보입니다.
+            // 모델이 목록 요청 표시를 빠뜨려도, 하나를 고르는 질문이 아니면 목록을 묻는 것으로 봅니다(ProductToolResults.promptsRefine).
+            if ((Boolean.TRUE.equals(listRequested) || ProductToolResults.promptsRefine(recorder, found.total()))
+                    && unfiltered && found.total() > recorder.limit()) {
+                Optional<PlanSeriesOverview> overview = productNameIndex.planOverview();
+                if (overview.isPresent()) {
+                    log.info("요금제 조회 도구: 조건 없는 목록 요청이라 시리즈 개요로 답합니다: 시리즈수={}", overview.get().groups().size());
+                    // 개요의 개수·월정액 범위는 조회한 5개 행에 없으므로 출력 검사 근거로 남깁니다.
+                    recorder.note(overview.get().answer());
+                    return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
+                            this::card, recorder, search, overview.get());
+                }
+            }
+            // 아무 조건 없이 전체를 조회했는데 질문에 시리즈 이름이 있으면(둘 이상이라 하나로 정하지 못한 경우) 걸렀어야 할 조회라
+            // 목록 답변으로 확정하지 않고 모델 답변에 맡깁니다.
+            boolean unfilteredSeriesQuestion = unfiltered && productNameIndex.mentionsPlanSeries(recorder.question());
+            if (Boolean.TRUE.equals(listRequested) && unfilteredSeriesQuestion) {
+                log.info("요금제 조회 도구: 질문에 시리즈 이름이 있는데 조건 없이 조회해 목록 답변을 만들지 않습니다");
+            }
+            String listSubject = unfilteredSeriesQuestion ? null : ProductToolResults.listSubject(true, PRODUCT_LABEL,
+                    feeLimit != null || dataFloor != null,
+                    network == null ? null : networkLabel(network), target == null ? null : targetLabel(target),
+                    unlimitedOnly != null ? "데이터 무제한" : null,
+                    ProductCatalogQuery.displayName(name, ProductCatalogQuery.PLAN_WORDS));
+            return ProductToolResults.format(PRODUCT_LABEL, order, found, this::line, ProductDescriptions::of,
+                    this::card, recorder, search, listSubject, listRequested);
+        } catch (RuntimeException exception) {
+            // 도구 안의 DB 오류가 답변 전체 실패로 번지지 않게 안내 문구로 돌려줍니다.
+            log.warn("요금제 조회 도구 실패: name={}, networkType={}, targetGroup={}", name, networkType, targetGroup, exception);
+            return ProductToolResults.LOOKUP_FAILED_MESSAGE;
+        }
+    }
+
+    /** 선택약정 할인을 받았을 때의 월 요금입니다. 1원 미만은 버립니다. */
+    Integer contractDiscountedFee(Integer monthlyFee) {
+        return monthlyFee == null ? null : monthlyFee * (100 - contractDiscountPercent) / 100;
+    }
+
+    private String contractFee(Plan plan) {
+        return ProductDescriptions.isNoContract(plan.getDescription()) ? NO_CONTRACT_DISCOUNT
+                : "선택약정 " + contractDiscountPercent + "% 할인 시 월 "
+                        + ToolFormats.won(contractDiscountedFee(plan.getMonthlyFee()));
+    }
+
+    private String line(Plan plan) {
+        return ToolFormats.valueOrUnknown(plan.getName())
+                + " | " + networkLabel(plan.getNetworkType()) + " | 대상 " + targetLabel(plan.getTargetGroup())
+                + " | 월정액 " + ToolFormats.won(plan.getMonthlyFee())
+                + " | " + contractFee(plan)
+                + " | 데이터 " + data(plan)
+                + " | 음성 " + allowance(plan.isVoiceUnlimited(), plan.getVoiceMinutes(), "분")
+                + " | 문자 " + allowance(plan.isSmsUnlimited(), plan.getSmsCount(), "건")
+                + " | 테더링 " + tethering(plan.getTetheringAmountMb());
+    }
+
+    /** 소진 후 속도가 없는 요금제는 데이터를 다 쓰면 차단됩니다(실속·태블릿·워치 등). */
+    private static String data(Plan plan) {
+        if (plan.isDataUnlimited()) {
+            return "무제한";
+        }
+        Long mb = plan.getDataAmountMb();
+        if (mb != null && mb == 0) {
+            return "제공 안 함";
+        }
+        return ProductToolResults.data(mb) + (plan.getExhaustedSpeedKbps() == null ? "(소진 후 차단)"
+                : "(소진 후 최대 " + ToolFormats.speed(plan.getExhaustedSpeedKbps()) + ")");
+    }
+
+    /**
+     * 카드에는 요금제마다 다른 수치를 데이터·음성/문자·테더링 세 줄로 담고(specs), 설명의 고유 정보를 모두 담습니다(highlights).
+     * 네트워크는 화면의 뱃지로, 선택약정 할인가는 요금 아래 문구로 따로 담습니다. 무약정 요금제는 할인가 문구가 없습니다.
+     */
+    private ProductCard card(Plan plan) {
+        List<String> specs = List.of(dataSpec(plan), voiceSmsSpec(plan), tetheringSpec(plan));
+        String network = plan.getNetworkType() == null ? null : networkLabel(plan.getNetworkType());
+        String feeNote = ProductDescriptions.isNoContract(plan.getDescription()) ? null : contractFee(plan);
+        return new ProductCard(ProductType.PLAN, plan.getName(), plan.getMonthlyFee(), specs,
+                ProductDescriptions.highlights(ProductDescriptions.of(plan), productNameIndex.commonSentences(ProductType.PLAN)),
+                network, feeNote);
+    }
+
+    private static String dataSpec(Plan plan) {
+        if (plan.isDataUnlimited()) {
+            return ProductDescriptions.DATA_UNLIMITED_LABEL;
+        }
+        Long mb = plan.getDataAmountMb();
+        if (mb != null && mb == 0) {
+            return "데이터 미제공";
+        }
+        return "월 데이터 " + ProductToolResults.data(mb) + (plan.getExhaustedSpeedKbps() == null ? ", 소진 후 차단"
+                : ", 소진 후 최대 " + ToolFormats.speed(plan.getExhaustedSpeedKbps()));
+    }
+
+    private static String voiceSmsSpec(Plan plan) {
+        if (plan.isVoiceUnlimited() && plan.isSmsUnlimited()) {
+            return "국내 일반 음성/문자 기본제공";
+        }
+        String voice = cardAllowance(plan.isVoiceUnlimited(), plan.getVoiceMinutes(), "분");
+        String sms = cardAllowance(plan.isSmsUnlimited(), plan.getSmsCount(), "건");
+        return voice.equals("미제공") && sms.equals("미제공") ? "음성·문자 미제공" : "국내 음성 " + voice + ", 문자 " + sms;
+    }
+
+    /** 테더링 규칙(기본 데이터에서 차감, 한도 소진 후 차단)은 설명이 원본이라 그 요금제 설명에 있을 때만 붙입니다. */
+    private static String tetheringSpec(Plan plan) {
+        Long mb = plan.getTetheringAmountMb();
+        if (mb == null || mb == 0) {
+            return "테더링 미제공";
+        }
+        StringBuilder spec = new StringBuilder("테더링 월 ").append(ProductToolResults.data(mb));
+        if (!plan.isDataUnlimited()
+                && ProductDescriptions.mentions(plan.getDescription(), ProductDescriptions.TETHERING_SHARED_RULE)) {
+            spec.append(", 기본 데이터에서 함께 차감");
+        }
+        if (ProductDescriptions.mentions(plan.getDescription(), ProductDescriptions.TETHERING_BLOCKED_RULE)) {
+            spec.append(", 한도 소진 후 차단");
+        }
+        return spec.toString();
+    }
+
+    private static String cardAllowance(boolean unlimited, Integer amount, String unit) {
+        if (unlimited) {
+            return "기본제공";
+        }
+        return amount == null || amount == 0 ? "미제공" : amount + unit;
+    }
+
+    private static String allowance(boolean unlimited, Integer amount, String unit) {
+        if (unlimited) {
+            return "기본 제공";
+        }
+        if (amount == null || amount == 0) {
+            return "제공 안 함";
+        }
+        return amount + unit;
+    }
+
+    private static String tethering(Long mb) {
+        return mb == null || mb == 0 ? "제공 안 함" : ProductToolResults.data(mb);
+    }
+
+    static String networkLabel(NetworkType type) {
+        if (type == null) return "정보 없음";
+        return switch (type) {
+            case FIVE_G -> "5G";
+            case LTE -> "LTE";
+        };
+    }
+
+    static String targetLabel(PlanTargetGroup group) {
+        if (group == null) return "정보 없음";
+        return switch (group) {
+            case GENERAL -> "일반";
+            case YOUTH -> "청년";
+            case SENIOR -> "시니어";
+            case KIDS -> "키즈";
+            case WATCH -> "워치";
+            case TABLET -> "태블릿";
+        };
+    }
+
+    static NetworkType parseNetwork(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String normalized = value.strip().toUpperCase(Locale.ROOT).replace(" ", "");
+        if (normalized.equals("5G") || normalized.equals("FIVE_G")) {
+            return NetworkType.FIVE_G;
+        }
+        if (normalized.equals("LTE") || normalized.equals("4G")) {
+            return NetworkType.LTE;
+        }
+        throw new InvalidValueException(String.format(ProductToolResults.INVALID_VALUE_MESSAGE, value, "networkType", "5G, LTE"));
+    }
+
+}

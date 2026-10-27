@@ -1,0 +1,31 @@
+name: Validate PR Title
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate-pr-title:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate PR title
+        uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+
+            const pattern =
+              /^\[(Feat|Fix|Refactor|Docs|Test|Chore|Style)\] (?=.*[가-힣]).+$/;
+
+            if (!pattern.test(title)) {
+              core.setFailed(
+                `PR 제목 형식이 올바르지 않습니다.\n\n` +
+                `현재 제목: ${title}\n\n` +
+                `올바른 형식: [Type] 한글 설명\n` +
+                `예시: [Feat] JWT 로그인 구현`
+              );
+            }

@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 15s
+  # 알림 규칙 평가 주기. 기본값(1m)이면 for: 1m 알림이 최대 2분 늦게 울립니다.
+  evaluation_interval: 15s
+
+# render-alert-config.sh가 만든 알림 규칙. 파일이 없으면 규칙 없이 동작합니다.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Alertmanager는 compose의 alerts 프로필로 띄웁니다. 띄우지 않았으면 알림을 보내지 못한다는 로그만 남습니다.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: ubot-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - host.docker.internal:8080
+
+  - job_name: postgres
+    static_configs:
+      - targets:
+          - postgres-exporter:9187
+
+  - job_name: redis
+    static_configs:
+      - targets:
+          - redis-exporter:9121
+
+  - job_name: cadvisor
+    static_configs:
+      - targets:
+          - cadvisor:8080

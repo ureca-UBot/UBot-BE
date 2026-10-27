@@ -1,0 +1,61 @@
+package com.ubot.user.service;
+
+import com.ubot.user.exception.UserErrorCode;
+import com.ubot.user.exception.UserException;
+import com.ubot.user.dto.request.UserUpdateRequestDto;
+import com.ubot.user.dto.response.UserResponseDto;
+import com.ubot.user.entity.User;
+import com.ubot.user.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class UserService {
+	private final UserRepository userRepository;
+
+	public Optional<User> getActiveUserByEmail(String email) {
+		return userRepository.findByEmailAndDeletedAtIsNull(email);
+	}
+
+	public boolean existsActiveUserByEmail(String email) {
+		return userRepository.existsByEmailAndDeletedAtIsNull(email);
+	}
+
+	@Transactional
+	public void saveUser(User user) {
+		userRepository.saveAndFlush(user);
+	}
+
+	public UserResponseDto getActiveUser(Long userId) {
+		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+				.orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+		return UserResponseDto.from(user);
+	}
+
+	@Transactional
+	public UserResponseDto updateActiveUser(Long userId, UserUpdateRequestDto requestDto) {
+		if(requestDto.name() == null
+				&& requestDto.birthDate() == null
+				&& requestDto.gender() == null
+				&& requestDto.residenceArea() == null){
+			throw new UserException(UserErrorCode.INVALID_USER_UPDATE_REQUEST);
+		}
+
+		User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+				.orElseThrow(() -> new UserException(UserErrorCode.USER_NOT_FOUND));
+		user.update(
+				requestDto.name(),
+				requestDto.birthDate(),
+				requestDto.gender(),
+				requestDto.residenceArea()
+		);
+		log.info("회원 정보를 수정했습니다: 사용자ID={}", userId);
+		return UserResponseDto.from(user);
+	}
+}

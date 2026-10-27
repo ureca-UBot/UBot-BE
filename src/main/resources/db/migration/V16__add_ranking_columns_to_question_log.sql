@@ -1,0 +1,2 @@
+ALTER TABLE question_log ADD COLUMN ranking_eligible BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE question_log ADD COLUMN region VARCHAR(20);

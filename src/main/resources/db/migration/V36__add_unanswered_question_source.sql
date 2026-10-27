@@ -1,0 +1,3 @@
+ALTER TABLE unanswered_questions
+    ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'RETRIEVAL'
+        CHECK (source IN ('RETRIEVAL', 'OUTPUT_GUARD'));

@@ -1,0 +1,69 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:15432}/${POSTGRES_DB:ubot}
+    username: ${POSTGRES_USER:ubot}
+    password: ${POSTGRES_PASSWORD}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:16379}
+      
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+  ai:
+    model:
+      chat: ollama
+      # OllamaEmbeddingModel 자동구성을 비활성화.
+      # 이 빈이 없으면 PgVectorStore(EmbeddingModel 필수 의존)도 생성되지 않아
+      # initialize-schema로 인한 vector_store 테이블 자동 생성을 막을 수 있음.
+      # FaqVectorRepository(JdbcTemplate 직접 구현)로 임베딩/검색을 처리 중이라 문제없음.
+      # (application-test.yml과 동일한 방식, 팀 합의 완료)
+      embedding: none
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
+      chat:
+        # AI_MODE=vllm에서는 이 값을 쓰지 않으므로, 줄이 없어도 기동되도록 빈 값을 기본으로 둡니다.
+        model: ${OLLAMA_CHAT_MODEL:}
+      embedding:
+        model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
+    vectorstore:
+      type: none
+        #pgvector:
+        # embedding: none으로 인해 현재 비활성 상태 (PgVectorStore 빈이 안 만들어짐).
+        # PgVectorStore 채택 여부가 확정되면 이 설정이 그대로 살아날 예정.
+        #dimensions: 1024
+        #index-type: HNSW
+        #distance-type: COSINE_DISTANCE
+        #initialize-schema: true 
+        #추후 spring ai 사용시 설정 
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.ubot.faq.retrieval: DEBUG
+
+# spring.ai.ollama와는 별개의 독립적인 설정.
+# EmbeddingService(RestClient 직접 구현)가 참조하는 값으로,
+# Spring AI의 OllamaEmbeddingModel을 쓰지 않기로 한 결정(embedding: none)에 따라
+# 같은 환경변수(OLLAMA_BASE_URL, OLLAMA_EMBEDDING_MODEL)를 우리 쪽에서 독립적으로 다시 읽음.
+ollama:
+  base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
+  connect-timeout: ${OLLAMA_CONNECT_TIMEOUT:3s}
+  read-timeout: ${OLLAMA_READ_TIMEOUT:10s}
+  embedding:
+    model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
+  
+kakao:
+  local:
+    api-key: ${KAKAO_REST_API_KEY}

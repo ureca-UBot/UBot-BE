@@ -1,0 +1,119 @@
+package com.ubot.llm.config;
+
+import com.ubot.llm.client.LlmClient;
+import com.ubot.llm.client.OllamaClient;
+import com.ubot.llm.client.OpenAiCompatibleLlmClient;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.ollama.api.OllamaApi;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.ollama.management.ModelManagementOptions;
+import org.springframework.ai.ollama.management.PullModelStrategy;
+import org.springframework.core.retry.RetryPolicy;
+import org.springframework.core.retry.RetryTemplate;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.util.Assert;
+import org.springframework.web.client.RestClient;
+
+public class LlmClientFactory {
+
+    public LlmClient createOllama(
+            RestClient.Builder restClientBuilder,
+            String baseUrl,
+            String modelName,
+            Duration connectTimeout,
+            Duration readTimeout) {
+
+        validateTimeouts(connectTimeout, readTimeout);
+
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
+                .build();
+
+        var requestFactory =
+                new JdkClientHttpRequestFactory(httpClient);
+
+        requestFactory.setReadTimeout(readTimeout);
+
+        var ollamaApi = OllamaApi.builder()
+                .baseUrl(baseUrl)
+                .restClientBuilder(
+                        restClientBuilder
+                                .clone()
+                                .requestFactory(requestFactory)
+                )
+                .build();
+
+        // temperature는 기본 옵션에 넣어 도구 단계·최종 스키마 재호출·일반 요청에 모두 적용되게 합니다.
+        var chatModel = OllamaChatModel.builder()
+                .ollamaApi(ollamaApi)
+                .options(
+                        OllamaChatOptions.builder()
+                                .model(modelName)
+                                .temperature(LlmClient.TEMPERATURE)
+                                .build()
+                )
+                .modelManagementOptions(
+                        ModelManagementOptions.builder()
+                                .pullModelStrategy(PullModelStrategy.NEVER)
+                                .build()
+                )
+                .retryTemplate(
+                        new RetryTemplate(
+                                RetryPolicy.builder()
+                                        .maxRetries(0)
+                                        .build()
+                        )
+                )
+                .build();
+
+        return new OllamaClient(chatModel, modelName);
+    }
+
+    public LlmClient createOpenAiCompatible(
+            RestClient.Builder restClientBuilder,
+            String baseUrl,
+            String modelName,
+            Duration connectTimeout,
+            Duration readTimeout) {
+
+        validateTimeouts(connectTimeout, readTimeout);
+
+        HttpClient httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(connectTimeout)
+                .build();
+
+        var requestFactory =
+                new JdkClientHttpRequestFactory(httpClient);
+
+        requestFactory.setReadTimeout(readTimeout);
+
+        RestClient restClient = restClientBuilder
+                .clone()
+                .baseUrl(baseUrl.replaceAll("/+$", ""))
+                .requestFactory(requestFactory)
+                .build();
+
+        return new OpenAiCompatibleLlmClient(
+                restClient,
+                modelName
+        );
+    }
+
+    private void validateTimeouts(
+            Duration connectTimeout,
+            Duration readTimeout) {
+
+        Assert.isTrue(
+                connectTimeout.isPositive(),
+                "LLM 연결 제한 시간은 0보다 커야 합니다."
+        );
+
+        Assert.isTrue(
+                readTimeout.isPositive(),
+                "LLM 응답 제한 시간은 0보다 커야 합니다."
+        );
+    }
+}

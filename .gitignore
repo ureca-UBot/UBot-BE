@@ -1,9 +1,65 @@
-# IDE 설정 파일
-.idea/
-.vscode/
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+.env
+.deploy/
+
+# Gradle downloadKiwi 작업이 받는 Kiwi 형태소 분석기 jar와 모델입니다.
+.kiwi/
+
+# render-alert-config.sh가 .env로 만드는 알림 규칙·Alertmanager 설정·Webhook secret입니다.
+.generated/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
 *.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
 
 # OS 생성 파일
 .DS_Store
 Thumbs.db
 
+# threshold 테스트 중 사용했던 GPU 설정 파일입니다.
+docker-compose.override.yml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.auto.tfvars
+backend.hcl
+errored.tfstate
+crash.log
+crash.*.log
+/docs/additional-faq

@@ -1,0 +1,20 @@
+services:
+  web:
+    image: nginx:alpine
+
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8088}:80"
+
+    extra_hosts:
+      - "backend:host-gateway"
+
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      CHAT_GUEST_RATE_LIMIT_RATE: ${CHAT_GUEST_RATE_LIMIT_RATE:-30r/m}
+      CHAT_GUEST_RATE_LIMIT_BURST: ${CHAT_GUEST_RATE_LIMIT_BURST:-10}
+
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ${UBOT_FE_DIST:-../UBot-FE/dist}:/var/www/ubot-fe:ro
+
+    restart: unless-stopped

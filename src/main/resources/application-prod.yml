@@ -1,0 +1,50 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT:5432}/${POSTGRES_DB}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+  ai:
+    model:
+      chat: none
+      embedding: none
+    vectorstore:
+      type: none
+
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  shutdown: graceful
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+ollama:
+  base-url: ${OLLAMA_BASE_URL:}
+  connect-timeout: ${OLLAMA_CONNECT_TIMEOUT:3s}
+  read-timeout: ${OLLAMA_READ_TIMEOUT:10s}
+  embedding:
+    model: ${OLLAMA_EMBEDDING_MODEL:bge-m3:567m}
+
+kakao:
+  local:
+    api-key: ${KAKAO_REST_API_KEY}

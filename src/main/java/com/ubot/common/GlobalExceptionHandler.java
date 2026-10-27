@@ -1,0 +1,83 @@
+package com.ubot.common;
+
+import com.ubot.chat.exception.ChatException;
+import com.ubot.common.exception.CommonErrorCode;
+import jakarta.validation.ConstraintViolationException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+/** API 예외를 {@link ApiResponse} 형식으로 변환합니다. */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+	@ExceptionHandler(ChatException.class)
+	public ResponseEntity<ApiResponse<Void>> handleChatException(ChatException exception) {
+		ErrorCode errorCode = exception.getErrorCode();
+		log.warn("채팅 요청이 업무 예외로 종료되었습니다: 오류코드={}, 오류메시지={}",
+				errorCode.getCode(), errorCode.getMessage());
+		return ResponseEntity.status(errorCode.getStatus())
+				.body(ApiResponse.error(errorCode.getCode(), exception.getMessage()));
+	}
+
+    @ExceptionHandler(GlobalException.class)
+    public ResponseEntity<ApiResponse<Void>> handleGlobalException(GlobalException exception) {
+        ErrorCode errorCode = exception.getErrorCode();
+		log.warn("요청이 업무 예외로 종료되었습니다: 오류코드={}, 오류메시지={}",
+				errorCode.getCode(), errorCode.getMessage());
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ApiResponse.error(errorCode.getCode(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationException(
+            MethodArgumentNotValidException exception
+    ) {
+		log.warn("요청 값 검증에 실패했습니다: 오류코드={}, 오류메시지={}, 오류항목수={}",
+				CommonErrorCode.INVALID_INPUT.getCode(), CommonErrorCode.INVALID_INPUT.getMessage(),
+				exception.getBindingResult().getErrorCount());
+        Map<String, String> errors = new LinkedHashMap<>();
+        for (FieldError error : exception.getBindingResult().getFieldErrors()) {
+            errors.putIfAbsent(error.getField(), error.getDefaultMessage());
+        }
+
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, errors));
+    }
+
+    @ExceptionHandler({ConstraintViolationException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ApiResponse<Void>> handleInvalidParameter(Exception exception) {
+		log.warn("요청 파라미터 검증에 실패했습니다: 오류코드={}, 오류메시지={}, 예외유형={}",
+				CommonErrorCode.INVALID_PARAMETER.getCode(), CommonErrorCode.INVALID_PARAMETER.getMessage(),
+				exception.getClass().getSimpleName());
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error(CommonErrorCode.INVALID_PARAMETER));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadableMessage(HttpMessageNotReadableException exception) {
+		log.warn("요청 본문을 읽지 못했습니다: 오류코드={}, 오류메시지={}",
+				CommonErrorCode.INVALID_REQUEST_BODY.getCode(), CommonErrorCode.INVALID_REQUEST_BODY.getMessage());
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error(CommonErrorCode.INVALID_REQUEST_BODY));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
+		log.error("처리되지 않은 예외가 발생했습니다: 오류코드={}, 오류메시지={}",
+				CommonErrorCode.INTERNAL_SERVER_ERROR.getCode(), CommonErrorCode.INTERNAL_SERVER_ERROR.getMessage(), exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
+    }
+}

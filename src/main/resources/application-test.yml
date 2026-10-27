@@ -1,0 +1,51 @@
+spring:
+  # JDBC details come only from the test-owned @ServiceConnection container.
+  # Do not import .env or add a fallback to the development database here.
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+  ai:
+    model:
+      chat: none
+      embedding: none
+    vectorstore:
+      pgvector:
+        dimensions: 1024
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        initialize-schema: true
+
+ollama:
+  base-url: http://localhost:11434
+  connect-timeout: 5s
+  read-timeout: 60s
+  embedding:
+    model: bge-m3:567m
+kakao:
+  local:
+    api-key: test-key
+
+unanswered:
+  naming:
+    enabled: false
+
+app:
+  counsel:
+    embedding-worker:
+      # Worker tests start their own consumer; shared integration contexts must not consume its queue.
+      enabled: false
+  chat:
+    worker:
+      # Tests run queued jobs explicitly with ChatJobWorker.processAvailableJobs().
+      polling-enabled: false
+    member-rate-limit:
+      # Test contexts share one Redis and restart user IDs, so counts would leak between classes.
+      # Tests of the limit enable it themselves.
+      enabled: false
+  jwt:
+    # Base64 encoded 32-byte key used only by the disposable test profile.
+    secret: MDEyMzQ1Njc4OUFCQ0RFRjAxMjM0NTY3ODlBQkNERUY=
+    access-token-expiration-millis: 60000000
+    refresh-token-expiration-days: 14

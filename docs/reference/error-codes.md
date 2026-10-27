@@ -1,0 +1,275 @@
+# 오류 코드 Reference
+
+> 코드 기준: UBot-BE `develop` [`4a7a546f`](https://github.com/ureca-UBot/UBot-BE/commit/4a7a546faa189946bb48bb14e364750d653b0774) · 2026-10-26 확인
+
+모든 오류 응답은 `ApiResponse` 형식(`success: false`, `code`, `message`, `data`)입니다. 클라이언트는 HTTP 상태보다 `code`로 오류를 구분하세요. 표의 메시지는 기본값이며, 일부 오류(예: 회원가입 검증)는 더 구체적인 메시지로 바뀌어 나갑니다.
+
+아래 표는 각 도메인의 `*ErrorCode` enum에서 옮겼습니다. 코드를 추가·변경하면 이 문서도 함께 고칩니다. 새 코드를 만드는 방법은 [exception.md](../../src/main/java/com/ubot/common/manual/exception.md)를 참고하세요.
+
+## `data`에 값이 들어오는 오류
+
+| 경우 | `data` |
+|---|---|
+| `G-001` (요청 DTO `@Valid` 검증 실패) | 필드별 오류 메시지 객체. 필드마다 첫 메시지 하나 |
+| 그 외 | `null`. 채팅 API의 접수 거절(`FW-003`, `CHAT-011`, `CHAT-017`, `CHAT-026`, 재시도·재검색 거절 사유)도 `null` |
+
+답변 생성 중 실패(`CHAT-008`, `CHAT-010`, `CHAT-012`~`CHAT-016`, `EM-*`, `LLM-*`)는 오류 응답으로 오지 않습니다. 질문 접수는 `202`로 끝나고, 상태 조회(`GET /chat/jobs/{jobId}`)가 `200`과 함께 `data.status: "FAILED"`, `errorCode`, `errorMessage`, `retryable`을 돌려줍니다([프론트엔드 연동](../how-to/frontend-integration.md)).
+
+## 클라이언트 처리 원칙
+
+| 응답 | 권장 처리 |
+|---|---|
+| `G-001`~`G-003`, 도메인 입력 오류 | 입력을 고친 뒤 새 요청을 보냅니다. 같은 요청의 자동 재시도는 하지 않습니다. |
+| 인증 만료 | refresh token이 유효한 경우에만 한 번 재발급하고 원래 요청을 다시 보냅니다. 권한 부족·폐기·재사용 감지는 재시도하지 않습니다. |
+| `404` 또는 소유권을 숨기는 not-found | 리소스와 로그인 상태를 다시 확인합니다. 다른 사용자 자격으로 반복하지 않습니다. |
+| `409` | 최신 상태를 다시 조회한 뒤 사용자가 선택하게 합니다. 이전 상태를 가정한 자동 반복은 피합니다. |
+| `429` | 서버가 허용하는 간격으로 지수 backoff를 적용합니다. |
+| `503`, `CHAT-025` | 새 질문을 중복 접수하지 않고 기존 `jobId` 조회를 제한된 간격으로 계속합니다. |
+| 작업 상태 `FAILED` | `retryable: true`일 때만 재시도 API를 사용합니다. 새 멱등 키로 같은 질문을 다시 등록하지 않습니다. |
+| `500` 또는 네트워크 단절 | 조회처럼 멱등인 요청만 제한된 횟수로 재시도합니다. 쓰기 요청은 멱등 키나 서버 상태를 확인한 뒤 판단합니다. |
+
+재시도와 장애 복구의 서버 측 경계는 [신뢰성 모델](../reliability-model.md)을 참고하세요.
+
+## 알아 둘 현재 동작
+
+- **스프링 기본 예외가 500으로 나갑니다.** `GlobalExceptionHandler`는 아래 경우를 따로 처리하지 않아 `G-005`(500)로 응답합니다. 클라이언트 입력 오류여도 500이 올 수 있습니다.
+  - 필수 쿼리 파라미터 누락 (예: `GET /stores/nearby`에 `latitude` 없음)
+  - 존재하지 않는 경로를 **토큰을 붙여** 호출 (토큰이 없으면 인증 단계에서 `AUTH-001`)
+  - 지원하지 않는 HTTP 메서드, 지원하지 않는 Content-Type
+  - 위치 검색(`/locations/search`)의 카카오 API 호출 실패 (예: `KAKAO_REST_API_KEY`가 비어 있을 때). 길찾기는 카카오 호출이 실패하면 `DIRECTIONS-002`·`DIRECTIONS-003`으로 응답합니다
+- 쿼리·경로 파라미터 타입 오류와 `@Validated` 제약 위반은 `G-002`, 본문 JSON을 읽을 수 없으면 `G-003`입니다.
+- `G-004`는 `APP_ROLE=worker` 프로세스가 `/actuator`가 아닌 요청을 받았을 때만 반환합니다. Nginx는 `backend`로만 보내므로 정상 배포에서는 클라이언트가 받지 않습니다.
+- 정의만 있고 현재 코드에서 던지지 않는 코드: `CHAT-002`. 채팅 질문 길이 오류는 `CHAT-001`보다 DTO 검증(`G-001`)이 먼저 걸립니다.
+
+## 공통
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `G-001` | 400 | `INVALID_INPUT` | 요청 값이 올바르지 않습니다. |
+| `G-002` | 400 | `INVALID_PARAMETER` | 요청 파라미터가 올바르지 않습니다. |
+| `G-003` | 400 | `INVALID_REQUEST_BODY` | 요청 본문을 읽을 수 없습니다. |
+| `G-004` | 404 | `RESOURCE_NOT_FOUND` | 요청한 정보를 찾을 수 없습니다. |
+| `G-005` | 500 | `INTERNAL_SERVER_ERROR` | 서버 오류가 발생했습니다. |
+
+
+## 인증·토큰
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `AUTH-001` | 401 | `UNAUTHORIZED` | 토큰이 없습니다. 인증되지 않은 사용자입니다. |
+| `AUTH-002` | 403 | `FORBIDDEN` | 접근 권한이 없습니다. |
+
+
+- `AUTH-001`: 인증이 필요한 경로에 토큰 없이 호출. `AUTH-002`: `/admin/**`에 `ADMIN`이 아닌 사용자가 호출.
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `JWT-001` | 401 | `REFRESH_TOKEN_NOT_FOUND` | 해당 RefreshToken이 존재하지 않습니다. |
+| `JWT-002` | 401 | `REFRESH_TOKEN_EXPIRED` | 해당 RefreshToken은 만료된 토큰입니다. |
+| `JWT-003` | 400 | `INVALID_REFRESH_TOKEN_REQUEST` | Request의 RefreshToken이 올바르지 않습니다. |
+| `JWT-004` | 401 | `INVALID_ACCESS_TOKEN` | 유효하지 않은 Access Token입니다. |
+| `JWT-005` | 401 | `DELETED_USER_TOKEN` | 삭제된 유저의 토큰입니다. |
+| `JWT-006` | 409 | `DUPLICATED_CREATE_REFRESH_TOKEN` | 이미 RefreshToken이 생성되었습니다. |
+| `JWT-007` | 401 | `EXPIRED_ACCESS_TOKEN` | 해당 AccessToken은 만료된 토큰입니다. |
+| `JWT-008` | 401 | `REFRESH_TOKEN_REUSED` | 이미 사용된 RefreshToken입니다. 다시 로그인해주세요. |
+| `JWT-009` | 401 | `REVOKED_ACCESS_TOKEN` | 로그아웃된 AccessToken입니다. 다시 로그인해주세요. |
+
+
+- `JWT-007`이 오면 `/auth/refresh`로 재발급합니다. 재발급 요청이 `JWT-001`·`JWT-002`·`JWT-003`·`JWT-005`·`JWT-008`로 거절되면 다시 로그인해야 합니다. 흐름은 [프론트 연동 가이드](../how-to/frontend-integration.md#인증) 참고.
+- `JWT-004`: 서명·형식이 잘못된 access token. 재발급으로 해결되지 않습니다.
+- `JWT-009`: 로그아웃했거나 refresh token 재사용이 감지된 뒤의 access token. 만료 전이어도 거부합니다. 재발급으로 해결되지 않으므로 다시 로그인해야 합니다.
+
+## 사용자
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `USER-001` | 404 | `USER_NOT_FOUND` | 해당 User가 존재하지 않습니다. |
+| `USER-002` | 401 | `LOGIN_FAILED` | 이메일 혹은 비밀번호가 일치하지 않습니다. |
+| `USER-003` | 409 | `EMAIL_ALREADY_EXISTS` | 이메일이 이미 존재합니다. |
+| `USER-004` | 400 | `PASSWORD_CONFIRM_MISMATCH` | 비밀번호 및 재확인이 일치하지 않습니다. |
+| `USER-005` | 400 | `INVALID_SIGNUP_REQUEST` | SignupRequestDto가 올바르지 않습니다. |
+| `USER-006` | 400 | `INVALID_LOGIN_REQUEST` | LoginRequestDto가 올바르지 않습니다. |
+| `USER-007` | 400 | `INVALID_EMAIL_FORMAT` | 이메일 양식이 올바르지 않습니다. |
+| `USER-008` | 400 | `INVALID_PASSWORD_FORMAT` | 비밀번호 양식이 올바르지 않습니다. |
+| `USER-009` | 400 | `INVALID_BIRTHDATE_FORMAT` | 생일 입력이 올바르지 않습니다. |
+| `USER-010` | 400 | `INVALID_NAME_FORMAT` | 이름 입력이 올바르지 않습니다. |
+| `USER-011` | 400 | `INVALID_GENDER_FORMAT` | 성별 입력이 올바르지 않습니다. |
+| `USER-012` | 400 | `INVALID_RESIDENCE_FORMAT` | 사는 지역 입력이 올바르지 않습니다. |
+| `USER-013` | 400 | `INVALID_USER_UPDATE_REQUEST` | 수정할 항목이 없습니다. |
+| `USER-014` | 429 | `LOGIN_TEMPORARILY_LOCKED` | 로그인 실패가 반복되어 잠시 로그인할 수 없습니다. 잠시 후 다시 시도해주세요. |
+
+
+- `USER-001`: 토큰은 유효하지만 사용자가 탈퇴(`deleted_at`)했거나 없을 때 인증 필터에서도 발생합니다.
+- 회원가입 검증 오류(`USER-007`~`USER-012`)는 원인별 상세 메시지로 바뀌어 나갑니다.
+
+## FAQ (관리자)
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `FAQ-001` | 404 | `FAQ_NOT_FOUND` | 해당 FAQ ID를 가진 FAQ가 존재하지 않습니다. |
+| `FAQ-002` | 400 | `FAQ_VECTOR_CREATE_FAILURE` | FAQ VECTOR 생성에 실패했습니다. |
+| `FAQ-003` | 404 | `FAQ_CATEGORY_NOT_FOUND` | FAQ Category가 존재하지 않습니다. |
+| `FAQ-004` | 409 | `FAQ_CATEGORY_EXIST` | 이미 존재하는 카테고리 명입니다. |
+| `FAQ-005` | 400 | `FAQ_CATEGORY_SAME_NAME` | 이전 카테고리명과 후 카테고리명이 같습니다. |
+| `FAQ-006` | 400 | `FAQ_CATEGORY_IN_USE` | 해당 카테고리를 사용중인 FAQ가 있습니다. |
+
+
+- `FAQ-006`: 카테고리를 쓰는 활성 FAQ가 있으면 카테고리를 삭제할 수 없습니다.
+
+## 매장·길찾기
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `STORE-001` | 404 | `STORE_NOT_FOUND` | 매장을 찾을 수 없습니다. |
+| `STORE-002` | 409 | `DUPLICATE_STORE` | 이미 등록된 매장입니다. |
+| `STORE-003` | 409 | `DELETED_STORE_ALREADY_EXISTS` | 삭제된 동일 매장이 존재합니다. 기존 매장을 복구해주세요. |
+| `STORE-004` | 404 | `SERVICE_TYPE_NOT_FOUND` | 서비스 유형을 찾을 수 없습니다. |
+| `STORE-005` | 400 | `INVALID_STORE_COORDINATES` | 위도와 경도는 함께 입력해야 합니다. |
+| `STORE-006` | 400 | `INVALID_MAP_BOUNDS` | 지도 영역 좌표가 올바르지 않습니다. |
+
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `DIRECTIONS-001` | 404 | `DIRECTIONS_ROUTE_NOT_FOUND` | 경로를 찾을 수 없습니다. |
+| `DIRECTIONS-002` | 503 | `DIRECTIONS_SERVICE_UNAVAILABLE` | 길찾기 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요. |
+| `DIRECTIONS-003` | 504 | `DIRECTIONS_TIMEOUT` | 길찾기 서비스 응답이 지연되고 있습니다. |
+| `DIRECTIONS-004` | 400 | `DIRECTIONS_INVALID_CANDIDATE` | 대중교통 경로 후보만 도보 상세를 조회할 수 있습니다. |
+
+
+## 채팅
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `CHAT-001` | 400 | `INVALID_CHAT_REQUEST` | 요청 값이 올바르지 않습니다. |
+| `CHAT-002` | 401 | `LOGIN_REQUIRED` | 로그인이 필요합니다. |
+| `CHAT-003` | 404 | `ATTEMPT_NOT_FOUND` | 본인의 답변 시도 기록을 찾을 수 없습니다. |
+| `CHAT-004` | 409 | `PROCESSING` | 이미 답변을 생성하고 있습니다. |
+| `CHAT-005` | 409 | `ALREADY_SUCCEEDED` | 이미 답변이 생성된 질문입니다. |
+| `CHAT-006` | 409 | `LIMIT_REACHED` | 최초 시도를 포함하여 최대 3회까지만 시도할 수 있습니다. |
+| `CHAT-007` | 409 | `RETRY_NOT_ALLOWED` | 재시도할 수 없는 답변 상태입니다. |
+| `CHAT-008` | 503 | `STORAGE_UNAVAILABLE` | 채팅 기록을 저장할 수 없습니다. |
+| `CHAT-009` | 503 | `TASK_START_FAILED` | 답변 생성 작업을 시작하지 못했습니다. |
+| `CHAT-010` | 503 | `VECTOR_SEARCH_FAILED` | 벡터 검색 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요. |
+| `CHAT-011` | 400 | `INVALID_CHAT_RETRY_REQUEST` | 요청 값이 올바르지 않습니다. |
+| `CHAT-012` | 404 | `NO_FAQ` | 검색 결과가 없습니다. |
+| `CHAT-013` | 404 | `INSUFFICIENT_FAQ` | 정확한 답변을 찾지 못했습니다. |
+| `CHAT-014` | 503 | `PROMPT_NOT_READY` | 답변 프롬프트가 준비되지 않았습니다. |
+| `CHAT-015` | 500 | `INTERNAL_ERROR` | 답변 생성 중 오류가 발생했습니다. |
+| `CHAT-016` | 504 | `RESPONSE_TIMEOUT` | 답변 생성 시간이 초과되었습니다. |
+| `CHAT-017` | 429 | `GUEST_QUESTION_LIMIT_REACHED` | 비회원이 질문할 수 있는 횟수를 모두 사용했습니다. 로그인 후 이용해주세요. |
+| `CHAT-018` | 409 | `RESEARCH_NOT_ALLOWED` | 다른 의도로 다시 검색할 수 없는 질문입니다. |
+| `CHAT-019` | 409 | `ALREADY_RESEARCHED` | 이미 해당 의도로 재검색한 질문입니다. |
+| `CHAT-020` | 404 | `JOB_NOT_FOUND` | 답변 작업을 찾을 수 없습니다. |
+| `CHAT-021` | 400 | `TOO_MANY_SUB_QUESTIONS` | 너무 많은 질문을 입력하셨습니다. 하나씩 물어봐주세요. |
+| `CHAT-024` | 409 | `USER_CANCELLED` | 답변 생성을 중단했습니다. |
+| `CHAT-025` | 503 | `JOB_QUERY_UNAVAILABLE` | 답변 작업을 조회할 수 없습니다. 잠시 후 다시 조회해주세요. |
+| `CHAT-026` | 429 | `MEMBER_RATE_LIMITED` | 요청이 너무 많습니다. 잠시 후 다시 시도해주세요. |
+| `CHAT-027` | 400 | `INVALID_PRODUCT_SEARCH` | 상품 조건 값이 올바르지 않습니다. |
+| `CHAT-028` | 503 | `PRODUCT_SEARCH_FAILED` | 상품 정보를 조회하지 못했습니다. 잠시 후 다시 시도해주세요. |
+
+
+- `CHAT-004`~`CHAT-007`은 재시도 요청(`/chat/questions/retries`)의 거절 사유입니다. 의도 재검색으로 만들어진 답변 시도는 재시도할 수 없어 `CHAT-007`을 반환합니다.
+- `CHAT-006`의 메시지는 `CHAT_MAX_ATTEMPTS` 설정과 관계없이 "최대 3회"로 고정되어 있습니다.
+- `CHAT-008`은 답변을 만든 뒤 기록을 저장하지 못한 경우입니다(DB 오류, 저장할 수 없는 값). 상태 조회의 `errorCode`로 옵니다.
+- `CHAT-009`는 더 이상 만들지 않습니다. 이전 버전에서 저장된 시도 기록에만 남아 있을 수 있습니다.
+- `CHAT-015`는 답변 생성 중 예상하지 못한 오류입니다. Worker가 같은 작업을 실행하다 `CHAT_WORKER_MAX_DELIVERIES`(기본 3)번 죽은 경우와, 메시지를 잃은 채 실행이 시작된 지 `CHAT_WORKER_RECLAIM_IDLE`의 두 배(기본 10분)가 지나도록 끝나지 않은 경우도 여기에 해당합니다. 재시도할 수 있습니다.
+- `CHAT-016`은 접수 뒤 `CHAT_WORKER_MAX_QUEUE_WAIT`(기본 10분) 안에 Worker가 작업을 시작하지 못한 경우입니다. 발행이 빠진 작업은 Worker가 다시 발행하므로, Redis가 대기 한도 내내 내려가 있었거나 Worker가 없을 때 주로 생깁니다. 재시도할 수 있습니다.
+- `CHAT-020`은 상태 조회(`GET /chat/jobs/{jobId}`)에서 작업이 없거나 본인의 작업이 아닐 때입니다. 둘을 구분하지 않습니다.
+- `CHAT-017`은 비로그인 게스트가 한 세션에서 `guest_chat_settings.max_question_count`(기본 5)를 모두 쓴 뒤에 반환합니다. 정상 답변을 받은 질문과 FAQ를 찾지 못한 질문(`CHAT-012`·`CHAT-013`)만 횟수에 포함하고, 시스템 오류로 실패한 질문과 같은 질문의 재시도, 의도 재검색은 포함하지 않습니다. 횟수를 다 쓴 뒤에도 이미 한 질문의 재시도는 `CHAT_MAX_ATTEMPTS` 안에서 가능합니다. 최대 횟수는 관리자가 `PATCH /admin/guest-chat-settings`로 바꿀 수 있습니다. 이때 `data`는 `null`입니다.
+- `CHAT-012`·`CHAT-013`으로 끝난 질문은 미응답 질문으로 저장됩니다. 질문을 하위 질문으로 나눴다면 근거를 찾지 못한 하위 질문마다 저장하며, 일부 하위 질문만 근거를 찾지 못한 경우는 답변은 성공하고 그 하위 질문만 저장합니다([architecture.md](../architecture.md#미응답-질문-저장-105)). 다만 의도 재검색 요청이 같은 사유로 실패한 경우는 사용자가 의도를 직접 골라 요청한 것이므로 저장하지 않습니다.
+- `CHAT-018`·`CHAT-019`는 의도 재검색 요청(`/chat/questions/research`)의 거절 사유입니다. 답변이 성공하지 않았거나 이미 재검색으로 만들어진 답변은 `CHAT-018`, 같은 질문을 같은 의도로 이미 재검색했다면 `CHAT-019`를 반환합니다. 재검색할 원본 질문을 찾을 수 없으면 `CHAT-003`을 반환합니다. 재검색은 로그인한 회원만 사용할 수 있으며, 비로그인 요청은 인증 단계에서 `401`로 거절됩니다.
+- `CHAT-021`은 한 번에 물은 질문을 판정 LLM이 4개 이상으로 나눴을 때 반환합니다(최대 3개까지 한 번에 답합니다). 다시 물어도 결과가 같으므로 재시도할 수 없고(`retryable: false`, 재시도 요청은 `CHAT-007`), 비회원 질문 횟수와 미응답 질문에도 포함하지 않습니다.
+- `CHAT-026`은 회원이 질문·재시도·의도 재검색을 합쳐 `CHAT_USER_RATE_LIMIT_WINDOW`(기본 60초) 안에 `CHAT_USER_RATE_LIMIT_MAX`(기본 30)회를 넘게 보냈을 때 반환합니다. 사용자 ID로 세므로 접근 토큰을 다시 발급해도 이어지고, 같은 IP를 쓰는 다른 회원에게는 영향이 없습니다. 시도·작업을 만들기 전에 거절하며 `data`는 `null`입니다. 윈도가 지나면 다시 보낼 수 있습니다. Redis에 연결할 수 없으면 제한 없이 접수합니다.
+- `CHAT-027`·`CHAT-028`은 상품 목록의 조건 선택지로 다시 조회하는 `POST /chat/product-search`와 단계별 선택지의 결과 유무를 묻는 `POST /chat/product-search/options`에서만 반환합니다. `CHAT-027`은 그 상품 종류에 없는 조건 키이거나 해석할 수 없는 값(예: 네트워크 `6G`, 숫자가 아닌 월정액, 판매하지 않는 나라)이거나, 단계별 선택에서 이미 고른 단계를 다시 물었을 때, `CHAT-028`은 상품 조회 중 DB 오류일 때입니다.
+- 배포 환경에서는 Nginx가 백엔드보다 먼저 요청 속도를 제한하고, 넘으면 백엔드를 거치지 않고 `429 RATE-001`("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")을 같은 응답 형식으로 반환합니다. 단일 서버 구성(`infra/nginx/nginx.conf`)은 `/chat/`의 게스트 요청만 IP별로 제한하고, AWS BE 구성(`infra/nginx/nginx.api.conf.template`)은 게스트를 IP별로, 회원을 접근 토큰별로 제한합니다([deploy.md](../deploy.md)).
+- `CHAT-012`·`CHAT-013`(답변 없음)과 작업 처리 중 입력 가드가 거절한 `CHAT-022`·`CHAT-023`도 같은 질문이면 결과가 같아 재시도할 수 없습니다(`retryable: false`, 재시도 요청은 `CHAT-007`). 자동 재시도가 같은 검색·검사를 반복하지 않게 하려는 것입니다.
+- 증상별 확인 방법은 [troubleshooting](../troubleshooting.md#채팅-요청이-실패함)을 참고하세요.
+
+## 임베딩
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `EM-001` | 503 | `EMBEDDING_SERVICE_UNAVAILABLE` | 임베딩 서버 응답이 없습니다. 잠시 후 다시 시도해주세요. |
+| `EM-002` | 500 | `EMBEDDING_RESPONSE_INVALID` | 임베딩 서버 응답 형식이 올바르지 않습니다. |
+| `EM-003` | 504 | `EMBEDDING_TIMEOUT` | 임베딩 서버 응답이 지연되고 있습니다. |
+
+
+- `EM-003`은 응답 지연뿐 아니라 임베딩 서버 연결 실패(연결 거부 등 I/O 오류)에도 발생합니다. `EM-001`은 임베딩 서버가 오류 상태 코드를 반환한 경우입니다. Ollama와 OpenAI 호환 서버(vLLM) 모두 같은 기준입니다.
+- `EM-002`는 응답에 벡터가 없거나, 입력과 개수가 다르거나, 1024차원이 아니거나, 유한하지 않은 값이 있을 때 발생합니다.
+
+## LLM
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `LLM-001` | 400 | `LLM_REQUEST_INVALID` | LLM 입력 메시지가 올바르지 않습니다. |
+| `LLM-002` | 500 | `LLM_MODEL_NOT_CONFIGURED` | 답변 생성에 사용할 LLM 모델이 설정되지 않았습니다. |
+| `LLM-003` | 503 | `LLM_SERVICE_UNAVAILABLE` | LLM 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요. |
+| `LLM-004` | 504 | `LLM_TIMEOUT` | LLM 응답 시간이 초과되었습니다. 잠시 후 다시 시도해주세요. |
+| `LLM-005` | 500 | `LLM_RESPONSE_INVALID` | LLM 서버에서 올바른 답변을 받지 못했습니다. |
+
+
+- `LLM-003`: 연결 거부, 서버 오류, 채팅 모델이 Ollama에 설치되지 않은 경우 등.
+- `LLM-004`: `LLM_CONNECT_TIMEOUT`·`LLM_READ_TIMEOUT` 초과.
+- `LLM-005`: 응답 파싱 실패, 빈 답변, 길이 제한으로 잘린 답변, 지원하지 않는 도구 호출.
+
+## 금지어
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `FW-001` | 404 | `FORBIDDEN_WORD_NOT_FOUND` | 해당 금지어가 존재하지 않습니다. |
+| `FW-002` | 409 | `FORBIDDEN_WORD_EXIST` | 이미 존재하는 금지어입니다. |
+| `FW-003` | 400 | `FORBIDDEN_WORD_DETECTED` | 사용할 수 없는 표현이 포함되어 있습니다. |
+| `FW-004` | 400 | `FORBIDDEN_WORD_REQUIRED` | 금지어를 입력해야 합니다. |
+| `FW-005` | 400 | `FORBIDDEN_WORD_STATUS_REQUIRED` | 변경할 상태를 입력해야 합니다. |
+
+- `FW-003`: 채팅 질문에 활성 금지어가 포함된 경우. 시도 기록을 만들지 않으므로 재시도 대상이 아닙니다. 어떤 단어가 걸렸는지는 응답에 포함하지 않습니다.
+
+
+## 대화
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `CONV-001` | 404 | `CONVERSATION_NOT_FOUND` | 대화를 찾을 수 없습니다. |
+| `CONV-002` | 409 | `CONVERSATION_IN_PROGRESS` | 답변 생성 중인 대화는 삭제할 수 없습니다. |
+| `CONV-003` | 409 | `CONVERSATION_HAS_COUNSEL_HISTORY` | 사람 상담 이력이 있는 대화는 삭제할 수 없습니다. |
+
+- `DELETE /conversations/{conversationId}`는 본인 대화를 소프트 삭제하고 `204 No Content`를 반환합니다. 이미 삭제한 본인 대화의 반복 삭제도 `204`입니다.
+- 삭제된 대화는 목록에서 제외하며 메시지 조회·이어서 질문·재시도·의도 재검색을 허용하지 않습니다. 해당 대화의 작업 조회는 기존 작업 접근 거절과 같은 `404 CHAT-020`을 반환합니다.
+- 대기에 있거나 실행 중인 답변 시도(`PENDING`)가 있으면 삭제를 거절합니다. 질문·답변 이력과 FAQ 통계는 삭제 API에서 지우지 않고 기존 보존 정책을 따릅니다.
+- 사람 상담 세션이 연결된 대화는 `WAITING`·`ACTIVE`·`PAUSED`·`ENDED` 상태와 관계없이 삭제를 거절합니다. 상담 메시지가 아직 없는 대기 상태도 포함하며, AI 답변도 진행 중이면 `CONV-003`을 우선 반환합니다.
+
+## 상담
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `COUNSEL-001` | 400 | `INVALID_INPUT` | 요청 형식 또는 범위를 확인해 주세요. |
+| `COUNSEL-003` | 403 | `FORBIDDEN` | 접근 권한이 없습니다. |
+| `COUNSEL-004` | 404 | `SESSION_NOT_FOUND` | 상담을 찾을 수 없습니다. |
+| `COUNSEL-005` | 404 | `USER_NOT_FOUND` | 사용자를 찾을 수 없습니다. |
+| `COUNSEL-006` | 409 | `CONFLICT` | 상담 상태를 확인해 주세요. |
+| `COUNSEL-007` | 413 | `PAYLOAD_TOO_LARGE` | 요청이 너무 큽니다. |
+| `COUNSEL-008` | 429 | `RATE_LIMITED` | 전송이 너무 잦습니다. 잠시 후 재시도해 주세요. |
+| `COUNSEL-009` | 503 | `DISABLED` | 현재 사람 상담을 이용할 수 없습니다. |
+| `COUNSEL-011` | 503 | `DATABASE_UNAVAILABLE` | 상담 저장소에 연결할 수 없습니다. 잠시 후 재시도해 주세요. |
+| `COUNSEL-012` | 500 | `INTERNAL_ERROR` | 요청 처리에 실패했습니다. |
+| `COUNSEL-013` | 404 | `SAFETY_SENTENCE_NOT_FOUND` | 금지 문장을 찾을 수 없습니다. |
+| `COUNSEL-014` | 409 | `SAFETY_SENTENCE_DUPLICATE` | 동일한 금지 문장이 이미 등록되어 있습니다. |
+| `COUNSEL-015` | 503 | `SAFETY_INDEX_UNAVAILABLE` | 문장 색인에 실패했습니다. 상태를 확인한 후 다시 시도해 주세요. |
+| `COUNSEL-016` | 409 | `SAFETY_PROFILE_NOT_READY` | 현재 모델의 상담 필터 프로필을 먼저 등록해 주세요. |
+
+- 상담 API(`/counsel/**`, `/admin/counsel/**`, `/conversations/{id}/timeline`)의 오류는 `CounselExceptionHandler`가 먼저 처리합니다. 요청 검증 오류는 `G-001`~`G-003` 대신 `COUNSEL-001`, DB 오류는 `COUNSEL-011`, 처리하지 못한 예외는 `COUNSEL-012`로 응답합니다. 다른 도메인 예외(예: 남의 대화를 요청한 `CONV-001`)는 원래 코드 그대로 나갑니다.
+- `COUNSEL-006`: 진행 중인 다른 대화의 상담이 있을 때, 연결되지 않은 상담에 메시지를 보낼 때, 같은 `clientMessageId`로 내용을 바꿀 때, 금지 문장의 `revision`이 최신이 아닐 때 등. 메시지는 상황별 사유로 바뀌어 나갑니다.
+- `COUNSEL-008`: 메시지 전송·관리자 평가·수동 색인을 합쳐 사용자마다 일정 시간 동안 허용하는 횟수를 넘긴 경우.
+- `COUNSEL-009`: `COUNSEL_ENABLED=false`일 때 상담 API 전체.
+- 메시지 검사 결과(`BLOCKED`, `CHECK_FAILED`)는 오류 응답이 아닙니다. 전송 API가 `200`과 함께 `data.status`로 돌려줍니다.
+
+
+## 공지·장애
+
+| code | HTTP | 이름 | 기본 메시지 |
+|---|---|---|---|
+| `NOTICE-001` | 404 | `NOTICE_NOT_FOUND` | 공지를 찾을 수 없습니다. |
+| `NOTICE-002` | 400 | `INVALID_ENDS_AT` | 노출 종료 시각은 현재 이후여야 합니다. |
+
+- `NOTICE-001`: 없거나 삭제된 공지를 조회(`GET /notices/{noticeId}`), 수정, 삭제할 때. 관리자 상세 조회(`GET /admin/notices/{noticeId}`)는 삭제된 공지도 보여 주므로 존재하지 않는 ID일 때만 발생합니다.
+- `NOTICE-002`: 공지를 등록할 때 `endsAt`이 현재 이전이거나, 수정할 때 `endsAt`을 현재 이전의 값으로 **바꾸는** 경우. 수정 요청의 `endsAt`이 기존 값과 같으면 이미 노출이 끝난 공지도 다른 항목을 수정할 수 있습니다.

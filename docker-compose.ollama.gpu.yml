@@ -1,0 +1,12 @@
+# Ollama가 NVIDIA GPU를 쓰게 합니다. docker-compose.ollama.yml에 덧붙여 씁니다.
+# GPU가 없거나 NVIDIA Container Toolkit(Docker Desktop은 WSL2 GPU 지원)이 없으면 ollama가 기동하지 못하므로 별도 파일로 둡니다.
+# tools/ubot.ps1은 .env의 OLLAMA_GPU=true일 때만 이 파일을 함께 씁니다.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

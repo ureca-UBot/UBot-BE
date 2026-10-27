@@ -1,0 +1,130 @@
+# Ollama와 vLLM 어느 쪽을 쓰든 함께 쓰는 서비스입니다. 모델 서버는 별도 파일에 있습니다.
+#   AI_MODE=ollama: docker-compose.ollama.yml
+#   AI_MODE=vllm:   docker-compose.vllm.yml
+# 어느 파일을 함께 쓸지는 .env의 AI_MODE로 정하고, tools/ubot.ps1이 골라서 띄웁니다.
+services:
+  postgres:
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+    image: ubot-postgres:18-pgvector0.8.6-postgis3.6.4
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+      image: redis:8-alpine
+      restart: unless-stopped
+
+      ports:
+        - "127.0.0.1:${REDIS_PORT}:6379"
+
+      volumes:
+        - redis-data:/data
+
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 10
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT}:9090"
+
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # tools/deploy/render-alert-config.sh가 .env로 만든 알림 규칙. 아직 만들지 않았으면 빈 폴더로 뜹니다.
+      - ./.generated/prometheus:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 알림을 확인할 때만 띄웁니다: docker compose --profile alerts up -d alertmanager
+  # 먼저 render-alert-config.sh로 Alertmanager 설정과 Webhook secret을 만들어야 합니다.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    profiles:
+      - alerts
+
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+
+    # 외부에는 열지 않습니다.
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-19093}:9093"
+
+    volumes:
+      # Webhook URL을 넣은 채널(Discord·Slack)만 남긴 설정과 채널별 Webhook secret
+      - ./.generated/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./.generated/alertmanager/secrets:/run/secrets/ubot-alerts:ro
+      - alertmanager-data:/alertmanager
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    restart: unless-stopped
+
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0
+    restart: unless-stopped
+
+    command:
+      - --redis.addr=redis://redis:6379
+      # 답변 작업 스트림의 길이·처리 대기(PEL)·lag. SCAN 없이 이 키만 조회함
+      - --check-single-streams=chat:jobs
+
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    restart: unless-stopped
+
+    privileged: true
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  alertmanager-data:
